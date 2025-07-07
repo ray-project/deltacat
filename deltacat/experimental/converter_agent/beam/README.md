@@ -28,7 +28,7 @@ beam.managed.Write = write
 # Configure your pipeline
 with beam.Pipeline() as p:
     data = p | "Create data" >> beam.Create([...])
-    
+
     data | "Write to Iceberg" >> beam.managed.Write(
         beam.managed.ICEBERG,
         config={

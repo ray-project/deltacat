@@ -36,14 +36,16 @@ from pyiceberg.typedef import Record
 from deltacat.compute.converter.utils.convert_task_options import BASE_MEMORY_BUFFER
 from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
 from deltacat.compute.converter.converter_session import converter_session
-from deltacat.compute.converter.model.converter_session_params import ConverterSessionParams
+from deltacat.compute.converter.model.converter_session_params import (
+    ConverterSessionParams,
+)
 from pyiceberg.catalog import load_catalog
 import os
 import pyarrow.parquet as pq
 from pyiceberg.manifest import DataFile, DataFileContent, FileFormat
 from pyiceberg.io.pyarrow import (
-    data_file_statistics_from_parquet_metadata, 
-    compute_statistics_plan, 
+    data_file_statistics_from_parquet_metadata,
+    compute_statistics_plan,
     parquet_path_to_id_mapping,
 )
 from pyiceberg.io.pyarrow import _check_pyarrow_schema_compatible
@@ -552,11 +554,10 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
     The converter should merge these updates by creating position delete files.
     """
     with temp_dir_autocleanup() as temp_catalog_dir:
-        # Create warehouse directory 
+        # Create warehouse directory
         warehouse_path = os.path.join(temp_catalog_dir, "iceberg_warehouse")
         os.makedirs(warehouse_path, exist_ok=True)
-        
-        
+
         # Set up local in-memory catalog
         local_catalog = load_catalog(
             "local_sql_catalog",
@@ -565,29 +566,36 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
                 "warehouse": warehouse_path,
             },
         )
-        
+
         # Create local PyArrow filesystem
         import pyarrow.fs as pafs
+
         local_filesystem = pafs.LocalFileSystem()
-        
+
         # Define schema (id, name, value, version)
         schema = Schema(
             NestedField(field_id=1, name="id", field_type=LongType(), required=True),
-            NestedField(field_id=2, name="name", field_type=StringType(), required=False),
-            NestedField(field_id=3, name="value", field_type=LongType(), required=False),
-            NestedField(field_id=4, name="version", field_type=LongType(), required=False),
+            NestedField(
+                field_id=2, name="name", field_type=StringType(), required=False
+            ),
+            NestedField(
+                field_id=3, name="value", field_type=LongType(), required=False
+            ),
+            NestedField(
+                field_id=4, name="version", field_type=LongType(), required=False
+            ),
             schema_id=0,
         )
-        
+
         # Create table properties for merge-on-read
         properties = {
             "write.format.default": "parquet",
-            "write.delete.mode": "merge-on-read", 
+            "write.delete.mode": "merge-on-read",
             "write.update.mode": "merge-on-read",
             "write.merge.mode": "merge-on-read",
             "format-version": "2",
         }
-        
+
         # Create the table
         table_identifier = "default.test_duplicate_ids"
         try:
@@ -598,69 +606,84 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
             local_catalog.drop_table(table_identifier)
         except NoSuchTableError:
             pass  # Table may not exist
-             
+
         local_catalog.create_table(
             table_identifier,
             schema=schema,
             properties=properties,
         )
         tbl = local_catalog.load_table(table_identifier)
-         
+
         # Set the name mapping property so Iceberg can read parquet files without field IDs
         with tbl.transaction() as tx:
-            tx.set_properties(**{
-                "schema.name-mapping.default": schema.name_mapping.model_dump_json()
-            })
-        
+            tx.set_properties(
+                **{"schema.name-mapping.default": schema.name_mapping.model_dump_json()}
+            )
+
         # Step 1: Write initial data
         # Create PyArrow table with explicit schema to match Iceberg schema
         arrow_schema = schema_to_pyarrow(schema)
-        
-        initial_data = pa.table({
-            "id": [1, 2, 3, 4],
-            "name": ["Alice", "Bob", "Charlie", "David"],
-            "value": [100, 200, 300, 400],
-            "version": [1, 1, 1, 1]
-        }, schema=arrow_schema)
-        
+
+        initial_data = pa.table(
+            {
+                "id": [1, 2, 3, 4],
+                "name": ["Alice", "Bob", "Charlie", "David"],
+                "value": [100, 200, 300, 400],
+                "version": [1, 1, 1, 1],
+            },
+            schema=arrow_schema,
+        )
+
         # Step 2: Write additional data
-        additional_data = pa.table({
-            "id": [5, 6, 7, 8],
-            "name": ["Eve", "Frank", "Grace", "Henry"],
-            "value": [500, 600, 700, 800], 
-            "version": [1, 1, 1, 1]
-        }, schema=arrow_schema)
-        
+        additional_data = pa.table(
+            {
+                "id": [5, 6, 7, 8],
+                "name": ["Eve", "Frank", "Grace", "Henry"],
+                "value": [500, 600, 700, 800],
+                "version": [1, 1, 1, 1],
+            },
+            schema=arrow_schema,
+        )
+
         # Step 3: Write updates to existing records (this creates duplicates by ID)
         # These should overwrite the original records with same IDs
-        updated_data = pa.table({
-            "id": [2, 3, 9],  # IDs 2 and 3 are duplicates, 9 is new
-            "name": ["Robert", "Charles", "Ivan"],  # Updated names for Bob and Charlie
-            "value": [201, 301, 900],  # Updated values  
-            "version": [2, 2, 1]  # Higher version numbers for updates
-        }, schema=arrow_schema)
-        
+        updated_data = pa.table(
+            {
+                "id": [2, 3, 9],  # IDs 2 and 3 are duplicates, 9 is new
+                "name": [
+                    "Robert",
+                    "Charles",
+                    "Ivan",
+                ],  # Updated names for Bob and Charlie
+                "value": [201, 301, 900],  # Updated values
+                "version": [2, 2, 1],  # Higher version numbers for updates
+            },
+            schema=arrow_schema,
+        )
+
         # Write all data to separate parquet files to simulate multiple writes
         data_files_to_commit = []
-        
+
         for i, data in enumerate([initial_data, additional_data, updated_data]):
             data_file_path = os.path.join(warehouse_path, f"data_{i}.parquet")
             pq.write_table(data, data_file_path)
-            
+
             # Create DataFile objects for Iceberg
             parquet_metadata = pq.read_metadata(data_file_path)
             file_size = os.path.getsize(data_file_path)
-            
+
             # Check schema compatibility
-            _check_pyarrow_schema_compatible(schema, parquet_metadata.schema.to_arrow_schema())
-            
+            _check_pyarrow_schema_compatible(
+                schema, parquet_metadata.schema.to_arrow_schema()
+            )
+
             # Calculate statistics
             statistics = data_file_statistics_from_parquet_metadata(
                 parquet_metadata=parquet_metadata,
                 stats_columns=compute_statistics_plan(schema, tbl.metadata.properties),
                 parquet_column_mapping=parquet_path_to_id_mapping(schema),
             )
-            
+
             data_file = DataFile(
                 content=DataFileContent.DATA,
                 file_path=data_file_path,
@@ -674,102 +697,130 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
                 **statistics.to_serialized_dict(),
             )
             data_files_to_commit.append(data_file)
-        
+
         # Commit all data files to the table
         with tbl.transaction() as tx:
             with tx.update_snapshot().fast_append() as update_snapshot:
                 for data_file in data_files_to_commit:
                     update_snapshot.append_data_file(data_file)
-        
+
         tbl.refresh()
-        
+
         # Verify we have duplicate IDs before conversion
         initial_scan = tbl.scan().to_arrow().to_pydict()
         print(f"Before conversion - Records with IDs: {sorted(initial_scan['id'])}")
-        
+
         # There should be duplicates: [1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9]
         expected_duplicate_ids = [1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9]
-        assert sorted(initial_scan['id']) == expected_duplicate_ids, f"Expected duplicate IDs {expected_duplicate_ids}, got {sorted(initial_scan['id'])}"
-        
+        assert (
+            sorted(initial_scan["id"]) == expected_duplicate_ids
+        ), f"Expected duplicate IDs {expected_duplicate_ids}, got {sorted(initial_scan['id'])}"
+
         # Now call converter_session to convert equality deletes to position deletes
-        converter_params = ConverterSessionParams.of({
-            "catalog": local_catalog,
-            "iceberg_table_name": table_identifier,
-            "iceberg_warehouse_bucket_name": warehouse_path,  # Local warehouse path
-            "merge_keys": ["id"],  # Use ID as the merge key
-            "enforce_primary_key_uniqueness": True,
-            "task_max_parallelism": 1,  # Single task for local testing
-            "filesystem": local_filesystem,
-            "location_provider_prefix_override": None,  # Use local filesystem
-            "location_provider_prefix_override": None,  # Let the system auto-generate the prefix
-        })
-        
+        converter_params = ConverterSessionParams.of(
+            {
+                "catalog": local_catalog,
+                "iceberg_table_name": table_identifier,
+                "iceberg_warehouse_bucket_name": warehouse_path,  # Local warehouse path
+                "merge_keys": ["id"],  # Use ID as the merge key
+                "enforce_primary_key_uniqueness": True,
+                "task_max_parallelism": 1,  # Single task for local testing
+                "filesystem": local_filesystem,
+                "location_provider_prefix_override": None,  # Use local filesystem
+                "location_provider_prefix_override": None,  # Let the system auto-generate the prefix
+            }
+        )
+
         print(f"Running converter_session with local filesystem...")
         print(f"Warehouse path: {warehouse_path}")
         print(f"Merge keys: ['id']")
         print(f"Enforce uniqueness: True")
-        
+
         # Run the converter
         converter_session(params=converter_params)
-        
+
         # Refresh table and scan again
         tbl.refresh()
         final_scan = tbl.scan().to_arrow().to_pydict()
-        
+
         print(f"After conversion - Records with IDs: {sorted(final_scan['id'])}")
         print(f"Final data: {final_scan}")
-        
+
         # Verify position delete files were created by checking table metadata
         latest_snapshot = tbl.metadata.current_snapshot()
         if latest_snapshot:
             manifests = latest_snapshot.manifests(tbl.io)
             position_delete_files = []
-            
+
             for manifest in manifests:
                 entries = manifest.fetch_manifest_entry(tbl.io)
                 for entry in entries:
                     if entry.data_file.content == DataFileContent.POSITION_DELETES:
                         position_delete_files.append(entry.data_file.file_path)
-            
+
             print(f"Position delete files found: {position_delete_files}")
-            assert len(position_delete_files) > 0, "No position delete files were created by converter_session"
-        
+            assert (
+                len(position_delete_files) > 0
+            ), "No position delete files were created by converter_session"
+
         # Verify the final result has unique IDs (duplicates should be resolved)
         # Expected: Latest values for each ID based on the updates
         expected_unique_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9]  # All unique IDs
-        actual_ids = sorted(final_scan['id'])
-        
+        actual_ids = sorted(final_scan["id"])
+
         print(f"Expected unique IDs: {expected_unique_ids}")
         print(f"Actual IDs after conversion: {actual_ids}")
-        
-        assert actual_ids == expected_unique_ids, f"Expected unique IDs {expected_unique_ids}, got {actual_ids}"
-        
+
+        assert (
+            actual_ids == expected_unique_ids
+        ), f"Expected unique IDs {expected_unique_ids}, got {actual_ids}"
+
         # Verify the updated values are present (higher version should win)
         final_data_by_id = {}
-        for i, id_val in enumerate(final_scan['id']):
+        for i, id_val in enumerate(final_scan["id"]):
             final_data_by_id[id_val] = {
-                'name': final_scan['name'][i],
-                'value': final_scan['value'][i], 
-                'version': final_scan['version'][i]
+                "name": final_scan["name"][i],
+                "value": final_scan["value"][i],
+                "version": final_scan["version"][i],
             }
-        
+
         # Check that ID 2 has updated value (Robert, 201, version 2)
-        assert final_data_by_id[2]['name'] == 'Robert', f"ID 2 should have updated name 'Robert', got '{final_data_by_id[2]['name']}'"
-        assert final_data_by_id[2]['value'] == 201, f"ID 2 should have updated value 201, got {final_data_by_id[2]['value']}"
-        assert final_data_by_id[2]['version'] == 2, f"ID 2 should have version 2, got {final_data_by_id[2]['version']}"
-        
-        # Check that ID 3 has updated value (Charles, 301, version 2)  
-        assert final_data_by_id[3]['name'] == 'Charles', f"ID 3 should have updated name 'Charles', got '{final_data_by_id[3]['name']}'"
-        assert final_data_by_id[3]['value'] == 301, f"ID 3 should have updated value 301, got {final_data_by_id[3]['value']}"
-        assert final_data_by_id[3]['version'] == 2, f"ID 3 should have version 2, got {final_data_by_id[3]['version']}"
-        
+        assert (
+            final_data_by_id[2]["name"] == "Robert"
+        ), f"ID 2 should have updated name 'Robert', got '{final_data_by_id[2]['name']}'"
+        assert (
+            final_data_by_id[2]["value"] == 201
+        ), f"ID 2 should have updated value 201, got {final_data_by_id[2]['value']}"
+        assert (
+            final_data_by_id[2]["version"] == 2
+        ), f"ID 2 should have version 2, got {final_data_by_id[2]['version']}"
+
+        # Check that ID 3 has updated value (Charles, 301, version 2)
+        assert (
+            final_data_by_id[3]["name"] == "Charles"
+        ), f"ID 3 should have updated name 'Charles', got '{final_data_by_id[3]['name']}'"
+        assert (
+            final_data_by_id[3]["value"] == 301
+        ), f"ID 3 should have updated value 301, got {final_data_by_id[3]['value']}"
+        assert (
+            final_data_by_id[3]["version"] == 2
+        ), f"ID 3 should have version 2, got {final_data_by_id[3]['version']}"
+
         # Check that new ID 9 is present
-        assert final_data_by_id[9]['name'] == 'Ivan', f"ID 9 should have name 'Ivan', got '{final_data_by_id[9]['name']}'"
-        assert final_data_by_id[9]['value'] == 900, f"ID 9 should have value 900, got {final_data_by_id[9]['value']}"
-        
+        assert (
+            final_data_by_id[9]["name"] == "Ivan"
+        ), f"ID 9 should have name 'Ivan', got '{final_data_by_id[9]['name']}'"
+        assert (
+            final_data_by_id[9]["value"] == 900
+        ), f"ID 9 should have value 900, got {final_data_by_id[9]['value']}"
+
         print(f"✅ Test completed successfully!")
-        print(f"✅ Position delete files were created: {len(position_delete_files)} files")
+        print(
+            f"✅ Position delete files were created: {len(position_delete_files)} files"
+        )
         print(f"✅ Duplicate IDs were resolved correctly")
-        print(f"✅ Updated values were applied (ID 2: Bob->Robert, ID 3: Charlie->Charles)")
+        print(
+            f"✅ Updated values were applied (ID 2: Bob->Robert, ID 3: Charlie->Charles)"
+        )
         print(f"✅ Final table has {len(actual_ids)} unique records")
-        print(f"✅ Temporary warehouse cleaned up at: {temp_catalog_dir}") 
+        print(f"✅ Temporary warehouse cleaned up at: {temp_catalog_dir}")

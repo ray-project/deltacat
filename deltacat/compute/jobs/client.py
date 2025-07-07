@@ -21,9 +21,13 @@ def _run_cmd(cmd: str) -> None:
     assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code}"
 
 
-def _ray_up(cluster_cfg: str, cluster_name_override: str = None, restart_only: bool = False) -> None:
+def _ray_up(
+    cluster_cfg: str, cluster_name_override: str = None, restart_only: bool = False
+) -> None:
     restart_flag = "--no-restart" if not restart_only else "--restart-only"
-    cluster_name_option = f"-n '{cluster_name_override}'" if cluster_name_override else ""
+    cluster_name_option = (
+        f"-n '{cluster_name_override}'" if cluster_name_override else ""
+    )
     print(f"Starting Ray cluster from '{cluster_cfg}'")
     _run_cmd(
         f"ray up '{cluster_cfg}' -y --no-config-cache {restart_flag} {cluster_name_option} --disable-usage-stats"
@@ -135,7 +139,9 @@ class DeltaCatJobClient(JobSubmissionClient):
                         _ray_up(cluster_cfg_file_path, cluster_name_override)
                 elif restart_ray:
                     if _ray_cluster_running(cluster_cfg_file_path):
-                        _ray_up(cluster_cfg_file_path, restart_ray, cluster_name_override)
+                        _ray_up(
+                            cluster_cfg_file_path, restart_ray, cluster_name_override
+                        )
                     else:
                         raise RuntimeError(
                             f"Cannot Restart Ray: Ray Cluster for "

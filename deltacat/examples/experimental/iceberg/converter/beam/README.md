@@ -105,9 +105,9 @@ python main.py --mode read --table-name "deltacat.hello_world"
 # You can also use PyIceberg directly to read small tables with positional deletes into memory:
 from pyiceberg.catalog import load_catalog
 catalog = load_catalog(
-    'test', 
-    type='rest', 
-    warehouse='/tmp/iceberg_rest_warehouse', 
+    'test',
+    type='rest',
+    warehouse='/tmp/iceberg_rest_warehouse',
     uri='http://localhost:8181',
 )
 print(catalog.load_table('deltacat.hello_world').scan().to_pandas())
@@ -150,7 +150,7 @@ Options:
 
 ## Data Flow
 
-1. **Write Phase**: 
+1. **Write Phase**:
    - Creates initial data (IDs 1-4)
    - Appends additional data (IDs 5-9)
    - Writes updates (ID 2: Bob→Robert, ID 3: Charlie→Charles)
@@ -180,4 +180,4 @@ docker restart iceberg-rest-catalog
 - [Apache Iceberg Specification](https://iceberg.apache.org/spec/)
 - [Apache Iceberg REST Catalog](https://iceberg.apache.org/docs/latest/rest/)
 - [DeltaCAT Converter](../../../../compute/converter/)
-- [Apache Beam Iceberg I/O](https://beam.apache.org/releases/javadoc/current/org/apache/beam/sdk/io/iceberg/package-summary.html) 
+- [Apache Beam Iceberg I/O](https://beam.apache.org/releases/javadoc/current/org/apache/beam/sdk/io/iceberg/package-summary.html)

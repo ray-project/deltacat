@@ -184,7 +184,6 @@ def commit_append_snapshot(
         return tx.commit_transaction().metadata
 
 
-
 def append_delete_files_override(
     update_snapshot: UpdateSnapshot,
 ) -> "_AppendDeleteFilesOverride":

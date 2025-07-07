@@ -13,7 +13,7 @@ from deltacat.experimental.converter_agent.table_monitor import _generate_job_na
 
 def generate_random_suffix(length=8):
     """Generate a random string of specified length using letters and digits."""
-    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
 
 def check_rest_catalog():
@@ -25,42 +25,44 @@ def check_rest_catalog():
             return True
     except requests.exceptions.RequestException:
         pass
-    
+
     print("❌ REST catalog is not running")
-    print("📋 Start it with: docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest-catalog") 
+    print(
+        "📋 Start it with: docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0"
+    )
     return False
 
 
-def wait_for_deltacat_jobs(table_name, warehouse_path="/tmp/iceberg_rest_warehouse", timeout=120):
+def wait_for_deltacat_jobs(
+    table_name, warehouse_path="/tmp/iceberg_rest_warehouse", timeout=120
+):
     """
     Wait for DeltaCAT converter jobs to complete by checking job status.
-    
+
     Args:
         table_name: Full table name (e.g., "default.demo_table_abc123")
         warehouse_path: Warehouse path used for job tracking
         timeout: Maximum seconds to wait for job completion
-        
+
     Returns:
         True if all jobs completed, False if timeout
     """
     print(f"\n⏳ Monitoring DeltaCAT converter jobs for table: {table_name}")
-    
+
     # Parse table name to get namespace and table name
     if "." in table_name:
         namespace, actual_table_name = table_name.split(".", 1)
     else:
         namespace = "default"
         actual_table_name = table_name
-    
+
     # Create job key matching the format used in managed.py
     job_name = _generate_job_name(
-        warehouse_path=warehouse_path,
-        namespace=namespace,
-        table_name=actual_table_name
+        warehouse_path=warehouse_path, namespace=namespace, table_name=actual_table_name
     )
-    
+
     start_time = time.time()
-    
+
     try:
         # Get the job client
         client = local_job_client(ray_init_args={"local_mode": True})
@@ -68,7 +70,9 @@ def wait_for_deltacat_jobs(table_name, warehouse_path="/tmp/iceberg_rest_warehou
         while time.time() - start_time < timeout:
             job_details_list = client.list_jobs()
             print(f"🔍 Job details list: {job_details_list}")
-            job_submission_ids = [job_details.submission_id for job_details in job_details_list]
+            job_submission_ids = [
+                job_details.submission_id for job_details in job_details_list
+            ]
 
             # Check if we have any tracked jobs for this table
             print(f"🔍 Looking for submission ID: {job_name} in {job_submission_ids}")
@@ -84,16 +88,15 @@ def wait_for_deltacat_jobs(table_name, warehouse_path="/tmp/iceberg_rest_warehou
                     else:
                         print(f"✅ Job {job_name} completed with status: {job_status}")
                         return True
-                        
+
                 except Exception as e:
                     print(f"⚠️  Could not check job status for {job_name}: {e}")
                     # If we can't check status, assume job is done
-                    return True 
+                    return True
             time.sleep(1)
-            
         print(f"⏰ Timeout waiting for DeltaCAT job completion after {timeout} seconds")
         return False
-        
+
     except Exception as e:
         print(f"❌ Error monitoring DeltaCAT jobs: {e}")
         # Fall back to short sleep if monitoring fails
@@ -102,7 +105,9 @@ def wait_for_deltacat_jobs(table_name, warehouse_path="/tmp/iceberg_rest_warehou
         return True
 
 
-def verify_duplicate_resolution(table_name, warehouse_path="/tmp/iceberg_rest_warehouse"):
+def verify_duplicate_resolution(
+    table_name, warehouse_path="/tmp/iceberg_rest_warehouse"
+):
     """
     Verify that the DeltaCAT converter successfully resolved duplicates.
     """
@@ -116,7 +121,7 @@ def verify_duplicate_resolution(table_name, warehouse_path="/tmp/iceberg_rest_wa
                 "type": "rest",
                 "warehouse": warehouse_path,
                 "uri": "http://localhost:8181",
-            }
+            },
         )
 
         # Load the table and scan its contents
@@ -125,7 +130,7 @@ def verify_duplicate_resolution(table_name, warehouse_path="/tmp/iceberg_rest_wa
         scan_result = tbl.scan().to_arrow().to_pydict()
 
         # Check the results
-        result_ids = sorted(scan_result['id'])
+        result_ids = sorted(scan_result["id"])
         unique_ids = sorted(set(result_ids))
 
         print(f"📊 Final verification results:")
@@ -139,14 +144,16 @@ def verify_duplicate_resolution(table_name, warehouse_path="/tmp/iceberg_rest_wa
             # Verify that the latest versions were preserved
             names_by_id = {}
             versions_by_id = {}
-            for i, id_val in enumerate(scan_result['id']):
-                names_by_id[id_val] = scan_result['name'][i]
-                versions_by_id[id_val] = scan_result['version'][i]
+            for i, id_val in enumerate(scan_result["id"]):
+                names_by_id[id_val] = scan_result["name"][i]
+                versions_by_id[id_val] = scan_result["version"][i]
 
-            if (names_by_id.get(2) == "Robert" and
-                names_by_id.get(3) == "Charles" and
-                versions_by_id.get(2) == 2 and
-                versions_by_id.get(3) == 2):
+            if (
+                names_by_id.get(2) == "Robert"
+                and names_by_id.get(3) == "Charles"
+                and versions_by_id.get(2) == 2
+                and versions_by_id.get(3) == 2
+            ):
                 print(f"✅ Duplicate resolution SUCCESSFUL!")
                 print(f"  - All 9 IDs are unique")
                 print(f"  - Latest versions preserved (Bob→Robert, Charlie→Charles)")

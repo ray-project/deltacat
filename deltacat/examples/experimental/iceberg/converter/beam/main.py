@@ -7,7 +7,6 @@ from deltacat.examples.experimental.iceberg.converter.beam import app
 if __name__ == "__main__":
     import argparse
     import logging
-    import os
 
     logging.getLogger().setLevel(logging.INFO)
 
@@ -18,22 +17,22 @@ if __name__ == "__main__":
 Examples:
   # Start REST catalog server first (Iceberg 1.6.0):
   docker run -d -p 8181:8181 --name iceberg-rest-catalog tabulario/iceberg-rest:1.6.0
-  
+
   # Install PySpark for read and rewrite modes:
   pip install pyspark
-  
+
   # Write sample data with DeltaCAT data file converter (automatic merge by key):
   python main.py --mode write --table-name "deltacat.hello_world"
-  
+
   # Read data back (uses Spark SQL to read positional deletes):
   python main.py --mode read --table-name "deltacat.hello_world"
-  
+
   # Rewrite table to materialize positional deletes:
   python main.py --mode rewrite --table-name "deltacat.hello_world"
-  
+
   # Use custom REST catalog server:
   python main.py --mode write --rest-uri http://localhost:9000 --table-name "deltacat.hello_world"
-  
+
   # Use custom warehouse path:
   python main.py --mode write --warehouse-path /tmp/my_warehouse --table-name "deltacat.hello_world"
         """,

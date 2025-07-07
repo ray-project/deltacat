@@ -230,7 +230,9 @@ def run_compactor_remote_job(
 
     # Submit the job
     # TODO(pdames): Take cloud as an input parameter.
-    client = job_client("./aws/deltacat.yaml")  # or job_client() to use current directory
+    client = job_client(
+        "./aws/deltacat.yaml"
+    )  # or job_client() to use current directory
     job_run_result = client.run_job(
         entrypoint=entrypoint,
         runtime_env={"working_dir": "./deltacat/examples/compactor/"},

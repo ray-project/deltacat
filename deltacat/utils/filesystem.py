@@ -50,7 +50,7 @@ class FilesystemType(str, Enum):
             return cls.HADOOP
         else:
             return cls.UNKNOWN
-    
+
     @classmethod
     def to_filesystem(cls, filesystem_type: FilesystemType) -> FileSystem:
         if filesystem_type == cls.LOCAL:

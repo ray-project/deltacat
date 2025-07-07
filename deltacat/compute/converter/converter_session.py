@@ -287,6 +287,8 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
             return
 
         logger.info(f"Committed new Iceberg snapshot for {table_identifier}: {updated_table_metadata.current_snapshot_id}")
+
+        # Return the updated table metadata with the new snapshot
         return updated_table_metadata
     except Exception as e:
         logger.error(f"Failed to commit snapshot for {table_identifier}: {str(e)}")

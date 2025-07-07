@@ -37,26 +37,27 @@ JAVA_ICEBERG_CATALOG_IMPL_TO_TYPE = {
     "org.apache.iceberg.jdbc.jdbccatalog": CatalogType.SQL,
 }
 
+
 def _extract_catalog_config_from_beam(config: Dict[str, Any]) -> Dict[str, Any]:
     """Extract catalog configuration from Beam config."""
     catalog_properties = config.get("catalog_properties", {})
-    
+
     # Extract catalog implementation class
     catalog_impl = catalog_properties.get("catalog-impl")
 
     # Extract catalog type
     catalog_type = catalog_properties.get("type")
-    
+
     # Extract other relevant properties
     warehouse = catalog_properties.get("warehouse", "")
     uri = catalog_properties.get("uri", "")
-    
+
     return {
         "catalog_impl": catalog_impl,
         "type": catalog_type,
         "warehouse": warehouse,
         "uri": uri,
-        "catalog_properties": catalog_properties
+        "catalog_properties": catalog_properties,
     }
 
 
@@ -68,29 +69,35 @@ def write(*args, **kwargs):
 
     # Extract and pop deltacat-specific config keys
     config = kwargs.get("config", {}).copy() if kwargs.get("config") else {}
-    
+
     # Extract DeltaCAT converter properties from parent config or individual keys (for backward compatibility)
     deltacat_converter_properties = config.pop("deltacat_converter_properties", {})
-    
+
     # Support both new nested structure and old flat structure for backward compatibility
-    deltacat_converter_interval = deltacat_converter_properties.get("deltacat_converter_interval", 3.0)
-    
+    deltacat_converter_interval = deltacat_converter_properties.get(
+        "deltacat_converter_interval", 3.0
+    )
+
     merge_keys = deltacat_converter_properties.get("merge_keys")
-    
+
     # Extract filesystem parameter (optional) - can be in converter properties or top-level config
     filesystem = deltacat_converter_properties.get("filesystem", None)
-    
+
     # Extract cluster configuration file path (for remote jobs)
-    cluster_cfg_file_path = deltacat_converter_properties.get("cluster_cfg_file_path", None)
-    
+    cluster_cfg_file_path = deltacat_converter_properties.get(
+        "cluster_cfg_file_path", None
+    )
+
     # Extract max converter parallelism
     max_converter_parallelism = deltacat_converter_properties.get(
-        "max_converter_parallelism", 
+        "max_converter_parallelism",
         DEFAULT_CONVERTER_TASK_MAX_PARALLELISM,
     )
-    
+
     # Extract ray inactivity timeout
-    ray_inactivity_timeout = deltacat_converter_properties.get("ray_inactivity_timeout", 10)
+    ray_inactivity_timeout = deltacat_converter_properties.get(
+        "ray_inactivity_timeout", 10
+    )
 
     # Extract table identifier and warehouse path
     table_identifier = config.get("table")
@@ -119,7 +126,9 @@ def write(*args, **kwargs):
         if catalog_type_str:
             catalog_type = CatalogType(catalog_type_str.lower())
         else:
-            raise ValueError(f"No catalog implementation or type found in config: {beam_catalog_config}")
+            raise ValueError(
+                f"No catalog implementation or type found in config: {beam_catalog_config}"
+            )
 
     # Update kwargs with the modified config
     if "config" in kwargs:
@@ -130,11 +139,15 @@ def write(*args, **kwargs):
     logger.debug(f"deltacat_converter_interval: {deltacat_converter_interval}s")
     logger.debug(f"merge_keys: {merge_keys}")
     logger.debug(f"warehouse_path: {warehouse_path}")
-    logger.debug(f"filesystem: {type(filesystem).__name__ if filesystem else 'None (auto-resolve)'}")
+    logger.debug(
+        f"filesystem: {type(filesystem).__name__ if filesystem else 'None (auto-resolve)'}"
+    )
     logger.debug(f"cluster_cfg_file_path: {cluster_cfg_file_path or 'None (local)'}")
     logger.debug(f"max_converter_parallelism: {max_converter_parallelism}")
     logger.debug(f"ray_inactivity_timeout: {ray_inactivity_timeout}s")
-    logger.debug(f"using deltacat_converter_properties: {len(deltacat_converter_properties) > 0}")
+    logger.debug(
+        f"using deltacat_converter_properties: {len(deltacat_converter_properties) > 0}"
+    )
     logger.debug(f"catalog_type: {catalog_type}")
 
     # Submit monitoring job
@@ -151,7 +164,7 @@ def write(*args, **kwargs):
             cluster_cfg_file_path=cluster_cfg_file_path,
             max_converter_parallelism=max_converter_parallelism,
             ray_inactivity_timeout=ray_inactivity_timeout,
-        ) 
+        )
     except Exception as e:
         # Don't fail the write operation, just log the error
         logger.error(f"Failed to submit table monitor job: {e}")

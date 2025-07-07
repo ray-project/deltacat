@@ -138,7 +138,7 @@ def write_sliced_table(
     table_writer_kwargs: Optional[Dict[str, Any]],
     content_type: ContentType = ContentType.PARQUET,
     max_records_per_file: Optional[int] = 4000000,
-    filesystem: Optional[Union["s3fs.S3FileSystem", pa.fs.FileSystem]] = None,
+    filesystem: Optional[Union[AbstractFileSystem, pa.fs.FileSystem]] = None,
     **kwargs,
 ) -> List[str]:
     """
@@ -148,7 +148,7 @@ def write_sliced_table(
     if isinstance(filesystem, pa.fs.FileSystem):
         table_writer_fn = get_table_writer(table)
         table_slicer_fn = get_table_slicer(table)
-        
+
         # Create a wrapper for the table writer that ensures directory creation
         def table_writer_with_dir_creation(
             dataframe: Any,
@@ -159,14 +159,14 @@ def write_sliced_table(
             **kwargs,
         ):
             try:
-                # Ensure base path directory exists 
+                # Ensure base path directory exists
                 if isinstance(base_path, str):
                     # Normalize the base path and ensure it's treated as a directory path
-                    base_dir = base_path.rstrip('/')
+                    base_dir = base_path.rstrip("/")
                     filesystem.create_dir(base_dir, recursive=True)
             except Exception:
                 # Directory might already exist or there might be permission issues
-                # Let the original write attempt proceed 
+                # Let the original write attempt proceed
                 pass
             return table_writer_fn(
                 dataframe,
@@ -176,7 +176,7 @@ def write_sliced_table(
                 content_type,
                 **kwargs,
             )
-        
+
         # TODO(pdames): Disable redundant file info fetch currently
         #   used to construct unused manifest entry metadata.
         manifest_entry_list = types_write_sliced_table(

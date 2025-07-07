@@ -1,11 +1,12 @@
-import time
 from typing import Optional
 import apache_beam as beam
 from apache_beam.options.pipeline_options import PipelineOptions
 from apache_beam import Row
 import os
 import pyarrow.fs as pafs
-from deltacat.experimental.converter_agent.beam.managed import write as deltacat_beam_managed_write
+from deltacat.experimental.converter_agent.beam.managed import (
+    write as deltacat_beam_managed_write,
+)
 from deltacat.examples.experimental.iceberg.converter.beam.utils.common import (
     generate_random_suffix,
     verify_duplicate_resolution,
@@ -141,20 +142,20 @@ def run(
             )
 
         # Wait for the DeltaCAT converter job to complete and shutdown
-        wait_for_deltacat_jobs(full_table_name, warehouse_path, ray_inactivity_timeout*2)
+        wait_for_deltacat_jobs(
+            full_table_name, warehouse_path, ray_inactivity_timeout * 2
+        )
 
         print(f"\n📝 Data writing completed with DeltaCAT optimization enabled.")
-        print(
-            f"   - Table monitoring interval: {deltacat_converter_interval} seconds"
-        )
-        print(
-            f"   - Ray cluster shutdown timeout: {ray_inactivity_timeout} seconds"
-        )
+        print(f"   - Table monitoring interval: {deltacat_converter_interval} seconds")
+        print(f"   - Ray cluster shutdown timeout: {ray_inactivity_timeout} seconds")
         print(f"   - Automatic duplicate detection and resolution")
         print(f"   - Position delete creation for duplicate resolution")
         print(f"   - Job-based table monitoring with Ray")
         print(f"   - Filesystem: {type(filesystem).__name__}")
-        print(f"🔍 Read the table with: `python main.py --mode read --table-name {full_table_name}`")
+        print(
+            f"🔍 Read the table with: `python main.py --mode read --table-name {full_table_name}`"
+        )
 
     elif mode == "read":
         with beam.Pipeline(options=beam_options) as p:
@@ -222,6 +223,4 @@ def run(
                 lambda result: print(f"📋 Rewrite result: {result}")
             )
     else:
-        raise ValueError(
-            f"Unknown mode: {mode}. Use 'write', 'read', or 'rewrite'."
-        )
+        raise ValueError(f"Unknown mode: {mode}. Use 'write', 'read', or 'rewrite'.")
