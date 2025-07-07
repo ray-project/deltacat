@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-DeltaCAT Table Monitor for Converter Agent
-
-This script monitors Iceberg tables for changes and runs converter sessions
-to resolve duplicates using positional deletes.
+DeltaCAT Table Monitor Job. Automatically runs data converter sessions in response to table updates.
 """
 
 import argparse

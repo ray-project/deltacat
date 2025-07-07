@@ -286,7 +286,9 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
             logger.warning(f"Unexpected snapshot type: {snapshot_type}")
             return
 
-        logger.info(f"Committed new Iceberg snapshot for {table_identifier}: {updated_table_metadata.current_snapshot_id}")
+        logger.info(
+            f"Committed new Iceberg snapshot for {table_identifier}: {updated_table_metadata.current_snapshot_id}"
+        )
 
         # Return the updated table metadata with the new snapshot
         return updated_table_metadata

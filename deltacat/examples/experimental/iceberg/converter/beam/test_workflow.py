@@ -108,9 +108,6 @@ def main():
     print("  2. DeltaCAT monitoring merged duplicates")
     print("  3. Table now contains merged data")
 
-    print("\n🧹 Cleanup:")
-    print("  docker stop iceberg-rest-catalog && docker rm iceberg-rest-catalog")
-
 
 if __name__ == "__main__":
     main()
