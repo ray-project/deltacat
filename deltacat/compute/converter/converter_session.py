@@ -38,11 +38,12 @@ from deltacat.compute.converter.utils.converter_session_utils import (
 )
 
 from pyiceberg.manifest import DataFile
+from pyiceberg.table.metadata import TableMetadata
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
+def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMetadata:
     """
     Convert equality deletes to position deletes with option to enforce primary key uniqueness.
 
@@ -84,17 +85,25 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
 
     catalog = params.catalog
     table_name = params.iceberg_table_name
-    iceberg_table = load_table(catalog, table_name)
+    if "." not in table_name:
+        iceberg_namespace = params.iceberg_namespace or "default"
+        table_name = params.iceberg_table_name
+        table_identifier = f"{iceberg_namespace}.{table_name}"
+    else:
+        table_identifier = table_name
+        identifier_parts = table_identifier.split(".")
+        iceberg_namespace = identifier_parts[0]
+        table_name = identifier_parts[1]
+    iceberg_table = load_table(catalog, table_identifier)
     enforce_primary_key_uniqueness = params.enforce_primary_key_uniqueness
     iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
-    iceberg_namespace = params.iceberg_namespace
     merge_keys = params.merge_keys
     compact_previous_position_delete_files = (
         params.compact_previous_position_delete_files
     )
     task_max_parallelism = params.task_max_parallelism
     s3_client_kwargs = params.s3_client_kwargs
-    s3_file_system = params.s3_file_system
+    s3_file_system = params.filesystem
     location_provider_prefix_override = params.location_provider_prefix_override
     position_delete_for_multiple_data_files = (
         params.position_delete_for_multiple_data_files
@@ -153,7 +162,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,
                 max_parallel_data_file_download=max_parallel_data_file_download,
                 s3_client_kwargs=s3_client_kwargs,
-                s3_file_system=s3_file_system,
+                filesystem=s3_file_system,
                 task_memory=task_opts["memory"],
             )
         }
@@ -212,7 +221,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
     )
 
     logger.info(
-        f"Aggregated stats for {table_name}: "
+        f"Aggregated stats for {table_identifier}: "
         f"total position delete record count: {total_position_delete_record_count}, "
         f"total input data file record count: {total_input_data_file_record_count}, "
         f"total data file hash columns in memory sizes: {total_data_file_hash_columns_in_memory_sizes}, "
@@ -254,21 +263,21 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
 
     try:
         if snapshot_type == SnapshotType.APPEND:
-            logger.info(f"Committing append snapshot for {table_name}.")
-            commit_append_snapshot(
+            logger.info(f"Committing append snapshot for {table_identifier}.")
+            updated_table_metadata = commit_append_snapshot(
                 iceberg_table=iceberg_table,
                 new_position_delete_files=to_be_added_files_list,
             )
         elif snapshot_type == SnapshotType.REPLACE:
-            logger.info(f"Committing replace snapshot for {table_name}.")
-            commit_replace_snapshot(
+            logger.info(f"Committing replace snapshot for {table_identifier}.")
+            updated_table_metadata = commit_replace_snapshot(
                 iceberg_table=iceberg_table,
                 to_be_deleted_files=to_be_deleted_files_list,
                 new_position_delete_files=to_be_added_files_list,
             )
         elif snapshot_type == SnapshotType.DELETE:
-            logger.info(f"Committing delete snapshot for {table_name}.")
-            commit_replace_snapshot(
+            logger.info(f"Committing delete snapshot for {table_identifier}.")
+            updated_table_metadata = commit_replace_snapshot(
                 iceberg_table=iceberg_table,
                 to_be_deleted_files=to_be_deleted_files_list,
                 new_position_delete_files=[],  # No new files to add
@@ -277,8 +286,12 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> None:
             logger.warning(f"Unexpected snapshot type: {snapshot_type}")
             return
 
-        logger.info(f"Successfully committed new Iceberg snapshot for {table_name}.")
+        logger.info(
+            f"Committed new Iceberg snapshot for {table_identifier}: {updated_table_metadata.current_snapshot_id}"
+        )
 
+        # Return the updated table metadata with the new snapshot
+        return updated_table_metadata
     except Exception as e:
-        logger.error(f"Failed to commit snapshot for {table_name}: {str(e)}")
+        logger.error(f"Failed to commit snapshot for {table_identifier}: {str(e)}")
         raise

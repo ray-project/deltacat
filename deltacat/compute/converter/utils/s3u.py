@@ -62,12 +62,12 @@ def upload_table_with_retry(
     s3_table_writer_kwargs: Optional[Dict[str, Any]],
     content_type: ContentType = ContentType.PARQUET,
     max_records_per_file: Optional[int] = 4000000,
-    s3_file_system: Optional[s3fs.S3FileSystem] = None,
+    filesystem: Optional[s3fs.S3FileSystem] = None,
     **s3_client_kwargs: Any,
 ) -> List[str]:
     """
-    Writes the given table to 1 or more S3 files and return Redshift
-    manifest entries describing the uploaded files.
+    Writes the given table to 1 or more S3 files and return the paths
+    of the S3 files written.
     """
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
@@ -78,8 +78,8 @@ def upload_table_with_retry(
     if s3_table_writer_kwargs is None:
         s3_table_writer_kwargs = {}
 
-    if not s3_file_system:
-        s3_file_system = get_s3_file_system(content_type=content_type)
+    if not filesystem:
+        filesystem = get_s3_file_system(content_type=content_type)
     capture_object = CapturedBlockWritePaths()
     block_write_path_provider = UuidBlockWritePathProvider(
         capture_object=capture_object, base_path=s3_url_prefix
@@ -91,7 +91,7 @@ def upload_table_with_retry(
             fn=upload_table,
             table_slices=table,
             s3_base_url=f"{s3_url_prefix}",
-            s3_file_system=s3_file_system,
+            s3_file_system=filesystem,
             s3_table_writer_func=s3_table_writer_func,
             s3_table_writer_kwargs=s3_table_writer_kwargs,
             block_write_path_provider=block_write_path_provider,
@@ -106,7 +106,7 @@ def upload_table_with_retry(
                 fn=upload_table,
                 table_slices=table_slice,
                 s3_base_url=f"{s3_url_prefix}",
-                s3_file_system=s3_file_system,
+                s3_file_system=filesystem,
                 s3_table_writer_func=s3_table_writer_func,
                 s3_table_writer_kwargs=s3_table_writer_kwargs,
                 block_write_path_provider=block_write_path_provider,

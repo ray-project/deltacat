@@ -2,6 +2,7 @@ from typing import List, Dict
 from collections import defaultdict
 import uuid
 from pyiceberg.table import Table
+from pyiceberg.table.metadata import TableMetadata
 from pyiceberg.table.snapshots import (
     Operation,
 )
@@ -164,8 +165,9 @@ class _ReplaceDeleteFilesOverride(_SnapshotProducer):
 
 def commit_append_snapshot(
     iceberg_table: Table, new_position_delete_files: List[DataFile]
-) -> None:
-    with iceberg_table.transaction() as tx:
+) -> TableMetadata:
+    tx = iceberg_table.transaction()
+    try:
         if iceberg_table.metadata.name_mapping() is None:
             tx.set_properties(
                 **{
@@ -176,6 +178,10 @@ def commit_append_snapshot(
             if new_position_delete_files:
                 for data_file in new_position_delete_files:
                     append_snapshot.append_data_file(data_file)
+    except Exception as e:
+        raise e
+    else:
+        return tx.commit_transaction().metadata
 
 
 def append_delete_files_override(
@@ -269,8 +275,9 @@ def commit_replace_snapshot(
     iceberg_table: Table,
     new_position_delete_files: List[DataFile],
     to_be_deleted_files: List[DataFile],
-) -> None:
-    with iceberg_table.transaction() as tx:
+) -> TableMetadata:
+    tx = iceberg_table.transaction()
+    try:
         if iceberg_table.metadata.name_mapping() is None:
             tx.set_properties(
                 **{
@@ -286,3 +293,7 @@ def commit_replace_snapshot(
             if to_be_deleted_files:
                 for delete_file in to_be_deleted_files:
                     replace_delete_snapshot.delete_data_file(delete_file)
+    except Exception as e:
+        raise e
+    else:
+        return tx.commit_transaction().metadata

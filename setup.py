@@ -39,6 +39,9 @@ setuptools.setup(
             "pyiceberg[hive] >= 0.9.0",
             "pyiceberg[sql-sqlite] >= 0.9.0",
         ],
+        "beam": [
+            "apache-beam[gcs] == 2.65.0",
+        ],
         # separate s3fs from other AWS dependencies due to vastly increased
         # installation times when included (due to boto version conflicts)
         "s3fs": ["s3fs == 2025.3.2"],
@@ -67,7 +70,7 @@ setuptools.setup(
         "ray[default] == 2.46.0",
         "tenacity == 8.2.3",
         "typing-extensions == 4.6.1",
-        "redis == 4.6.0",
+        "redis == 5.0.0",
         "schedule == 1.2.0",
     ],
     setup_requires=["wheel"],

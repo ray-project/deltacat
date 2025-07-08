@@ -21,11 +21,16 @@ def _run_cmd(cmd: str) -> None:
     assert exit_code == 0, f"`{cmd}` failed. Exit code: {exit_code}"
 
 
-def _ray_up(cluster_cfg: str, restart_only: bool = False) -> None:
+def _ray_up(
+    cluster_cfg: str, cluster_name_override: str = None, restart_only: bool = False
+) -> None:
     restart_flag = "--no-restart" if not restart_only else "--restart-only"
+    cluster_name_option = (
+        f"-n '{cluster_name_override}'" if cluster_name_override else ""
+    )
     print(f"Starting Ray cluster from '{cluster_cfg}'")
     _run_cmd(
-        f"ray up '{cluster_cfg}' -y --no-config-cache {restart_flag} --disable-usage-stats"
+        f"ray up '{cluster_cfg}' -y --no-config-cache {restart_flag} {cluster_name_option} --disable-usage-stats"
     )
     print(f"Started Ray cluster from '{cluster_cfg}'")
 
@@ -123,6 +128,7 @@ class DeltaCatJobClient(JobSubmissionClient):
         head_node_ip: str = None,
         dashboard_wait_time_seconds: int = 30,
         port: Union[int, str] = "8265",
+        cluster_name_override: str = None,
     ):
         job_submission_client_url = None
         try:
@@ -130,10 +136,12 @@ class DeltaCatJobClient(JobSubmissionClient):
             if cluster_cfg_file_path:
                 if launch_cluster:
                     if not _ray_cluster_running(cluster_cfg_file_path) or restart_ray:
-                        _ray_up(cluster_cfg_file_path)
+                        _ray_up(cluster_cfg_file_path, cluster_name_override)
                 elif restart_ray:
                     if _ray_cluster_running(cluster_cfg_file_path):
-                        _ray_up(cluster_cfg_file_path, restart_ray)
+                        _ray_up(
+                            cluster_cfg_file_path, restart_ray, cluster_name_override
+                        )
                     else:
                         raise RuntimeError(
                             f"Cannot Restart Ray: Ray Cluster for "
@@ -336,10 +344,11 @@ def local_job_client(*args, **kwargs) -> DeltaCatJobClient:
     Raises:
         RuntimeError: If a local Ray Job Server cannot be found.
     """
-    if not dc.is_initialized():
-        context = dc.init(*args, **kwargs)
-    else:
-        context = dc.init()
+    # force reinitialization to ensure that we can get the Ray context
+    kwargs["force"] = True
+    context = dc.init(*args, **kwargs)
+    if context is None:
+        raise RuntimeError("Failed to retrieve Ray context.")
     if context.dashboard_url:
         head_node_ip, port = context.dashboard_url.split(":")
     else:
@@ -366,6 +375,7 @@ def job_client(
     head_node_ip: str = None,
     dashboard_wait_time_seconds: int = 15,
     port: Union[str, int] = "8265",
+    cluster_name_override: str = None,
 ) -> DeltaCatJobClient:
     """
     Create a DeltaCAT Job Client that can be used to submit jobs to a remote
@@ -403,4 +413,5 @@ def job_client(
         head_node_ip=head_node_ip,
         dashboard_wait_time_seconds=dashboard_wait_time_seconds,
         port=port,
+        cluster_name_override=cluster_name_override,
     )

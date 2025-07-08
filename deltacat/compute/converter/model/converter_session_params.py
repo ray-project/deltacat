@@ -42,7 +42,7 @@ class ConverterSessionParams(dict):
         )
         result.merge_keys = params.get("merge_keys", None)
         result.s3_client_kwargs = params.get("s3_client_kwargs", {})
-        result.s3_file_system = params.get("s3_file_system", None)
+        result.filesystem = params.get("filesystem", None)
         result.s3_prefix_override = params.get("s3_prefix_override", None)
 
         return result
@@ -126,12 +126,12 @@ class ConverterSessionParams(dict):
         self["s3_client_kwargs"] = s3_client_kwargs
 
     @property
-    def s3_file_system(self) -> Optional[AbstractFileSystem]:
-        return self["s3_file_system"]
+    def filesystem(self) -> Optional[AbstractFileSystem]:
+        return self["filesystem"]
 
-    @s3_file_system.setter
-    def s3_file_system(self, s3_file_system: Optional[AbstractFileSystem]) -> None:
-        self["s3_file_system"] = s3_file_system
+    @filesystem.setter
+    def filesystem(self, filesystem: Optional[AbstractFileSystem]) -> None:
+        self["filesystem"] = filesystem
 
     @property
     def location_provider_prefix_override(self) -> Optional[str]:

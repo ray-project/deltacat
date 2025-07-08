@@ -39,7 +39,7 @@ pyiceberg[glue] == 0.9.0
 
 pymemcache == 4.0.0
 ray[default] == 2.46.0
-redis == 4.6.0
+redis == 5.0.0
 
 # setup.py extras_require
 # any changes here should also be reflected in setup.py "extras_require"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Optional, Tuple, Union, List
 from datetime import timedelta
+from enum import Enum
 
 import sys
 import urllib
@@ -18,9 +19,52 @@ from pyarrow.fs import (
     FSSpecHandler,
     PyFileSystem,
     GcsFileSystem,
+    LocalFileSystem,
+    S3FileSystem,
+    AzureFileSystem,
+    HadoopFileSystem,
 )
 
 _LOCAL_SCHEME = "local"
+
+
+class FilesystemType(str, Enum):
+    LOCAL = "local"
+    S3 = "s3"
+    GCS = "gcs"
+    AZURE = "azure"
+    HADOOP = "hadoop"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_filesystem(cls, filesystem: FileSystem) -> FilesystemType:
+        if isinstance(filesystem, LocalFileSystem):
+            return cls.LOCAL
+        elif isinstance(filesystem, S3FileSystem):
+            return cls.S3
+        elif isinstance(filesystem, GcsFileSystem):
+            return cls.GCS
+        elif isinstance(filesystem, AzureFileSystem):
+            return cls.AZURE
+        elif isinstance(filesystem, HadoopFileSystem):
+            return cls.HADOOP
+        else:
+            return cls.UNKNOWN
+
+    @classmethod
+    def to_filesystem(cls, filesystem_type: FilesystemType) -> FileSystem:
+        if filesystem_type == cls.LOCAL:
+            return LocalFileSystem()
+        elif filesystem_type == cls.S3:
+            return S3FileSystem()
+        elif filesystem_type == cls.GCS:
+            return GcsFileSystem()
+        elif filesystem_type == cls.AZURE:
+            return AzureFileSystem()
+        elif filesystem_type == cls.HADOOP:
+            return HadoopFileSystem()
+        else:
+            raise ValueError(f"Unsupported filesystem type: {filesystem_type}")
 
 
 def resolve_paths_and_filesystem(
