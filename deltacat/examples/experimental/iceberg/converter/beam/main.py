@@ -1,15 +1,14 @@
-from apache_beam.options.pipeline_options import PipelineOptions
 import pyarrow.fs as pafs
+import argparse
+import logging
+
+from apache_beam.options.pipeline_options import PipelineOptions
 
 from deltacat.examples.experimental.iceberg.converter.beam import app
 
 
 if __name__ == "__main__":
-    import argparse
-    import logging
-
     logging.getLogger().setLevel(logging.INFO)
-
     parser = argparse.ArgumentParser(
         description="DeltaCat Beam Iceberg Converter Example using REST Catalog",
         formatter_class=argparse.RawDescriptionHelpFormatter,

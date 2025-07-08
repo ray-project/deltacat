@@ -8,6 +8,7 @@ import time
 from pyiceberg.catalog import load_catalog
 import requests
 from deltacat import local_job_client
+from deltacat.constants import DEFAULT_NAMESPACE
 from deltacat.experimental.converter_agent.table_monitor import _generate_job_name
 
 
@@ -53,7 +54,7 @@ def wait_for_deltacat_jobs(
     if "." in table_name:
         namespace, actual_table_name = table_name.split(".", 1)
     else:
-        namespace = "default"
+        namespace = DEFAULT_NAMESPACE
         actual_table_name = table_name
 
     # Create job key matching the format used in managed.py

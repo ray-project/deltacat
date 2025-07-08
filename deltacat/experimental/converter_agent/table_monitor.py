@@ -19,6 +19,7 @@ from pyiceberg.catalog import load_catalog, CatalogType
 from pyiceberg.exceptions import NoSuchTableError
 
 from deltacat import job_client, local_job_client
+from deltacat.constants import DEFAULT_NAMESPACE
 from deltacat.compute.converter.converter_session import converter_session
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
@@ -48,17 +49,14 @@ def monitor_table(
 ) -> None:
     """Monitor an Iceberg table for changes and run converter sessions when needed."""
 
-    logger.info(f"Starting table monitor.")
-    logger.info(f"Namespace: '{namespace}'")
-    logger.info(f"Table: '{table_name}'")
-    logger.info(f"Warehouse: '{warehouse_path}'")
-    logger.info(f"Catalog type: '{catalog_type}'")
-    logger.info(f"Catalog URI: '{catalog_uri}'")
-    logger.info(f"Merge keys: '{merge_keys}'")
-    logger.info(f"Filesystem type: '{filesystem_type}'")
-    logger.info(f"Monitor interval: '{monitor_interval}s'")
-    logger.info(f"Max converter parallelism: '{max_converter_parallelism}'")
-    logger.info(f"Ray inactivity timeout: '{ray_inactivity_timeout}s'")
+    logger.info(
+        f"Starting table monitor. Namespace: '{namespace}', Table: '{table_name}', "
+        f"Warehouse: '{warehouse_path}', Catalog type: '{catalog_type}', "
+        f"Catalog URI: '{catalog_uri or 'None'}', Merge keys: '{merge_keys}', "
+        f"Filesystem type: '{filesystem_type}', Monitor interval: '{monitor_interval}s', "
+        f"Max converter parallelism: '{max_converter_parallelism}', "
+        f"Ray inactivity timeout: '{ray_inactivity_timeout}s'"
+    )
 
     # Create PyIceberg catalog
     catalog = load_catalog(
@@ -81,7 +79,7 @@ def monitor_table(
 
     # Parse table identifier
     if not namespace:
-        namespace = "default"
+        namespace = DEFAULT_NAMESPACE
     table_identifier = f"{namespace}.{table_name}"
     logger.info(f"  - Parsed table - namespace: '{namespace}', table: '{table_name}'")
 
@@ -257,7 +255,7 @@ def submit_table_monitor_job(
 
     # Parse table identifier to extract namespace and table name
     if not namespace:
-        namespace = "default"
+        namespace = DEFAULT_NAMESPACE
 
     # Generate unique job ID based on the warehouse and table path
     job_name = _generate_job_name(

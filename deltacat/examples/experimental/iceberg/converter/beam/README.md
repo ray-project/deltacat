@@ -33,6 +33,7 @@ This example demonstrates how to use DeltaCAT's experimental [Apache Beam manage
 - **PySpark 3.3.0**: Install PySpark (`pip install "pyspark>=3.3.0,<4.0.0"`) to read back modified Iceberg tables
 - **Iceberg 1.4.0**: Iceberg Java >=1.4.0 for Beam managed Iceberg I/O
 - **Iceberg Spec V2+**: Iceberg table format version >=2 to write positional delete files
+- **System Memory**: DeltaCAT upsert job on Ray requires >=512MiB of free system memory
 
 ## Limitations
 - **Eventually Consistent**: Upserts are not applied inline when Beam appends data to an Iceberg table. Appended records are merged by key in a subsequent table update.
@@ -65,8 +66,6 @@ docker run -d -p 8181:8181 --name iceberg-rest-catalog -e CATALOG_WAREHOUSE=/tmp
 pip install "pyspark>=3.3.0,<4.0.0"
 ```
 
-**Note**: PySpark is only needed for read functionality due to Beam's limitations with positional deletes. Write operations work without PySpark.
-
 ### 4. Write Data (Automatically Triggers Upsert Merge)
 ```bash
 # Run a basic write to "deltacat.hello_world"
@@ -95,7 +94,7 @@ Tail DEBUG-level log events to see detailed conversion job information:
 tail -f /tmp/deltacat/var/output/logs/deltacat-python.debug.log
 ```
 
-### 5. Read Data
+### 6. Read Data
 ```bash
 # Read merged data using Spark SQL with Beam (applies positional deletes on read)
 python main.py --mode read --table-name "deltacat.hello_world"
@@ -113,18 +112,11 @@ catalog = load_catalog(
 print(catalog.load_table('deltacat.hello_world').scan().to_pandas())
 ```
 
-### 6. Full E2E Workflow Test
+### 7. Full E2E Workflow Test
 ```bash
 # Run e2e write → read workflow with verification
 python test_workflow.py
 ```
-
-### 7. Review Logs
-By default, DeltaCAT system logs are written to:
-```
-/tmp/deltacat/var/output/logs/
-```
-This can be changed by setting the `DELTACAT_SYS_LOG_DIR` environment variable.
 
 ### 8. Cleanup
 ```bash
