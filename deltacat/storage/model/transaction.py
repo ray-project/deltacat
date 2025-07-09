@@ -505,15 +505,15 @@ class Transaction(dict):
 
     def _mark_pause_time(self, time_provider: TransactionTimeProvider) -> int:
         """
-        Sets the end time of the transaction using the given
-        TransactionTimeProvider. Raises a runtime error if the transaction end
+        Sets the pause time of the transaction using the given
+        TransactionTimeProvider. Raises a runtime error if the transaction pause
         time has already been set by a previous commit, or if the transaction
         start time has not been set.
         """
         if not self.get("start_time"):
-            raise RuntimeError("Cannot end an unstarted transaction.")
+            raise RuntimeError("Cannot pause an unstarted transaction.")
         if self.get("end_time"):
-            raise RuntimeError("Cannot end a completed transaction.")
+            raise RuntimeError("Cannot pause a completed transaction.")
         pause_time = self["pause_time"] = time_provider.end_time()
         return pause_time
 
