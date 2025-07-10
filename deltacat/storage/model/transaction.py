@@ -377,6 +377,22 @@ class Transaction(dict):
             binary = file.readall()
         obj = cls(**msgpack.loads(binary))
         return obj
+    
+    def read_time_provider(provider_name: str):
+        """
+        Given the string name of a time provider class, return a new instance of it.
+        Raises ValueError if the provider name is unknown.
+        """
+        TIME_PROVIDER_CLASSES = {
+            "TransactionSystemTimeProvider": TransactionSystemTimeProvider,
+            # Add additional mappings as needed
+        }
+
+        provider_cls = TIME_PROVIDER_CLASSES.get(provider_name)
+        if provider_cls is None:
+            raise ValueError(f"Unknown time provider: {provider_name}")
+
+        return provider_cls()
 
     @property
     def id(self) -> Optional[str]:
@@ -413,25 +429,19 @@ class Transaction(dict):
 
     @property
     def metafile_write_paths(self) -> List[str]:
-        """
-        Returns the metafile_write_paths for this transaction.
-        """
-        return self.get("metafile_write_paths")
-
-    @metafile_write_paths.setter
-    def metafile_write_paths(self, paths: List[str]):
-        self["metafile_write_paths"] = paths
+        return [
+            path
+            for op in self.operations
+            for path in op.metafile_write_paths
+        ]
 
     @property
     def locator_write_paths(self) -> List[str]:
-        """
-        Returns the locator_write_paths for this transaction.
-        """
-        return self.get("locator_write_paths")
-
-    @locator_write_paths.setter
-    def locator_write_paths(self, paths: List[str]):
-        self["locator_write_paths"] = paths
+        return [
+            path
+            for op in self.operations
+            for path in op.locator_write_paths
+    ]
 
     @property
     def catalog_root_normalized(self) -> str:
@@ -605,7 +615,15 @@ class Transaction(dict):
 
         # TODO: check if we care about order or exact time stamps --> pickling time_provider?
         # serializable.pop("_time_provider", None)
-        serializable["_time_provider"] = None
+                
+        serializable["_time_provider"] = {
+            "type": type(self._time_provider).__name__,  
+            "params": {}  
+        }
+
+
+        serializable.catalog_root_normalized = self.catalog_root_normalized
+
         return serializable
 
     @staticmethod
@@ -814,9 +832,11 @@ class Transaction(dict):
         self.__dict__.update(
             restored_txn.__dict__
         )  # make curr txn the same as restored (fill vars and stuff)
-        new_provider = (
-            TransactionSystemTimeProvider()
-        )  # set new _time_provider since unserializable
+
+        new_provider = self.read_time_provider(restored_txn["_time_provider"])()
+
+        # TODO: Support restoring time provider state if we ever add non-ephemeral ones.
+
         
         # evaluate system clock
         now = new_provider.start_time()
