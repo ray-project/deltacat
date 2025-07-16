@@ -321,8 +321,8 @@ class TestAbsToRelative:
 
 
 class TestTransactionPersistence:
-    
-    # Verifies that transactions initialized with empty or None operations are marked interactive, 
+
+    # Verifies that transactions initialized with empty or None operations are marked interactive,
     # while valid operations are not
     def test_create_iterative_transaction(self):
         txn_1 = Transaction.of(txn_type=TransactionType.READ, txn_operations=[])
@@ -368,7 +368,7 @@ class TestTransactionPersistence:
         txn.step(op1)
         txn.step(op2)
 
-        # commit_all() instead of commit(), but legacy method still supported 
+        # commit_all() instead of commit(), but legacy method still supported
         write_paths, success_log_path = txn.commit_all()
 
         # Check output files exist and are valid
@@ -401,7 +401,6 @@ class TestTransactionPersistence:
         # check the success log exists
         assert os.path.exists(success_log_path)
         assert os.path.getsize(success_log_path) > 0
-
 
     # Confirms that a transaction can be paused, resumed, and successfully committed without data los
     def test_transaction_pause_and_resume_roundtrip(self, temp_dir):
@@ -451,16 +450,18 @@ class TestTransactionPersistence:
         assert txn._time_provider is not None
         assert hasattr(txn, "metafile_write_paths")
         assert len(txn.metafile_write_paths) == 1
-        
+
         # Check commit still works
         write_paths, success_log_path = txn.commit_all()
         assert os.path.exists(success_log_path)
-    
+
     # Explicitly checks that fields are preserved
     def test_resume_preserves_state_after_pause_deep(self, temp_dir):
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
 
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir)
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
 
         txn.step(op)
@@ -480,10 +481,18 @@ class TestTransactionPersistence:
         assert txn._time_provider is not None, "Time provider should be reinitialized"
         assert txn.start_time == start_time_before, "Start time should be preserved"
         assert txn.catalog_root_normalized == root_before, "Catalog root should match"
-        assert txn.metafile_write_paths == meta_paths_before, "Metafile paths must match"
-        assert txn.locator_write_paths == locator_paths_before, "Locator paths must match"
-        assert isinstance(txn.operations, list) and len(txn.operations) == 1, "Operations must be restored"
-        assert txn.type == TransactionType.APPEND, "Transaction type should be preserved"
+        assert (
+            txn.metafile_write_paths == meta_paths_before
+        ), "Metafile paths must match"
+        assert (
+            txn.locator_write_paths == locator_paths_before
+        ), "Locator paths must match"
+        assert (
+            isinstance(txn.operations, list) and len(txn.operations) == 1
+        ), "Operations must be restored"
+        assert (
+            txn.type == TransactionType.APPEND
+        ), "Transaction type should be preserved"
         assert txn.pause_time is not None, "Pause time should be restored"
 
         # Final commit still works
@@ -530,31 +539,37 @@ class TestTransactionPersistence:
             print(txn_loaded)
             assert "type" in txn_loaded
             assert "operations" in txn_loaded
-         
-    # Simulates a full multi-step transaction with multiple pause/resume cycles and verifies correctness of all outputs   
-    def test_transaction_pause_and_resume_roundtrip_complex(self, temp_dir):
-        fs = pyarrow.fs.LocalFileSystem()
 
+    # Simulates a full multi-step transaction with multiple pause/resume cycles and verifies correctness of all outputs
+    def test_transaction_pause_and_resume_roundtrip_complex(self, temp_dir):
         # Step 0: Create an empty interactive transaction
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir)
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
 
         # Step 1: Add first namespace, pause
         ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
-        op1 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns1)
+        op1 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns1
+        )
         txn.step(op1)
         txn.pause()
 
         # Step 2: Resume, add second namespace, pause
         txn.resume()
         ns2 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_2"))
-        op2 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns2)
+        op2 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns2
+        )
         txn.step(op2)
         txn.pause()
 
         # Step 3: Resume again, add third namespace, commit
         txn.resume()
         ns3 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_3"))
-        op3 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns3)
+        op3 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns3
+        )
         txn.step(op3)
 
         # Final commit
@@ -564,31 +579,37 @@ class TestTransactionPersistence:
         for i, ns in enumerate([ns1, ns2, ns3]):
             written_path = write_paths[i]
             deserialized_ns = Namespace.read(written_path)
-            assert ns.equivalent_to(deserialized_ns), f"Mismatch in ns{i+1}: {ns} != {deserialized_ns}"
+            assert ns.equivalent_to(
+                deserialized_ns
+            ), f"Mismatch in ns{i+1}: {ns} != {deserialized_ns}"
             assert os.path.exists(written_path), f"Missing file: {written_path}"
             assert os.path.getsize(written_path) > 0
 
         # Check success log exists and is correct
         assert os.path.exists(success_log_path)
         assert success_log_path.endswith(str(txn.end_time))
-        
+
     # Repeats a complex pause/resume flow with additional assertions on namespace equality and time consistency
     def test_transaction_pause_and_resume_roundtrip_complex_2(self, temp_dir):
-        fs = pyarrow.fs.LocalFileSystem()
-
         # Step 0: Create an empty interactive transaction
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(temp_dir)
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
 
         # Step 1: Add first namespace, pause
         ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
-        op1 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns1)
+        op1 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns1
+        )
         txn.step(op1)
         txn.pause()
 
         # Step 2: Resume, add second namespace, pause
         txn.resume()
         ns2 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_2"))
-        op2 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns2)
+        op2 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns2
+        )
         txn.step(op2)
 
         txn.pause()
@@ -596,16 +617,18 @@ class TestTransactionPersistence:
         # Step 3: Resume again, add third namespace, commit
         txn.resume()
         ns3 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_3"))
-        op3 = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns3)
+        op3 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns3
+        )
         txn.step(op3)
 
         # Final commit
         write_paths, success_log_path = txn.commit_all()
-        
+
         print("\nstart time: " + str(txn.start_time))
         print("end time: " + str(txn.end_time))
         assert txn.start_time < txn.end_time
-        
+
         # Read and verify written namespaces
         for i, ns in enumerate([ns1, ns2, ns3]):
             written_path = write_paths[i]
@@ -624,4 +647,3 @@ class TestTransactionPersistence:
         # Verify success log
         assert os.path.exists(success_log_path)
         assert success_log_path.endswith(str(txn.end_time))
-

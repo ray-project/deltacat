@@ -691,8 +691,7 @@ class Transaction(dict):
         """
         txn: "Transaction" = copy.deepcopy(self)
         txn._time_provider = TransactionSystemTimeProvider()
-        txn._mark_start_time(txn._time_provider
-        )  # start time on deep_copy
+        txn._mark_start_time(txn._time_provider)  # start time on deep_copy
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
             catalog_root_dir, filesystem
         )
@@ -757,6 +756,7 @@ class Transaction(dict):
                 current_txn_op=operation,
                 current_txn_start_time=self.start_time,
                 current_txn_id=self.id,
+                current_txn_type=self.type,
                 filesystem=filesystem,
             )
 
@@ -826,7 +826,9 @@ class Transaction(dict):
         )  # make curr txn the same as restored (fill vars and stuff)
 
         # To support restoring time provider state if we ever add non-ephemeral ones.
-        new_provider = Transaction.read_time_provider(restored_txn["_time_provider"]["type"])
+        new_provider = Transaction.read_time_provider(
+            restored_txn["_time_provider"]["type"]
+        )
 
         # evaluate system clock
         now = new_provider.start_time()
