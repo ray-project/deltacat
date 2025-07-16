@@ -482,7 +482,7 @@ class TestTransactionPersistence:
         assert txn.catalog_root_normalized == root_before, "Catalog root should match"
         assert txn.metafile_write_paths == meta_paths_before, "Metafile paths must match"
         assert txn.locator_write_paths == locator_paths_before, "Locator paths must match"
-        assert isinstance(txn.operations, list) and len(txn.operations) == 0, "Operations must be restored"
+        assert isinstance(txn.operations, list) and len(txn.operations) == 1, "Operations must be restored"
         assert txn.type == TransactionType.APPEND, "Transaction type should be preserved"
         assert txn.pause_time is not None, "Pause time should be restored"
 
