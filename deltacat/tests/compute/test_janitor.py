@@ -66,11 +66,9 @@ class TestJanitorJob:
 
         # Run the janitor job that should:
         # 1. Move the running txn file to the failed directory with TIMEOUT_TXN appended.
-        # 2. Invoke brute force search which deletes the metafile and renames the txn log file to use SUCCESSFULLY_CLEANED.
+        # 2. Invoke brute force search to deletes the metafiles and cleans up txn log files.
         janitor_delete_timed_out_transaction(temp_dir)
 
-        # Expected name: original txn_filename with TIMEOUT_TXN replaced by SUCCESSFULLY_CLEANED.
-       # new_txn_file_name = f"{txn_filename}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
         new_txn_file_name = f"{txn_filename}"
         new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_file_name)
 
@@ -157,10 +155,9 @@ class TestJanitorJob:
         # Run the janitor function to move timed-out transactions to the failed directory
         janitor_delete_timed_out_transaction(temp_dir)
 
-        # Verify that all transactions were moved to the failed directory with SUCCESSFULLY_CLEANED appended
+        # Verify that all transactions were moved to the failed directory
         for txn_filename, txn_path, test_metafile_path in txn_filenames:
             new_txn_filename = (
-               # f"{txn_filename}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}"
                 f"{txn_filename}"
             )
             new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_filename)

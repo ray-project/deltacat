@@ -16,9 +16,7 @@ import msgpack
 import pyarrow.fs
 
 from deltacat.constants import (
-    # CURRENTLY_CLEANING,
     OPERATION_TIMEOUTS,
-    # SUCCESSFULLY_CLEANED,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     RUNNING_TXN_DIR_NAME,
@@ -731,7 +729,6 @@ class Transaction(dict):
                     )
         except Exception:
             # write a failed transaction log file entry
-            #path_ending = f"{self.id}{TXN_PART_SEPARATOR}{CURRENTLY_CLEANING}"
             path_ending = f"{self.id}{TXN_PART_SEPARATOR}{TransactionSystemTimeProvider.timeout_time(self)}"
             failed_txn_log_file_path = posixpath.join(
                 failed_txn_log_dir,
@@ -766,7 +763,6 @@ class Transaction(dict):
             filesystem.delete_file(running_txn_log_file_path)
             # failed transaction cleanup is now complete
             old_path = failed_txn_log_file_path
-            #new_path = posixpath.join(failed_txn_log_dir, f"{self.id}{TXN_PART_SEPARATOR}{SUCCESSFULLY_CLEANED}")
             new_path = posixpath.join(failed_txn_log_dir, f"{self.id}")
 
             filesystem.move(old_path, new_path)
