@@ -12,9 +12,7 @@ from deltacat.constants import (
     FAILED_TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
 )
-from deltacat.storage.model.types import (
-    TransactionState
-)
+from deltacat.storage.model.types import TransactionState
 import logging
 from deltacat import logs
 
@@ -90,7 +88,6 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
     running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
     failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
 
-
     dirty_files = []
 
     running_txn_file_selector = FileSelector(running_txn_log_dir, recursive=False)
@@ -158,7 +155,7 @@ def janitor_remove_files_in_failed(
             try:
                 if txn.state(catalog_root_normalized) == TransactionState.PURGED:
                     should_process = False
-            except Exception as e:
+            except Exception:
                 logger.error("Could not check attribute")
             if should_process:
                 # Process if the file is marked as currently cleaning.

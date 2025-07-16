@@ -7,7 +7,7 @@ from deltacat.storage import (
     Transaction,
     TransactionOperation,
     TransactionOperationType,
-    TransactionType
+    TransactionType,
 )
 
 from deltacat.constants import (
@@ -15,7 +15,7 @@ from deltacat.constants import (
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
-    SUCCESS_TXN_DIR_NAME
+    SUCCESS_TXN_DIR_NAME,
 )
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.tests.test_utils.storage import (
@@ -157,9 +157,7 @@ class TestJanitorJob:
 
         # Verify that all transactions were moved to the failed directory
         for txn_filename, txn_path, test_metafile_path in txn_filenames:
-            new_txn_filename = (
-                f"{txn_filename}"
-            )
+            new_txn_filename = f"{txn_filename}"
             new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_filename)
 
             # Check if the renamed transaction file exists in the failed directory
@@ -176,7 +174,6 @@ class TestJanitorJob:
             assert not os.path.exists(
                 test_metafile_path
             ), f"Metafile {test_metafile_path} was not deleted."
-
 
     def test_janitor_remove_files_failed(self, temp_dir):
         # Set up test directories and filesystem
@@ -200,7 +197,8 @@ class TestJanitorJob:
             TransactionOperation.of(
                 operation_type=TransactionOperationType.CREATE,
                 dest_metafile=meta,
-            ) for meta in meta_to_create
+            )
+            for meta in meta_to_create
         ]
 
         transaction = Transaction.of(
@@ -210,8 +208,12 @@ class TestJanitorJob:
         write_paths, txn_log_path = transaction.commit(temp_dir)
 
         # Get filename of committed transaction (from success directory)
-        success_file_dir = filesystem.get_file_info(FileSelector(success_txn_dir, recursive=False))
-        success_files = filesystem.get_file_info(FileSelector(success_file_dir[0].path, recursive=False))
+        success_file_dir = filesystem.get_file_info(
+            FileSelector(success_txn_dir, recursive=False)
+        )
+        success_files = filesystem.get_file_info(
+            FileSelector(success_file_dir[0].path, recursive=False)
+        )
         filename = posixpath.basename(success_file_dir[0].path)
 
         # Compute destination paths
@@ -227,7 +229,7 @@ class TestJanitorJob:
             assert os.path.exists(
                 path
             ), f"Expected write path {path} to exist before cleanup."
-        
+
         # Run the cleanup function.
         janitor_remove_files_in_failed(temp_dir, filesystem)
 

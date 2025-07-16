@@ -96,6 +96,7 @@ class TransactionOperationType(str, Enum):
     def is_read_operation(self) -> bool:
         return self in TransactionOperationType.read_operatins()
 
+
 class TransactionState(str, Enum):
     FAILED = "CLEANING"
     PURGED = "CLEANED"

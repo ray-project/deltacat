@@ -114,7 +114,7 @@ SUCCESSFULLY_CLEANED = "cleaned"
 CURRENTLY_CLEANING = "cleaning"
 TIMEOUT_TXN = "timedout"
 
-#operation timeout constants
+# operation timeout constants
 OPERATION_TIMEOUTS = {
     "create": 5,
     "update": 3,

@@ -23,14 +23,13 @@ from deltacat.constants import (
     FAILED_TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
-
 )
 
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.types import (
     TransactionOperationType,
     TransactionType,
-    TransactionState
+    TransactionState,
 )
 from deltacat.storage.model.metafile import (
     Metafile,
@@ -163,8 +162,6 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
         start_time = txn.start_time
         final_time_heartbeat = start_time + (total_time_for_transaction * NANOS_PER_SEC)
         return final_time_heartbeat
-
-
 
 
 class TransactionOperation(dict):
@@ -386,7 +383,6 @@ class Transaction(dict):
         :param filesystem: File system to use for reading the Transaction file.
         :return: Deserialized object from the Transaction file.
         """
-
 
         if not filesystem:
             path, filesystem = resolve_path_and_filesystem(path, filesystem)
@@ -694,7 +690,7 @@ class Transaction(dict):
         filesystem: pyarrow.fs.FileSystem,
         time_provider: TransactionTimeProvider,
     ) -> Tuple[List[str], str]:
-        #TODO: move this dict into a different more suiting place
+        # TODO: move this dict into a different more suiting place
 
         path_ending = f"{self.id}{TXN_PART_SEPARATOR}{TransactionSystemTimeProvider.timeout_time(self)}"
 
@@ -730,11 +726,7 @@ class Transaction(dict):
         except Exception:
             # write a failed transaction log file entry
             path_ending = f"{self.id}{TXN_PART_SEPARATOR}{TransactionSystemTimeProvider.timeout_time(self)}"
-            failed_txn_log_file_path = posixpath.join(
-                failed_txn_log_dir,
-                path_ending
-            )
-
+            failed_txn_log_file_path = posixpath.join(failed_txn_log_dir, path_ending)
 
             with filesystem.open_output_stream(failed_txn_log_file_path) as file:
                 packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
@@ -766,7 +758,6 @@ class Transaction(dict):
             new_path = posixpath.join(failed_txn_log_dir, f"{self.id}")
 
             filesystem.move(old_path, new_path)
-
 
             raise
 
@@ -825,6 +816,5 @@ class Transaction(dict):
         finally:
             # delete the in-progress transaction log file entry
             filesystem.delete_file(running_txn_log_file_path)
-
 
         return metafile_write_paths, success_txn_log_file_path
