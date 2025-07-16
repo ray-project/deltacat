@@ -7,9 +7,6 @@ from itertools import chain
 from deltacat.storage.model.transaction import Transaction
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.constants import (
-    # CURRENTLY_CLEANING,
-    # SUCCESSFULLY_CLEANED,
-    # TIMEOUT_TXN,
     TXN_DIR_NAME,
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
