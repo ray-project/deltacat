@@ -227,7 +227,7 @@ class TestJanitorJob:
             assert os.path.exists(
                 path
             ), f"Expected write path {path} to exist before cleanup."
-
+        
         # Run the cleanup function.
         janitor_remove_files_in_failed(temp_dir, filesystem)
 

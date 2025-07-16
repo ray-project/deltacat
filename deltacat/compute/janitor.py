@@ -175,10 +175,11 @@ def janitor_remove_files_in_failed(
                     )
 
                     for write_path in known_write_paths:
+                        full_path = posixpath.join(catalog_root_normalized, write_path)
                         try:
-                            filesystem.delete_file(write_path)
+                            filesystem.delete_file(full_path)
                         except Exception as e:
-                            logger.error(f"Failed to delete file '{write_path}': {e}")
+                            logger.error(f"Failed to delete file '{full_path}': {e}")
 
                     new_filename = f"{txnid}"
 
