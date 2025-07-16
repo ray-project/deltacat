@@ -728,7 +728,8 @@ class Transaction(dict):
         )
 
         # Add new operation to the transaction's list of operations
-        self.operations = self.operations + [operation]
+        if self.interactive:
+            self.operations = self.operations + [operation]
 
         # (a) READ txn
         if self.type == TransactionType.READ:
