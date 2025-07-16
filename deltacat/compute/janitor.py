@@ -105,7 +105,6 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
             current_time = time.time_ns()
             if end_time <= current_time:
                 src_path = running_txn_info.path
-                #new_filename = f"{filename}{TXN_PART_SEPARATOR}{TIMEOUT_TXN}"
                 new_filename = f"{filename}"
                 dest_path = posixpath.join(failed_txn_log_dir, new_filename)
 
