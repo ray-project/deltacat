@@ -44,6 +44,7 @@ test-integration: install
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml up -d
 	sleep 3
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
+	export SPARK_LOCAL_IP="127.0.0.1"
 	venv/bin/python -m pytest deltacat/tests/integ -v -m integration
 
 test-converter:
@@ -52,6 +53,7 @@ test-converter:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml up -d
 	sleep 3
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
+	export SPARK_LOCAL_IP="127.0.0.1"
 	venv/bin/python -m pytest deltacat/tests/compute/converter -vv
 
 test-integration-rebuild:

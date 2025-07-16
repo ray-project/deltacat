@@ -21,7 +21,7 @@ from deltacat.compute.compactor.utils.primary_key_index import (
     group_hash_bucket_indices,
     group_record_indices_by_hash_bucket,
 )
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.storage import metastore
 from deltacat.types.media import StorageType
 from deltacat.utils.common import sha1_digest
 from deltacat.utils.ray_utils.runtime import (
@@ -90,7 +90,7 @@ def _group_file_records_by_pk_hash_bucket(
     sort_key_names: List[str],
     is_src_delta: np.bool_ = True,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[DeltaFileEnvelopeGroups], int]:
@@ -139,7 +139,7 @@ def _read_delta_file_envelopes(
     primary_keys: List[str],
     sort_key_names: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int]:
@@ -190,7 +190,7 @@ def _timed_hash_bucket(
     enable_profiler: bool,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     object_store: Optional[IObjectStore] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ):
@@ -249,7 +249,7 @@ def hash_bucket(
     metrics_config: MetricsConfig,
     read_kwargs_provider: Optional[ReadKwargsProvider],
     object_store: Optional[IObjectStore],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> HashBucketResult:

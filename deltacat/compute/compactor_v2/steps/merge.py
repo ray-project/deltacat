@@ -7,6 +7,7 @@ import ray
 import itertools
 import time
 import pyarrow.compute as pc
+from deltacat.utils.pyarrow import MAX_INT_BYTES
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
@@ -31,13 +32,14 @@ from deltacat.utils.resources import (
 )
 from deltacat.compute.compactor_v2.utils.primary_key_index import (
     generate_pk_hash_column,
+    pk_digest_to_hash_bucket_index,
 )
 from deltacat.storage import (
     Delta,
     DeltaLocator,
     DeltaType,
     Partition,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.compute.compactor_v2.utils.dedupe import drop_duplicates
@@ -46,6 +48,9 @@ from deltacat.compute.compactor_v2.constants import (
     MERGE_TIME_IN_SECONDS,
     MERGE_SUCCESS_COUNT,
     MERGE_FAILURE_COUNT,
+    BUCKETING_SPEC_COMPLIANCE_PROFILE,
+    BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
 )
 from deltacat.exceptions import (
     categorize_errors,
@@ -55,6 +60,10 @@ if importlib.util.find_spec("memray"):
     import memray
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+
+_EXISTING_VARIANT_LOG_PREFIX = "Existing variant "
+_INCREMENTAL_TABLE_LOG_PREFIX = "Incremental table "
 
 
 def _append_delta_type_column(table: pa.Table, value: np.bool_):
@@ -107,6 +116,8 @@ def _merge_tables(
     table: pa.Table,
     primary_keys: List[str],
     can_drop_duplicates: bool,
+    hb_index: int,
+    num_buckets: int,
     compacted_table: Optional[pa.Table] = None,
 ) -> pa.Table:
     """
@@ -124,6 +135,20 @@ def _merge_tables(
         all_tables.append(compacted_table)
 
     all_tables.append(table)
+
+    check_bucketing_spec = BUCKETING_SPEC_COMPLIANCE_PROFILE in [
+        BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
+        BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    ]
+
+    if primary_keys and check_bucketing_spec:
+        _validate_bucketing_spec_compliance(
+            table=all_tables[incremental_idx],
+            num_buckets=num_buckets,
+            primary_keys=primary_keys,
+            hb_index=hb_index,
+            log_prefix=_INCREMENTAL_TABLE_LOG_PREFIX,
+        )
 
     if not primary_keys or not can_drop_duplicates:
         logger.info(
@@ -147,10 +172,32 @@ def _merge_tables(
     if compacted_table:
         compacted_table = all_tables[0]
 
+        compacted_pk_hash_str = compacted_table[sc._PK_HASH_STRING_COLUMN_NAME]
+        incremental_pk_hash_str = incremental_table[sc._PK_HASH_STRING_COLUMN_NAME]
+
+        logger.info(
+            f"Size of compacted pk hash={compacted_pk_hash_str.nbytes} "
+            f"and incremental pk hash={incremental_pk_hash_str.nbytes}."
+        )
+
+        if (
+            compacted_table[sc._PK_HASH_STRING_COLUMN_NAME].nbytes >= MAX_INT_BYTES
+            or incremental_table[sc._PK_HASH_STRING_COLUMN_NAME].nbytes >= MAX_INT_BYTES
+        ):
+            logger.info("Casting compacted and incremental pk hash to large_string...")
+            # is_in combines the chunks of the chunked array passed which can cause
+            # ArrowCapacityError if the total size of string array is over 2GB.
+            # Using a large_string would resolve this issue.
+            # The cast here should be zero-copy in most cases.
+            compacted_pk_hash_str = pc.cast(compacted_pk_hash_str, pa.large_string())
+            incremental_pk_hash_str = pc.cast(
+                incremental_pk_hash_str, pa.large_string()
+            )
+
         records_to_keep = pc.invert(
             pc.is_in(
-                compacted_table[sc._PK_HASH_STRING_COLUMN_NAME],
-                incremental_table[sc._PK_HASH_STRING_COLUMN_NAME],
+                compacted_pk_hash_str,
+                incremental_pk_hash_str,
             )
         )
 
@@ -165,11 +212,49 @@ def _merge_tables(
     return final_table
 
 
+def _validate_bucketing_spec_compliance(
+    table: pa.Table,
+    num_buckets: int,
+    hb_index: int,
+    primary_keys: List[str],
+    rcf: RoundCompletionInfo = None,
+    log_prefix=None,
+) -> None:
+    if rcf is not None:
+        message_prefix = f"{log_prefix}{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}.{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}.{rcf.compacted_delta_locator.partition_values}"
+    else:
+        message_prefix = f"{log_prefix}"
+    pki_table = generate_pk_hash_column(
+        [table], primary_keys=primary_keys, requires_hash=True
+    )[0]
+    is_not_compliant: bool = False
+    for index, hash_value in enumerate(sc.pk_hash_string_column_np(pki_table)):
+        hash_bucket: int = pk_digest_to_hash_bucket_index(hash_value, num_buckets)
+        if hash_bucket != hb_index:
+            is_not_compliant = True
+            logger.info(
+                f"{message_prefix} has non-compliant bucketing spec at index: {index} "
+                f"Expected hash bucket is {hb_index} but found {hash_bucket}."
+            )
+            if BUCKETING_SPEC_COMPLIANCE_PROFILE == BUCKETING_SPEC_COMPLIANCE_ASSERT:
+                raise AssertionError(
+                    f"Hash bucket drift detected at index: {index}. Expected hash bucket index"
+                    f" to be {hb_index} but found {hash_bucket}"
+                )
+            # No further checks necessary
+            break
+    if not is_not_compliant:
+        logger.debug(
+            f"{message_prefix} has compliant bucketing spec for hb_index: {hb_index}"
+        )
+
+
 def _download_compacted_table(
     hb_index: int,
     rcf: RoundCompletionInfo,
+    primary_keys: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
     tables = []
@@ -191,14 +276,35 @@ def _download_compacted_table(
 
         tables.append(table)
 
-    return pa.concat_tables(tables)
+    compacted_table = pa.concat_tables(tables)
+    check_bucketing_spec = BUCKETING_SPEC_COMPLIANCE_PROFILE in [
+        BUCKETING_SPEC_COMPLIANCE_PRINT_LOG,
+        BUCKETING_SPEC_COMPLIANCE_ASSERT,
+    ]
+
+    logger.debug(
+        f"Value of BUCKETING_SPEC_COMPLIANCE_PROFILE, check_bucketing_spec:"
+        f" {BUCKETING_SPEC_COMPLIANCE_PROFILE}, {check_bucketing_spec}"
+    )
+
+    # Bucketing spec compliance isn't required without primary keys
+    if primary_keys and check_bucketing_spec:
+        _validate_bucketing_spec_compliance(
+            compacted_table,
+            rcf.hash_bucket_count,
+            hb_index,
+            primary_keys,
+            rcf=rcf,
+            log_prefix=_EXISTING_VARIANT_LOG_PREFIX,
+        )
+    return compacted_table
 
 
 def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_copy_by_reference: List[int],
     round_completion_info: RoundCompletionInfo,
     write_to_partition: Partition,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> List[MaterializeResult]:
 
@@ -394,12 +500,12 @@ def _compact_tables(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
         if delta_type is DeltaType.UPSERT:
-            (
-                table,
-                incremental_len,
-                deduped_records,
-                merge_time,
-            ) = _apply_upserts(input, delta_type_sequence, hb_idx, table)
+            (table, incremental_len, deduped_records, merge_time,) = _apply_upserts(
+                input=input,
+                dfe_list=delta_type_sequence,
+                hb_idx=hb_idx,
+                prev_table=table,
+            )
             logger.info(
                 f" [Merge task index {input.merge_task_index}] Merged"
                 f" record count: {len(table)}, size={table.nbytes} took: {merge_time}s"
@@ -460,6 +566,8 @@ def _apply_upserts(
         primary_keys=input.primary_keys,
         can_drop_duplicates=input.drop_duplicates,
         compacted_table=prev_table,
+        hb_index=hb_idx,
+        num_buckets=input.hash_bucket_count,
     )
     deduped_records = hb_table_record_count - len(table)
     return table, incremental_len, deduped_records, merge_time
@@ -494,9 +602,11 @@ def _copy_manifests_from_hash_bucketing(
 def _timed_merge(input: MergeInput) -> MergeResult:
     task_id = get_current_ray_task_id()
     worker_id = get_current_ray_worker_id()
-    with memray.Tracker(
-        f"merge_{worker_id}_{task_id}.bin"
-    ) if input.enable_profiler else nullcontext():
+    with (
+        memray.Tracker(f"merge_{worker_id}_{task_id}.bin")
+        if input.enable_profiler
+        else nullcontext()
+    ):
         total_input_records, total_deduped_records = 0, 0
         total_dropped_records = 0
         materialized_results: List[MaterializeResult] = []
@@ -520,6 +630,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
                 compacted_table = _download_compacted_table(
                     hb_index=merge_file_group.hb_index,
                     rcf=input.round_completion_info,
+                    primary_keys=input.primary_keys,
                     read_kwargs_provider=input.read_kwargs_provider,
                     deltacat_storage=input.deltacat_storage,
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,
@@ -604,5 +715,5 @@ def merge(input: MergeInput) -> MergeResult:
             merge_result[3],
             merge_result[4],
             np.double(emit_metrics_time),
-            merge_result[4],
+            merge_result[6],
         )

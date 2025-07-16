@@ -28,7 +28,7 @@ from deltacat.storage import (
     Delta,
     DeltaLocator,
     PartitionLocator,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.compute.compactor.utils.sort_key import validate_sort_keys
@@ -54,9 +54,8 @@ def repartition(
     pg_config: Optional[PlacementGroupConfig] = None,
     list_deltas_kwargs: Optional[Dict[str, Any]] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
-    s3_client_kwargs: Optional[Dict[str, Any]] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    deltacat_storage=metastore,
     **kwargs,
 ) -> Optional[str]:
 
@@ -132,7 +131,7 @@ def repartition(
         enable_profiler=enable_profiler,
         metrics_config=metrics_config,
         read_kwargs_provider=read_kwargs_provider,
-        s3_table_writer_kwargs=s3_table_writer_kwargs,
+        table_writer_kwargs=table_writer_kwargs,
         repartitioned_file_content_type=repartitioned_file_content_type,
         deltacat_storage=deltacat_storage,
     )
@@ -173,8 +172,6 @@ def repartition(
         bit_width_of_sort_keys,
         None,
     )
-    if s3_client_kwargs is None:
-        s3_client_kwargs = {}
 
     return rcf.write_round_completion_file(
         None,
@@ -182,5 +179,4 @@ def repartition(
         None,
         repartition_completion_info,
         repartition_completion_file_s3_url,
-        **s3_client_kwargs,
     )

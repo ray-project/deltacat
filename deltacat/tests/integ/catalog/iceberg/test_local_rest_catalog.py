@@ -23,7 +23,7 @@ import deltacat as dc
 
 from deltacat import logs
 from deltacat import IcebergCatalog, get_catalog
-from deltacat.storage.iceberg.model import (
+from deltacat.experimental.storage.iceberg.model import (
     PartitionSchemeMapper,
     SchemaMapper,
     SortSchemeMapper,

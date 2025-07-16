@@ -1,97 +1,165 @@
 import json
 import logging
-from typing import Dict, Any
+import posixpath
+from typing import Optional
 from deltacat import logs
 from deltacat.compute.compactor import RoundCompletionInfo
 from deltacat.storage import PartitionLocator
-from deltacat.aws import s3u as s3_utils
-from typing import Optional
 from deltacat.utils.metrics import metrics
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def get_round_completion_file_s3_url(
-    bucket: str,
+def get_round_completion_file_path(
+    base_path: str,
     source_partition_locator: PartitionLocator,
     destination_partition_locator: Optional[PartitionLocator] = None,
 ) -> str:
+    """
+    Construct a filesystem-agnostic path for the round completion file.
 
-    base_url = source_partition_locator.path(f"s3://{bucket}")
+    Args:
+        base_path: Base path for storing completion files (e.g., "s3://bucket/compaction", "/tmp/compaction")
+        source_partition_locator: Source partition locator
+        destination_partition_locator: Optional destination partition locator
+
+    Returns:
+        Complete path to the round completion file
+    """
     if destination_partition_locator:
-        base_url = destination_partition_locator.path(
-            f"s3://{bucket}/{source_partition_locator.hexdigest()}"
+        # Use destination partition path with source partition hash for uniqueness
+        partition_path = destination_partition_locator.path(
+            source_partition_locator.hexdigest()
         )
+    else:
+        # Use source partition path directly
+        partition_path = source_partition_locator.path("")
 
-    return f"{base_url}.json"
+    # Remove leading slash to make path relative so posixpath.join works correctly
+    if partition_path.startswith("/"):
+        partition_path = partition_path[1:]
+
+    return posixpath.join(base_path, f"{partition_path}.json")
 
 
 @metrics
 def read_round_completion_file(
-    bucket: str,
+    base_path: Optional[str],
     source_partition_locator: PartitionLocator,
     destination_partition_locator: Optional[PartitionLocator] = None,
-    **s3_client_kwargs: Optional[Dict[str, Any]],
+    completion_file_path: Optional[str] = None,
 ) -> RoundCompletionInfo:
+    """
+    Read round completion file from filesystem.
 
-    all_uris = []
-    if destination_partition_locator:
-        round_completion_file_url_with_destination = get_round_completion_file_s3_url(
-            bucket,
+    Args:
+        base_path: Base path for completion files (deprecated if completion_file_path provided)
+        source_partition_locator: Source partition locator
+        destination_partition_locator: Optional destination partition locator
+        completion_file_path: Direct path to completion file (takes precedence over base_path)
+
+    Returns:
+        RoundCompletionInfo if found, None otherwise
+    """
+    all_paths = []
+
+    if completion_file_path:
+        # Use direct path if provided
+        all_paths.append(completion_file_path)
+    elif base_path:
+        # Construct paths using base_path for backward compatibility
+        if destination_partition_locator:
+            path_with_destination = get_round_completion_file_path(
+                base_path,
+                source_partition_locator,
+                destination_partition_locator,
+            )
+            all_paths.append(path_with_destination)
+
+        # Note: we read from RCF at two different paths for backward compatibility reasons
+        path_prev = get_round_completion_file_path(
+            base_path,
             source_partition_locator,
-            destination_partition_locator,
         )
-        all_uris.append(round_completion_file_url_with_destination)
-
-    # Note: we read from RCF at two different URI for backward
-    # compatibility reasons.
-    round_completion_file_url_prev = get_round_completion_file_s3_url(
-        bucket,
-        source_partition_locator,
-    )
-
-    all_uris.append(round_completion_file_url_prev)
+        all_paths.append(path_prev)
+    else:
+        raise ValueError("Either base_path or completion_file_path must be provided")
 
     round_completion_info = None
 
-    for rcf_uri in all_uris:
-        logger.info(f"Reading round completion file from: {rcf_uri}")
-        result = s3_utils.download(rcf_uri, False, **s3_client_kwargs)
-        if result:
-            json_str = result["Body"].read().decode("utf-8")
-            round_completion_info = RoundCompletionInfo(json.loads(json_str))
-            logger.info(f"Read round completion info: {round_completion_info}")
-            break
-        else:
-            logger.warning(f"Round completion file not present at {rcf_uri}")
+    for rcf_path in all_paths:
+        logger.info(f"Reading round completion file from: {rcf_path}")
+        try:
+            path, filesystem = resolve_path_and_filesystem(rcf_path)
+            with filesystem.open_input_stream(path) as stream:
+                content = stream.read().decode("utf-8")
+                round_completion_info = RoundCompletionInfo(json.loads(content))
+                logger.info(f"Read round completion info: {round_completion_info}")
+                break
+        except Exception as e:
+            logger.warning(f"Round completion file not present at {rcf_path}: {e}")
 
     return round_completion_info
 
 
 @metrics
 def write_round_completion_file(
-    bucket: Optional[str],
+    base_path: Optional[str],
     source_partition_locator: Optional[PartitionLocator],
     destination_partition_locator: Optional[PartitionLocator],
     round_completion_info: RoundCompletionInfo,
-    completion_file_s3_url: Optional[str] = None,
-    **s3_client_kwargs: Optional[Dict[str, Any]],
+    completion_file_path: Optional[str] = None,
 ) -> str:
-    if bucket is None and completion_file_s3_url is None:
-        raise AssertionError("Either bucket or completion_file_s3_url must be passed")
+    """
+    Write round completion file to filesystem.
 
-    logger.info(f"writing round completion file contents: {round_completion_info}")
-    if completion_file_s3_url is None:
-        completion_file_s3_url = get_round_completion_file_s3_url(
-            bucket,
+    Args:
+        base_path: Base path for completion files (deprecated if completion_file_path provided)
+        source_partition_locator: Source partition locator
+        destination_partition_locator: Optional destination partition locator
+        round_completion_info: Round completion info to write
+        completion_file_path: Direct path to completion file (takes precedence over base_path)
+
+    Returns:
+        Path where the file was written
+    """
+    if completion_file_path:
+        target_path = completion_file_path
+    elif base_path and source_partition_locator:
+        target_path = get_round_completion_file_path(
+            base_path,
             source_partition_locator,
             destination_partition_locator,
         )
-    logger.info(f"writing round completion file to: {completion_file_s3_url}")
-    s3_utils.upload(
-        completion_file_s3_url,
-        str(json.dumps(round_completion_info)),
-        **s3_client_kwargs,
-    )
-    logger.info(f"round completion file written to: {completion_file_s3_url}")
-    return completion_file_s3_url
+    else:
+        raise ValueError(
+            "Either (base_path and source_partition_locator) or completion_file_path must be provided"
+        )
+
+    logger.info(f"writing round completion file to: {target_path}")
+
+    path, filesystem = resolve_path_and_filesystem(target_path)
+
+    # Ensure parent directories exist
+    import os
+    import pyarrow
+
+    parent_dir = os.path.dirname(path)
+    if (
+        parent_dir
+        and not filesystem.get_file_info(parent_dir).type
+        == pyarrow.fs.FileType.Directory
+    ):
+        try:
+            filesystem.create_dir(parent_dir, recursive=True)
+        except (OSError, pyarrow.lib.ArrowIOError):
+            # Directory might already exist or be created by another process
+            pass
+
+    content = json.dumps(round_completion_info).encode("utf-8")
+    with filesystem.open_output_stream(path) as stream:
+        stream.write(content)
+
+    logger.info(f"round completion file written to: {target_path}")
+    return target_path

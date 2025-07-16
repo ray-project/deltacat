@@ -1,6 +1,10 @@
 import unittest
 from deltacat.types.media import ContentEncoding, ContentType
-from deltacat.utils.daft import daft_s3_file_to_table, s3_files_to_dataframe
+from deltacat.utils.daft import (
+    daft_s3_file_to_table,
+    s3_files_to_dataframe,
+    files_to_dataframe,
+)
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from deltacat.types.partial_download import PartialParquetParameters
 import pyarrow as pa
@@ -166,7 +170,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True},
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
         )
 
         table = df.to_arrow()
@@ -178,7 +182,7 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True},
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
         )
 
         self.assertRaises(RuntimeError, lambda: len(df))
@@ -193,9 +197,105 @@ class TestDaftS3FilesToDataFrame(unittest.TestCase):
                 uris=[self.MVP_PATH],
                 content_encoding=ContentEncoding.IDENTITY.value,
                 content_type=ContentType.UNESCAPED_TSV.value,
-                ray_init_options={"local_mode": True},
+                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
             ),
         )
+
+
+class TestFilesToDataFrame(unittest.TestCase):
+    MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
+
+    def test_read_local_files_all_columns(self):
+        df = files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+        )
+
+        table = df.to_arrow()
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.num_rows, 100)
+
+    def test_read_local_files_with_column_selection(self):
+        df = files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            include_columns=["b"],
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+        )
+
+        table = df.to_arrow()
+        self.assertEqual(table.schema.names, ["b"])
+        self.assertEqual(table.num_rows, 100)
+
+    def test_read_local_files_does_not_materialize_by_default(self):
+        df = files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+        )
+
+        # Should raise RuntimeError because df is not materialized yet
+        self.assertRaises(RuntimeError, lambda: len(df))
+
+        # After collecting, it should work
+        df.collect()
+        self.assertEqual(len(df), 100)
+
+    def test_raises_error_if_not_supported_content_type(self):
+        self.assertRaises(
+            AssertionError,
+            lambda: files_to_dataframe(
+                uris=[self.MVP_PATH],
+                content_encoding=ContentEncoding.IDENTITY.value,
+                content_type=ContentType.UNESCAPED_TSV.value,
+                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ),
+        )
+
+    def test_raises_error_if_not_supported_content_encoding(self):
+        self.assertRaises(
+            AssertionError,
+            lambda: files_to_dataframe(
+                uris=[self.MVP_PATH],
+                content_encoding=ContentEncoding.GZIP.value,
+                content_type=ContentType.PARQUET.value,
+                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            ),
+        )
+
+    def test_accepts_custom_kwargs(self):
+        # Test that custom kwargs are passed through to daft.read_parquet
+        df = files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            # Custom kwarg that should be passed to daft.read_parquet
+            coerce_int96_timestamp_unit="ns",
+        )
+
+        table = df.to_arrow()
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.num_rows, 100)
+
+    def test_accepts_io_config(self):
+        # Test that io_config parameter is accepted and passed correctly
+        df = files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.PARQUET.value,
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+            # io_config=None should work fine for local files
+            io_config=None,
+        )
+
+        table = df.to_arrow()
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.num_rows, 100)
 
 
 if __name__ == "__main__":

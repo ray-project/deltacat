@@ -1,8 +1,15 @@
-from typing import Optional
+from typing import Optional, Dict, Any
+from pyiceberg.table import Table
+from pyiceberg.catalog import Catalog, load_catalog as pyiceberg_load_catalog
+from botocore.credentials import Credentials
+import boto3
+from boto3.session import Session
 
 
-def load_catalog(iceberg_catalog_name, iceberg_catalog_properties):
-    catalog = load_catalog(
+def load_catalog(
+    iceberg_catalog_name: str, iceberg_catalog_properties: Dict[str, Any]
+) -> Catalog:
+    catalog = pyiceberg_load_catalog(
         name=iceberg_catalog_name,
         **iceberg_catalog_properties,
     )
@@ -23,25 +30,21 @@ def get_s3_path(
     return result_path
 
 
-def get_bucket_name():
-    return "metadata-py4j-zyiqin1"
+def get_bucket_name() -> str:
+    return "test-bucket"
 
 
-def get_s3_prefix():
+def get_s3_prefix() -> str:
     return get_s3_path(get_bucket_name())
 
 
-def get_credential():
-    import boto3
-
-    boto3_session = boto3.Session()
-    credentials = boto3_session.get_credentials()
+def get_credential() -> Credentials:
+    boto3_session: Session = boto3.Session()
+    credentials: Credentials = boto3_session.get_credentials()
     return credentials
 
 
-def get_glue_catalog():
-    from pyiceberg.catalog import load_catalog
-
+def get_glue_catalog() -> Catalog:
     credential = get_credential()
     # Credentials are refreshable, so accessing your access key / secret key
     # separately can lead to a race condition. Use this to get an actual matched
@@ -51,7 +54,7 @@ def get_glue_catalog():
     secret_access_key = credential.secret_key
     session_token = credential.token
     s3_path = get_s3_prefix()
-    glue_catalog = load_catalog(
+    glue_catalog = pyiceberg_load_catalog(
         "glue",
         **{
             "warehouse": s3_path,
@@ -70,6 +73,6 @@ def get_glue_catalog():
     return glue_catalog
 
 
-def load_table(catalog, table_name):
+def load_table(catalog: Catalog, table_name: str) -> Table:
     loaded_table = catalog.load_table(table_name)
     return loaded_table

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import re
 from typing import Optional, Tuple, Union, List
+from datetime import timedelta
+from enum import Enum
 
 import sys
 import urllib
 import pathlib
 
-import pyarrow
 import pyarrow as pa
 from pyarrow.fs import (
     _resolve_filesystem_and_path,
@@ -17,15 +18,59 @@ from pyarrow.fs import (
     FileSystem,
     FSSpecHandler,
     PyFileSystem,
+    GcsFileSystem,
+    LocalFileSystem,
+    S3FileSystem,
+    AzureFileSystem,
+    HadoopFileSystem,
 )
 
 _LOCAL_SCHEME = "local"
 
 
+class FilesystemType(str, Enum):
+    LOCAL = "local"
+    S3 = "s3"
+    GCS = "gcs"
+    AZURE = "azure"
+    HADOOP = "hadoop"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_filesystem(cls, filesystem: FileSystem) -> FilesystemType:
+        if isinstance(filesystem, LocalFileSystem):
+            return cls.LOCAL
+        elif isinstance(filesystem, S3FileSystem):
+            return cls.S3
+        elif isinstance(filesystem, GcsFileSystem):
+            return cls.GCS
+        elif isinstance(filesystem, AzureFileSystem):
+            return cls.AZURE
+        elif isinstance(filesystem, HadoopFileSystem):
+            return cls.HADOOP
+        else:
+            return cls.UNKNOWN
+
+    @classmethod
+    def to_filesystem(cls, filesystem_type: FilesystemType) -> FileSystem:
+        if filesystem_type == cls.LOCAL:
+            return LocalFileSystem()
+        elif filesystem_type == cls.S3:
+            return S3FileSystem()
+        elif filesystem_type == cls.GCS:
+            return GcsFileSystem()
+        elif filesystem_type == cls.AZURE:
+            return AzureFileSystem()
+        elif filesystem_type == cls.HADOOP:
+            return HadoopFileSystem()
+        else:
+            raise ValueError(f"Unsupported filesystem type: {filesystem_type}")
+
+
 def resolve_paths_and_filesystem(
     paths: Union[str, List[str]],
-    filesystem: pyarrow.fs.FileSystem = None,
-) -> Tuple[List[str], pyarrow.fs.FileSystem]:
+    filesystem: FileSystem = None,
+) -> Tuple[List[str], FileSystem]:
     """
     Resolves and normalizes all provided paths, infers a filesystem from the
     paths or validates the provided filesystem against the paths and ensures
@@ -113,19 +158,26 @@ def resolve_paths_and_filesystem(
             else:
                 raise
         if filesystem is None:
-            filesystem = resolved_filesystem
+            if isinstance(resolved_filesystem, GcsFileSystem):
+                # Configure a retry time limit for GcsFileSystem so that it
+                # doesn't hang forever trying to get file info (e.g., when
+                # trying to get a public file w/o anonymous=True).
+                filesystem = GcsFileSystem(
+                    retry_time_limit=timedelta(seconds=60),
+                )
+            else:
+                filesystem = resolved_filesystem
         elif need_unwrap_path_protocol:
             resolved_path = _unwrap_protocol(resolved_path)
         resolved_path = filesystem.normalize_path(resolved_path)
         resolved_paths.append(resolved_path)
-
     return resolved_paths, filesystem
 
 
 def resolve_path_and_filesystem(
     path: str,
-    filesystem: Optional[pyarrow.fs.FileSystem] = None,
-) -> Tuple[str, pyarrow.fs.FileSystem]:
+    filesystem: Optional[FileSystem] = None,
+) -> Tuple[str, FileSystem]:
     """
     Resolves and normalizes the provided path, infers a filesystem from the
     path or validates the provided filesystem against the path.
@@ -148,7 +200,7 @@ def resolve_path_and_filesystem(
 
 def list_directory(
     path: str,
-    filesystem: pyarrow.fs.FileSystem,
+    filesystem: FileSystem,
     exclude_prefixes: Optional[List[str]] = None,
     ignore_missing_path: bool = False,
     recursive: bool = False,
@@ -199,7 +251,7 @@ def list_directory(
 
 def get_file_info(
     path: str,
-    filesystem: pyarrow.fs.FileSystem,
+    filesystem: FileSystem,
     ignore_missing_path: bool = False,
 ) -> FileInfo:
     """Get the file info for the provided path."""
@@ -211,6 +263,62 @@ def get_file_info(
         raise FileNotFoundError(path)
 
     return file_info
+
+
+def write_file(
+    path: str,
+    data: Union[str, bytes],
+    filesystem: Optional[FileSystem] = None,
+) -> None:
+    """
+    Write data to a file using any filesystem.
+
+    Args:
+        path: The file path to write to.
+        data: The data to write (string or bytes).
+        filesystem: The filesystem implementation to use. If None, will be inferred from the path.
+    """
+    resolved_path, resolved_filesystem = resolve_path_and_filesystem(
+        path=path,
+        filesystem=filesystem,
+    )
+
+    # Convert string to bytes if necessary
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+
+    with resolved_filesystem.open_output_stream(resolved_path) as f:
+        f.write(data)
+
+
+def read_file(
+    path: str,
+    filesystem: Optional[FileSystem] = None,
+    fail_if_not_found: bool = True,
+) -> Optional[bytes]:
+    """
+    Read data from a file using any filesystem.
+
+    Args:
+        path: The file path to read from.
+        filesystem: The filesystem implementation to use. If None, will be inferred from the path.
+        fail_if_not_found: Whether to raise an error if the file is not found.
+
+    Returns:
+        The file data as bytes, or None if file not found and fail_if_not_found is False.
+    """
+    try:
+        resolved_path, resolved_filesystem = resolve_path_and_filesystem(
+            path=path,
+            filesystem=filesystem,
+        )
+
+        with resolved_filesystem.open_input_stream(resolved_path) as f:
+            return f.read()
+    except FileNotFoundError:
+        if fail_if_not_found:
+            raise
+        return None
 
 
 def _handle_read_os_error(
@@ -226,6 +334,9 @@ def _handle_read_os_error(
         r"No response body\.(.*))|"
         r"(?:(.*)AWS Error ACCESS_DENIED during HeadObject operation: No response "
         r"body\.(.*))$"
+    )
+    gcp_error_pattern = (
+        r"^(?:(.*)google::cloud::Status\(UNAVAILABLE:(.*?)Couldn't resolve host name)"
     )
     if re.match(aws_error_pattern, str(error)):
         # Specially handle AWS error when reading files, to give a clearer error
@@ -243,9 +354,28 @@ def _handle_read_os_error(
                 "You can also run AWS CLI command to get more detailed error message "
                 "(e.g., aws s3 ls <file-name>). "
                 "See https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3/index.html "  # noqa
+                "and https://arrow.apache.org/docs/python/generated/pyarrow.fs.S3FileSystem.html "
                 "for more information."
             )
         )
+    elif re.match(gcp_error_pattern, str(error)):
+        # Special handling for GCP errors (e.g., handling the special case of
+        # requiring the filesystem to be instantiated with anonymous access to
+        # read public files).
+        if isinstance(paths, str):
+            paths = f'"{paths}"'
+        raise OSError(
+            (
+                f"Failing to read GCP GS file(s): {paths}. "
+                "Please check that file exists and has properly configured access. "
+                "If this is a public file, please instantiate a filesystem with "
+                "anonymous access via `pyarrow.fs.GcsFileSystem(anonymous=True)` "
+                "to read it. See https://google.aip.dev/auth/4110 and "
+                "https://arrow.apache.org/docs/python/generated/pyarrow.fs.GcsFileSystem.html"  # noqa
+                "for more information."
+            )
+        )
+
     else:
         raise error
 

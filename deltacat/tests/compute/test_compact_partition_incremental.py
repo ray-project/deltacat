@@ -1,29 +1,27 @@
-import ray
-from moto import mock_s3
-import pytest
-import os
 import logging
-import boto3
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from boto3.resources.base import ServiceResource
+from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import pytest
 import pyarrow as pa
+import ray
+
 from pytest_benchmark.fixture import BenchmarkFixture
 from deltacat.types.media import StorageType
 
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
+    read_audit_file,
+    PartitionKeyType,
+)
+from deltacat.tests.compute.test_util_common import (
+    add_late_deltas_to_partition_main,
+    create_src_w_deltas_destination_plus_destination_main,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.tests.test_utils.utils import read_s3_contents
-from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    create_src_w_deltas_destination_plus_destination,
-    add_late_deltas_to_partition,
-)
+
 from deltacat.tests.compute.compact_partition_test_cases import (
     INCREMENTAL_TEST_CASES,
 )
 from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
@@ -37,6 +35,7 @@ from deltacat.storage import (
     DeltaLocator,
     Partition,
     PartitionLocator,
+    metastore,
 )
 from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
@@ -49,11 +48,6 @@ from deltacat.utils.placement import (
     PlacementGroupManager,
 )
 from deltacat import logs
-
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -70,53 +64,29 @@ def setup_ray_cluster():
     ray.shutdown()
 
 
-@pytest.fixture(autouse=True, scope="module")
-def mock_aws_credential():
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    yield
-
-
-@pytest.fixture(autouse=True, scope="module")
-def cleanup_the_database_file_after_all_compaction_session_package_tests_complete():
-    # make sure the database file is deleted after all the compactor package tests are completed
-    yield
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
-
-
-@pytest.fixture(scope="module")
-def s3_resource():
-    with mock_s3():
-        yield boto3.resource("s3")
-
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
-    s3_resource.create_bucket(
-        ACL="authenticated-read",
-        Bucket=TEST_S3_RCF_BUCKET_NAME,
-    )
-    yield
-
-
 """
 FUNCTION scoped fixtures
 """
 
 
+@pytest.fixture(autouse=True, scope="function")
+def enable_bucketing_spec_validation(monkeypatch):
+    """
+    Enable the bucketing spec validation for all tests.
+    This will help catch hash bucket drift in testing.
+    """
+    import deltacat.compute.compactor_v2.steps.merge
+
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.steps.merge,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
+    )
+
+
 @pytest.fixture(scope="function")
-def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
+def temp_dir(tmp_path):
+    return str(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -192,9 +162,8 @@ def offer_local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
     ],
     ids=[test_name for test_name in INCREMENTAL_TEST_CASES],
 )
-def test_compact_partition_incremental(
-    s3_resource: ServiceResource,
-    offer_local_deltacat_storage_kwargs: Dict[str, Any],
+def test_compact_partition_incremental_main(
+    main_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: Dict[str, str],
@@ -218,9 +187,16 @@ def test_compact_partition_incremental(
     compact_partition_func: Callable,
     benchmark: BenchmarkFixture,
 ):
-    import deltacat.tests.local_deltacat_storage as ds
+    # Skip in-place compaction tests for main storage as it's not yet implemented
+    if is_inplace:
+        pytest.skip(
+            "In-place compaction not yet implemented in main storage (delta prepending limitation)"
+        )
 
-    ds_mock_kwargs: Dict[str, Any] = offer_local_deltacat_storage_kwargs
+    ds_mock_kwargs: Dict[str, Any] = main_deltacat_storage_kwargs
+
+    # Extract catalog from storage kwargs
+    catalog = ds_mock_kwargs.get("inner")
 
     # setup
     partition_keys = partition_keys_param
@@ -231,7 +207,7 @@ def test_compact_partition_incremental(
         source_table_namespace,
         source_table_name,
         source_table_version,
-    ) = create_src_w_deltas_destination_plus_destination(
+    ) = create_src_w_deltas_destination_plus_destination_main(
         sort_keys,
         partition_keys,
         input_deltas,
@@ -240,14 +216,35 @@ def test_compact_partition_incremental(
         ds_mock_kwargs,
         is_inplace,
     )
-    source_partition: Partition = ds.get_partition(
+
+    # Convert partition values to correct types for get_partition call
+    converted_partition_values = []
+    if partition_values_param and partition_keys:
+        # partition_values_param is a single string, but we need to handle it as a list
+        partition_values_list = (
+            [partition_values_param]
+            if isinstance(partition_values_param, str)
+            else partition_values_param
+        )
+        for i, (value, pk) in enumerate(zip(partition_values_list, partition_keys)):
+            if pk.key_type == PartitionKeyType.INT:
+                converted_partition_values.append(int(value))
+            else:
+                converted_partition_values.append(value)
+    else:
+        converted_partition_values = (
+            [partition_values_param] if partition_values_param else []
+        )
+
+    source_partition: Partition = metastore.get_partition(
         source_table_stream.locator,
-        partition_values_param,
+        converted_partition_values,
+        partition_scheme_id="default_partition_scheme" if partition_keys else None,
         **ds_mock_kwargs,
     )
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
-        partition_values_param,
+        converted_partition_values,
         None,
     )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
@@ -261,10 +258,10 @@ def test_compact_partition_incremental(
     )
     compact_partition_params = CompactPartitionParams.of(
         {
-            "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+            "catalog": catalog,
             "compacted_file_content_type": ContentType.PARQUET,
             "dd_max_parallelism_ratio": 1.0,
-            "deltacat_storage": ds,
+            "deltacat_storage": metastore,
             "deltacat_storage_kwargs": ds_mock_kwargs,
             "destination_partition_locator": destination_partition_locator,
             "drop_duplicates": drop_duplicates_param,
@@ -277,7 +274,6 @@ def test_compact_partition_incremental(
             "rebase_source_partition_locator": None,
             "rebase_source_partition_high_watermark": None,
             "records_per_compacted_file": records_per_compacted_file_param,
-            "s3_client_kwargs": {},
             "source_partition_locator": source_partition.locator,
             "sort_keys": sort_keys if sort_keys else None,
         }
@@ -292,14 +288,13 @@ def test_compact_partition_incremental(
 
         Returns: args, kwargs
         """
-        s3_resource.Bucket(TEST_S3_RCF_BUCKET_NAME).objects.all().delete()
         return (compact_partition_params,), {}
 
     if add_late_deltas:
         # NOTE: In the case of in-place compaction it is plausible that new deltas may be added to the source partition during compaction
         # (so that the source_partitition.stream_position > last_stream_position_to_compact).
         # This parameter helps simulate the case to check that no late deltas are dropped even when the compacted partition is created.
-        latest_delta, _ = add_late_deltas_to_partition(
+        latest_delta, _ = add_late_deltas_to_partition_main(
             add_late_deltas, source_partition, ds_mock_kwargs
         )
     if expected_terminal_exception:
@@ -312,16 +307,13 @@ def test_compact_partition_incremental(
     )
 
     # validate
-    round_completion_info: RoundCompletionInfo = get_rcf(s3_resource, rcf_file_s3_uri)
+    round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
-    audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
-        round_completion_info.compaction_audit_url
-    )
 
-    compaction_audit_obj: Dict[str, Any] = read_s3_contents(
-        s3_resource, audit_bucket, audit_key
+    compaction_audit_obj: Dict[str, Any] = read_audit_file(
+        round_completion_info.compaction_audit_url
     )
     compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
         **compaction_audit_obj
@@ -337,7 +329,7 @@ def test_compact_partition_incremental(
             previous_end == round_completion_info.compacted_pyarrow_write_result.files
         )
 
-    tables = ds.download_delta(
+    tables = metastore.download_delta(
         compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
     )
     actual_compacted_table = pa.concat_tables(tables)
@@ -375,21 +367,23 @@ def test_compact_partition_incremental(
         assert (
             compacted_delta_locator.stream_id == source_partition.locator.stream_id
         ), "The compacted delta should be in the same stream as the source"
-        source_partition: Partition = ds.get_partition(
+        source_partition: Partition = metastore.get_partition(
             source_table_stream.locator,
-            partition_values_param,
+            converted_partition_values,
+            partition_scheme_id="default_partition_scheme" if partition_keys else None,
             **ds_mock_kwargs,
         )
-        compacted_partition: Optional[Partition] = ds.get_partition(
+        compacted_partition: Optional[Partition] = metastore.get_partition(
             compacted_delta_locator.stream_locator,
-            partition_values_param,
+            converted_partition_values,
+            partition_scheme_id="default_partition_scheme" if partition_keys else None,
             **ds_mock_kwargs,
         )
         assert (
             compacted_partition.state == source_partition.state == CommitState.COMMITTED
         ), f"The compacted/source table partition should be in {CommitState.COMMITTED} state and not {CommitState.DEPRECATED}"
         if add_late_deltas:
-            compacted_partition_deltas: List[Delta] = ds.list_partition_deltas(
+            compacted_partition_deltas: List[Delta] = metastore.list_partition_deltas(
                 partition_like=compacted_partition,
                 ascending_order=False,
                 **ds_mock_kwargs,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Union
 
 import base64
 import json
@@ -412,7 +412,7 @@ class Metafile(dict):
     @staticmethod
     def based_on(
         other: Optional[Metafile],
-        new_id: Optional[Locator] = None,
+        new_id: Optional[str] = None,
     ) -> Optional[Metafile]:
         """
         Returns a new metafile equivalent to the input metafile, but with a new
@@ -539,29 +539,31 @@ class Metafile(dict):
                 f"${serialized_dict}"
             )
 
+    @staticmethod
+    def get_type_name(serialized_dict: dict):
+        """
+        Given a serialized dictionary of Metafile data, gets the type name of
+        the metafile class.
+        """
+        return Metafile.get_class(serialized_dict).__name__
+
     @classmethod
-    def read(
+    def deserialize(
         cls,
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        format: Optional[str] = METAFILE_FORMAT,
+        serialized: Union[bytes, str],
+        meta_format: Optional[str] = METAFILE_FORMAT,
     ) -> Metafile:
         """
-        Read a metadata file and return the deserialized object.
-        :param path: Metadata file path to read.
-        :param filesystem: File system to use for reading the metadata file.
-        :param format: Format to use for deserializing the metadata file.
-        :return: Deserialized object from the metadata file.
+        Deserialize a metadata file from the given bytes or string.
+        :param serialized: Serialized metadata file data.
+        :param meta_format: Format to use for deserializing the metadata file.
+        :return: Deserialized metadata file.
         """
-        if format not in SUPPORTED_METAFILE_FORMATS:
+        if meta_format not in SUPPORTED_METAFILE_FORMATS:
             raise ValueError(
-                f"Unsupported format '{format}'. Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
+                f"Unsupported format '{meta_format}'. "
+                f"Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
             )
-
-        if not filesystem:
-            path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        with filesystem.open_input_stream(path) as file:
-            binary = file.readall()
         reader = {
             "json": lambda b: json.loads(
                 b.decode("utf-8"),
@@ -573,12 +575,32 @@ class Metafile(dict):
                 },
             ),
             "msgpack": msgpack.loads,
-        }[format]
-        data = reader(binary)
+        }[meta_format]
+        data = reader(serialized)
         # cast this Metafile into the appropriate child class type
         clazz = Metafile.get_class(data)
-        obj = clazz(**data).from_serializable(path, filesystem)
-        return obj
+        return clazz(**data)
+
+    @classmethod
+    def read(
+        cls,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        meta_format: Optional[str] = METAFILE_FORMAT,
+    ) -> Metafile:
+        """
+        Read a metadata file and return the deserialized object.
+        :param path: Metadata file path to read.
+        :param filesystem: File system to use for reading the metadata file.
+        :param meta_format: Format to use for deserializing the metadata file.
+        :return: Deserialized object from the metadata file.
+        """
+        if not filesystem:
+            path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        with filesystem.open_input_stream(path) as file:
+            serialized = file.readall()
+        metafile = Metafile.deserialize(serialized, meta_format)
+        return metafile.from_serializable(path, filesystem)
 
     def write_txn(
         self,
@@ -587,6 +609,7 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
+        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> None:
         """
@@ -598,6 +621,7 @@ class Metafile(dict):
         :param current_txn_op: Transaction operation for this write.
         :param current_txn_start_time: Transaction start time for this write.
         :param current_txn_id: Transaction ID for this write.
+        :param current_txn_type: Transaction type for this write.
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
@@ -607,40 +631,32 @@ class Metafile(dict):
                 path=catalog_root_dir,
                 filesystem=filesystem,
             )
+
         self._write_metafile_revisions(
             catalog_root=catalog_root_dir,
             success_txn_log_dir=success_txn_log_dir,
             current_txn_op=current_txn_op,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
+            current_txn_type=current_txn_type,
             filesystem=filesystem,
         )
 
-    def write(
+    def serialize(
         self,
-        path: str,
-        filesystem: Optional[pyarrow.fs.FileSystem] = None,
-        format: Optional[str] = METAFILE_FORMAT,
-    ) -> None:
+        meta_format: Optional[str] = METAFILE_FORMAT,
+    ) -> Union[bytes, str]:
         """
-        Serialize and write this object to a metadata file.
-        :param path: Metadata file path to write to.
-        :param filesystem: File system to use for writing the metadata file. If
-        not given, a default filesystem will be automatically selected based on
-        the catalog root path.
-        param: format: Format to use for serializing the metadata file.
+        Serialize this object to the given metafile format.
+        :param meta_format: Format to use for serializing the metadata file.
+        :return: Serialized metadata file bytes or string (format dependent).
         """
-        if format not in SUPPORTED_METAFILE_FORMATS:
+        if meta_format not in SUPPORTED_METAFILE_FORMATS:
             raise ValueError(
-                f"Unsupported format '{format}'. Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
+                f"Unsupported format '{meta_format}'. "
+                f"Supported formats include: {SUPPORTED_METAFILE_FORMATS}."
             )
-
-        if not filesystem:
-            path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        revision_dir_path = posixpath.dirname(path)
-        filesystem.create_dir(revision_dir_path, recursive=True)
-
-        writer = {
+        serializer = {
             "json": lambda data: json.dumps(
                 data,
                 indent=4,
@@ -649,10 +665,30 @@ class Metafile(dict):
                 else b,
             ).encode("utf-8"),
             "msgpack": msgpack.dumps,
-        }[format]
+        }[meta_format]
+        return serializer(self.to_serializable())
 
+    def write(
+        self,
+        path: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        meta_format: Optional[str] = METAFILE_FORMAT,
+    ) -> None:
+        """
+        Serialize and write this object to a metadata file.
+        :param path: Metadata file path to write to.
+        :param filesystem: File system to use for writing the metadata file. If
+        not given, a default filesystem will be automatically selected based on
+        the catalog root path.
+        :param meta_format: Format to use for serializing the metadata file.
+        """
+        serialized = self.serialize(meta_format)
+        if not filesystem:
+            path, filesystem = resolve_path_and_filesystem(path, filesystem)
+        revision_dir_path = posixpath.dirname(path)
+        filesystem.create_dir(revision_dir_path, recursive=True)
         with filesystem.open_output_stream(path) as file:
-            file.write(writer(self.to_serializable()))
+            file.write(serialized)
 
     def equivalent_to(self, other: Metafile) -> bool:
         """
@@ -1143,6 +1179,7 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
+        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: pyarrow.fs.FileSystem,
     ) -> None:
         """
@@ -1177,35 +1214,47 @@ class Metafile(dict):
         if mutable_dest_locator:
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
-            if (
-                current_txn_op.type == TransactionOperationType.UPDATE
-                and mutable_src_locator is not None
-                and mutable_src_locator != mutable_dest_locator
-            ):
-                # this update includes a rename
-                # mark the source metafile mapping as deleted
-                current_txn_op.src_metafile._write_locator_to_id_map_file(
-                    locator=mutable_src_locator,
-                    success_txn_log_dir=success_txn_log_dir,
-                    parent_obj_path=parent_obj_path,
-                    current_txn_op=current_txn_op,
-                    current_txn_op_type=TransactionOperationType.DELETE,
-                    current_txn_start_time=current_txn_start_time,
-                    current_txn_id=current_txn_id,
-                    filesystem=filesystem,
-                )
-                # mark the dest metafile mapping as created
-                self._write_locator_to_id_map_file(
-                    locator=mutable_dest_locator,
-                    success_txn_log_dir=success_txn_log_dir,
-                    parent_obj_path=parent_obj_path,
-                    current_txn_op=current_txn_op,
-                    current_txn_op_type=TransactionOperationType.CREATE,
-                    current_txn_start_time=current_txn_start_time,
-                    current_txn_id=current_txn_id,
-                    filesystem=filesystem,
-                )
+            is_alter_update_txn_op = (
+                current_txn_type
+                == deltacat.storage.model.transaction.TransactionType.ALTER
+                and current_txn_op.type == TransactionOperationType.UPDATE
+            )
+            if is_alter_update_txn_op:
+                # mutable locator alter updates are used to either transition
+                # staged streams/partitions (which have no locator alias) to
+                # committed (and create the locator alias) or to rename an
+                # existing mutable locator
+                if mutable_src_locator != mutable_dest_locator:
+                    if mutable_src_locator is not None:
+                        # this update includes a rename
+                        # mark the source metafile mapping as deleted
+                        current_txn_op.src_metafile._write_locator_to_id_map_file(
+                            locator=mutable_src_locator,
+                            success_txn_log_dir=success_txn_log_dir,
+                            parent_obj_path=parent_obj_path,
+                            current_txn_op=current_txn_op,
+                            current_txn_op_type=TransactionOperationType.DELETE,
+                            current_txn_start_time=current_txn_start_time,
+                            current_txn_id=current_txn_id,
+                            filesystem=filesystem,
+                        )
+                    # mark the dest metafile mapping as created
+                    self._write_locator_to_id_map_file(
+                        locator=mutable_dest_locator,
+                        success_txn_log_dir=success_txn_log_dir,
+                        parent_obj_path=parent_obj_path,
+                        current_txn_op=current_txn_op,
+                        current_txn_op_type=TransactionOperationType.CREATE,
+                        current_txn_start_time=current_txn_start_time,
+                        current_txn_id=current_txn_id,
+                        filesystem=filesystem,
+                    )
+                # else this is a mutable locator no-op update - do nothing
             else:
+                # this is either a create/delete operation or an
+                # update operation that is part of an overwrite/restate
+                # transaction (e.g. committing a staged replacement for a
+                # previously committed stream/partition).
                 self._write_locator_to_id_map_file(
                     locator=mutable_dest_locator,
                     success_txn_log_dir=success_txn_log_dir,
@@ -1300,7 +1349,7 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 ignore_missing_revision=True,
             )
-            if mri.exists():
+            if mri.exists() and mri.txn_op_type != TransactionOperationType.DELETE:
                 item = self.read(
                     path=mri.path,
                     filesystem=filesystem,

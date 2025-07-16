@@ -1,10 +1,16 @@
 from __future__ import annotations
 from enum import Enum
-import botocore
-import ray
+from typing import Callable
 import logging
+
 import tenacity
-from deltacat import logs
+
+from pyarrow.lib import ArrowException, ArrowInvalid, ArrowCapacityError
+
+import botocore
+from botocore.exceptions import BotoCoreError
+
+import ray
 from ray.exceptions import (
     RayError,
     RayTaskError,
@@ -13,14 +19,14 @@ from ray.exceptions import (
     NodeDiedError,
     OutOfMemoryError,
 )
-from deltacat.storage import interface as DeltaCatStorage
-from pyarrow.lib import ArrowException, ArrowInvalid, ArrowCapacityError
-from botocore.exceptions import BotoCoreError
-from typing import Callable
+
+from daft.exceptions import DaftTransientError, DaftCoreException
+
+import deltacat as dc
+from deltacat import logs
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
 )
-from daft.exceptions import DaftTransientError, DaftCoreException
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -70,6 +76,7 @@ class DeltaCatErrorNames(str, Enum):
     STREAM_NOT_FOUND_ERROR = "StreamNotFoundError"
     DELTA_NOT_FOUND_ERROR = "DeltaNotFoundError"
     TABLE_ALREADY_EXISTS_ERROR = "TableAlreadyExistsError"
+    NAMESPACE_ALREADY_EXISTS_ERROR = "NamespaceAlreadyExistsError"
 
 
 class DeltaCatError(Exception):
@@ -80,9 +87,12 @@ class DeltaCatError(Exception):
         super().__init__(*args, **kwargs)
 
     def _get_ray_task_id_and_node_ip(self):
-        task_id = get_current_ray_task_id()
-        node_ip = ray.util.get_node_ip_address()
-        return task_id, node_ip
+        if ray.is_initialized():
+            task_id = get_current_ray_task_id()
+            node_ip = ray.util.get_node_ip_address()
+            return task_id, node_ip
+        else:
+            return None, None
 
 
 class NonRetryableError(DeltaCatError):
@@ -237,6 +247,10 @@ class TableAlreadyExistsError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
 
 
+class NamespaceAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
+
+
 def categorize_errors(func: Callable):
     def wrapper(*args, **kwargs):
         try:
@@ -269,7 +283,7 @@ def categorize_errors(func: Callable):
 
 def categorize_deltacat_exception(
     e: BaseException,
-    deltacat_storage: DeltaCatStorage = None,
+    deltacat_storage: dc.storage.interface = None,
     deltacat_storage_kwargs: dict = None,
 ):
     if deltacat_storage_kwargs is None:

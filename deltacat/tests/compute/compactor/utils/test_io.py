@@ -1,133 +1,135 @@
-import unittest
+import pytest
 from unittest import mock
+
 from deltacat.tests.test_utils.constants import TEST_UPSERT_DELTA
-from typing import Any, Dict
-
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
 
 
-class TestFitInputDeltas(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.module_patcher = mock.patch.dict("sys.modules", {"ray": mock.MagicMock()})
-        cls.module_patcher.start()
+@pytest.fixture(scope="module", autouse=True)
+def mock_ray():
+    """Mock ray module for all tests in this module"""
+    module_patcher = mock.patch.dict("sys.modules", {"ray": mock.MagicMock()})
+    module_patcher.start()
+    yield
+    module_patcher.stop()
 
-        from deltacat.compute.compactor.model.compaction_session_audit_info import (
-            CompactionSessionAuditInfo,
-        )
 
-        cls.kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-            DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-        }
+@pytest.fixture
+def compaction_audit():
+    """Fixture for CompactionSessionAuditInfo"""
+    from deltacat.compute.compactor.model.compaction_session_audit_info import (
+        CompactionSessionAuditInfo,
+    )
 
-        cls.COMPACTION_AUDIT = CompactionSessionAuditInfo("1.0", "2.3", "test")
+    return CompactionSessionAuditInfo("1.0", "2.3", "test")
 
-        super().setUpClass()
 
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.module_patcher.stop()
+def test_sanity(main_deltacat_storage_kwargs, compaction_audit):
+    from deltacat.compute.compactor.utils import io
+    from deltacat.storage import metastore
 
-    def test_sanity(self):
-        from deltacat.compute.compactor.utils import io
-        import deltacat.tests.local_deltacat_storage as ds
+    (
+        delta_list,
+        hash_bucket_count,
+        high_watermark,
+        require_multiple_rounds,
+    ) = io.fit_input_deltas(
+        [TEST_UPSERT_DELTA],
+        {"CPU": 1, "memory": 20000000},
+        compaction_audit,
+        None,
+        metastore,
+        main_deltacat_storage_kwargs,
+    )
 
-        (
-            delta_list,
-            hash_bucket_count,
-            high_watermark,
-            require_multiple_rounds,
-        ) = io.fit_input_deltas(
-            [TEST_UPSERT_DELTA],
-            {"CPU": 1, "memory": 20000000},
-            self.COMPACTION_AUDIT,
+    assert hash_bucket_count is not None
+    assert len(delta_list) == 1
+    assert high_watermark is not None
+    assert require_multiple_rounds is False
+    assert compaction_audit.hash_bucket_count is not None
+    assert compaction_audit.input_file_count is not None
+    assert compaction_audit.input_size_bytes is not None
+    assert compaction_audit.total_cluster_memory_bytes is not None
+
+
+def test_when_hash_bucket_count_overridden(
+    main_deltacat_storage_kwargs, compaction_audit
+):
+    from deltacat.compute.compactor.utils import io
+    from deltacat.storage import metastore
+
+    (
+        delta_list,
+        hash_bucket_count,
+        high_watermark,
+        require_multiple_rounds,
+    ) = io.fit_input_deltas(
+        [TEST_UPSERT_DELTA],
+        {"CPU": 1, "memory": 20000000},
+        compaction_audit,
+        20,
+        metastore,
+        main_deltacat_storage_kwargs,
+    )
+
+    assert hash_bucket_count == 20
+    assert len(delta_list) == 1
+    assert high_watermark is not None
+    assert require_multiple_rounds is False
+
+
+def test_when_not_enough_memory_splits_manifest_entries(
+    main_deltacat_storage_kwargs, compaction_audit
+):
+    from deltacat.compute.compactor.utils import io
+    from deltacat.storage import metastore
+
+    (
+        delta_list,
+        hash_bucket_count,
+        high_watermark,
+        require_multiple_rounds,
+    ) = io.fit_input_deltas(
+        [TEST_UPSERT_DELTA],
+        {"CPU": 2, "memory": 10},
+        compaction_audit,
+        20,
+        metastore,
+        main_deltacat_storage_kwargs,
+    )
+
+    assert hash_bucket_count is not None
+    assert len(delta_list) == 2
+    assert high_watermark is not None
+    assert require_multiple_rounds is False
+
+
+def test_when_no_input_deltas(main_deltacat_storage_kwargs, compaction_audit):
+    from deltacat.compute.compactor.utils import io
+    from deltacat.storage import metastore
+
+    with pytest.raises(AssertionError):
+        io.fit_input_deltas(
+            [],
+            {"CPU": 100, "memory": 20000.0},
+            compaction_audit,
             None,
-            ds,
-            self.kwargs_for_local_deltacat_storage,
+            metastore,
+            main_deltacat_storage_kwargs,
         )
 
-        self.assertIsNotNone(hash_bucket_count)
-        self.assertTrue(1, len(delta_list))
-        self.assertIsNotNone(high_watermark)
-        self.assertFalse(require_multiple_rounds)
-        self.assertIsNotNone(hash_bucket_count, self.COMPACTION_AUDIT.hash_bucket_count)
-        self.assertIsNotNone(self.COMPACTION_AUDIT.input_file_count)
-        self.assertIsNotNone(self.COMPACTION_AUDIT.input_size_bytes)
-        self.assertIsNotNone(self.COMPACTION_AUDIT.total_cluster_memory_bytes)
 
-    def test_when_hash_bucket_count_overridden(self):
-        from deltacat.compute.compactor.utils import io
-        import deltacat.tests.local_deltacat_storage as ds
+def test_when_cpu_resources_is_not_passed(
+    main_deltacat_storage_kwargs, compaction_audit
+):
+    from deltacat.compute.compactor.utils import io
+    from deltacat.storage import metastore
 
-        (
-            delta_list,
-            hash_bucket_count,
-            high_watermark,
-            require_multiple_rounds,
-        ) = io.fit_input_deltas(
-            [TEST_UPSERT_DELTA],
-            {"CPU": 1, "memory": 20000000},
-            self.COMPACTION_AUDIT,
-            20,
-            ds,
-            self.kwargs_for_local_deltacat_storage,
+    with pytest.raises(KeyError):
+        io.fit_input_deltas(
+            [],
+            {},
+            compaction_audit,
+            None,
+            metastore,
+            main_deltacat_storage_kwargs,
         )
-
-        self.assertEqual(20, hash_bucket_count)
-        self.assertEqual(1, len(delta_list))
-        self.assertIsNotNone(high_watermark)
-        self.assertFalse(require_multiple_rounds)
-
-    def test_when_not_enough_memory_splits_manifest_entries(self):
-        from deltacat.compute.compactor.utils import io
-        import deltacat.tests.local_deltacat_storage as ds
-
-        (
-            delta_list,
-            hash_bucket_count,
-            high_watermark,
-            require_multiple_rounds,
-        ) = io.fit_input_deltas(
-            [TEST_UPSERT_DELTA],
-            {"CPU": 2, "memory": 10},
-            self.COMPACTION_AUDIT,
-            20,
-            ds,
-            self.kwargs_for_local_deltacat_storage,
-        )
-
-        self.assertIsNotNone(hash_bucket_count)
-        self.assertTrue(2, len(delta_list))
-        self.assertIsNotNone(high_watermark)
-        self.assertFalse(require_multiple_rounds)
-
-    def test_when_no_input_deltas(self):
-        from deltacat.compute.compactor.utils import io
-        import deltacat.tests.local_deltacat_storage as ds
-
-        with self.assertRaises(AssertionError):
-            io.fit_input_deltas(
-                [],
-                {"CPU": 100, "memory": 20000.0},
-                self.COMPACTION_AUDIT,
-                None,
-                ds,
-                self.kwargs_for_local_deltacat_storage,
-            )
-
-    def test_when_cpu_resources_is_not_passed(self):
-        from deltacat.compute.compactor.utils import io
-        import deltacat.tests.local_deltacat_storage as ds
-
-        with self.assertRaises(KeyError):
-            io.fit_input_deltas(
-                [],
-                {},
-                self.COMPACTION_AUDIT,
-                None,
-                ds,
-                self.kwargs_for_local_deltacat_storage,
-            )

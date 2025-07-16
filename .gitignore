@@ -29,6 +29,7 @@ MANIFEST
 package-lock.json
 *.db
 pyvenv.cfg
+**/.deltacat
 
 # Generated Files
 **/.riv-meta-*
@@ -200,3 +201,6 @@ nb-configuration.xml
 ## OS X
 ##############################
 .DS_Store
+
+# Iceberg Examples
+iceberg_warehouse

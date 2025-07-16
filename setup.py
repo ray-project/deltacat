@@ -34,30 +34,44 @@ setuptools.setup(
     url="https://github.com/ray-project/deltacat",
     packages=setuptools.find_packages(where=".", include="deltacat*"),
     extras_require={
-        "iceberg": ["pyiceberg[glue] >= 0.6.0"],
-        # "iceberg": ["pyiceberg[glue] @ git+https://github.com/apache/iceberg-python"],
+        "iceberg": [
+            "pyiceberg[glue] >= 0.9.0",
+            "pyiceberg[hive] >= 0.9.0",
+            "pyiceberg[sql-sqlite] >= 0.9.0",
+        ],
+        "beam": [
+            "apache-beam[gcs] == 2.65.0",
+        ],
+        # separate s3fs from other AWS dependencies due to vastly increased
+        # installation times when included (due to boto version conflicts)
+        "s3fs": ["s3fs == 2025.3.2"],
     },
     install_requires=[
         # any changes here should also be reflected in requirements.txt
+        # AWS
         "aws-embedded-metrics == 3.2.0",
         "boto3 ~= 1.34",
-        "getdaft == 0.3.6",
+        # GCP
+        "google-cloud-storage",
+        "gcsfs == 2025.3.2",
+        # Misc
+        "daft == 0.4.15",
         "intervaltree == 3.1.0",
-        "numpy == 1.21.5",
-        "pandas == 1.3.5",
+        "numpy == 1.22.4",
+        "pandas == 2.2.3",
+        "polars == 1.28.1",
         # upgrade to pyarrow 18.0.0 causes test
         # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
         # due to input_inflation exceeding 1e-5
-        "pyarrow == 17.0.0",
-        "pydantic == 1.10.4",
+        # Daft requires pyarrow == 16.00. TODO discuss upgrade with Daft
+        "pyarrow == 16.0.0",
+        "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
         "pymemcache == 4.0.0",
-        "ray >= 2.20.0",
-        "s3fs == 2024.5.0",
+        "ray[default] == 2.46.0",
         "tenacity == 8.2.3",
         "typing-extensions == 4.6.1",
-        "redis == 4.6.0",
+        "redis == 5.0.0",
         "schedule == 1.2.0",
-        "pyspark == 3.5.3",
     ],
     setup_requires=["wheel"],
     package_data={

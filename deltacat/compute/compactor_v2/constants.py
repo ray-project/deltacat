@@ -1,3 +1,5 @@
+from deltacat.utils.common import env_bool, env_integer, env_string
+
 TOTAL_BYTES_IN_SHA1_HASH = 20
 
 PK_DELIMITER = "L6kl7u5f"
@@ -31,7 +33,9 @@ TOTAL_MEMORY_BUFFER_PERCENTAGE = 30
 # The total size of records that will be hash bucketed at once
 # Since, sorting is nlogn, we ensure that is not performed
 # on a very large dataset for best performance.
-MAX_SIZE_OF_RECORD_BATCH_IN_GIB = 2 * 1024 * 1024 * 1024
+MAX_SIZE_OF_RECORD_BATCH_IN_GIB = env_integer(
+    "MAX_SIZE_OF_RECORD_BATCH_IN_GIB", 2 * 1024 * 1024 * 1024
+)
 
 # Whether to drop duplicates during merge.
 DROP_DUPLICATES = True
@@ -78,3 +82,28 @@ COMPACT_PARTITION_METRIC_PREFIX = "compact_partition"
 # Number of rounds to run hash/merge for a single
 # partition. (For large table support)
 DEFAULT_NUM_ROUNDS = 1
+
+# Whether to perform sha1 hashing when required to
+# optimize memory. For example, hashing is always
+# required for bucketing where it's not mandatory
+# when dropping duplicates. Setting this to True
+# will disable sha1 hashing in cases where it isn't
+# mandatory. This flag is False by default.
+SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED = env_bool(
+    "SHA1_HASHING_FOR_MEMORY_OPTIMIZATION_DISABLED", False
+)
+
+# This env variable specifies whether to check bucketing spec
+# compliance of the existing compacted table.
+# PRINT_LOG: Enable logging if any partition is found
+# to be non-compliant with the bucketing spec.
+# ASSERT: Fail the job with ValidationError if the
+# current compacted partition is found to be non-compliant
+# with bucketing spec. Note, logging is implicitly enabled
+# in this case.
+BUCKETING_SPEC_COMPLIANCE_PROFILE = env_string(
+    "BUCKETING_SPEC_COMPLIANCE_PROFILE", None
+)
+
+BUCKETING_SPEC_COMPLIANCE_PRINT_LOG = "PRINT_LOG"
+BUCKETING_SPEC_COMPLIANCE_ASSERT = "ASSERT"

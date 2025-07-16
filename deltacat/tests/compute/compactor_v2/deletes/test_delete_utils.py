@@ -4,34 +4,25 @@ from deltacat.storage import (
     DeltaType,
     Delta,
     EntryParams,
+    metastore,
 )
 from deltacat.storage import (
     Partition,
     PartitionLocator,
     Stream,
 )
-from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
-)
 from deltacat.tests.compute.test_util_common import (
-    create_src_table,
-    create_destination_table,
+    create_src_table_main,
+    create_destination_table_main,
 )
 
 from dataclasses import dataclass, fields
 import ray
-import os
 from typing import Any, Dict, List, Optional, Tuple
-import deltacat.tests.local_deltacat_storage as ds
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
 import pyarrow as pa
-
-DATABASE_FILE_PATH_KEY, DATABASE_FILE_PATH_VALUE = (
-    "db_file_path",
-    "deltacat/tests/local_deltacat_storage/db_test.sqlite",
-)
 
 
 @dataclass(frozen=True)
@@ -56,17 +47,6 @@ def setup_ray_cluster():
     ray.init(local_mode=True, ignore_reinit_error=True)
     yield
     ray.shutdown()
-
-
-@pytest.fixture(scope="function")
-def local_deltacat_storage_kwargs(request: pytest.FixtureRequest):
-    # see deltacat/tests/local_deltacat_storage/README.md for documentation
-    kwargs_for_local_deltacat_storage: Dict[str, Any] = {
-        DATABASE_FILE_PATH_KEY: DATABASE_FILE_PATH_VALUE,
-    }
-    yield kwargs_for_local_deltacat_storage
-    if os.path.exists(DATABASE_FILE_PATH_VALUE):
-        os.remove(DATABASE_FILE_PATH_VALUE)
 
 
 TEST_CASES_PREPARE_DELETE = {
@@ -457,10 +437,136 @@ TEST_CASES_PREPARE_DELETE = {
         0,
         None,
     ),
+    "9-test-ten-consecutive-deletes": PrepareDeleteTestCaseParams(
+        [
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([str(i) for i in range(10)]),
+                        pa.array([i for i in range(40, 50)]),
+                    ],
+                    names=["pk_col_1", "col_1"],
+                ),
+                DeltaType.UPSERT,
+                None,
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([40]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([41]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([42]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([43]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([44]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([45]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([46]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([47]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([48]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+            (
+                pa.Table.from_arrays(
+                    [
+                        pa.array([49]),
+                    ],
+                    names=["col_1"],
+                ),
+                DeltaType.DELETE,
+                EntryParams.of(["col_1"]),
+            ),
+        ],
+        1,
+        [
+            pa.Table.from_arrays(
+                [
+                    pa.array([40, 41, 42, 43, 44, 45, 46, 47, 48, 49]),
+                ],
+                names=["col_1"],
+            ),
+        ],
+        1,
+        None,
+    ),
 }
 
 
-class TestPrepareDeletes:
+class TestPrepareDeletesMain:
     TEST_PRIMARY_KEYS = ["pk_col_1"]
 
     @pytest.mark.parametrize(
@@ -493,7 +599,7 @@ class TestPrepareDeletes:
     )
     def test_prepare_deletes_with_deletes(
         self,
-        local_deltacat_storage_kwargs: Dict[str, Any],
+        main_deltacat_storage_kwargs: Dict[str, Any],
         test_name: str,
         deltas_to_compact: List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]],
         expected_delta_file_envelopes_len: int,
@@ -505,72 +611,81 @@ class TestPrepareDeletes:
             prepare_deletes,
         )
 
-        source_namespace, source_table_name, source_table_version = create_src_table(
-            None,
-            None,
-            local_deltacat_storage_kwargs,
+        # Get schema from the first delta for proper table creation
+        first_delta_table = deltas_to_compact[0][0] if deltas_to_compact else None
+
+        (
+            source_namespace,
+            source_table_name,
+            source_table_version,
+        ) = create_src_table_main(
+            None,  # sort_keys
+            None,  # partition_keys
+            first_delta_table,  # input_deltas - pass the first delta table for schema inference
+            main_deltacat_storage_kwargs,  # ds_mock_kwargs
         )
-        source_table_stream: Stream = ds.get_stream(
+        source_table_stream: Stream = metastore.get_stream(
             namespace=source_namespace,
             table_name=source_table_name,
             table_version=source_table_version,
-            **local_deltacat_storage_kwargs,
+            **main_deltacat_storage_kwargs,
         )
-        staged_partition: Partition = ds.stage_partition(
-            source_table_stream, None, **local_deltacat_storage_kwargs
+        staged_partition: Partition = metastore.stage_partition(
+            source_table_stream, None, **main_deltacat_storage_kwargs
         )
         input_deltas: List[Delta] = []
         for (incremental_delta, delta_type, delete_parameters) in deltas_to_compact:
             input_deltas.append(
-                ds.commit_delta(
-                    ds.stage_delta(
+                metastore.commit_delta(
+                    metastore.stage_delta(
                         incremental_delta,
                         staged_partition,
                         delta_type,
                         entry_params=delete_parameters,
-                        **local_deltacat_storage_kwargs,
+                        **main_deltacat_storage_kwargs,
                     ),
-                    **local_deltacat_storage_kwargs,
+                    **main_deltacat_storage_kwargs,
                 )
             )
-        ds.commit_partition(staged_partition, **local_deltacat_storage_kwargs)
-        src_table_stream_after_committed_delta: Stream = ds.get_stream(
+        metastore.commit_partition(staged_partition, **main_deltacat_storage_kwargs)
+        src_table_stream_after_committed_delta: Stream = metastore.get_stream(
             source_namespace,
             source_table_name,
             source_table_version,
-            **local_deltacat_storage_kwargs,
+            **main_deltacat_storage_kwargs,
         )
-        src_partition_after_committed_delta: Partition = ds.get_partition(
+        src_partition_after_committed_delta: Partition = metastore.get_partition(
             src_table_stream_after_committed_delta.locator,
             None,
-            **local_deltacat_storage_kwargs,
+            **main_deltacat_storage_kwargs,
         )
         (
             destination_table_namespace,
             destination_table_name,
             destination_table_version,
-        ) = create_destination_table(
-            None,
-            None,
-            local_deltacat_storage_kwargs,
+        ) = create_destination_table_main(
+            None,  # sort_keys
+            None,  # partition_keys
+            None,  # input_deltas
+            main_deltacat_storage_kwargs,  # ds_mock_kwargs
         )
-        destination_table_stream: Stream = ds.get_stream(
+        destination_table_stream: Stream = metastore.get_stream(
             namespace=destination_table_namespace,
             table_name=destination_table_name,
             table_version=destination_table_version,
-            **local_deltacat_storage_kwargs,
+            **main_deltacat_storage_kwargs,
         )
         params = CompactPartitionParams.of(
             {
-                "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
-                "deltacat_storage": ds,
-                "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                "catalog": main_deltacat_storage_kwargs.get("inner"),
+                "deltacat_storage": metastore,
+                "deltacat_storage_kwargs": main_deltacat_storage_kwargs,
                 "destination_partition_locator": PartitionLocator.of(
                     destination_table_stream, None, None
                 ),
-                "last_stream_position_to_compact": staged_partition.stream_position,
+                "last_stream_position_to_compact": src_partition_after_committed_delta.stream_position,
                 "list_deltas_kwargs": {
-                    **local_deltacat_storage_kwargs,
+                    **main_deltacat_storage_kwargs,
                     **{"equivalent_table_types": []},
                 },
                 "read_kwargs_provider": None,

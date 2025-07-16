@@ -61,7 +61,7 @@ def daft_table_read(path: str, columns: list[str] | None = None) -> pa.Table:
             "Daft not installed. Install Daft using pip to run these benchmarks: `pip install getdaft`"
         )
 
-    tbl = daft.table.Table.read_parquet(path, columns=columns)
+    tbl = daft.read_parquet(path, columns=columns)
     return tbl.to_arrow()
 
 

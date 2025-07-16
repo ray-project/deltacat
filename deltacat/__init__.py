@@ -1,7 +1,14 @@
+import importlib
 import logging
 
 import deltacat.logs  # noqa: F401
-from deltacat.catalog.delegate import (
+from deltacat.api import (
+    copy,
+    get,
+    list,
+    put,
+)
+from deltacat.catalog import (  # noqa: F401
     alter_namespace,
     alter_table,
     create_namespace,
@@ -20,17 +27,24 @@ from deltacat.catalog.delegate import (
     table_exists,
     truncate_table,
     write_to_table,
-)
-from deltacat.catalog.model.catalog import (  # noqa: F401
-    Catalog,
-    Catalogs,
-    all_catalogs,
     init,
+    is_initialized,
+    clear_catalogs,
     get_catalog,
+    get_catalog_properties,
+    pop_catalog,
+    put_catalog,
+    raise_if_not_initialized,
+    Catalog,
+    CatalogProperties,
+    TableDefinition,
 )
-from deltacat.catalog.iceberg import impl as IcebergCatalog
-from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.compute import (
+    job_client,
+    local_job_client,
+)
 from deltacat.storage import (
+    Dataset,
     DistributedDataset,
     Field,
     LifecycleState,
@@ -47,18 +61,39 @@ from deltacat.storage import (
     SortScheme,
     NullOrder,
 )
-from deltacat.storage.rivulet import Dataset, Datatype
-from deltacat.types.media import ContentEncoding, ContentType, TableType
+from deltacat.types.media import (
+    ContentEncoding,
+    ContentType,
+    DatasetType,
+    DatastoreType,
+)
+
 from deltacat.types.tables import TableWriteMode
+from deltacat.utils.url import DeltaCatUrl
+
+__iceberg__ = []
+if importlib.util.find_spec("pyiceberg") is not None:
+    from deltacat.experimental.catalog.iceberg import (  # noqa: F401
+        impl as IcebergCatalog,
+    )
+
+    __iceberg__ = [
+        "IcebergCatalog",
+    ]
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0"
+__version__ = "2.0.0b12"
 
 
 __all__ = [
     "__version__",
-    "all_catalogs",
+    "job_client",
+    "local_job_client",
+    "copy",
+    "get",
+    "list",
+    "put",
     "alter_table",
     "create_table",
     "drop_table",
@@ -77,16 +112,24 @@ __all__ = [
     "default_namespace",
     "write_to_table",
     "read_table",
-    "get_catalog",
     "init",
+    "is_initialized",
+    "clear_catalogs",
+    "get_catalog",
+    "get_catalog_properties",
+    "pop_catalog",
+    "put_catalog",
+    "raise_if_not_initialized",
     "Catalog",
+    "CatalogProperties",
     "ContentType",
     "ContentEncoding",
-    "DistributedDataset",
     "Dataset",
-    "Datatype",
+    "DatasetType",
+    "DatastoreType",
+    "DeltaCatUrl",
+    "DistributedDataset",
     "Field",
-    "IcebergCatalog",
     "LifecycleState",
     "ListResult",
     "LocalDataset",
@@ -101,6 +144,7 @@ __all__ = [
     "SortOrder",
     "SortScheme",
     "TableDefinition",
-    "TableType",
     "TableWriteMode",
 ]
+
+__all__ += __iceberg__

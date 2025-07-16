@@ -11,7 +11,7 @@ from deltacat.storage import (
     PartitionLocator,
     Delta,
     ManifestEntry,
-    interface as unimplemented_deltacat_storage,
+    metastore,
 )
 from deltacat import logs
 from deltacat.compute.compactor import DeltaAnnotated
@@ -31,7 +31,7 @@ def discover_deltas(
     compacted_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_locator: Optional[PartitionLocator],
     rebase_source_partition_high_watermark: Optional[int],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
     list_deltas_kwargs: Optional[Dict[str, Any]] = {},
 ) -> Tuple[List[Delta], int]:
@@ -109,7 +109,7 @@ def limit_input_deltas(
     user_hash_bucket_chunk_size: int,
     input_deltas_stats: Dict[int, DeltaStats],
     compaction_audit: CompactionSessionAuditInfo,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
@@ -272,7 +272,7 @@ def fit_input_deltas(
     cluster_resources: Dict[str, float],
     compaction_audit: CompactionSessionAuditInfo,
     hash_bucket_count: Optional[int],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Tuple[List[DeltaAnnotated], int, HighWatermark, bool]:
@@ -359,7 +359,7 @@ def _discover_deltas(
     source_partition_locator: PartitionLocator,
     start_position_exclusive: Optional[int],
     end_position_inclusive: Optional[int],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
     list_deltas_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[Delta]:
