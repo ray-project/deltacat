@@ -377,7 +377,8 @@ class Transaction(dict):
             binary = file.readall()
         obj = cls(**msgpack.loads(binary))
         return obj
-    
+
+    @staticmethod
     def read_time_provider(provider_name: str):
         """
         Given the string name of a time provider class, return a new instance of it.
@@ -429,19 +430,11 @@ class Transaction(dict):
 
     @property
     def metafile_write_paths(self) -> List[str]:
-        return [
-            path
-            for op in self.operations
-            for path in op.metafile_write_paths
-        ]
+        return [path for op in self.operations for path in op.metafile_write_paths]
 
     @property
     def locator_write_paths(self) -> List[str]:
-        return [
-            path
-            for op in self.operations
-            for path in op.locator_write_paths
-    ]
+        return [path for op in self.operations for path in op.locator_write_paths]
 
     @property
     def catalog_root_normalized(self) -> str:
@@ -615,12 +608,11 @@ class Transaction(dict):
 
         # TODO: check if we care about order or exact time stamps --> pickling time_provider?
         # serializable.pop("_time_provider", None)
-                
-        serializable["_time_provider"] = {
-            "type": type(self._time_provider).__name__,  
-            "params": {}  
-        }
 
+        serializable["_time_provider"] = {
+            "type": type(self._time_provider).__name__,
+            "params": {},
+        }
 
         serializable.catalog_root_normalized = self.catalog_root_normalized
 
@@ -699,16 +691,14 @@ class Transaction(dict):
         """
         txn: "Transaction" = copy.deepcopy(self)
         txn._time_provider = TransactionSystemTimeProvider()
-        txn._mark_start_time(txn._time_provider)  # start time on deep_copy
+        txn._mark_start_time(txn._time_provider
+        )  # start time on deep_copy
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
             catalog_root_dir, filesystem
         )
         txn.catalog_root_normalized = catalog_root_normalized
         txn._filesystem = filesystem  # keep for pause/resume
         txn.running_log_written = False  # internal flags
-        # TODO: might have to change these to properties
-        txn.metafile_write_paths = []  # meta only (for return value
-        txn.locator_write_paths = []
         txn._list_results = []
 
         # make sure txn/ directories exist (idempotent)
@@ -738,6 +728,9 @@ class Transaction(dict):
             txn_log_dir, RUNNING_TXN_DIR_NAME, self.id
         )
 
+        # Add new operation to the transaction's list of operations
+        self.operations = self.operations + [operation]
+
         # (a) READ txn
         if self.type == TransactionType.READ:
             list_result = operation.dest_metafile.read_txn(
@@ -764,10 +757,10 @@ class Transaction(dict):
                 current_txn_op=operation,
                 current_txn_start_time=self.start_time,
                 current_txn_id=self.id,
+                current_txn_type=self.type,
                 filesystem=filesystem,
             )
-            self.metafile_write_paths.extend(operation.metafile_write_paths)
-            self.locator_write_paths.extend(operation.locator_write_paths)
+
             for path in self.metafile_write_paths:
                 MetafileRevisionInfo.check_for_concurrent_txn_conflict(
                     success_txn_log_dir=posixpath.join(
@@ -833,11 +826,9 @@ class Transaction(dict):
             restored_txn.__dict__
         )  # make curr txn the same as restored (fill vars and stuff)
 
-        new_provider = self.read_time_provider(restored_txn["_time_provider"])()
+        # To support restoring time provider state if we ever add non-ephemeral ones.
+        new_provider = Transaction.read_time_provider(restored_txn["_time_provider"]["type"])
 
-        # TODO: Support restoring time provider state if we ever add non-ephemeral ones.
-
-        
         # evaluate system clock
         now = new_provider.start_time()
         self._time_provider = new_provider  # start time should be preserved
@@ -846,7 +837,7 @@ class Transaction(dict):
                 f"System clock {now} is behind paused transaction time {self._pause_time}"
             )
             # TODO: set new start time or keep error if clock is off?
-            
+
         # Move back to running state
         fs.create_dir(posixpath.dirname(running_path), recursive=True)
         with fs.open_output_stream(running_path) as f:
@@ -946,4 +937,3 @@ class Transaction(dict):
                 fs.delete_file(success_log_path)
             except Exception:
                 pass
-

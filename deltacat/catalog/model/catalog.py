@@ -8,8 +8,6 @@ from typing import Any, Dict, List, Optional, Union
 from functools import partial
 import ray
 
-import json
-
 from deltacat import logs
 from deltacat.annotations import ExperimentalAPI
 from deltacat.catalog.main import impl as DeltacatCatalog
@@ -17,7 +15,6 @@ from deltacat.catalog.iceberg import impl as IcebergCatalog
 from deltacat.catalog import CatalogProperties
 from deltacat.catalog.iceberg import IcebergCatalogConfig
 from deltacat.constants import DEFAULT_CATALOG
-from pathlib import Path
 
 all_catalogs: Optional[ray.actor.ActorHandle] = None
 
