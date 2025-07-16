@@ -21,7 +21,7 @@ def node_resource_keys(
     keys = []
     node_dict = ray.nodes()
     if node_dict:
-        for node in ray.nodes():
+        for node in node_dict:
             if filter_fn(node):
                 for key in node["Resources"].keys():
                     if key.startswith("node:"):
@@ -37,12 +37,53 @@ def current_node_resource_key() -> str:
     actors on that node via:
     `foo.options(resources={get_current_node_resource_key(): 0.01}).remote()`
     """
-    current_node_id = ray.get_runtime_context().get_node_id().hex()
+    current_node_id = ray.get_runtime_context().get_node_id()
     keys = node_resource_keys(lambda n: n["NodeID"] == current_node_id)
     assert (
         len(keys) <= 1
     ), f"Expected <= 1 keys for the current node, but found {len(keys)}"
     return keys[0] if len(keys) == 1 else None
+
+
+def current_node_resources() -> Dict[str, float]:
+    """Get's Ray's resources for the current node as a dictionary.
+
+    Example Return Value:
+        >>> {
+        >>>    'memory': 17611605607.0,
+        >>>    'node:127.0.0.1': 1.0,
+        >>>    'node:__internal_head__': 1.0,
+        >>>    'object_store_memory': 2147483648.0,
+        >>>    'CPU': 10.0,
+        >>> }
+    """
+    current_node_id = ray.get_runtime_context().get_node_id()
+    node_dict = ray.nodes()
+    if node_dict:
+        for node in node_dict:
+            if node["NodeID"] == current_node_id:
+                return node["Resources"]
+    else:
+        raise ValueError("No node dictionary found on current node.")
+    return {}
+
+
+def find_max_single_node_resource_type(resource_type: str) -> float:
+    """Finds the max resource amount available on any single cluster node
+    for the given resource type. Returns the max resource amount as a float."""
+    node_dict = ray.nodes()
+    max_single_node_resource_amount = 0
+    if node_dict:
+        for node in node_dict:
+            node_resource_amount = node["Resources"].get(resource_type)
+            if node_resource_amount is not None:
+                max_single_node_resource_amount = max(
+                    max_single_node_resource_amount,
+                    node_resource_amount,
+                )
+    else:
+        raise ValueError("No node dictionary found on current node.")
+    return max_single_node_resource_amount
 
 
 def is_node_alive(node: Dict[str, Any]) -> bool:
@@ -67,6 +108,17 @@ def live_node_waiter(min_live_nodes: int, poll_interval_seconds: float = 0.5) ->
         time.sleep(poll_interval_seconds)
 
 
+def live_cpu_waiter(min_live_cpus: int, poll_interval_seconds: float = 0.5) -> None:
+    """Waits until the given minimum number of live CPUs are present in the
+    cluster. Checks the current number of live CPUs every
+    `poll_interval_seconds`."""
+    live_cpus = cluster_cpus()
+    while live_cpus < min_live_cpus:
+        live_cpus = cluster_cpus()
+        logger.info(f"Waiting for Live CPUs: {live_cpus}/{min_live_cpus}")
+        time.sleep(poll_interval_seconds)
+
+
 def live_node_resource_keys() -> List[str]:
     """Get Ray resource keys for all live cluster nodes as a list of strings of
     the form: "node:{node_resource_name}". The returned keys can be used to
@@ -83,7 +135,7 @@ def other_live_node_resource_keys() -> List[str]:
 
     For example, invoking this function from your Ray application driver on the
     head node returns the resource keys of all live worker nodes."""
-    current_node_id = ray.get_runtime_context().get_node_id().hex()
+    current_node_id = ray.get_runtime_context().get_node_id()
     return node_resource_keys(
         lambda n: n["NodeID"] != current_node_id and is_node_alive(n)
     )
@@ -97,7 +149,7 @@ def other_node_resource_keys() -> List[str]:
 
     For example, invoking this function from your Ray application driver on the
     head node returns the resource keys of all worker nodes."""
-    current_node_id = ray.get_runtime_context().get_node_id().hex()
+    current_node_id = ray.get_runtime_context().get_node_id()
     return node_resource_keys(lambda n: n["NodeID"] != current_node_id)
 
 

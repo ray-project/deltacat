@@ -1,13 +1,23 @@
+import logging
 import uuid
+import posixpath
+import pyarrow
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.catalog import get_catalog_properties
-from deltacat.constants import DEFAULT_TABLE_VERSION
-from deltacat.exceptions import TableNotFoundError
+from deltacat.constants import DEFAULT_TABLE_VERSION, DATA_FILE_DIR_NAME
+from deltacat.exceptions import (
+    TableNotFoundError,
+    DeltaCatError,
+    UnclassifiedDeltaCatError,
+)
 from deltacat.storage.model.manifest import (
     EntryParams,
+    EntryType,
     ManifestAuthor,
+    ManifestEntryList,
+    ManifestEntry,
 )
 from deltacat.storage.model.delta import (
     Delta,
@@ -36,14 +46,13 @@ from deltacat.storage.model.partition import (
     PartitionLocator,
     PartitionScheme,
     PartitionValues,
+    UNPARTITIONED_SCHEME,
     UNPARTITIONED_SCHEME_ID,
-    PartitionLocatorAlias,
 )
-from deltacat.storage.model.schema import (
-    Schema,
-)
+from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import (
     SortScheme,
+    UNSORTED_SCHEME,
 )
 from deltacat.storage.model.stream import (
     Stream,
@@ -73,8 +82,22 @@ from deltacat.types.media import (
     DistributedDatasetType,
     StorageType,
     TableType,
+    ContentEncoding,
 )
 from deltacat.utils.common import ReadKwargsProvider
+import pyarrow as pa
+
+from deltacat.types.tables import (
+    get_table_writer,
+    get_table_slicer,
+    write_sliced_table,
+    download_manifest_entries,
+    download_manifest_entries_distributed,
+    download_manifest_entry,
+)
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _list(
@@ -121,7 +144,7 @@ def _exists(
     metafile: Metafile,
     *args,
     **kwargs,
-) -> Optional[Metafile]:
+) -> Optional[bool]:
     list_results = _list(
         *args,
         metafile=metafile,
@@ -132,71 +155,11 @@ def _exists(
     return True if results else False
 
 
-def _resolve_partition_locator_alias(
-    namespace: str,
-    table_name: str,
-    table_version: Optional[str] = None,
-    partition_values: Optional[PartitionValues] = None,
-    partition_scheme_id: Optional[str] = None,
-    *args,
-    **kwargs,
-) -> PartitionLocatorAlias:
-    # TODO(pdames): A read shouldn't initiate N transactions that
-    #  read against different catalog snapshots. To resolve this, add
-    #  new "start", "step", and "end" methods to Transaction that
-    #  support starting a txn, defining and executing a txn op, retrieve
-    #  its results, then define and execute the next txn op. When
-    #  stepping through a transaction its txn heartbeat timeout should
-    #  be set manually.
-    partition_locator = None
-    if not partition_values:
-        partition_scheme_id = UNPARTITIONED_SCHEME_ID
-    elif not partition_scheme_id:
-        # resolve latest partition scheme from the current
-        # revision of its `deltacat` stream
-        stream = get_stream(
-            *args,
-            namespace=namespace,
-            table_name=table_name,
-            table_version=table_version,
-            **kwargs,
-        )
-        if not stream:
-            raise ValueError(
-                f"Failed to resolve latest partition scheme for "
-                f"`{namespace}.{table_name}` at table version "
-                f"`{table_version or 'latest'}` (no stream found)."
-            )
-        partition_locator = PartitionLocator.of(
-            stream_locator=stream.locator,
-            partition_values=partition_values,
-            partition_id=None,
-        )
-        partition_scheme_id = stream.partition_scheme.id
-    if not partition_locator:
-        partition_locator = PartitionLocator.at(
-            namespace=namespace,
-            table_name=table_name,
-            table_version=table_version,
-            stream_id=None,
-            stream_format=StreamFormat.DELTACAT,
-            partition_values=partition_values,
-            partition_id=None,
-        )
-    partition = Partition.of(
-        locator=partition_locator,
-        schema=None,
-        content_types=None,
-        partition_scheme_id=partition_scheme_id,
-    )
-    return partition.locator_alias
-
-
 def _resolve_latest_active_table_version_id(
     namespace: str,
     table_name: str,
-    fail_if_no_active_table_version: True,
     *args,
+    fail_if_no_active_table_version: bool = True,
     **kwargs,
 ) -> Optional[str]:
     table = get_table(
@@ -230,6 +193,84 @@ def _resolve_latest_table_version_id(
     if fail_if_no_active_table_version and not table.latest_table_version:
         raise ValueError(f"Table has no table version: {namespace}.{table_name}")
     return table.latest_table_version
+
+
+def _validate_schemes_against_schema(
+    schema: Optional[Schema],
+    partition_scheme: Optional[PartitionScheme],
+    sort_scheme: Optional[SortScheme],
+) -> None:
+    """
+    Validates partition and sort schemes against a schema, ensuring all referenced fields exist.
+    If schema is None, validation is skipped.
+    """
+    if schema is None:
+        return
+
+    schema_fields = set(field.name for field in schema.arrow)
+
+    # Validate partition scheme
+    if partition_scheme is not None and partition_scheme.keys is not None:
+        for key in partition_scheme.keys:
+            if key.key[0] not in schema_fields:
+                raise ValueError(
+                    f"Partition key field '{key.key[0]}' not found in schema"
+                )
+
+    # Validate sort scheme
+    if sort_scheme is not None and sort_scheme.keys is not None:
+        for key in sort_scheme.keys:
+            if key.key[0] not in schema_fields:
+                raise ValueError(f"Sort key field '{key.key[0]}' not found in schema")
+
+
+def _validate_partition_values_against_scheme(
+    partition_values: Optional[PartitionValues],
+    partition_scheme: PartitionScheme,
+    schema: Optional[Schema],
+) -> None:
+    """
+    Validates that partition values match the data types of the partition key fields in the schema.
+
+    Args:
+        partition_values: List of partition values to validate
+        partition_scheme: The partition scheme containing the keys to validate against
+        schema: The schema containing the field types to validate against
+
+    Raises:
+        ValueError: If validation fails
+    """
+    if not partition_values:
+        return
+
+    if not schema:
+        raise ValueError(
+            "Table version must have a schema to validate partition values"
+        )
+
+    if len(partition_values) != len(partition_scheme.keys):
+        raise ValueError(
+            f"Number of partition values ({len(partition_values)}) does not match "
+            f"number of partition keys ({len(partition_scheme.keys)})"
+        )
+
+    # Validate each partition value against its corresponding field type
+    for i in range(len(partition_scheme.keys)):
+        field_type = partition_scheme.keys[i].transform.return_type
+        partition_value = partition_values[i]
+        if field_type is None:
+            # the transform returns the same type as the source schema type
+            # (which also implies that it is a single-key transform)
+            field_type = schema.field(partition_scheme.keys[i].key[0]).arrow.type
+        try:
+            # Try to convert the value to PyArrow to validate its type
+            pa.array([partition_value], type=field_type)
+            # If successful, the type is valid
+        except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError) as e:
+            raise ValueError(
+                f"Partition value {partition_value} (type {type(partition_value)}) "
+                f"incompatible with partition transform return type {field_type}"
+            ) from e
 
 
 def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
@@ -330,12 +371,27 @@ def list_partitions(
     table version if not specified. Raises an error if the table version does
     not exist.
     """
-    locator = PartitionLocator.at(
+    if not namespace:
+        raise ValueError("Namespace cannot be empty.")
+    if not table_name:
+        raise ValueError("Table name cannot be empty.")
+    # resolve default deltacat stream for the given namespace, table name, and table version
+    # TODO(pdames): debug why this doesn't work when only the table_version is provided
+    #   and PartitionLocator.stream_format is hard-coded to deltacat (we should be able
+    #   to resolve the default deltacat stream automatically)
+    stream = get_stream(
+        *args,
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
-        stream_id=None,
-        stream_format=StreamFormat.DELTACAT,
+        **kwargs,
+    )
+    if not stream:
+        raise ValueError(
+            f"Default stream for {namespace}.{table_name}.{table_version} not found."
+        )
+    locator = PartitionLocator.of(
+        stream_locator=stream.locator,
         partition_values=["placeholder"],
         partition_id="placeholder",
     )
@@ -411,16 +467,39 @@ def list_deltas(
     #  positions, or should traverse using Partition.stream_position (to
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
-    partition_locator_alias = _resolve_partition_locator_alias(
+
+    # First get the stream to resolve proper table version and stream locator
+    stream = get_stream(
         *args,
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
-        partition_values=partition_values,
-        partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
-    locator = DeltaLocator.of(locator=partition_locator_alias)
+    if not stream:
+        raise ValueError(
+            f"Failed to resolve stream for "
+            f"`{namespace}.{table_name}` at table version "
+            f"`{table_version or 'latest'}` (no stream found)."
+        )
+
+    # Then get the actual partition to ensure we have the real partition locator with ID
+    partition = get_partition(
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        *args,
+        **kwargs,
+    )
+    if not partition:
+        raise ValueError(
+            f"Failed to find partition for stream {stream.locator} "
+            f"with partition_values={partition_values} and "
+            f"partition_scheme_id={partition_scheme_id}"
+        )
+
+    # Use the actual partition locator (with partition ID) for listing deltas
+    locator = DeltaLocator.of(partition_locator=partition.locator)
     delta = Delta.of(
         locator=locator,
         delta_type=None,
@@ -438,10 +517,17 @@ def list_deltas(
     filtered_deltas = [
         delta
         for delta in all_deltas
-        if first_stream_position <= delta.stream_position <= last_stream_position
+        if (
+            first_stream_position is None
+            or first_stream_position <= delta.stream_position
+        )
+        and (
+            last_stream_position is None
+            or delta.stream_position <= last_stream_position
+        )
     ]
-    if ascending_order:
-        filtered_deltas.reverse()
+    # Sort deltas by stream position in the requested order
+    filtered_deltas.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
     return filtered_deltas
 
 
@@ -489,11 +575,22 @@ def list_partition_deltas(
     filtered_deltas = [
         delta
         for delta in all_deltas
-        if first_stream_position <= delta.stream_position <= last_stream_position
+        if (
+            first_stream_position is None
+            or first_stream_position <= delta.stream_position
+        )
+        and (
+            last_stream_position is None
+            or delta.stream_position <= last_stream_position
+        )
     ]
-    if ascending_order:
-        filtered_deltas.reverse()
-    return filtered_deltas
+    # Sort deltas by stream position in the requested order
+    filtered_deltas.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
+    return ListResult.of(
+        items=filtered_deltas,
+        pagination_key=None,
+        next_page_provider=None,
+    )
 
 
 def get_delta(
@@ -520,17 +617,40 @@ def get_delta(
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
     """
     # TODO(pdames): Honor `include_manifest` param.
-    partition_locator_alias = _resolve_partition_locator_alias(
+
+    # First get the stream to resolve proper table version and stream locator
+    stream = get_stream(
         *args,
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
-        partition_values=partition_values,
-        partition_scheme_id=partition_scheme_id,
         **kwargs,
     )
+    if not stream:
+        raise ValueError(
+            f"Failed to resolve stream for "
+            f"`{namespace}.{table_name}` at table version "
+            f"`{table_version or 'latest'}` (no stream found)."
+        )
+
+    # Then get the actual partition to ensure we have the real partition locator with ID
+    partition = get_partition(
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        *args,
+        **kwargs,
+    )
+    if not partition:
+        raise ValueError(
+            f"Failed to find partition for stream {stream.locator} "
+            f"with partition_values={partition_values} and "
+            f"partition_scheme_id={partition_scheme_id}"
+        )
+
+    # Use the actual partition locator (with partition ID) for getting the delta
     locator = DeltaLocator.of(
-        locator=partition_locator_alias,
+        partition_locator=partition.locator,
         stream_position=stream_position,
     )
     delta = Delta.of(
@@ -540,11 +660,18 @@ def get_delta(
         properties=None,
         manifest=None,
     )
-    return _latest(
+    result = _latest(
         *args,
         metafile=delta,
         **kwargs,
     )
+
+    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
+    #   the point is to avoid loading the manifest into memory if it's not needed.
+    if result and not include_manifest:
+        result.manifest = None
+
+    return result
 
 
 def get_latest_delta(
@@ -581,7 +708,7 @@ def get_latest_delta(
         partition_scheme_id=partition_scheme_id,
     )
     locator = DeltaLocator.of(
-        locator=partition.locator,
+        partition_locator=partition.locator,
         stream_position=partition.stream_position,
     )
     delta = Delta.of(
@@ -591,11 +718,68 @@ def get_latest_delta(
         properties=None,
         manifest=None,
     )
-    return _latest(
+    result = _latest(
         *args,
         metafile=delta,
         **kwargs,
     )
+
+    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
+    #   the point is to avoid loading the manifest into memory if it's not needed.
+    if result and not include_manifest:
+        result.manifest = None
+
+    return result
+
+
+def _download_delta_distributed(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    *args,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+    **kwargs,
+) -> DistributedDataset:
+
+    distributed_dataset: DistributedDataset = download_manifest_entries_distributed(
+        manifest=manifest,
+        table_type=table_type,
+        max_parallelism=max_parallelism,
+        column_names=column_names,
+        include_columns=include_columns,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
+        ray_options_provider=ray_options_provider,
+        distributed_dataset_type=distributed_dataset_type,
+    )
+
+    return distributed_dataset
+
+
+def _download_delta_local(
+    manifest: Manifest,
+    table_type: TableType = TableType.PYARROW,
+    max_parallelism: Optional[int] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    *args,
+    **kwargs,
+) -> LocalDataset:
+    tables: LocalDataset = download_manifest_entries(
+        manifest,
+        table_type,
+        max_parallelism if max_parallelism else 1,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+    )
+    return tables
 
 
 def download_delta(
@@ -611,13 +795,93 @@ def download_delta(
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
-    Download the given delta or delta locator into either a list of
+    Read the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
     the contents of ordered delta manifest entry N.
     """
-    raise NotImplementedError("download_delta not implemented")
+    # TODO (pdames): Cast delimited text types to the table's schema types
+    # TODO (pdames): Deprecate this method and replace with `read_delta`
+    # TODO (pdames): Replace dependence on TableType, StorageType, and DistributedDatasetType
+    #   with DatasetType
+    storage_type_to_download_func = {
+        StorageType.LOCAL: _download_delta_local,
+        StorageType.DISTRIBUTED: _download_delta_distributed,
+    }
+
+    is_delta = isinstance(delta_like, Delta)
+    is_delta_locator = isinstance(delta_like, DeltaLocator)
+
+    delta_locator: Optional[DeltaLocator] = None
+    if is_delta_locator:
+        delta_locator = delta_like
+    elif is_delta:
+        delta_locator = Delta(delta_like).locator
+    if not delta_locator:
+        raise ValueError(
+            f"Expected delta_like to be a Delta or DeltaLocator, but found "
+            f"{type(delta_like)}."
+        )
+
+    # Get manifest - if delta_like is a Delta with a manifest, use it, otherwise fetch from storage
+    if is_delta and delta_like.manifest:
+        manifest = delta_like.manifest
+    else:
+        manifest = get_delta_manifest(delta_locator, **kwargs)
+    all_column_names = get_table_version_column_names(
+        delta_locator.namespace,
+        delta_locator.table_name,
+        delta_locator.table_version,
+        **kwargs,
+    )
+    if columns:
+        if not all(
+            col in [col_name.lower() for col_name in all_column_names]
+            for col in columns
+        ):
+            raise ValueError(
+                f"One or more columns in {columns} are not present in table "
+                f"version columns {all_column_names}"
+            )
+        columns = [column.lower() for column in columns]
+    logger.debug(
+        f"Reading {columns or 'all'} columns from table version column "
+        f"names: {all_column_names}. "
+    )
+    return storage_type_to_download_func[storage_type](
+        manifest,
+        table_type,
+        max_parallelism,
+        all_column_names,
+        columns,
+        file_reader_kwargs_provider,
+        ray_options_provider=ray_options_provider,
+        distributed_dataset_type=distributed_dataset_type,
+    )
+
+
+def _download_manifest_entry(
+    manifest_entry: ManifestEntry,
+    table_type: TableType = TableType.PYARROW,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    content_type: Optional[ContentType] = None,
+    content_encoding: Optional[ContentEncoding] = None,
+    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+) -> LocalTable:
+
+    return download_manifest_entry(
+        manifest_entry,
+        table_type,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+        content_type,
+        content_encoding,
+        filesystem,
+    )
 
 
 def download_delta_manifest_entry(
@@ -630,14 +894,65 @@ def download_delta_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     """
-    Downloads a single manifest entry into the specified table type for the
+    Reads a single manifest entry into the specified table type for the
     given delta or delta locator. If a delta is provided with a non-empty
-    manifest, then the entry is downloaded from this manifest. Otherwise, the
-    manifest is first retrieved then the given entry index downloaded.
+    manifest, then the entry is read from this manifest. Otherwise, the
+    manifest is first retrieved then the given entry index read.
 
-    NOTE: The entry will be downloaded in the current node's memory.
+    NOTE: The entry will be read in the current node's memory.
     """
-    raise NotImplementedError("download_delta_manifest_entry not implemented")
+    # TODO (pdames): Deprecate this method and replace with
+    #  `read_delta_manifest_entry`
+    # TODO (pdames): Replace dependence on TableType with DatasetType
+    is_delta = isinstance(delta_like, Delta)
+    is_delta_locator = isinstance(delta_like, DeltaLocator)
+
+    delta_locator: Optional[DeltaLocator] = None
+    if is_delta_locator:
+        delta_locator = delta_like
+    elif is_delta:
+        delta_locator = Delta(delta_like).locator
+    if not delta_locator:
+        raise ValueError(
+            f"Expected delta_like to be a Delta or DeltaLocator, but found "
+            f"{type(delta_like)}."
+        )
+
+    if is_delta and delta_like.manifest:
+        manifest = delta_like.manifest
+    else:
+        manifest = get_delta_manifest(delta_locator, **kwargs)
+    # TODO(pdames): Cache table version column names and only invoke when
+    #  needed.
+    all_column_names = get_table_version_column_names(
+        delta_locator.namespace,
+        delta_locator.table_name,
+        delta_locator.table_version,
+        **kwargs,
+    )
+    if columns:
+        if not all(
+            col in [col_name.lower() for col_name in all_column_names]
+            for col in columns
+        ):
+            raise ValueError(
+                f"One or more columns in {columns} are not present in table "
+                f"version columns {all_column_names}"
+            )
+        columns = [column.lower() for column in columns]
+    logger.debug(
+        f"Reading {columns or 'all'} columns from table version column "
+        f"names: {all_column_names}. "
+    )
+    catalog_properties = get_catalog_properties(**kwargs)
+    return _download_manifest_entry(
+        manifest.entries[entry_index],
+        table_type,
+        all_column_names,
+        columns,
+        file_reader_kwargs_provider,
+        filesystem=catalog_properties.filesystem,
+    )
 
 
 def get_delta_manifest(
@@ -666,13 +981,15 @@ def get_delta_manifest(
         properties=None,
         manifest=None,
     )
-    latest_delta = _latest(
+    latest_delta: Delta = _latest(
         metafile=delta,
         *args,
         **kwargs,
     )
-    if not latest_delta or not latest_delta.manifest:
-        raise ValueError(f"No manifest found for delta: {delta_locator}")
+    if not latest_delta:
+        raise ValueError(f"No delta found for locator: {delta_locator}")
+    elif not latest_delta.manifest:
+        raise ValueError(f"No manifest found for delta: {latest_delta}")
     return latest_delta.manifest
 
 
@@ -718,22 +1035,30 @@ def update_namespace(
     Updates a table namespace's name and/or properties. Raises an error if the
     given namespace does not exist.
     """
-    # TODO(pdames): Wrap get & update within a single txn.
-    old_namespace = get_namespace(
+    # Check if the namespace exists
+    old_namespace_meta = get_namespace(
         *args,
         namespace=namespace,
         **kwargs,
     )
-    new_namespace: Namespace = Metafile.update_for(old_namespace)
-    new_namespace.namespace = namespace
-    new_namespace.properties = properties
+    if not old_namespace_meta:
+        raise ValueError(f"Namespace {namespace} does not exist")
+
+    # Create new namespace metadata
+    new_namespace_meta: Namespace = Metafile.update_for(old_namespace_meta)
+    if new_namespace:
+        new_namespace_meta.locator.namespace = new_namespace
+    if properties is not None:
+        new_namespace_meta.properties = properties
+
+    # Commit the update
     transaction = Transaction.of(
         txn_type=TransactionType.ALTER,
         txn_operations=[
             TransactionOperation.of(
                 operation_type=TransactionOperationType.UPDATE,
-                dest_metafile=new_namespace,
-                src_metafile=old_namespace,
+                dest_metafile=new_namespace_meta,
+                src_metafile=old_namespace_meta,
             )
         ],
     )
@@ -742,7 +1067,6 @@ def update_namespace(
         catalog_root_dir=catalog_properties.root,
         filesystem=catalog_properties.filesystem,
     )
-    return namespace
 
 
 def create_table_version(
@@ -777,6 +1101,14 @@ def create_table_version(
         **kwargs,
     ):
         raise ValueError(f"Namespace {namespace} does not exist")
+
+    # Validate schemes against schema
+    _validate_schemes_against_schema(schema, partition_scheme, sort_keys)
+
+    # coerce unspecified partition schemes to the unpartitioned scheme
+    partition_scheme = partition_scheme or UNPARTITIONED_SCHEME
+    # coerce unspecified sort schemes to the unsorted scheme
+    sort_keys = sort_keys or UNSORTED_SCHEME
     # check if a parent table and/or previous table version already exist
     prev_table_version = None
     prev_table = get_table(
@@ -837,8 +1169,8 @@ def create_table_version(
         watermark=None,
         lifecycle_state=LifecycleState.CREATED,
         schemas=[schema] if schema else None,
-        partition_schemes=[partition_scheme] if partition_scheme else None,
-        sort_schemes=[sort_keys] if sort_keys else None,
+        partition_schemes=[partition_scheme],
+        sort_schemes=[sort_keys],
         previous_table_version=prev_table_version,
     )
     # create the table version's default deltacat stream in this transaction
@@ -944,6 +1276,11 @@ def update_table_version(
     this table version by default (i.e., when the client does not explicitly
     specify a different table version). Raises an error if the given table
     version does not exist.
+
+    Note that, to transition a table version from partitioned to unpartitioned,
+    partition_scheme must be explicitly set to UNPARTITIONED_SCHEME. Similarly
+    to transition a table version from sorted to unsorted, sort_keys must be
+    explicitly set to UNSORTED_SCHEME.
     """
     # TODO(pdames): Wrap get & update within a single txn.
     old_table_version = get_table_version(
@@ -958,6 +1295,12 @@ def update_table_version(
             f"Table version `{table_version}` does not exist for "
             f"table `{namespace}.{table_name}`."
         )
+
+    # If schema is not provided but partition_scheme or sort_keys are,
+    # validate against the existing schema
+    schema_to_validate = schema or old_table_version.schema
+    _validate_schemes_against_schema(schema_to_validate, partition_scheme, sort_keys)
+
     new_table_version: TableVersion = Metafile.update_for(old_table_version)
     new_table_version.state = lifecycle_state or old_table_version.state
     # TODO(pdames): Use schema patch to check for backwards incompatible changes.
@@ -1107,7 +1450,6 @@ def stage_stream(
     Returns the staged stream. Raises an error if the table version does not
     exist.
     """
-    # TODO(pdames): Support retrieving previously staged streams by ID.
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
             *args,
@@ -1122,6 +1464,10 @@ def stage_stream(
         table_version=table_version,
         **kwargs,
     )
+    if not table_version_meta:
+        raise ValueError(
+            f"Table version not found: {namespace}.{table_name}.{table_version}."
+        )
     locator = StreamLocator.at(
         namespace=namespace,
         table_name=table_name,
@@ -1339,6 +1685,7 @@ def delete_table(
     )
 
     if not table:
+        # TODO(pdames): Refactor this so that it doesn't initialize Ray
         raise TableNotFoundError(f"Table `{namespace}.{name}` does not exist.")
 
     transaction = Transaction.of(
@@ -1529,6 +1876,14 @@ def stage_partition(
             f"Table version not found: {stream.namespace}.{stream.table_name}."
             f"{stream.table_version}."
         )
+    # Set partition_scheme_id to UNPARTITIONED_SCHEME_ID when partition_values
+    # is None or empty
+    if not partition_values:
+        partition_scheme_id = UNPARTITIONED_SCHEME_ID
+    # Use stream's partition scheme ID if none provided and partition_values
+    # are specified
+    elif partition_scheme_id is None:
+        partition_scheme_id = stream.partition_scheme.id
     if not table_version.partition_schemes or partition_scheme_id not in [
         ps.id for ps in table_version.partition_schemes
     ]:
@@ -1537,13 +1892,32 @@ def stage_partition(
             f"in parent table version `{stream.namespace}.{stream.table_name}"
             f".{table_version.table_version}` partition scheme IDs)."
         )
-    if stream.partition_scheme.id not in table_version.partition_schemes:
+    if stream.partition_scheme.id not in [
+        ps.id for ps in table_version.partition_schemes
+    ]:
         # this should never happen, but just in case
         raise ValueError(
             f"Invalid stream partition scheme ID `{stream.partition_scheme.id}`"
-            f"in parent table version `{stream.namespace}.{stream.table_name}"
+            f" (not found in parent table version "
+            f"`{stream.namespace}.{stream.table_name}"
             f".{table_version.table_version}` partition scheme IDs)."
         )
+
+    if partition_values:
+        if partition_scheme_id == UNPARTITIONED_SCHEME_ID:
+            raise ValueError(
+                "Partition values cannot be specified for unpartitioned tables"
+            )
+        # Validate partition values against partition scheme
+        partition_scheme = next(
+            ps for ps in table_version.partition_schemes if ps.id == partition_scheme_id
+        )
+        _validate_partition_values_against_scheme(
+            partition_values=partition_values,
+            partition_scheme=partition_scheme,
+            schema=table_version.schema,
+        )
+
     locator = PartitionLocator.of(
         stream_locator=stream.locator,
         partition_values=partition_values,
@@ -1555,7 +1929,6 @@ def stage_partition(
         content_types=table_version.content_types,
         state=CommitState.STAGED,
         previous_stream_position=None,
-        partition_values=partition_values,
         previous_partition_id=None,
         stream_position=None,
         partition_scheme_id=partition_scheme_id,
@@ -1647,7 +2020,7 @@ def commit_partition(
     prev_committed_partition = get_partition(
         *args,
         stream_locator=partition.stream_locator,
-        partition_value=partition.partition_values,
+        partition_values=partition.partition_values,
         partition_scheme_id=partition.partition_scheme_id,
         **kwargs,
     )
@@ -1727,7 +2100,7 @@ def delete_partition(
         txn_operations=[
             TransactionOperation.of(
                 operation_type=TransactionOperationType.DELETE,
-                src_metafile=partition_to_delete,
+                dest_metafile=partition_to_delete,
             )
         ],
     )
@@ -1811,6 +2184,88 @@ def get_partition(
     )
 
 
+def _write_table_slices(
+    table: Union[LocalTable, LocalDataset, DistributedDataset],
+    partition_id: str,
+    max_records_per_entry: Optional[int],
+    table_writer_fn: Callable,
+    table_slicer_fn: Callable,
+    content_type: ContentType = ContentType.PARQUET,
+    entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> ManifestEntryList:
+    catalog_properties = get_catalog_properties(**kwargs)
+    manifest_entries = ManifestEntryList()
+    # LocalDataset is a special case to upload iteratively
+    tables = [t for t in table] if isinstance(table, list) else [table]
+    filesystem = catalog_properties.filesystem
+    data_dir_path = posixpath.join(
+        catalog_properties.root,
+        DATA_FILE_DIR_NAME,
+        partition_id,
+    )
+    filesystem.create_dir(data_dir_path, recursive=True)
+    for t in tables:
+        manifest_entries.extend(
+            write_sliced_table(
+                t,
+                data_dir_path,
+                filesystem,
+                max_records_per_entry,
+                table_writer_fn,
+                table_slicer_fn,
+                table_writer_kwargs,
+                content_type,
+                entry_params,
+                entry_type,
+            )
+        )
+    return manifest_entries
+
+
+def _write_table(
+    partition_id: str,
+    table: Union[LocalTable, LocalDataset, DistributedDataset],
+    max_records_per_entry: Optional[int] = None,
+    author: Optional[ManifestAuthor] = None,
+    content_type: ContentType = ContentType.PARQUET,
+    entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
+    write_table_slices_fn: Optional[Callable] = _write_table_slices,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> Manifest:
+    """
+    Writes the given table to 1 or more files and returns a
+    Redshift manifest pointing to the uploaded files.
+    """
+    table_writer_fn = get_table_writer(table)
+    table_slicer_fn = get_table_slicer(table)
+
+    manifest_entries = write_table_slices_fn(
+        table,
+        partition_id,
+        max_records_per_entry,
+        table_writer_fn,
+        table_slicer_fn,
+        content_type,
+        entry_params,
+        entry_type,
+        table_writer_kwargs,
+        **kwargs,
+    )
+    manifest = Manifest.of(
+        entries=manifest_entries,
+        author=author,
+        uuid=str(uuid.uuid4()),
+        entry_type=entry_type,
+        entry_params=entry_params,
+    )
+    return manifest
+
+
 def stage_delta(
     data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
     partition: Partition,
@@ -1818,25 +2273,52 @@ def stage_delta(
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
     properties: Optional[DeltaProperties] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
+    write_table_slices_fn: Optional[Callable] = _write_table_slices,
     *args,
     **kwargs,
 ) -> Delta:
     """
-    Writes the given table to 1 or more S3 files. Returns an unregistered
+    Writes the given dataset to 1 or more files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
-
-    The partition spec will be used to split the input table into
-    multiple files. Optionally, partition_values can be provided to avoid
-    this method to recompute partition_values from the provided data.
-
-    Raises an error if the provided data does not conform to a unique ordered
-    list of partition_values
     """
-    raise NotImplementedError("stage_delta not implemented")
+    # TODO(pdames): Validate that equality delete entry types either have
+    #  entry params specified, or are being added to a table with merge keys.
+    if not partition.is_supported_content_type(content_type):
+        raise ValueError(
+            f"Content type {content_type} is not supported by "
+            f"partition: {partition}"
+        )
+    if partition.state == CommitState.DEPRECATED:
+        raise ValueError(
+            f"Cannot stage delta to {partition.state} partition: {partition}",
+        )
+    previous_stream_position: Optional[int] = partition.stream_position
+    manifest: Manifest = _write_table(
+        partition.partition_id,
+        data,
+        max_records_per_entry,
+        author,
+        content_type,
+        entry_params,
+        entry_type,
+        write_table_slices_fn,
+        table_writer_kwargs,
+        **kwargs,
+    )
+    staged_delta: Delta = Delta.of(
+        locator=DeltaLocator.of(partition.locator, None),
+        delta_type=delta_type,
+        meta=manifest.meta,
+        properties=properties,
+        manifest=manifest,
+        previous_stream_position=previous_stream_position,
+    )
+    return staged_delta
 
 
 def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
@@ -1848,7 +2330,64 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     stream position is specified, it must be greater than the latest stream
     position in the target partition.
     """
-    raise NotImplementedError("commit_delta not implemented")
+    delta: Delta = Metafile.update_for(delta)
+    delta_type: Optional[DeltaType] = delta.type
+    resolved_delta_type = delta_type if delta_type is not None else DeltaType.UPSERT
+    delta.type = resolved_delta_type
+    delta.properties = kwargs.get("properties") or delta.properties
+
+    parent_partition = get_partition_by_id(
+        stream_locator=delta.stream_locator,
+        partition_id=delta.partition_id,
+        *args,
+        **kwargs,
+    )
+    if not parent_partition:
+        raise ValueError(
+            f"Partition not found: {delta.stream_locator} {delta.partition_id}"
+        )
+    # resolve the delta's stream position
+    delta.previous_stream_position = parent_partition.stream_position or 0
+    if delta.stream_position is not None:
+        if delta.stream_position <= delta.previous_stream_position:
+            # manually specified delta stream positions must be greater than the
+            # previous stream position
+            raise ValueError(
+                f"Delta stream position {delta.stream_position} must be "
+                f"greater than previous stream position "
+                f"{delta.previous_stream_position}"
+            )
+    else:
+        delta.locator.stream_position = delta.previous_stream_position + 1
+
+    # update the parent partition's stream position
+    new_parent_partition: Partition = Metafile.update_for(parent_partition)
+    new_parent_partition.stream_position = delta.locator.stream_position
+
+    txn_type = TransactionType.ALTER
+    txn_ops = [
+        # the 1st operation creates the delta
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=delta,
+        ),
+        # the 2nd operation alters the stream position of the partition
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.UPDATE,
+            dest_metafile=new_parent_partition,
+            src_metafile=parent_partition,
+        ),
+    ]
+    transaction = Transaction.of(
+        txn_type=txn_type,
+        txn_operations=txn_ops,
+    )
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction.commit(
+        catalog_root_dir=catalog_properties.root,
+        filesystem=catalog_properties.filesystem,
+    )
+    return delta
 
 
 def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
@@ -1956,7 +2495,10 @@ def get_latest_table_version(
 
 
 def get_latest_active_table_version(
-    namespace: str, table_name: str, *args, **kwargs
+    namespace: str,
+    table_name: str,
+    *args,
+    **kwargs,
 ) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest active version of the specified
@@ -2002,6 +2544,7 @@ def get_table_version_column_names(
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
+        **kwargs,
     )
     return schema.arrow.names if schema else None
 
@@ -2018,7 +2561,7 @@ def get_table_version_schema(
     table version if none is specified. Returns None if the table version is
     schemaless. Raises an error if the table version does not exist.
     """
-    table_version = (
+    table_version_meta = (
         get_table_version(
             *args,
             namespace=namespace,
@@ -2034,7 +2577,7 @@ def get_table_version_schema(
             **kwargs,
         )
     )
-    return table_version.schema
+    return table_version_meta.schema
 
 
 def table_version_exists(
@@ -2065,13 +2608,40 @@ def table_version_exists(
 
 def can_categorize(e: BaseException, *args, **kwargs) -> bool:
     """
-    Return whether input error is from storage implementation layer.
+    True if the input error originated from the storage
+    implementation layer and can be categorized under an
+    existing DeltaCatError. The "categorize_errors" decorator
+    uses this to determine if an unknown error from the storage
+    implementation can be categorized prior to casting it to
+    the equivalent DeltaCatError via `raise_categorized_error`
     """
-    raise NotImplementedError
+
+    # DeltaCAT native storage can only categorize DeltaCatError
+    # (i.e., this is effectively a no-op for native storage)
+    if isinstance(e, DeltaCatError):
+        return True
+    else:
+        return False
 
 
 def raise_categorized_error(e: BaseException, *args, **kwargs):
     """
-    Raise and handle storage implementation layer specific errors.
+    Casts a categorizable error that originaed from the storage
+    implementation layer to its equivalent DeltaCatError
+    for uniform handling (e.g., determining whether an error
+    is retryable or not) via the "categorize_errors" decorator.
+    Raises an UnclassifiedDeltaCatError from the input exception
+    if the error cannot be categorized.
     """
-    raise NotImplementedError
+
+    # DeltaCAT native storage can only categorize DeltaCatError
+    # (i.e., this is effectively a no-op for native storage)
+    logger.info(f"Categorizing exception: {e}")
+    categorized = None
+    if isinstance(categorized, DeltaCatError):
+        raise categorized from e
+
+    logger.warning(f"Could not classify {type(e).__name__}: {e}")
+    raise UnclassifiedDeltaCatError(
+        f"Failed to classify error {type(e).__name__}: {e}"
+    ) from e

@@ -1,7 +1,11 @@
-import s3fs
+import importlib.util
+
+if importlib.util.find_spec("s3fs") is not None:
+    import s3fs  # noqa: F401
 
 
-def create_s3_file_system(s3_client_kwargs: dict) -> s3fs.S3FileSystem:
+def create_s3_file_system(s3_client_kwargs: dict) -> "s3fs.S3FileSystem":
+
     if not s3_client_kwargs:
         return s3fs.S3FileSystem(anon=True)
 

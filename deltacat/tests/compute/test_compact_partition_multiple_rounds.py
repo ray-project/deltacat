@@ -1,43 +1,38 @@
-import ray
-import os
-from moto import mock_s3
+import tempfile
+from typing import Any, Dict, List, Optional, Set, Callable
 import pytest
-import boto3
-from boto3.resources.base import ServiceResource
 import pyarrow as pa
+import ray
+
 from deltacat.io.file_object_store import FileObjectStore
 from pytest_benchmark.fixture import BenchmarkFixture
-import tempfile
 
 from deltacat.tests.compute.test_util_constant import (
-    TEST_S3_RCF_BUCKET_NAME,
     DEFAULT_NUM_WORKERS,
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
     get_rcf,
-)
-from deltacat.tests.test_utils.utils import read_s3_contents
-from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.tests.compute.test_util_common import (
+    read_audit_file,
+    PartitionKey,
     get_compacted_delta_locator_from_rcf,
 )
+from deltacat.tests.compute.test_util_common import (
+    multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
+)
+
+from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
-)
-from deltacat.tests.compute.test_util_create_table_deltas_repo import (
-    multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy,
 )
 from deltacat.tests.compute.compact_partition_multiple_rounds_test_cases import (
     MULTIPLE_ROUNDS_TEST_CASES,
 )
-from typing import Any, Callable, Dict, List, Optional, Set
-from deltacat.types.media import StorageType
+from deltacat.types.media import StorageType, ContentType
 from deltacat.storage import (
     DeltaLocator,
     Partition,
 )
-from deltacat.types.media import ContentType
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -47,6 +42,8 @@ from deltacat.compute.compactor import (
 from deltacat.utils.placement import (
     PlacementGroupManager,
 )
+from deltacat.storage import metastore
+
 
 """
 MODULE scoped fixtures
@@ -60,29 +57,24 @@ def setup_ray_cluster():
     ray.shutdown()
 
 
-@pytest.fixture(autouse=True, scope="module")
-def mock_aws_credential():
-    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-    os.environ["AWS_SECRET_ACCESS_ID"] = "testing"
-    os.environ["AWS_SECURITY_TOKEN"] = "testing"
-    os.environ["AWS_SESSION_TOKEN"] = "testing"
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    yield
+"""
+FUNCTION scoped fixtures
+"""
 
 
-@pytest.fixture(scope="module")
-def s3_resource(mock_aws_credential):
-    with mock_s3():
-        yield boto3.resource("s3")
+@pytest.fixture(autouse=True, scope="function")
+def enable_bucketing_spec_validation(monkeypatch):
+    """
+    Enable the bucketing spec validation for all tests.
+    This will help catch hash bucket drift in testing.
+    """
+    import deltacat.compute.compactor_v2.steps.merge
 
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
-    s3_resource.create_bucket(
-        ACL="authenticated-read",
-        Bucket=TEST_S3_RCF_BUCKET_NAME,
+    monkeypatch.setattr(
+        deltacat.compute.compactor_v2.steps.merge,
+        "BUCKETING_SPEC_COMPLIANCE_PROFILE",
+        "ASSERT",
     )
-    yield
 
 
 @pytest.mark.parametrize(
@@ -155,14 +147,13 @@ def setup_compaction_artifacts_s3_bucket(s3_resource: ServiceResource):
     ],
     ids=[test_name for test_name in MULTIPLE_ROUNDS_TEST_CASES],
 )
-def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
+def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_main(
     mocker,
-    s3_resource: ServiceResource,
-    local_deltacat_storage_kwargs: Dict[str, Any],
+    main_deltacat_storage_kwargs: Dict[str, Any],
     test_name: str,
     primary_keys: Set[str],
     sort_keys: List[Optional[Any]],
-    partition_keys_param: Optional[List[Any]],
+    partition_keys_param: Optional[List[PartitionKey]],
     partition_values_param: List[Optional[str]],
     input_deltas_param: List[pa.Array],
     expected_terminal_compact_partition_result: pa.Table,
@@ -181,37 +172,58 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     num_rounds_param: int,
     benchmark: BenchmarkFixture,
 ):
-    import deltacat.tests.local_deltacat_storage as ds
-
-    ds_mock_kwargs = local_deltacat_storage_kwargs
+    ds_mock_kwargs = main_deltacat_storage_kwargs
     """
     This test tests different multi-round compaction rebase configurations,
-    as specified in compact_partition_multiple_rounds_test_cases.py
+    as specified in compact_partition_multiple_rounds_test_cases.py.
     These tests do not test multi-round compaction backfill, which is
     currently unsupported.
+
+    This version uses the main metastore implementation instead of local storage.
     """
     (
         source_table_stream,
         _,
         rebased_table_stream,
         _,
-    ) = multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy(
+    ) = multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main(
         sort_keys,
         partition_keys_param,
         input_deltas_param,
         partition_values_param,
         ds_mock_kwargs,
     )
-    source_partition: Partition = ds.get_partition(
-        source_table_stream.locator,
-        partition_values_param,
+    # Convert partition values for partition lookup (same as in the helper function)
+    converted_partition_values_for_lookup = partition_values_param
+    if partition_values_param and partition_keys_param:
+        converted_partition_values_for_lookup = []
+        for i, (value, key) in enumerate(
+            zip(partition_values_param, partition_keys_param)
+        ):
+            if key.key_type == "int":
+                converted_partition_values_for_lookup.append(int(value))
+            elif key.key_type == "string":
+                converted_partition_values_for_lookup.append(str(value))
+            elif key.key_type == "timestamp":
+                converted_partition_values_for_lookup.append(
+                    value
+                )  # Keep as is for now
+            else:
+                converted_partition_values_for_lookup.append(value)
+
+    source_partition: Partition = metastore.get_partition(
+        stream_locator=source_table_stream.locator,
+        partition_values=converted_partition_values_for_lookup,
+        partition_scheme_id=source_table_stream.partition_scheme.id,
         **ds_mock_kwargs,
     )
-    rebased_partition: Partition = ds.get_partition(
-        rebased_table_stream.locator,
-        partition_values_param,
+    rebased_partition: Partition = metastore.get_partition(
+        stream_locator=rebased_table_stream.locator,
+        partition_values=converted_partition_values_for_lookup,
+        partition_scheme_id=rebased_table_stream.partition_scheme.id,
         **ds_mock_kwargs,
     )
+
     total_cpus = DEFAULT_NUM_WORKERS * DEFAULT_WORKER_INSTANCE_CPUS
     pgm = None
     if create_placement_group_param:
@@ -221,10 +233,10 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     with tempfile.TemporaryDirectory() as test_dir:
         compact_partition_params = CompactPartitionParams.of(
             {
-                "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                "catalog": ds_mock_kwargs.get("inner"),
                 "compacted_file_content_type": ContentType.PARQUET,
                 "dd_max_parallelism_ratio": 1.0,
-                "deltacat_storage": ds,
+                "deltacat_storage": metastore,
                 "deltacat_storage_kwargs": ds_mock_kwargs,
                 "destination_partition_locator": rebased_partition.locator,
                 "hash_bucket_count": hash_bucket_count_param,
@@ -240,7 +252,6 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
                 "rebase_source_partition_locator": source_partition.locator,
                 "rebase_source_partition_high_watermark": rebased_partition.stream_position,
                 "records_per_compacted_file": records_per_compacted_file_param,
-                "s3_client_kwargs": {},
                 "source_partition_locator": rebased_partition.locator,
                 "sort_keys": sort_keys if sort_keys else None,
                 "num_rounds": num_rounds_param,
@@ -265,15 +276,10 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
         # execute
         rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
 
-        round_completion_info: RoundCompletionInfo = get_rcf(
-            s3_resource, rcf_file_s3_uri
-        )
-        audit_bucket, audit_key = RoundCompletionInfo.get_audit_bucket_name_and_key(
-            round_completion_info.compaction_audit_url
-        )
+        round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
 
-        compaction_audit_obj: Dict[str, Any] = read_s3_contents(
-            s3_resource, audit_bucket, audit_key
+        compaction_audit_obj: Dict[str, Any] = read_audit_file(
+            round_completion_info.compaction_audit_url
         )
         compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
             **compaction_audit_obj
@@ -294,9 +300,9 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
             execute_compaction_result_spy.call_args.args[-1] is False
         ), "Table version erroneously marked as in-place compacted!"
         compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            s3_resource, rcf_file_s3_uri
+            rcf_file_s3_uri
         )
-        tables = ds.download_delta(
+        tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
         )
         actual_rebase_compacted_table = pa.concat_tables(tables)

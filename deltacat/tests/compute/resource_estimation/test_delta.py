@@ -1,4 +1,4 @@
-import deltacat.tests.local_deltacat_storage as ds
+from deltacat.storage import metastore
 from deltacat.types.media import ContentType
 import pytest
 from deltacat.storage import Delta
@@ -21,7 +21,7 @@ Function scoped fixtures
 
 
 @pytest.fixture(scope="function")
-def parquet_delta_with_manifest(local_deltacat_storage_kwargs):
+def parquet_delta_with_manifest(main_deltacat_storage_kwargs):
     """
     These fixtures are function scoped as functions can modify the delta.
     """
@@ -31,7 +31,7 @@ def parquet_delta_with_manifest(local_deltacat_storage_kwargs):
         "test_namespace",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.PARQUET,
-        **local_deltacat_storage_kwargs
+        **main_deltacat_storage_kwargs
     )
 
     result.meta["source_content_length"] = 0
@@ -44,14 +44,14 @@ def parquet_delta_with_manifest(local_deltacat_storage_kwargs):
 
 
 @pytest.fixture(scope="function")
-def utsv_delta_with_manifest(local_deltacat_storage_kwargs):
+def utsv_delta_with_manifest(main_deltacat_storage_kwargs):
     from deltacat.tests.test_utils.pyarrow import create_delta_from_csv_file
 
     result = create_delta_from_csv_file(
         "test_namespace",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.UNESCAPED_TSV,
-        **local_deltacat_storage_kwargs
+        **main_deltacat_storage_kwargs
     )
 
     result.meta["source_content_length"] = 0
@@ -64,14 +64,14 @@ def utsv_delta_with_manifest(local_deltacat_storage_kwargs):
 
 
 @pytest.fixture(scope="function")
-def delta_without_manifest(local_deltacat_storage_kwargs):
+def delta_without_manifest(main_deltacat_storage_kwargs):
     from deltacat.tests.test_utils.pyarrow import create_delta_from_csv_file
 
     delta = create_delta_from_csv_file(
         "test_namespace",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.PARQUET,
-        **local_deltacat_storage_kwargs
+        **main_deltacat_storage_kwargs
     )
 
     # now we intentionally remove manifest
@@ -83,14 +83,14 @@ def delta_without_manifest(local_deltacat_storage_kwargs):
 
 
 @pytest.fixture(scope="function")
-def delta_with_populated_meta(local_deltacat_storage_kwargs):
+def delta_with_populated_meta(main_deltacat_storage_kwargs):
     from deltacat.tests.test_utils.pyarrow import create_delta_from_csv_file
 
     delta = create_delta_from_csv_file(
         "test_namespace",
         file_paths=[DELTA_CSV_FILE_PATH],
         content_type=ContentType.PARQUET,
-        **local_deltacat_storage_kwargs
+        **main_deltacat_storage_kwargs
     )
 
     return delta
@@ -98,14 +98,14 @@ def delta_with_populated_meta(local_deltacat_storage_kwargs):
 
 class TestEstimateResourcesRequiredToProcessDelta:
     def test_delta_with_prepopulated_meta_returns_directly(
-        self, local_deltacat_storage_kwargs, delta_with_populated_meta: Delta
+        self, main_deltacat_storage_kwargs, delta_with_populated_meta: Delta
     ):
 
         result = estimate_resources_required_to_process_delta(
             delta=delta_with_populated_meta,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
         )
 
         assert (
@@ -125,7 +125,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_delta_manifest_empty_when_default_method(
-        self, local_deltacat_storage_kwargs, delta_without_manifest: Delta
+        self, main_deltacat_storage_kwargs, delta_without_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT,
@@ -136,8 +136,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=delta_without_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -156,7 +156,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_delta_manifest_exists_when_default_method(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT,
@@ -167,8 +167,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -191,7 +191,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_previous_inflation_arg_not_passed_when_default_method(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         with pytest.raises(AssertionError):
             params = EstimateResourcesParams.of(
@@ -202,13 +202,13 @@ class TestEstimateResourcesRequiredToProcessDelta:
             estimate_resources_required_to_process_delta(
                 delta=parquet_delta_with_manifest,
                 operation_type=OperationType.PYARROW_DOWNLOAD,
-                deltacat_storage=ds,
-                deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+                deltacat_storage=metastore,
+                deltacat_storage_kwargs=main_deltacat_storage_kwargs,
                 estimate_resources_params=params,
             )
 
     def test_estimate_resources_params_not_passed_assumes_default(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             previous_inflation=7,
@@ -218,8 +218,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -242,7 +242,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_delta_manifest_empty_when_content_type_meta(
-        self, local_deltacat_storage_kwargs, delta_without_manifest: Delta
+        self, main_deltacat_storage_kwargs, delta_without_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.CONTENT_TYPE_META,
@@ -252,8 +252,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=delta_without_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -267,7 +267,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         assert result.statistics.record_count == 7
 
     def test_delta_manifest_exists_when_content_type_meta(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.CONTENT_TYPE_META,
@@ -277,8 +277,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -292,7 +292,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         assert result.statistics.record_count == 7
 
     def test_delta_manifest_empty_when_intelligent_estimation(
-        self, local_deltacat_storage_kwargs, delta_without_manifest: Delta
+        self, main_deltacat_storage_kwargs, delta_without_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.INTELLIGENT_ESTIMATION,
@@ -302,8 +302,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=delta_without_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -317,7 +317,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         assert result.statistics.record_count == 7
 
     def test_delta_manifest_exists_when_intelligent_estimation(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.INTELLIGENT_ESTIMATION,
@@ -327,8 +327,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -342,7 +342,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         assert result.statistics.record_count == 7
 
     def test_delta_manifest_exists_inflation_absent_when_intelligent_estimation(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.INTELLIGENT_ESTIMATION,
@@ -352,15 +352,15 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
         assert result is None
 
     def test_delta_utsv_data_when_intelligent_estimation(
-        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.INTELLIGENT_ESTIMATION,
@@ -370,15 +370,15 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=utsv_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
         assert result is None
 
     def test_empty_delta_sampled_when_file_sampling(
-        self, local_deltacat_storage_kwargs, delta_without_manifest: Delta
+        self, main_deltacat_storage_kwargs, delta_without_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING,
@@ -388,8 +388,31 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=delta_without_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+
+        assert delta_without_manifest.manifest is not None
+        assert result.memory_bytes is not None
+        assert (
+            result.statistics.on_disk_size_bytes
+            == delta_without_manifest.meta.content_length
+        )
+
+    def test_empty_delta_sampled_when_file_sampling_with_previous_inflation(
+        self, main_deltacat_storage_kwargs, delta_without_manifest: Delta
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING_WITH_PREVIOUS_INFLATION,
+            max_files_to_sample=2,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=delta_without_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -401,7 +424,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_delta_manifest_parquet_when_file_sampling(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING,
@@ -411,8 +434,29 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+        assert result.memory_bytes is not None
+        assert (
+            result.statistics.on_disk_size_bytes
+            == parquet_delta_with_manifest.meta.content_length
+        )
+
+    def test_delta_manifest_parquet_when_file_sampling_with_previous_inflation(
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+    ):
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING_WITH_PREVIOUS_INFLATION,
+            max_files_to_sample=2,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=parquet_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
         assert result.memory_bytes is not None
@@ -423,7 +467,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
 
     def test_parquet_delta_when_file_sampling_and_arrow_size_zero(
         self,
-        local_deltacat_storage_kwargs,
+        main_deltacat_storage_kwargs,
         parquet_delta_with_manifest: Delta,
         monkeypatch,
     ):
@@ -441,13 +485,13 @@ class TestEstimateResourcesRequiredToProcessDelta:
 
             return MockedValue()
 
-        monkeypatch.setattr(ds, "download_delta_manifest_entry", mock_func)
+        monkeypatch.setattr(metastore, "download_delta_manifest_entry", mock_func)
 
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -459,7 +503,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_delta_manifest_utsv_when_file_sampling(
-        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING,
@@ -469,8 +513,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=utsv_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
         assert result.memory_bytes is not None
@@ -480,7 +524,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_delta_manifest_utsv_when_file_sampling_zero_files_to_sample(
-        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING,
@@ -490,14 +534,36 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=utsv_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
         assert result is None
 
+    def test_delta_manifest_utsv_when_file_sampling_with_previous_inflation_zero_files_to_sample(
+        self, main_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+    ):
+        previous_inflation = 7
+        params = EstimateResourcesParams.of(
+            resource_estimation_method=ResourceEstimationMethod.FILE_SAMPLING_WITH_PREVIOUS_INFLATION,
+            max_files_to_sample=None,
+            previous_inflation=previous_inflation,
+        )
+
+        result = estimate_resources_required_to_process_delta(
+            delta=utsv_delta_with_manifest,
+            operation_type=OperationType.PYARROW_DOWNLOAD,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
+            estimate_resources_params=params,
+        )
+        assert result is not None
+        assert result.memory_bytes == (
+            utsv_delta_with_manifest.meta.content_length * previous_inflation
+        )
+
     def test_empty_delta_when_default_v2(
-        self, local_deltacat_storage_kwargs, delta_without_manifest: Delta
+        self, main_deltacat_storage_kwargs, delta_without_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -509,8 +575,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=delta_without_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -522,7 +588,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_parquet_delta_when_default_v2(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -535,8 +601,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -548,7 +614,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_parquet_delta_when_default_v2_without_avg_record_size_and_sampling(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -559,8 +625,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -572,7 +638,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_parquet_delta_when_default_v2_and_files_to_sample_zero(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -585,8 +651,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -598,7 +664,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_utsv_delta_when_default_v2(
-        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -611,8 +677,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=utsv_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -624,7 +690,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_utsv_delta_when_default_v2_without_avg_record_size(
-        self, local_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, utsv_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -636,8 +702,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=utsv_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 
@@ -650,7 +716,7 @@ class TestEstimateResourcesRequiredToProcessDelta:
         )
 
     def test_parquet_delta_without_inflation_when_default_v2(
-        self, local_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
+        self, main_deltacat_storage_kwargs, parquet_delta_with_manifest: Delta
     ):
         params = EstimateResourcesParams.of(
             resource_estimation_method=ResourceEstimationMethod.DEFAULT_V2,
@@ -663,8 +729,8 @@ class TestEstimateResourcesRequiredToProcessDelta:
         result = estimate_resources_required_to_process_delta(
             delta=parquet_delta_with_manifest,
             operation_type=OperationType.PYARROW_DOWNLOAD,
-            deltacat_storage=ds,
-            deltacat_storage_kwargs=local_deltacat_storage_kwargs,
+            deltacat_storage=metastore,
+            deltacat_storage_kwargs=main_deltacat_storage_kwargs,
             estimate_resources_params=params,
         )
 

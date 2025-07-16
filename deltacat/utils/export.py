@@ -5,7 +5,9 @@ import pyarrow.parquet
 import pyarrow.feather
 from typing import Callable, Dict
 
-from deltacat.storage.rivulet.reader.query_expression import QueryExpression
+from deltacat.experimental.storage.rivulet.reader.query_expression import (
+    QueryExpression,
+)
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))

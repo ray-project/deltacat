@@ -1,0 +1,69 @@
+# Unique identifier for the head node and workers of this cluster.
+cluster_name: indexer
+
+provider:
+  type: aws
+  region: us-east-1
+  availability_zone: us-east-1a, us-east-1b, us-east-1c, us-east-1d, us-east-1f
+  # keep stopped nodes in cache for faster startup
+  cache_stopped_nodes: true
+
+# Tell the autoscaler the allowed node types and the resources they provide.
+# The key is the name of the node type, which is just for debugging purposes.
+# The node config specifies the launch config and physical instance type.
+available_node_types:
+  ray.head.default:
+    # to improve cluster stability, only use 7 of 16 head node CPUs for worker tasks
+    resources: {"CPU": 7}
+    # Provider-specific config for this node type, e.g. instance type. By default
+    # Ray will auto-configure unspecified fields such as SubnetId and KeyName.
+    # For more documentation on available fields, see:
+    # http://boto3.readthedocs.io/en/latest/reference/services/ec2.html#EC2.ServiceResource.create_instances
+    node_config:
+      InstanceType: r8g.4xlarge
+      LaunchTemplate:
+        LaunchTemplateName: RayClusterLaunchTemplatePdames
+        Version: "$Latest"
+  ray.worker.default:
+    # The minimum number of worker nodes of this type to launch.
+    # This number should be >= 0.
+    min_workers: 0
+    max_workers: 200
+    node_config:
+      InstanceType: r8g.large
+      LaunchTemplate:
+        LaunchTemplateName: RayClusterLaunchTemplatePdames
+        Version: "$Latest"
+
+# Maximum number of workers nodes to launch in addition to the head node
+max_workers: 200
+
+# Specify the node type of the head node (as configured above).
+head_node_type: ray.head.default
+
+# Commands to start ray on the head node.
+# This job type runs purely on heap memory and requires minimal object store memory, so we:
+#  1. Resize the head and worker node shared memory at /dev/shm down to 2% of the total node's memory.
+#  2. Set aside only 1% of the total node's memory (half of shared memory) for Ray's object store.
+head_start_ray_commands:
+    - ray stop
+    # resize shared memory at /dev/shm
+    - SHARED_MEM_GIB=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 2 / 1024 / 1024 / 100)) && sudo mount -o remount,size="${SHARED_MEM_GIB}G" /dev/shm
+    # bump the file descriptor limit up to 65536 to support more intranode connections,
+    # and reconfigure Ray's object store size when starting Ray
+    - ulimit -n 65536; OBJ_STORE_BYTES=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 1 * 1024 / 100)) && ray start --head --port=6379 --object-manager-port=8076 --object-store-memory="$OBJ_STORE_BYTES" --autoscaling-config=~/ray_bootstrap_config.yaml
+    # Uncomment for improved object spilling to NVMe devices on supported AMIs
+    #- ulimit -n 65536; ray start --head --port=6379 --object-manager-port=8076 --object-store-memory=309237645312 --autoscaling-config=~/ray_bootstrap_config.yaml --system-config='{"object_spilling_config":"{\"type\":\"filesystem\",\"max_io_workers\":4,\"params\":{\"directory_path\":[\"/dev/nvme0n1\",\"/dev/nvme1n1\",\"/dev/nvme2n1\",\"/dev/nvme3n1\"]}}"}'
+
+worker_start_ray_commands:
+    - ray stop
+    # resize shared memory at /dev/shm
+    - SHARED_MEM_GIB=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 2 / 1024 / 1024 / 100)) && sudo mount -o remount,size="${SHARED_MEM_GIB}G" /dev/shm
+    # bump the file descriptor limit up to 65536 to support more intranode connections,
+    # and reconfigure Ray's object store size when starting Ray
+    - ulimit -n 65536; OBJ_STORE_BYTES=$(($(sed -n '/^MemTotal:/ s/[^[:digit:]]//gp' /proc/meminfo) * 1 * 1024 / 100)) && ray start --address=$RAY_HEAD_IP:6379 --object-store-memory="$OBJ_STORE_BYTES" --object-manager-port=8076
+    # Uncomment for improved object spilling to NVMe devices on supported AMIs
+    #- ulimit -n 65536; ray start --head --port=6379 --object-manager-port=8076 --object-store-memory=309237645312 --autoscaling-config=~/ray_bootstrap_config.yaml --system-config='{"object_spilling_config":"{\"type\":\"filesystem\",\"max_io_workers\":4,\"params\":{\"directory_path\":[\"/dev/nvme0n1\",\"/dev/nvme1n1\",\"/dev/nvme2n1\",\"/dev/nvme3n1\"]}}"}'
+
+setup_commands:
+    - pip uninstall -y deltacat; pip install 'deltacat @ git+https://github.com/pdames/deltacat.git@indexer'

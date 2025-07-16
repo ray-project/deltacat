@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Any
 from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.storage import metastore
 from deltacat.compute.compactor import DeltaAnnotated
 
 
@@ -20,7 +20,7 @@ class HashBucketInput(Dict):
         metrics_config: Optional[MetricsConfig] = None,
         read_kwargs_provider: Optional[ReadKwargsProvider] = None,
         object_store: Optional[IObjectStore] = None,
-        deltacat_storage=unimplemented_deltacat_storage,
+        deltacat_storage=metastore,
         deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
         memory_logs_enabled: Optional[bool] = None,
     ) -> HashBucketInput:
@@ -78,7 +78,7 @@ class HashBucketInput(Dict):
         return self.get("object_store")
 
     @property
-    def deltacat_storage(self) -> unimplemented_deltacat_storage:
+    def deltacat_storage(self) -> metastore:
         return self.get("deltacat_storage")
 
     @property

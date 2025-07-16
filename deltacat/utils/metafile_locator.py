@@ -1,6 +1,7 @@
 import posixpath
 import pyarrow.fs
 
+from deltacat.constants import REV_DIR_NAME
 from deltacat.storage.model.partition import PartitionLocator
 from deltacat.utils.filesystem import resolve_path_and_filesystem
 
@@ -28,7 +29,7 @@ def _find_first_child_with_rev(
     )
     for child in children:
         if child.type == pyarrow.fs.FileType.Directory:
-            rev_path = posixpath.join(child.path, "rev")
+            rev_path = posixpath.join(child.path, REV_DIR_NAME)
             if filesystem.get_file_info(rev_path).type == pyarrow.fs.FileType.Directory:
                 return child.base_name
     raise ValueError(f"No directory with 'rev/' found under {parent_path}")

@@ -93,11 +93,29 @@ def _estimate_resources_required_to_process_delta_using_type_params(
                 on_disk_size_bytes=delta.meta.content_length,
             ),
         )
+    file_reader_kwargs_provider = kwargs.get(
+        "file_reader_kwargs_provider"
+    ) or deltacat_storage_kwargs.get("file_reader_kwargs_provider")
 
+    """
+    NOTE: The file_reader_kwargs_provider parameter can be passed in two ways:
+    1. Nested within deltacat_storage_kwargs during resource estimation
+    2. As a top-level attribute of CompactPartitionsParams during compaction
+
+    This creates an inconsistent parameter path between resource estimation and compaction flows.
+    As a long-term solution, this should be unified to use a single consistent path (either always
+    nested in deltacat_storage_kwargs or always as a top-level parameter).
+
+    For now, this implementation handles the resource estimation case by:
+    1. First checking for file_reader_kwargs_provider as a direct kwarg
+    2. Falling back to deltacat_storage_kwargs if not found
+    This approach maintains backward compatibility by not modifying the DELTA_RESOURCE_ESTIMATION_FUNCTIONS signatures.
+    """
     appended = append_content_type_params(
         delta=delta,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
+        file_reader_kwargs_provider=file_reader_kwargs_provider,
     )
 
     if not appended:
@@ -152,6 +170,10 @@ def _estimate_resources_required_to_process_delta_using_file_sampling(
         operation_type == OperationType.PYARROW_DOWNLOAD
     ), "Number of rows can only be estimated for PYARROW_DOWNLOAD operation"
 
+    if not estimate_resources_params.max_files_to_sample:
+        # we cannot calculate if we cannot sample
+        return None
+
     if not delta.manifest:
         delta.manifest = deltacat_storage.get_delta_manifest(
             delta.locator,
@@ -167,10 +189,6 @@ def _estimate_resources_required_to_process_delta_using_file_sampling(
                 on_disk_size_bytes=delta.meta.content_length,
             ),
         )
-
-    if not estimate_resources_params.max_files_to_sample:
-        # we cannot calculate if we cannot sample
-        return None
 
     sampled_in_memory_size = 0.0
     sampled_on_disk_size = 0.0
@@ -231,6 +249,10 @@ RESOURCE_ESTIMATION_METHOD_TO_DELTA_RESOURCE_ESTIMATION_FUNCTIONS = {
     ],
     ResourceEstimationMethod.DEFAULT_V2: [
         _estimate_resources_required_to_process_delta_using_type_params,
+        _estimate_resources_required_to_process_delta_using_file_sampling,
+        _estimate_resources_required_to_process_delta_using_previous_inflation,
+    ],
+    ResourceEstimationMethod.FILE_SAMPLING_WITH_PREVIOUS_INFLATION: [
         _estimate_resources_required_to_process_delta_using_file_sampling,
         _estimate_resources_required_to_process_delta_using_previous_inflation,
     ],

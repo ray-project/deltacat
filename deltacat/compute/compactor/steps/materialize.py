@@ -29,7 +29,7 @@ from deltacat.storage import (
     ManifestEntryList,
 )
 from deltacat.storage.model.manifest import Manifest
-from deltacat.storage import interface as unimplemented_deltacat_storage
+
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import DELIMITED_TEXT_CONTENT_TYPES, ContentType
 from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
@@ -46,6 +46,7 @@ from deltacat.utils.ray_utils.runtime import (
 )
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
 from deltacat.utils.resources import get_current_process_peak_memory_usage_in_bytes
+from deltacat.storage import metastore
 
 if importlib.util.find_spec("memray"):
     import memray
@@ -67,9 +68,9 @@ def materialize(
     metrics_config: MetricsConfig,
     schema: Optional[pa.Schema] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     object_store: Optional[IObjectStore] = None,
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
 ):
     if deltacat_storage_kwargs is None:
@@ -112,7 +113,7 @@ def materialize(
             partition,
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
-            s3_table_writer_kwargs=s3_table_writer_kwargs,
+            table_writer_kwargs=table_writer_kwargs,
             **deltacat_storage_kwargs,
         )
         compacted_table_size = TABLE_CLASS_TO_SIZE_FUNC[type(compacted_table)](

@@ -9,7 +9,7 @@ from deltacat.storage import (
     Delta,
 )
 from deltacat.storage.model.delta import DeltaType
-from deltacat.storage import interface as unimplemented_deltacat_storage
+from deltacat.storage import metastore
 from deltacat.types.media import StorageType
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat import logs
@@ -31,7 +31,7 @@ def contains_delete_deltas(deltas: List[Delta]) -> bool:
 def read_delta_file_envelopes(
     annotated_delta: DeltaAnnotated,
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int, int]:
     tables = deltacat_storage.download_delta(
@@ -80,7 +80,7 @@ def read_delta_file_envelopes(
 def get_local_delta_file_envelopes(
     uniform_deltas: List[DeltaAnnotated],
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    deltacat_storage=unimplemented_deltacat_storage,
+    deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> Tuple[List[DeltaFileEnvelope], int]:
     local_dfe_list = []

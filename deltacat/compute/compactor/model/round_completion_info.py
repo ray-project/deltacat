@@ -1,7 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 from deltacat.storage import DeltaLocator, PartitionLocator
 from deltacat.compute.compactor.model.pyarrow_write_result import PyArrowWriteResult
 from typing import Any, Dict, Optional
@@ -128,7 +128,3 @@ class RoundCompletionInfo(dict):
     @property
     def input_average_record_size_bytes(self) -> Optional[float]:
         return self.get("inputAverageRecordSizeBytes")
-
-    @staticmethod
-    def get_audit_bucket_name_and_key(compaction_audit_url: str) -> List[str]:
-        return compaction_audit_url.replace("s3://", "").split("/", 1)
