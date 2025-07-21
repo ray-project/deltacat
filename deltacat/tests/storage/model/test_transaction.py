@@ -1,13 +1,25 @@
 import pytest
+import os
+import pyarrow
+import msgpack
+import posixpath
 
 from deltacat.storage import (
     Transaction,
     TransactionOperation,
     TransactionType,
     TransactionOperationType,
+    Namespace,
+    NamespaceLocator,
 )
 from deltacat.storage.model.metafile import (
     Metafile,
+)
+
+from deltacat.constants import (
+    TXN_DIR_NAME,
+    RUNNING_TXN_DIR_NAME,
+    PAUSED_TXN_DIR_NAME,
 )
 
 
@@ -64,7 +76,7 @@ class TestAbsToRelative:
             Transaction._abs_txn_meta_path_to_relative("/lorem/ipsum/", "")
 
     # Test cases for the relativize_operation_paths function
-    def test_relativize_metafile_write_paths(self):
+    def test_relativizemetafile_write_paths(self):
         catalog_root = "/catalog/root"
         absolute_paths = [
             "/catalog/root/path/to/metafile1.mpk",
@@ -306,3 +318,332 @@ class TestAbsToRelative:
             assert (
                 transaction_operation.metafile_write_paths == expected_paths
             ), f"Failed for transaction type {txn_type} and operation type {op_type}"
+
+
+class TestTransactionPersistence:
+
+    # Verifies that transactions initialized with empty or None operations are marked interactive,
+    # while valid operations are not
+    def test_create_iterative_transaction(self):
+        txn_1 = Transaction.of(txn_type=TransactionType.READ, txn_operations=[])
+        txn_2 = Transaction.of(txn_type=TransactionType.READ, txn_operations=None)
+        op = TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=Metafile({"id": "dummy_metafile_id"}),
+        )
+        txn_3 = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[op, op])
+        assert (
+            txn_1.interactive
+        )  # check if constructor detect empty list --> interactive transaction
+        assert (
+            txn_2.interactive
+        )  # check if we can initialize with no list --> interactive transaction
+        assert (
+            not txn_3.interactive
+        )  # check that valid operations_list --> not interactive transaction
+
+    # Builds and commits a transaction step-by-step, then validates the output files and transaction success log
+    def test_commit_iterative_transaction(self, temp_dir):
+        # Create two simple namespaces
+        namespace_locator1 = NamespaceLocator.of(namespace="test_ns_1")
+        namespace_locator2 = NamespaceLocator.of(namespace="test_ns_2")
+        ns1 = Namespace.of(locator=namespace_locator1)
+        ns2 = Namespace.of(locator=namespace_locator2)
+        # Start with an empty transaction (interactive)
+        transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,
+            txn_operations=[],
+        )
+        txn = transaction.start(temp_dir)  # operate on deep-copy
+        # Build operations manually and step them in
+        op1 = TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=ns1,
+        )
+        op2 = TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=ns2,
+        )
+        # steps
+        txn.step(op1)
+        txn.step(op2)
+
+        # commit_all() instead of commit(), but legacy method still supported
+        write_paths, success_log_path = txn.commit_all()
+
+        # Check output files exist and are valid
+        deserialized_ns1 = Namespace.read(write_paths[0])
+        deserialized_ns2 = Namespace.read(write_paths[1])
+        print("write_paths ns1: " + str(deserialized_ns1))
+        print("write_paths ns2: " + str(deserialized_ns2))
+        print(deserialized_ns1)
+
+        assert ns1.equivalent_to(deserialized_ns1)
+        assert ns2.equivalent_to(deserialized_ns2)
+        assert success_log_path.endswith(str(txn.end_time))
+
+    # Ensures that stepping and committing a transaction writes non-empty output files and a valid success log
+    def test_commit_iterative_file_creation(self, temp_dir):
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="check_writes"))
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+        txn.step(op)
+        write_paths, success_log_path = txn.commit_all()
+
+        # check the files were created
+        for path in write_paths:
+            abs_path = os.path.join(temp_dir, path)
+            assert os.path.exists(abs_path)
+            assert os.path.getsize(abs_path) > 0
+
+        # check the success log exists
+        assert os.path.exists(success_log_path)
+        assert os.path.getsize(success_log_path) > 0
+
+    # Confirms that a transaction can be paused, resumed, and successfully committed without data los
+    def test_transaction_pause_and_resume_roundtrip(self, temp_dir):
+        # Create a test namespace
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="paused_resume_ns"))
+
+        # Start interactive transaction
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+
+        txn.step(op)
+
+        # Pause transaction (writes to paused/)
+        txn.pause()
+
+        # Resume transaction (reads from paused/)
+        txn.resume()
+
+        # Commit resumed transaction
+        write_paths, success_log_path = txn.commit_all()
+
+        # Validate outputs
+        deserialized = Namespace.read(write_paths[0])
+        assert ns.equivalent_to(deserialized)
+        assert os.path.exists(success_log_path)
+        assert success_log_path.endswith(str(txn.end_time))
+
+    # Validates that transaction state, including ID and write paths, is correctly preserved across pause/resume cycles
+    def test_resume_preserves_state_after_pause(self, temp_dir):
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
+
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+
+        txn.step(op)
+        txn_id_before = txn.id
+
+        txn.pause()
+        txn.resume()
+
+        # Ensure the ID and provider are still valid
+        assert txn.id == txn_id_before
+        assert txn._time_provider is not None
+        assert hasattr(txn, "metafile_write_paths")
+        assert len(txn.metafile_write_paths) == 1
+
+        # Check commit still works
+        write_paths, success_log_path = txn.commit_all()
+        assert os.path.exists(success_log_path)
+
+    # Explicitly checks that fields are preserved
+    def test_resume_preserves_state_after_pause_deep(self, temp_dir):
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
+
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+
+        txn.step(op)
+
+        # Save values before pause
+        txn_id_before = txn.id
+        start_time_before = txn.start_time
+        root_before = txn.catalog_root_normalized
+        meta_paths_before = list(txn.metafile_write_paths)
+        locator_paths_before = list(txn.locator_write_paths)
+
+        txn.pause()
+        txn.resume()
+
+        # Field-by-field checks
+        assert txn.id == txn_id_before, "Transaction ID should be preserved"
+        assert txn._time_provider is not None, "Time provider should be reinitialized"
+        assert txn.start_time == start_time_before, "Start time should be preserved"
+        assert txn.catalog_root_normalized == root_before, "Catalog root should match"
+        assert (
+            txn.metafile_write_paths == meta_paths_before
+        ), "Metafile paths must match"
+        assert (
+            txn.locator_write_paths == locator_paths_before
+        ), "Locator paths must match"
+        assert (
+            isinstance(txn.operations, list) and len(txn.operations) == 1
+        ), "Operations must be restored"
+        assert (
+            txn.type == TransactionType.APPEND
+        ), "Transaction type should be preserved"
+        assert txn.pause_time is not None, "Pause time should be restored"
+
+        # Final commit still works
+        write_paths, success_log_path = txn.commit_all()
+        assert os.path.exists(success_log_path)
+
+    # Checks that pausing a transaction moves its log from running/ to paused/ and preserves valid transaction state
+    def test_pause_moves_running_to_paused(self, temp_dir):
+        # Set up a transaction and a single operation
+        locator = NamespaceLocator.of(namespace="pause_test")
+        ns = Namespace.of(locator=locator)
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+        txn.step(op)
+
+        fs = pyarrow.fs.LocalFileSystem()
+        txn_id = txn.id
+        txn_log_dir = posixpath.join(temp_dir, TXN_DIR_NAME)
+
+        running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, txn_id)
+        paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, txn_id)
+
+        print("running path: " + str(running_path))
+        print("paused path: " + str(running_path))
+        # Sanity check: file should be in running/
+        assert fs.get_file_info(running_path).type == pyarrow.fs.FileType.File
+
+        # Pause transaction
+        txn.pause()
+        print(fs.get_file_info(running_path))
+        # Ensure the running file is deleted
+        assert fs.get_file_info(running_path).type == pyarrow.fs.FileType.NotFound
+
+        # Ensure the paused file exists and contains valid msgpack
+        paused_info = fs.get_file_info(paused_path)
+        assert paused_info.type == pyarrow.fs.FileType.File
+        with fs.open_input_stream(paused_path) as f:
+            data = f.readall()
+            txn_loaded = msgpack.loads(data)
+            print(txn_loaded.keys())
+            print(txn_loaded)
+            assert "type" in txn_loaded
+            assert "operations" in txn_loaded
+
+    # Simulates a full multi-step transaction with multiple pause/resume cycles and verifies correctness of all outputs
+    def test_transaction_pause_and_resume_roundtrip_complex(self, temp_dir):
+        # Step 0: Create an empty interactive transaction
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+
+        # Step 1: Add first namespace, pause
+        ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
+        op1 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns1
+        )
+        txn.step(op1)
+        txn.pause()
+
+        # Step 2: Resume, add second namespace, pause
+        txn.resume()
+        ns2 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_2"))
+        op2 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns2
+        )
+        txn.step(op2)
+        txn.pause()
+
+        # Step 3: Resume again, add third namespace, commit
+        txn.resume()
+        ns3 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_3"))
+        op3 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns3
+        )
+        txn.step(op3)
+
+        # Final commit
+        write_paths, success_log_path = txn.commit_all()
+
+        # Read and verify written namespaces
+        for i, ns in enumerate([ns1, ns2, ns3]):
+            written_path = write_paths[i]
+            deserialized_ns = Namespace.read(written_path)
+            assert ns.equivalent_to(
+                deserialized_ns
+            ), f"Mismatch in ns{i+1}: {ns} != {deserialized_ns}"
+            assert os.path.exists(written_path), f"Missing file: {written_path}"
+            assert os.path.getsize(written_path) > 0
+
+        # Check success log exists and is correct
+        assert os.path.exists(success_log_path)
+        assert success_log_path.endswith(str(txn.end_time))
+
+    # Repeats a complex pause/resume flow with additional assertions on namespace equality and time consistency
+    def test_transaction_pause_and_resume_roundtrip_complex_2(self, temp_dir):
+        # Step 0: Create an empty interactive transaction
+        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+            temp_dir
+        )
+
+        # Step 1: Add first namespace, pause
+        ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
+        op1 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns1
+        )
+        txn.step(op1)
+        txn.pause()
+
+        # Step 2: Resume, add second namespace, pause
+        txn.resume()
+        ns2 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_2"))
+        op2 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns2
+        )
+        txn.step(op2)
+
+        txn.pause()
+
+        # Step 3: Resume again, add third namespace, commit
+        txn.resume()
+        ns3 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_3"))
+        op3 = TransactionOperation.of(
+            TransactionOperationType.CREATE, dest_metafile=ns3
+        )
+        txn.step(op3)
+
+        # Final commit
+        write_paths, success_log_path = txn.commit_all()
+
+        print("\nstart time: " + str(txn.start_time))
+        print("end time: " + str(txn.end_time))
+        assert txn.start_time < txn.end_time
+
+        # Read and verify written namespaces
+        for i, ns in enumerate([ns1, ns2, ns3]):
+            written_path = write_paths[i]
+
+            # Confirm file was created and is non-empty
+            assert os.path.exists(written_path), f"Missing file: {written_path}"
+            assert os.path.getsize(written_path) > 0, f"Empty file: {written_path}"
+
+            # Deserialize and verify content
+            deserialized_ns = Namespace.read(written_path)
+            assert ns.equivalent_to(deserialized_ns), f"Namespace mismatch at index {i}"
+            assert ns.locator.namespace == deserialized_ns.locator.namespace
+            assert ns.locator_alias == deserialized_ns.locator_alias
+            assert ns.properties == deserialized_ns.properties
+
+        # Verify success log
+        assert os.path.exists(success_log_path)
+        assert success_log_path.endswith(str(txn.end_time))

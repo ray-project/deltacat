@@ -9,7 +9,6 @@ from pathlib import PosixPath
 import threading
 from collections import defaultdict
 
-from itertools import chain
 from typing import Optional, List, Union, Tuple
 
 import msgpack
@@ -20,6 +19,7 @@ from deltacat.constants import (
     TXN_PART_SEPARATOR,
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
+    PAUSED_TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
 )
@@ -284,6 +284,8 @@ class Transaction(dict):
         txn_type: TransactionType,
         txn_operations: Optional[TransactionOperationList],
     ) -> Transaction:
+        if txn_operations is None:
+            txn_operations = []
         operation_types = set([op.type for op in txn_operations])
         if txn_type == TransactionType.READ:
             if operation_types - TransactionOperationType.read_operations():
@@ -318,6 +320,9 @@ class Transaction(dict):
         transaction = Transaction()
         transaction.type = txn_type
         transaction.operations = txn_operations
+        transaction.interactive = False  # set to default setting
+        if len(txn_operations) == 0:
+            transaction.interactive = True  # enable interactive run when empty
         return transaction
 
     @staticmethod
@@ -373,6 +378,23 @@ class Transaction(dict):
         obj = cls(**msgpack.loads(binary))
         return obj
 
+    @staticmethod
+    def read_time_provider(provider_name: str):
+        """
+        Given the string name of a time provider class, return a new instance of it.
+        Raises ValueError if the provider name is unknown.
+        """
+        TIME_PROVIDER_CLASSES = {
+            "TransactionSystemTimeProvider": TransactionSystemTimeProvider,
+            # Add additional mappings as needed
+        }
+
+        provider_cls = TIME_PROVIDER_CLASSES.get(provider_name)
+        if provider_cls is None:
+            raise ValueError(f"Unknown time provider: {provider_name}")
+
+        return provider_cls()
+
     @property
     def id(self) -> Optional[str]:
         """
@@ -407,11 +429,50 @@ class Transaction(dict):
         self["operations"] = operations
 
     @property
+    def metafile_write_paths(self) -> List[str]:
+        return [path for op in self.operations for path in op.metafile_write_paths]
+
+    @property
+    def locator_write_paths(self) -> List[str]:
+        return [path for op in self.operations for path in op.locator_write_paths]
+
+    @property
+    def catalog_root_normalized(self) -> str:
+        """
+        Returns the catalog_root_normalized for this transaction.
+        """
+        return self.get("catalog_root_normalized")
+
+    @catalog_root_normalized.setter
+    def catalog_root_normalized(self, path: str):
+        self["catalog_root_normalized"] = path
+
+    @property
+    def _time_provider(self) -> TransactionSystemTimeProvider:
+        """
+        Returns the time_provider of the transaction.
+        """
+        return self.get("_time_provider")
+
+    @_time_provider.setter
+    def _time_provider(
+        self, tp: TransactionSystemTimeProvider
+    ) -> TransactionSystemTimeProvider:
+        self["_time_provider"] = tp
+
+    @property
     def start_time(self) -> Optional[int]:
         """
         Returns the start time of the transaction.
         """
         return self.get("start_time")
+
+    @property
+    def pause_time(self) -> Optional[int]:
+        """
+        Returns the last pause time of the transaction.
+        """
+        return self.get("pause_time")
 
     @property
     def end_time(self) -> Optional[int]:
@@ -444,6 +505,20 @@ class Transaction(dict):
             raise RuntimeError("Cannot end a completed transaction.")
         end_time = self["end_time"] = time_provider.end_time()
         return end_time
+
+    def _mark_pause_time(self, time_provider: TransactionTimeProvider) -> int:
+        """
+        Sets the pause time of the transaction using the given
+        TransactionTimeProvider. Raises a runtime error if the transaction pause
+        time has already been set by a previous commit, or if the transaction
+        start time has not been set.
+        """
+        if not self.get("start_time"):
+            raise RuntimeError("Cannot pause an unstarted transaction.")
+        if self.get("end_time"):
+            raise RuntimeError("Cannot pause a completed transaction.")
+        pause_time = self["pause_time"] = time_provider.end_time()
+        return pause_time
 
     @staticmethod
     def _abs_txn_meta_path_to_relative(root: str, target: str) -> str:
@@ -530,6 +605,17 @@ class Transaction(dict):
                 }
         # TODO(pdames): Ensure that all file paths recorded are relative to the
         #  catalog root.
+
+        # TODO: check if we care about order or exact time stamps --> pickling time_provider?
+        # serializable.pop("_time_provider", None)
+
+        serializable["_time_provider"] = {
+            "type": type(self._time_provider).__name__,
+            "params": {},
+        }
+
+        serializable.catalog_root_normalized = self.catalog_root_normalized
+
         return serializable
 
     @staticmethod
@@ -575,184 +661,281 @@ class Transaction(dict):
         catalog_root_dir: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Union[List[ListResult[Metafile]], Tuple[List[str], str]]:
-        # TODO(pdames): allow transactions to be durably staged and resumed
-        #  across multiple sessions prior to commit
+        """
+        Legacy wrapper that preserves the original `commit()` contract while
+        delegating the heavy lifting to the incremental helpers.
 
-        # create a new internal copy of this transaction to guard against
-        # external modification and dirty state across retries
-        txn = copy.deepcopy(self)
+        Returns
+        -------
+        - For READ transactions:  List[ListResult[Metafile]]
+        - For WRITE transactions: Tuple[List[str], str]
+            (list of successful write-paths, path to success-txn log file)
+        """
+        if self.operations and len(self.operations) > 0:
+            # Start a working copy (deep-copy, directory scaffolding, start-time, running/failed/success/paused dirs …)
+            txn_active = self.start(catalog_root_dir, filesystem)  # deep copy
+            # Sequentially execute every TransactionOperation
+            for op in txn_active.operations:
+                txn_active.step(op)
+        return txn_active.commit_all()
 
-        # create the transaction directory first to telegraph that at least 1
-        # transaction at this root has been attempted
-        catalog_root_normalized, filesystem = resolve_path_and_filesystem(
-            catalog_root_dir,
-            filesystem,
-        )
-        txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
-        running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
-        filesystem.create_dir(running_txn_log_dir, recursive=True)
-        failed_txn_log_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
-        filesystem.create_dir(failed_txn_log_dir, recursive=False)
-        success_txn_log_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
-        filesystem.create_dir(success_txn_log_dir, recursive=False)
-
-        # TODO(pdames): Support injection of other time providers, but ensure
-        #  that ALL transactions in a catalog use the same time provider.
-        time_provider = TransactionSystemTimeProvider()
-
-        # record the transaction start time
-        txn._mark_start_time(time_provider)
-
-        if txn.type == TransactionType.READ:
-            list_results = []
-            for operation in self.operations:
-                list_result = operation.dest_metafile.read_txn(
-                    catalog_root_dir=catalog_root_normalized,
-                    success_txn_log_dir=success_txn_log_dir,
-                    current_txn_op=operation,
-                    current_txn_start_time=txn.start_time,
-                    current_txn_id=txn.id,
-                    filesystem=filesystem,
-                )
-                list_results.append(list_result)
-            return list_results
-        else:
-            return txn._commit_write(
-                catalog_root_normalized=catalog_root_normalized,
-                running_txn_log_dir=running_txn_log_dir,
-                failed_txn_log_dir=failed_txn_log_dir,
-                success_txn_log_dir=success_txn_log_dir,
-                filesystem=filesystem,
-                time_provider=time_provider,
-            )
-
-    def _commit_write(
+    def start(
         self,
-        catalog_root_normalized: str,
-        running_txn_log_dir: str,
-        failed_txn_log_dir: str,
-        success_txn_log_dir: str,
-        filesystem: pyarrow.fs.FileSystem,
-        time_provider: TransactionTimeProvider,
-    ) -> Tuple[List[str], str]:
-        # write the in-progress transaction log file
-        running_txn_log_file_path = posixpath.join(
-            running_txn_log_dir,
-            self.id,
+        catalog_root_dir: str,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    ) -> "Transaction":
+        """
+        Create directory scaffolding, timestamp the txn, and return a DEEP COPY
+        that the caller should use for all subsequent calls to step(), pause(),
+        and commit_all().  The original object remains read-only.
+        """
+        txn: "Transaction" = copy.deepcopy(self)
+        txn._time_provider = TransactionSystemTimeProvider()
+        txn._mark_start_time(txn._time_provider)  # start time on deep_copy
+        catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+            catalog_root_dir, filesystem
         )
-        with filesystem.open_output_stream(running_txn_log_file_path) as file:
-            packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
-            file.write(packed)
+        txn.catalog_root_normalized = catalog_root_normalized
+        txn._filesystem = filesystem  # keep for pause/resume
+        txn.running_log_written = False  # internal flags
+        txn._list_results = []
 
-        # write each metafile associated with the transaction
-        metafile_write_paths = []
-        locator_write_paths = []
+        # make sure txn/ directories exist (idempotent)
+        txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+        filesystem.create_dir(
+            posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME), recursive=True
+        )
+        for subdir in (FAILED_TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, PAUSED_TXN_DIR_NAME):
+            try:
+                filesystem.create_dir(
+                    posixpath.join(txn_log_dir, subdir), recursive=False
+                )
+            except FileExistsError:
+                pass  # allowed when catalog already initialised
+        return txn
+
+    def step(
+        self,
+        operation: "TransactionOperation",
+    ) -> None:
+
+        catalog_root_normalized = self.catalog_root_normalized
+        filesystem = self._filesystem
+        txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+
+        running_txn_log_file_path = posixpath.join(
+            txn_log_dir, RUNNING_TXN_DIR_NAME, self.id
+        )
+
+        # Add new operation to the transaction's list of operations
+        if self.interactive:
+            self.operations = self.operations + [operation]
+
+        # (a) READ txn
+        if self.type == TransactionType.READ:
+            list_result = operation.dest_metafile.read_txn(
+                catalog_root_dir=catalog_root_normalized,
+                success_txn_log_dir=posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME),
+                current_txn_op=operation,
+                current_txn_start_time=self.start_time,
+                current_txn_id=self.id,
+                filesystem=filesystem,
+            )
+            self._list_results.append(list_result)
+            return
+
+        # (b) WRITE txn
+        # First operation? -> create running log so an external janitor can
+        # see that a txn is in-flight.
+        if not self.running_log_written:
+            self._write_running_log(running_txn_log_file_path)
+
         try:
-            for operation in self.operations:
-                operation.dest_metafile.write_txn(
-                    catalog_root_dir=catalog_root_normalized,
-                    success_txn_log_dir=success_txn_log_dir,
-                    current_txn_op=operation,
-                    current_txn_start_time=self.start_time,
-                    current_txn_id=self.id,
-                    current_txn_type=self.type,
+            operation.dest_metafile.write_txn(
+                catalog_root_dir=catalog_root_normalized,
+                success_txn_log_dir=posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME),
+                current_txn_op=operation,
+                current_txn_start_time=self.start_time,
+                current_txn_id=self.id,
+                current_txn_type=self.type,
+                filesystem=filesystem,
+            )
+
+            for path in self.metafile_write_paths:
+                MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+                    success_txn_log_dir=posixpath.join(
+                        txn_log_dir, SUCCESS_TXN_DIR_NAME
+                    ),
+                    current_txn_revision_file_path=path,
                     filesystem=filesystem,
                 )
-                metafile_write_paths.extend(operation.metafile_write_paths)
-                locator_write_paths.extend(operation.locator_write_paths)
-                # check for conflicts with concurrent transactions
-                for path in metafile_write_paths + locator_write_paths:
-                    MetafileRevisionInfo.check_for_concurrent_txn_conflict(
-                        success_txn_log_dir=success_txn_log_dir,
-                        current_txn_revision_file_path=path,
-                        filesystem=filesystem,
-                    )
+            for path in self.locator_write_paths:
+                MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+                    success_txn_log_dir=posixpath.join(
+                        txn_log_dir, SUCCESS_TXN_DIR_NAME
+                    ),
+                    current_txn_revision_file_path=path,
+                    filesystem=filesystem,
+                )
+
         except Exception:
-            # write a failed transaction log file entry
-            failed_txn_log_file_path = posixpath.join(
-                failed_txn_log_dir,
-                self.id,
+            # convert in-flight txn → FAILED and clean up partial files
+            self._fail_and_cleanup(
+                failed_txn_log_dir=posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME),
+                running_log_path=running_txn_log_file_path,
             )
-            with filesystem.open_output_stream(failed_txn_log_file_path) as file:
-                packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
-                file.write(packed)
+            raise  # surface original error
 
-            ###################################################################
-            ###################################################################
-            # failure past here telegraphs a failed transaction cleanup attempt
-            ###################################################################
-            ###################################################################
+    def pause(self) -> None:
+        fs = self._filesystem
+        root = self.catalog_root_normalized
+        txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
 
-            # delete all files written during the failed transaction
-            known_write_paths = chain.from_iterable(
-                [
-                    operation.metafile_write_paths + operation.locator_write_paths
-                    for operation in self.operations
-                ]
+        running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+        paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
+
+        fs.create_dir(posixpath.dirname(paused_path), recursive=True)
+
+        # Record pause time (e.g., for time consistency guarantees)
+        self._mark_pause_time(self._time_provider)
+
+        # Serialize current transaction state into paused/txn_id
+        with fs.open_output_stream(paused_path) as f:
+            f.write(msgpack.dumps(self.to_serializable(root)))
+
+        # Clean up original running log
+        fs.delete_file(running_path)
+
+    # reinitialize runtime variables --> we have to see if this is enough or are we losing info
+
+    def resume(self) -> None:
+        fs = self._filesystem
+        root = self.catalog_root_normalized
+        txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
+
+        running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+        paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, self.id)
+
+        # Load serialized transaction state
+        with fs.open_input_stream(paused_path) as f:
+            loaded_txn_data = msgpack.loads(f.readall())
+
+        # Restore relevant fields
+        restored_txn = Transaction(**loaded_txn_data)
+        self.__dict__.update(
+            restored_txn.__dict__
+        )  # make curr txn the same as restored (fill vars and stuff)
+
+        # To support restoring time provider state if we ever add non-ephemeral ones.
+        new_provider = Transaction.read_time_provider(
+            restored_txn["_time_provider"]["type"]
+        )
+
+        # evaluate system clock
+        now = new_provider.start_time()
+        self._time_provider = new_provider  # start time should be preserved
+        if now < self.pause_time:
+            raise RuntimeError(
+                f"System clock {now} is behind paused transaction time {self._pause_time}"
             )
-            # TODO(pdames): Add separate janitor job to cleanup files that we
-            #  either failed to add to the known write paths, or fail to delete.
-            for write_path in known_write_paths:
-                filesystem.delete_file(write_path)
+            # TODO: set new start time or keep error if clock is off?
 
-            # delete the in-progress transaction log file entry
-            filesystem.delete_file(running_txn_log_file_path)
-            # failed transaction cleanup is now complete
-            raise
+        # Move back to running state
+        fs.create_dir(posixpath.dirname(running_path), recursive=True)
+        with fs.open_output_stream(running_path) as f:
+            f.write(msgpack.dumps(self.to_serializable(root)))
+        fs.delete_file(paused_path)
 
-        # record the completed transaction
-        success_txn_log_file_dir = posixpath.join(
-            success_txn_log_dir,
-            self.id,
-        )
-        filesystem.create_dir(
-            success_txn_log_file_dir,
-            recursive=False,
-        )
-        end_time = self._mark_end_time(time_provider)
-        success_txn_log_file_path = posixpath.join(
-            success_txn_log_file_dir,
-            str(end_time),
-        )
-        with filesystem.open_output_stream(success_txn_log_file_path) as file:
-            packed = msgpack.dumps(self.to_serializable(catalog_root_normalized))
-            file.write(packed)
+    def commit_all(
+        self,
+    ) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str]]:
+        """
+        For READ → returns list_results collected during step().
+        For WRITE → returns (written_paths, success_log_path).
+        """
+        fs = self._filesystem
+        root = self.catalog_root_normalized
+        txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
+        end_time = self._mark_end_time(self._time_provider)
+
+        # READ path: nothing persisted, so we are done
+        if self.type == TransactionType.READ:
+            return self._list_results
+
+        running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
+        failed_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
+        success_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
+
+        # If no operations ever succeeded we still need a running log.
+        if not self.running_log_written:
+            self._write_running_log(running_path)
+        success_log_path = None
         try:
-            Transaction._validate_txn_log_file(
-                success_txn_log_file=success_txn_log_file_path
-            )
-        except Exception as e1:
-            try:
-                # move the txn log from success dir to failed dir
-                failed_txn_log_file_path = posixpath.join(
-                    failed_txn_log_dir,
-                    self.id,
-                )
-                filesystem.move(
-                    src=success_txn_log_file_path,
-                    dest=failed_txn_log_file_path,
-                )
-                # keep parent success txn log dir to telegraph failed validation
+            # write transaction log
+            success_txn_dir = posixpath.join(success_dir, self.id)
+            fs.create_dir(success_txn_dir, recursive=False)
 
-                ###############################################################
-                ###############################################################
-                # failure past here telegraphs a failed transaction validation
-                # cleanup attempt
-                ###############################################################
-                ###############################################################
-            except Exception as e2:
-                raise OSError(
-                    f"Failed to cleanup bad transaction log file at "
-                    f"`{success_txn_log_file_path}`"
-                ) from e2
-            finally:
-                raise RuntimeError(
-                    f"Transaction validation failed. To preserve "
-                    f"catalog integrity, the corresponding completed "
-                    f"transaction log at `{success_txn_log_file_path}` has "
-                    f"been removed."
-                ) from e1
-        finally:
-            # delete the in-progress transaction log file entry
-            filesystem.delete_file(running_txn_log_file_path)
-        return metafile_write_paths, success_txn_log_file_path
+            success_log_path = posixpath.join(success_txn_dir, str(end_time))
+            with fs.open_output_stream(success_log_path) as f:
+                f.write(msgpack.dumps(self.to_serializable(root)))
+
+            Transaction._validate_txn_log_file(success_txn_log_file=success_log_path)
+
+        except Exception as e1:
+            self._fail_and_cleanup(
+                failed_txn_log_dir=failed_dir,
+                running_log_path=running_path,
+                success_log_path=success_log_path,
+            )
+            raise RuntimeError(
+                f"Transaction validation failed. To preserve catalog integrity, "
+                f"the corresponding completed transaction log at "
+                f"`{success_log_path}` has been removed."
+            ) from e1
+
+        else:
+            fs.delete_file(running_path)
+            return self.metafile_write_paths, success_log_path
+
+    #  Helper: write or overwrite the running/ID file exactly once
+    def _write_running_log(self, running_log_path: str) -> None:
+        with self._filesystem.open_output_stream(running_log_path) as f:
+            f.write(msgpack.dumps(self.to_serializable(self.catalog_root_normalized)))
+        self.running_log_written = True
+
+    #  Helper: mark txn FAILED and clean partial output
+    def _fail_and_cleanup(
+        self,
+        failed_txn_log_dir: str,
+        running_log_path: str,
+        success_log_path: Optional[str] = None,
+    ) -> None:
+        fs = self._filesystem
+
+        # 1. write failed/ID
+        failed_log_path = posixpath.join(failed_txn_log_dir, self.id)
+        with fs.open_output_stream(failed_log_path) as f:
+            f.write(msgpack.dumps(self.to_serializable(self.catalog_root_normalized)))
+
+        # 2. delete all provisional files
+        for path in self.metafile_write_paths:
+            try:
+                fs.delete_file(path)
+            except Exception:
+                pass  # best-effort; janitor job will catch leftovers
+        for path in self.locator_write_paths:
+            try:
+                fs.delete_file(path)
+            except Exception:
+                pass  # best-effort; janitor job will catch leftovers
+
+        # 3. tidy up bookkeeping logs
+        try:
+            fs.delete_file(running_log_path)
+        except Exception:
+            pass
+        if success_log_path:
+            try:
+                fs.delete_file(success_log_path)
+            except Exception:
+                pass
