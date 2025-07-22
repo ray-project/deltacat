@@ -272,25 +272,33 @@ def create_rebase_table_main(
     )
 
 
-def get_rcf(rcf_file_path: str) -> RoundCompletionInfo:
+def get_rci_from_partition(partition_locator: PartitionLocator, deltacat_storage=None, **kwargs) -> RoundCompletionInfo:
     """
-    Read Round Completion File from any filesystem.
-
+    Read RoundCompletionInfo from a partition metafile.
+    
     Args:
-        rcf_file_path: Path to the RCF file (works with any filesystem scheme)
-
+        partition_locator: Locator of the partition containing the RoundCompletionInfo
+        deltacat_storage: Storage implementation (defaults to metastore)
+        **kwargs: Additional arguments to pass to deltacat_storage.get_partition (e.g., catalog)
+    
     Returns:
-        RoundCompletionInfo object
+        RoundCompletionInfo object from the partition, or None if not found
     """
-    from deltacat.utils.filesystem import resolve_path_and_filesystem
-    import json
-
-    path, filesystem = resolve_path_and_filesystem(rcf_file_path)
-    with filesystem.open_input_stream(path) as stream:
-        content = stream.read().decode("utf-8")
-        rcf_data = json.loads(content)
-
-    return RoundCompletionInfo(**rcf_data)
+    from deltacat.storage import metastore
+    
+    if deltacat_storage is None:
+        deltacat_storage = metastore
+        
+    partition = deltacat_storage.get_partition(
+        partition_locator.stream_locator,
+        partition_locator.partition_values,
+        **kwargs
+    )
+    
+    if partition and partition.compaction_round_completion_info:
+        return partition.compaction_round_completion_info
+        
+    return None
 
 
 def _add_deltas_to_partition_main(
@@ -807,24 +815,23 @@ def create_incremental_deltas_on_source_table_main(
     )
 
 
-def get_compacted_delta_locator_from_rcf(rcf_file_path: str):
+def get_compacted_delta_locator_from_partition(partition_locator: PartitionLocator, deltacat_storage=None, **kwargs):
     """
-    Get compacted delta locator from Round Completion File.
+    Get compacted delta locator from partition RoundCompletionInfo.
 
     Args:
-        rcf_file_path: Path to the RCF file (works with any filesystem scheme)
+        partition_locator: Locator of the partition containing the RoundCompletionInfo
+        deltacat_storage: Storage implementation (defaults to metastore)
+        **kwargs: Additional arguments to pass to get_rci_from_partition (e.g., catalog)
 
     Returns:
         DeltaLocator of the compacted delta
     """
-    from deltacat.storage import DeltaLocator
-
-    round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_path)
-
-    compacted_delta_locator: DeltaLocator = (
-        round_completion_info.compacted_delta_locator
-    )
-    return compacted_delta_locator
+    round_completion_info: RoundCompletionInfo = get_rci_from_partition(partition_locator, deltacat_storage, **kwargs)
+    
+    if round_completion_info:
+        return round_completion_info.compacted_delta_locator
+    return None
 
 
 def offer_iso8601_timestamp_list(

@@ -12,10 +12,10 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKey,
-    get_compacted_delta_locator_from_rcf,
+    get_compacted_delta_locator_from_partition,
 )
 from deltacat.tests.compute.test_util_common import (
     multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
@@ -274,9 +274,12 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         object_store_clear_spy = mocker.spy(FileObjectStore, "clear")
 
         # execute
-        rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
+        benchmark(compact_partition_func, compact_partition_params)
 
-        round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
+        # Get RoundCompletionInfo from the compacted partition
+        round_completion_info: RoundCompletionInfo = get_rci_from_partition(
+            rebased_partition.locator, metastore, catalog=ds_mock_kwargs.get("inner")
+        )
 
         compaction_audit_obj: Dict[str, Any] = read_audit_file(
             round_completion_info.compaction_audit_url
@@ -285,7 +288,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
             **compaction_audit_obj
         )
 
-        # assert if RCF covers all files
+        # assert if RCI covers all files
         # multiple rounds feature is only supported in V2 compactor
         previous_end = None
         for start, end in round_completion_info.hb_index_to_entry_range.values():
@@ -299,8 +302,8 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         assert (
             execute_compaction_result_spy.call_args.args[-1] is False
         ), "Table version erroneously marked as in-place compacted!"
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            rcf_file_s3_uri
+        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
+            rebased_partition.locator, metastore, catalog=ds_mock_kwargs.get("inner")
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs

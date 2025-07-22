@@ -34,7 +34,7 @@ from deltacat.compute.compactor_v2.utils.merge import (
 from deltacat.compute.compactor_v2.utils.task_options import (
     hash_bucket_resource_options_provider,
 )
-from deltacat.compute.compactor.utils import round_completion_file as rcf
+from deltacat.compute.compactor.utils import round_completion_reader as rci
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.compactor_v2.utils.delta import contains_delete_deltas
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
@@ -50,6 +50,7 @@ from deltacat.storage import (
     DeltaType,
     DeltaLocator,
     Partition,
+    PartitionLocator,
     Manifest,
     Stream,
     StreamLocator,
@@ -89,10 +90,11 @@ def _fetch_compaction_metadata(
     previous_compacted_delta_manifest: Optional[Manifest] = None
 
     if not params.rebase_source_partition_locator:
-        round_completion_info = rcf.read_round_completion_file(
-            params.compaction_artifact_path,
-            params.source_partition_locator,
-            params.destination_partition_locator,
+        round_completion_info = rci.read_round_completion_info(
+            source_partition_locator=params.source_partition_locator,
+            destination_partition_locator=params.destination_partition_locator,
+            deltacat_storage=params.deltacat_storage,
+            deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         )
         if not round_completion_info:
             logger.info(
@@ -114,7 +116,7 @@ def _fetch_compaction_metadata(
             ), (
                 "The hash bucket count has changed. "
                 "Kindly run rebase compaction and trigger incremental again. "
-                f"Hash Bucket count in RCF={round_completion_info.hash_bucket_count} "
+                f"Hash Bucket count in RCI={round_completion_info.hash_bucket_count} "
                 f"not equal to Hash bucket count in args={params.hash_bucket_count}."
             )
 
@@ -643,13 +645,13 @@ def _update_and_upload_compaction_audit(
     return
 
 
-def _write_new_round_completion_file(
+def _create_round_completion_info(
     params: CompactPartitionParams,
     mutable_compaction_audit: CompactionSessionAuditInfo,
     compacted_partition: Partition,
     audit_url: str,
     hb_id_to_entry_indices_range: dict,
-    rcf_source_partition_locator: rcf.PartitionLocator,
+    rci_source_partition_locator: PartitionLocator,
     new_compacted_delta_locator: DeltaLocator,
     pyarrow_write_result: PyArrowWriteResult,
     prev_round_completion_info: Optional[RoundCompletionInfo] = None,
@@ -691,6 +693,30 @@ def _write_new_round_completion_file(
         prev_round_completion_info,
     )
 
+    # Check if this is an in-place compaction before creating RoundCompletionInfo
+    logger.info(
+        f"Checking if partition {rci_source_partition_locator} is inplace compacted against {params.destination_partition_locator}..."
+    )
+    is_inplace_compacted: bool = (
+        rci_source_partition_locator.partition_values
+        == params.destination_partition_locator.partition_values
+        and rci_source_partition_locator.stream_id
+        == params.destination_partition_locator.stream_id
+    )
+    
+    # Determine the prev_source_partition_locator based on compaction type
+    if is_inplace_compacted:
+        logger.info(
+            "In-place compaction detected. Using compacted partition locator as prev_source_partition_locator. "
+            + f"Got compacted partition partition_id of {compacted_partition.locator.partition_id} "
+            f"and rci source partition_id of {rci_source_partition_locator.partition_id}."
+        )
+        prev_source_partition_locator = compacted_partition.locator
+        # Update rci_source_partition_locator for backward compatibility
+        rci_source_partition_locator = compacted_partition.locator
+    else:
+        prev_source_partition_locator = rci_source_partition_locator
+
     new_round_completion_info = RoundCompletionInfo.of(
         high_watermark=params.last_stream_position_to_compact,
         compacted_delta_locator=new_compacted_delta_locator,
@@ -703,40 +729,17 @@ def _write_new_round_completion_file(
         compactor_version=CompactorVersion.V2.value,
         input_inflation=input_inflation,
         input_average_record_size_bytes=input_average_record_size_bytes,
+        prev_source_partition_locator=prev_source_partition_locator,
     )
 
     logger.info(
         f"Partition-{params.source_partition_locator.partition_values},"
         f"compacted at: {params.last_stream_position_to_compact},"
     )
-    logger.info(
-        f"Checking if partition {rcf_source_partition_locator} is inplace compacted against {params.destination_partition_locator}..."
-    )
-    is_inplace_compacted: bool = (
-        rcf_source_partition_locator.partition_values
-        == params.destination_partition_locator.partition_values
-        and rcf_source_partition_locator.stream_id
-        == params.destination_partition_locator.stream_id
-    )
-    if is_inplace_compacted:
-        logger.info(
-            "Overriding round completion file source partition locator as in-place compacted. "
-            + f"Got compacted partition partition_id of {compacted_partition.locator.partition_id} "
-            f"and rcf source partition_id of {rcf_source_partition_locator.partition_id}."
-        )
-        rcf_source_partition_locator = compacted_partition.locator
-
-    round_completion_file_s3_url = rcf.write_round_completion_file(
-        params.compaction_artifact_path,
-        rcf_source_partition_locator,
-        compacted_partition.locator,
-        new_round_completion_info,
-    )
 
     return ExecutionCompactionResult(
         compacted_partition,
         new_round_completion_info,
-        round_completion_file_s3_url,
         is_inplace_compacted,
     )
 
@@ -752,21 +755,27 @@ def _commit_compaction_result(
         f"Partition-{params.source_partition_locator} -> "
         f"{compaction_session_type} Compaction session data processing completed"
     )
+    # TODO(pdames): Uncomment this once we support concurrent writes to the same 
+    #   partition (via write_to_table). This requires updating the commit_partition 
+    #   method to support previous partition as input. Right now, a concurrent write 
+    #   to the same partition will cause the commit_partition method to fail.
     if execute_compaction_result.new_compacted_partition:
         previous_partition: Optional[Partition] = None
-        if execute_compaction_result.is_inplace_compacted:
-            previous_partition: Optional[
-                Partition
-            ] = params.deltacat_storage.get_partition(
-                params.source_partition_locator.stream_locator,
-                params.source_partition_locator.partition_values,
-                **params.deltacat_storage_kwargs,
-            )
-            # NOTE: Retrieving the previous partition again as the partition_id may have changed by the time commit_partition is called.
+    #   if execute_compaction_result.is_inplace_compacted:
+    #       previous_partition: Optional[
+    #           Partition
+    #       ] = params.deltacat_storage.get_partition(
+    #           params.source_partition_locator.stream_locator,
+    #           params.source_partition_locator.partition_values,
+    #           **params.deltacat_storage_kwargs,
+    #       )
+    #       # NOTE: Retrieving the previous partition again as the partition_id may have changed by the time commit_partition is called.
         logger.info(
             f"Committing compacted partition to: {execute_compaction_result.new_compacted_partition.locator} "
             f"using previous partition: {previous_partition.locator if previous_partition else None}"
         )
+        # Set the round completion info on the partition before committing
+        execute_compaction_result.new_compacted_partition.compaction_round_completion_info = execute_compaction_result.new_round_completion_info
         committed_partition: Partition = params.deltacat_storage.commit_partition(
             execute_compaction_result.new_compacted_partition,
             previous_partition,

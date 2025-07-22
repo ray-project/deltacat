@@ -23,6 +23,7 @@ from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 
 from deltacat.utils.performance import timed_invocation
 from deltacat.storage import (
+    DeltaType,
     Partition,
 )
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
@@ -51,6 +52,7 @@ def materialize(
         input.deltacat_storage.stage_delta,
         compacted_table,
         input.write_to_partition,
+        delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
         max_records_per_entry=input.max_records_per_output_file,
         content_type=input.compacted_file_content_type,
         table_writer_kwargs=input.table_writer_kwargs,

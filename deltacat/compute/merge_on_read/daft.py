@@ -1,7 +1,7 @@
 import logging
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.types import DistributedDataset
-from deltacat.types.media import TableType, DistributedDatasetType
+from deltacat.types.media import DatasetType, DistributedDatasetType
 from deltacat.compute.merge_on_read.utils.delta import create_df_from_all_deltas
 from deltacat import logs
 
@@ -19,7 +19,7 @@ def merge(params: MergeOnReadParams, **kwargs) -> DistributedDataset:
 
     delta_dfs = create_df_from_all_deltas(
         deltas=params.deltas,
-        table_type=TableType.PYARROW,
+        table_type=DatasetType.PYARROW,
         distributed_dataset_type=DistributedDatasetType.DAFT,
         reader_kwargs=params.reader_kwargs,
         deltacat_storage=params.deltacat_storage,

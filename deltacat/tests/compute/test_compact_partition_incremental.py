@@ -8,7 +8,7 @@ from pytest_benchmark.fixture import BenchmarkFixture
 from deltacat.types.media import StorageType
 
 from deltacat.tests.compute.test_util_common import (
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKeyType,
 )
@@ -284,7 +284,7 @@ def test_compact_partition_incremental_main(
         """
         This callable runs right before invoking the benchmark target function (compaction).
         This is needed as the benchmark module will invoke the target function multiple times
-        in a single test run, which can lead to non-idempotent behavior if RCFs are generated.
+        in a single test run, which can lead to non-idempotent behavior if RCIs are generated.
 
         Returns: args, kwargs
         """
@@ -302,12 +302,14 @@ def test_compact_partition_incremental_main(
             compact_partition_func(compact_partition_params)
         assert expected_terminal_exception_message in str(exc_info.value)
         return
-    rcf_file_s3_uri = benchmark.pedantic(
+    benchmark.pedantic(
         compact_partition_func, setup=_incremental_compaction_setup
     )
 
-    # validate
-    round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
+    # validate - get RoundCompletionInfo from the compacted partition
+    round_completion_info: RoundCompletionInfo = get_rci_from_partition(
+        destination_partition_locator, metastore, catalog=catalog
+    )
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
@@ -319,7 +321,7 @@ def test_compact_partition_incremental_main(
         **compaction_audit_obj
     )
 
-    # assert if RCF covers all files
+    # assert if RCI covers all files
     if compactor_version != CompactorVersion.V1.value:
         previous_end = None
         for start, end in round_completion_info.hb_index_to_entry_range.values():

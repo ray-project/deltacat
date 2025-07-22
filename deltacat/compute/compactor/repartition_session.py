@@ -21,7 +21,6 @@ from deltacat.utils.placement import PlacementGroupConfig
 from typing import List, Optional, Dict, Any
 from deltacat.utils.ray_utils.runtime import live_node_resource_keys
 from deltacat.compute.compactor.utils import io
-from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.compute.compactor.steps import repartition as repar
 from deltacat.compute.compactor.steps.repartition import RepartitionType
 from deltacat.storage import (
@@ -41,7 +40,6 @@ def repartition(
     source_partition_locator: PartitionLocator,
     destination_partition_locator: PartitionLocator,
     repartition_args: Any,
-    repartition_completion_file_s3_url: str,
     last_stream_position_to_compact: int,
     repartition_type: RepartitionType = RepartitionType.RANGE,
     sort_keys: List[SortKey] = None,
@@ -152,9 +150,6 @@ def repartition(
     compacted_delta = deltacat_storage.commit_delta(
         merged_delta, properties=kwargs.get("properties", {})
     )
-    deltacat_storage.commit_partition(partition)
-    logger.info(f"Committed final delta: {compacted_delta}")
-    logger.info(f"Job run completed successfully!")
     new_compacted_delta_locator = DeltaLocator.of(
         new_compacted_partition_locator,
         compacted_delta.stream_position,
@@ -172,11 +167,7 @@ def repartition(
         bit_width_of_sort_keys,
         None,
     )
-
-    return rcf.write_round_completion_file(
-        None,
-        None,
-        None,
-        repartition_completion_info,
-        repartition_completion_file_s3_url,
-    )
+    partition.compaction_round_completion_info = repartition_completion_info
+    deltacat_storage.commit_partition(partition)
+    logger.info(f"Committed final delta: {compacted_delta}")
+    logger.info(f"Job run completed successfully!")

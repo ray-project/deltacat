@@ -44,7 +44,7 @@ from deltacat.storage import (
 from deltacat.types.media import (
     ContentEncoding,
     ContentType,
-    TableType,
+    DatasetType,
     DistributedDatasetType,
 )
 from deltacat.types.tables import (
@@ -166,7 +166,7 @@ def read_file(
     s3_url: str,
     content_type: ContentType,
     content_encoding: ContentEncoding = ContentEncoding.IDENTITY,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -353,7 +353,7 @@ def upload_table(
 def download_manifest_entry(
     manifest_entry: ManifestEntry,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -414,7 +414,7 @@ def download_manifest_entry_ray(*args, **kwargs) -> ObjectRef[LocalTable]:
 def download_manifest_entries(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -445,7 +445,7 @@ def download_manifest_entries(
 def download_manifest_entries_distributed(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -570,7 +570,7 @@ def _get_object(s3_client, bucket: str, key: str, fail_if_not_found: bool = True
 def _download_manifest_entries_parallel(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = None,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -595,7 +595,7 @@ def _download_manifest_entries_parallel(
 def _download_manifest_entries(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -631,7 +631,7 @@ def _get_s3_client_kwargs_from_token(token_holder) -> Dict[Any, Any]:
 def _download_manifest_entries_ray_data_distributed(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -659,7 +659,7 @@ def _download_manifest_entries_ray_data_distributed(
 def _download_manifest_entries_all_dataset_distributed(
     manifest: Manifest,
     token_holder: Optional[Dict[str, Any]] = None,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,

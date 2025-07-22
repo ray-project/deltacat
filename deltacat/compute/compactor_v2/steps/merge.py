@@ -94,9 +94,10 @@ def _build_incremental_table(
     # sort by delta file stream position now instead of sorting every row later
     is_delete = False
     for df_envelope in df_envelopes:
+        # Allow APPEND, UPSERT, and DELETE delta types
         assert (
-            df_envelope.delta_type != DeltaType.APPEND
-        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+            df_envelope.delta_type in (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
+        ), "Only APPEND, UPSERT, and DELETE delta types are supported"
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
 
@@ -217,11 +218,11 @@ def _validate_bucketing_spec_compliance(
     num_buckets: int,
     hb_index: int,
     primary_keys: List[str],
-    rcf: RoundCompletionInfo = None,
+    rci: Optional[RoundCompletionInfo] = None,
     log_prefix=None,
 ) -> None:
-    if rcf is not None:
-        message_prefix = f"{log_prefix}{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}.{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}.{rcf.compacted_delta_locator.partition_values}"
+    if rci is not None:
+        message_prefix = f"{log_prefix}{rci.compacted_delta_locator.namespace}.{rci.compacted_delta_locator.table_name}.{rci.compacted_delta_locator.table_version}.{rci.compacted_delta_locator.partition_id}.{rci.compacted_delta_locator.partition_values}"
     else:
         message_prefix = f"{log_prefix}"
     pki_table = generate_pk_hash_column(
@@ -251,14 +252,14 @@ def _validate_bucketing_spec_compliance(
 
 def _download_compacted_table(
     hb_index: int,
-    rcf: RoundCompletionInfo,
+    rci: RoundCompletionInfo,
     primary_keys: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
     tables = []
-    hb_index_to_indices = rcf.hb_index_to_entry_range
+    hb_index_to_indices = rci.hb_index_to_entry_range
 
     if str(hb_index) not in hb_index_to_indices:
         return None
@@ -268,7 +269,7 @@ def _download_compacted_table(
     ), "indices should not be none and contains exactly two elements"
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
-            rcf.compacted_delta_locator,
+            rci.compacted_delta_locator,
             entry_index=(indices[0] + offset),
             file_reader_kwargs_provider=read_kwargs_provider,
             **deltacat_storage_kwargs,
@@ -291,10 +292,10 @@ def _download_compacted_table(
     if primary_keys and check_bucketing_spec:
         _validate_bucketing_spec_compliance(
             compacted_table,
-            rcf.hash_bucket_count,
+            rci.hash_bucket_count,
             hb_index,
             primary_keys,
-            rcf=rcf,
+            rci=rci,
             log_prefix=_EXISTING_VARIANT_LOG_PREFIX,
         )
     return compacted_table
@@ -339,7 +340,7 @@ def _copy_all_manifest_files_from_old_hash_buckets(
         )
         delta = Delta.of(
             locator=DeltaLocator.of(write_to_partition.locator),
-            delta_type=DeltaType.UPSERT,
+            delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
             meta=manifest.meta,
             manifest=manifest,
             previous_stream_position=write_to_partition.stream_position,
@@ -489,9 +490,9 @@ def _compact_tables(
         delete_file_envelopes + df_envelopes
     )
     assert all(
-        dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE)
+        dfe.delta_type in (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
         for dfe in reordered_all_dfes
-    ), "All reordered delta file envelopes must be of the UPSERT or DELETE"
+    ), "All reordered delta file envelopes must be of the APPEND, UPSERT or DELETE"
     table = compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
@@ -499,7 +500,7 @@ def _compact_tables(
     for i, (delta_type, delta_type_sequence) in enumerate(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
-        if delta_type is DeltaType.UPSERT:
+        if delta_type is DeltaType.UPSERT or delta_type is DeltaType.APPEND:
             (table, incremental_len, deduped_records, merge_time,) = _apply_upserts(
                 input=input,
                 dfe_list=delta_type_sequence,
@@ -540,8 +541,8 @@ def _apply_upserts(
     prev_table=None,
 ) -> Tuple[pa.Table, int, int, int]:
     assert all(
-        dfe.delta_type is DeltaType.UPSERT for dfe in dfe_list
-    ), "All incoming delta file envelopes must of the DeltaType.UPSERT"
+        dfe.delta_type is DeltaType.UPSERT or dfe.delta_type is DeltaType.APPEND for dfe in dfe_list
+    ), "All incoming delta file envelopes must of the DeltaType.UPSERT or DeltaType.APPEND"
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
@@ -629,7 +630,7 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             if _has_previous_compacted_table(input, merge_file_group.hb_index):
                 compacted_table = _download_compacted_table(
                     hb_index=merge_file_group.hb_index,
-                    rcf=input.round_completion_info,
+                    rci=input.round_completion_info,
                     primary_keys=input.primary_keys,
                     read_kwargs_provider=input.read_kwargs_provider,
                     deltacat_storage=input.deltacat_storage,

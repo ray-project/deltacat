@@ -81,7 +81,7 @@ from deltacat.types.media import (
     ContentType,
     DistributedDatasetType,
     StorageType,
-    TableType,
+    DatasetType,
     ContentEncoding,
 )
 from deltacat.utils.common import ReadKwargsProvider
@@ -734,7 +734,7 @@ def get_latest_delta(
 
 def _download_delta_distributed(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = None,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -763,7 +763,7 @@ def _download_delta_distributed(
 
 def _download_delta_local(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = None,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -784,7 +784,7 @@ def _download_delta_local(
 
 def download_delta(
     delta_like: Union[Delta, DeltaLocator],
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     storage_type: StorageType = StorageType.DISTRIBUTED,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -863,7 +863,7 @@ def download_delta(
 
 def _download_manifest_entry(
     manifest_entry: ManifestEntry,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -887,7 +887,7 @@ def _download_manifest_entry(
 def download_delta_manifest_entry(
     delta_like: Union[Delta, DeltaLocator],
     entry_index: int,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,
@@ -1972,7 +1972,9 @@ def commit_partition(
     """
     Commits the staged partition to its associated table version stream,
     replacing any previous partition registered for the same stream and
-    partition values.
+    partition values. All values set on the input partition except compaction
+    round completion info will be overwritten with the values stored in the
+    staged partition.
 
     If previous partition is given then it will be replaced with its deltas
     prepended to the new partition being committed. Otherwise the latest
@@ -2015,8 +2017,14 @@ def commit_partition(
             f"{partition.stream_locator} with ID {partition.partition_id},"
             f"but found a `{prev_staged_partition.state}` partition."
         )
+    # Compaction round completion info (if any) is not set on the staged partition,
+    # so we need to save it from the input partition to commit.
+    input_partition_rci = partition.compaction_round_completion_info
     partition: Partition = Metafile.update_for(prev_staged_partition)
     partition.state = CommitState.COMMITTED
+    # Restore compaction round completion info (if any) from the input partition.
+    if input_partition_rci is not None:
+        partition.compaction_round_completion_info = input_partition_rci
     prev_committed_partition = get_partition(
         *args,
         stream_locator=partition.stream_locator,

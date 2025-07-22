@@ -54,6 +54,7 @@ class Partition(Metafile):
         previous_partition_id: Optional[str] = None,
         stream_position: Optional[int] = None,
         partition_scheme_id: Optional[str] = None,
+        compaction_round_completion_info: Optional[Any] = None,
     ) -> Partition:
         partition = Partition()
         partition.locator = locator
@@ -64,8 +65,9 @@ class Partition(Metafile):
         partition.previous_partition_id = previous_partition_id
         partition.stream_position = stream_position
         partition.partition_scheme_id = (
-            partition_scheme_id if locator.partition_values else UNPARTITIONED_SCHEME_ID
+            partition_scheme_id if locator and locator.partition_values else UNPARTITIONED_SCHEME_ID
         )
+        partition.compaction_round_completion_info = compaction_round_completion_info
         return partition
 
     @property
@@ -149,6 +151,24 @@ class Partition(Metafile):
     @partition_scheme_id.setter
     def partition_scheme_id(self, partition_scheme_id: Optional[str]) -> None:
         self["partitionSchemeId"] = partition_scheme_id
+
+    @property
+    def compaction_round_completion_info(self) -> Optional[Any]:
+        """
+        Round completion info for compaction operations.
+        This replaces the need for separate round completion files.
+        """
+        val: Dict[str, Any] = self.get("compactionRoundCompletionInfo")
+        if val is not None:
+            # Import here to avoid circular imports
+            from deltacat.compute.compactor import RoundCompletionInfo
+            if not isinstance(val, RoundCompletionInfo):
+                self["compactionRoundCompletionInfo"] = val = RoundCompletionInfo(val)
+        return val
+
+    @compaction_round_completion_info.setter
+    def compaction_round_completion_info(self, compaction_round_completion_info: Optional["RoundCompletionInfo"]) -> None:
+        self["compactionRoundCompletionInfo"] = compaction_round_completion_info
 
     @property
     def partition_id(self) -> Optional[str]:

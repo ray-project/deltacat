@@ -36,7 +36,6 @@ from daft.io.scan import (
 import pyarrow as pa
 
 from deltacat import logs
-from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 from deltacat.types.media import ContentType, ContentEncoding
@@ -51,7 +50,8 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.types.partial_download import (
     PartialFileDownloadParams,
 )
-from deltacat.storage import (
+# Import directly from storage model modules to avoid circular import
+from deltacat.storage.model.transform import (
     Transform,
     IdentityTransform,
     HourTransform,
@@ -61,9 +61,9 @@ from deltacat.storage import (
     BucketTransform,
     BucketingStrategy,
     TruncateTransform,
-    PartitionKey,
-    Schema,
 )
+from deltacat.storage.model.partition import PartitionKey
+from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.interop import ModelMapper
 from deltacat.storage.model.expression import (
     Expression,
@@ -480,7 +480,11 @@ def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
 
 
 class DeltaCatScanOperator(ScanOperator):
-    def __init__(self, table: TableDefinition, storage_config: StorageConfig) -> None:
+    def __init__(self, table, storage_config: StorageConfig) -> None:
+        # Import inside method to avoid circular import
+        from deltacat.catalog.model.table_definition import TableDefinition
+        if not isinstance(table, TableDefinition):
+            raise TypeError("table must be a TableDefinition instance")
         super().__init__()
         self.table = table
         self._schema = self._infer_schema()

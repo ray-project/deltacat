@@ -624,7 +624,7 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         print(f"   Last stream position: {actual_stream_position}")
 
         # Run the compaction using the same pattern as the working tests
-        rcf_url = compact_partition(
+        compact_partition(
             CompactPartitionParams.of(
                 {
                     "catalog": catalog,
@@ -650,7 +650,6 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         )
 
         print(f"✅ Compaction completed successfully!")
-        print(f"📁 RCF URL: {rcf_url}")
 
         # Show detailed data after compaction
         print(f"\n📊 DATA AFTER COMPACTION")

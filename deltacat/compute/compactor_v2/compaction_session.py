@@ -14,7 +14,6 @@ from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
     ExecutionCompactionResult,
 )
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
-from deltacat.compute.compactor.utils import round_completion_file as rcf
 from deltacat.compute.compactor import DeltaAnnotated
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
     DeleteStrategy,
@@ -27,6 +26,7 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    PartitionLocator,
 )
 from deltacat.storage.model.manifest import Manifest
 from deltacat.compute.compactor.model.compact_partition_params import (
@@ -42,7 +42,7 @@ from deltacat.compute.compactor_v2.private.compaction_utils import (
     _stage_new_partition,
     _run_hash_and_merge,
     _process_merge_results,
-    _write_new_round_completion_file,
+    _create_round_completion_info,
     _commit_compaction_result,
 )
 from deltacat.utils.metrics import metrics
@@ -64,7 +64,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 @metrics(prefix=COMPACT_PARTITION_METRIC_PREFIX)
 @categorize_errors
-def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]:
+def compact_partition(params: CompactPartitionParams, **kwargs) -> None:
     assert (
         params.hash_bucket_count is not None and params.hash_bucket_count >= 1
     ), "hash_bucket_count is a required arg for compactor v2"
@@ -84,7 +84,6 @@ def compact_partition(params: CompactPartitionParams, **kwargs) -> Optional[str]
             **kwargs,
         )
         _commit_compaction_result(params, execute_compaction_result)
-        return execute_compaction_result.round_completion_file_s3_url
 
 
 def _execute_compaction(
@@ -99,11 +98,11 @@ def _execute_compaction(
         previous_compacted_delta_manifest,
         round_completion_info,
     ) = fetch_compaction_metadata_result
-    rcf_source_partition_locator: rcf.PartitionLocator = (
+    rci_source_partition_locator: PartitionLocator = (
         params.rebase_source_partition_locator or params.source_partition_locator
     )
 
-    base_audit_url: str = rcf_source_partition_locator.path(
+    base_audit_url: str = rci_source_partition_locator.path(
         f"{params.compaction_artifact_path}/compaction-audit"
     )
     audit_url: str = f"{base_audit_url}.json"
@@ -139,7 +138,7 @@ def _execute_compaction(
     )
     if not input_deltas:
         logger.info("No input deltas found to compact.")
-        return ExecutionCompactionResult(None, None, None, False)
+        return ExecutionCompactionResult(None, None, False)
     build_uniform_deltas_result: tuple[
         List[DeltaAnnotated], DeleteStrategy, List[DeleteFileEnvelope]
     ] = _build_uniform_deltas(
@@ -202,13 +201,13 @@ def _execute_compaction(
 
     compaction_audit.save_round_completion_stats(mat_results)
 
-    compaction_result: ExecutionCompactionResult = _write_new_round_completion_file(
+    compaction_result: ExecutionCompactionResult = _create_round_completion_info(
         params,
         compaction_audit,
         compacted_partition,
         audit_url,
         hb_id_to_entry_indices_range,
-        rcf_source_partition_locator,
+        rci_source_partition_locator,
         new_compacted_delta_locator,
         pyarrow_write_result,
         round_completion_info,

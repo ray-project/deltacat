@@ -14,7 +14,7 @@ from deltacat.storage import (
     metastore,
 )
 from typing import Dict, Optional, Any
-from deltacat.types.media import TableType
+from deltacat.types.media import DatasetType
 from deltacat.types.media import ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from deltacat.exceptions import RetryableError
@@ -89,7 +89,7 @@ def _download_parquet_metadata_for_manifest_entry(
     pq_file = deltacat_storage.download_delta_manifest_entry(
         delta,
         entry_index=entry_index,
-        table_type=TableType.PYARROW_PARQUET,
+        table_type=DatasetType.PYARROW_PARQUET,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
         **deltacat_storage_kwargs,
     )

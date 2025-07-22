@@ -47,7 +47,7 @@ from deltacat.storage import (
 from deltacat.types.media import (
     ContentType,
     ContentEncoding,
-    TableType,
+    DatasetType,
     StorageType,
     DistributedDatasetType,
 )
@@ -5989,7 +5989,7 @@ class TestDelta:
         selected_columns = ["id", "name", "city"]
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6044,7 +6044,7 @@ class TestDelta:
         delta_locator = committed_delta.locator
         downloaded_tables = metastore.download_delta(
             delta_like=delta_locator,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6099,7 +6099,7 @@ class TestDelta:
         ):
             metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.LOCAL,
                 columns=invalid_columns,
                 catalog=self.catalog,
@@ -6142,7 +6142,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             catalog=self.catalog,
         )
 
@@ -6191,7 +6191,7 @@ class TestDelta:
         # Download as pandas DataFrame
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6240,7 +6240,7 @@ class TestDelta:
         # Download as PyArrow Table
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6291,7 +6291,7 @@ class TestDelta:
         # Download as Polars DataFrame
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6335,7 +6335,7 @@ class TestDelta:
         # Download as NumPy array
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6390,7 +6390,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             catalog=self.catalog,
         )
 
@@ -6439,7 +6439,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             catalog=self.catalog,
         )
 
@@ -6483,28 +6483,28 @@ class TestDelta:
         # Download as different table types
         pandas_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
 
         pyarrow_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
 
         polars_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
 
         numpy_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6579,28 +6579,28 @@ class TestDelta:
         pandas_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             catalog=self.catalog,
         )
 
         pyarrow_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             catalog=self.catalog,
         )
 
         polars_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             catalog=self.catalog,
         )
 
         numpy_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             catalog=self.catalog,
         )
 
@@ -6685,7 +6685,7 @@ class TestDelta:
         # Test with pandas
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6707,7 +6707,7 @@ class TestDelta:
         # Test with PyArrow
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6729,7 +6729,7 @@ class TestDelta:
         # Test with Polars
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6751,7 +6751,7 @@ class TestDelta:
         # Test with NumPy
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6812,7 +6812,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             catalog=self.catalog,
         )
 
@@ -6861,7 +6861,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             catalog=self.catalog,
         )
 
@@ -6906,7 +6906,7 @@ class TestDelta:
         # Try to download as Polars DataFrame - this may fail due to known Polars+JSON issues
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6966,7 +6966,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             catalog=self.catalog,
         )
 
@@ -7013,7 +7013,7 @@ class TestDelta:
         # Test distributed download with Ray Dataset
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             max_parallelism=4,
@@ -7075,7 +7075,7 @@ class TestDelta:
         delta_locator = committed_delta.locator
         distributed_dataset = metastore.download_delta(
             delta_like=delta_locator,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
@@ -7124,9 +7124,9 @@ class TestDelta:
 
         # Test different table types with distributed download
         table_types_to_test = [
-            TableType.PYARROW,
-            TableType.PANDAS,
-            TableType.POLARS,  # Now supported in distributed Ray datasets
+            DatasetType.PYARROW,
+            DatasetType.PANDAS,
+            DatasetType.POLARS,  # Now supported in distributed Ray datasets
         ]
 
         for table_type in table_types_to_test:
@@ -7194,7 +7194,7 @@ class TestDelta:
             # Test distributed download
             distributed_dataset = metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
                 catalog=self.catalog,
@@ -7249,7 +7249,7 @@ class TestDelta:
         selected_columns = ["id", "name", "age"]
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             columns=selected_columns,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7309,7 +7309,7 @@ class TestDelta:
         for max_parallelism in parallelism_settings:
             distributed_dataset = metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 max_parallelism=max_parallelism,
                 distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7366,7 +7366,7 @@ class TestDelta:
         # Test distributed download with high parallelism
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             max_parallelism=8,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7420,9 +7420,9 @@ class TestDelta:
 
         # Download as different table types with distributed storage
         table_types_to_test = [
-            TableType.PYARROW,
-            TableType.PANDAS,
-            TableType.POLARS,  # Now supported in distributed Ray datasets
+            DatasetType.PYARROW,
+            DatasetType.PANDAS,
+            DatasetType.POLARS,  # Now supported in distributed Ray datasets
         ]
 
         downloaded_dfs = {}
@@ -7442,7 +7442,7 @@ class TestDelta:
             downloaded_dfs[table_type] = downloaded_df
 
         # Verify consistency across table types
-        base_df = downloaded_dfs[TableType.PYARROW]
+        base_df = downloaded_dfs[DatasetType.PYARROW]
         for table_type, df in downloaded_dfs.items():
             assert len(df) == len(base_df), f"Row count mismatch for {table_type}"
             assert set(df.columns) == set(
@@ -7495,7 +7495,7 @@ class TestDelta:
         # Test download with custom Ray options
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             ray_options_provider=custom_ray_options_provider,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7552,7 +7552,7 @@ class TestDelta:
         # Download using local storage
         local_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -7567,7 +7567,7 @@ class TestDelta:
         # Download using distributed storage
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
@@ -7618,7 +7618,7 @@ class TestDelta:
         ):
             metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 columns=["id", "non_existent_column"],
                 distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7662,7 +7662,7 @@ class TestDelta:
         # Download using DAFT distributed dataset type
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
@@ -7710,7 +7710,7 @@ class TestDelta:
         # Download using DeltaLocator with DAFT
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta.locator,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
@@ -7759,7 +7759,7 @@ class TestDelta:
         # Download using DAFT
         daft_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
@@ -7768,7 +7768,7 @@ class TestDelta:
         # Download using Ray
         ray_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
@@ -7810,7 +7810,7 @@ class TestDelta:
         ):
             metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 columns=["id", "invalid_column"],
                 distributed_dataset_type=DistributedDatasetType.DAFT,

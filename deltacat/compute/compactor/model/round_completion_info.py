@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 class HighWatermark(dict):
     """
     Inherit from dict to make it easy for serialization/deserialization.
-    Keep both partition locator and high watermark as a tuple to be persisted in the rcf
+    Keep both partition locator and high watermark as a tuple to be persisted in the rci
     """
 
     def set(self, partition_locator: PartitionLocator, delta_stream_position: int):
@@ -46,6 +46,7 @@ class RoundCompletionInfo(dict):
         compactor_version: Optional[str] = None,
         input_inflation: Optional[float] = None,
         input_average_record_size_bytes: Optional[float] = None,
+        prev_source_partition_locator: Optional[PartitionLocator] = None,
     ) -> RoundCompletionInfo:
 
         rci = RoundCompletionInfo()
@@ -63,6 +64,7 @@ class RoundCompletionInfo(dict):
         rci["compactorVersion"] = compactor_version
         rci["inputInflation"] = input_inflation
         rci["inputAverageRecordSizeBytes"] = input_average_record_size_bytes
+        rci["prevSourcePartitionLocator"] = prev_source_partition_locator
         return rci
 
     @property
@@ -128,3 +130,7 @@ class RoundCompletionInfo(dict):
     @property
     def input_average_record_size_bytes(self) -> Optional[float]:
         return self.get("inputAverageRecordSizeBytes")
+
+    @property
+    def prev_source_partition_locator(self) -> Optional[PartitionLocator]:
+        return self.get("prevSourcePartitionLocator")

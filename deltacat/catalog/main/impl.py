@@ -36,12 +36,14 @@ from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
     PartitionScheme,
+    PartitionValues,
 )
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.types import DeltaType
-from deltacat.types.media import ContentType, TableType, DistributedDatasetType
-from deltacat.types.tables import TableWriteMode
+from deltacat.storage import Delta
+from deltacat.types.media import ContentType, DatasetType, DistributedDatasetType
+from deltacat.types.tables import TableProperty, TableReadOptimizationLevel, TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
@@ -102,7 +104,19 @@ def write_to_table(
     When creating a table, all `create_table` parameters may be optionally
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
-    as additional keyword arguments."""
+    as additional keyword arguments.
+    
+    Args:
+        data: Local or distributed data to write to the table.
+        table: Name of the table to write to.
+        namespace: Optional namespace for the table. Uses default if not specified.
+        mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
+        content_type: Content type for the data files.
+        compaction_cluster_config_path: Optional path to Ray cluster config file
+            for remote compaction jobs. If provided, compaction will run on the
+            remote cluster. If None, compaction runs locally.
+        **kwargs: Additional keyword arguments.
+    """
     namespace = namespace or default_namespace()
 
     # Determine if table exists and what action to take
@@ -215,8 +229,10 @@ def write_to_table(
     )
 
     # Handle different write modes
+    delta_type = None
     if mode == TableWriteMode.REPLACE:
         # REPLACE mode: Stage and commit a new stream to replace existing data
+        table_schema = table_definition.table_version.schema
         stream = _get_storage(**kwargs).stage_stream(
             namespace=namespace,
             table_name=table,
@@ -229,6 +245,7 @@ def write_to_table(
             stream=stream,
             **kwargs,
         )
+        delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
     elif mode == TableWriteMode.APPEND:
         # APPEND mode: Ensure no merge keys exist (pure append operation)
         table_schema = table_definition.table_version.schema
@@ -246,12 +263,13 @@ def write_to_table(
             table_version=table_version_obj.table_version,
             **kwargs,
         )
-    elif mode == TableWriteMode.MERGE:
-        # MERGE mode: Ensure merge keys exist (required for merge operations)
+        delta_type = DeltaType.APPEND
+    elif mode == TableWriteMode.MERGE or mode == TableWriteMode.DELETE:
+        # MERGE/DELETE mode: Ensure merge keys exist (required for merge/delete operations)
         table_schema = table_definition.table_version.schema
         if not table_schema or not table_schema.merge_keys:
             raise ValueError(
-                f"MERGE mode requires tables to have at least one merge key. "
+                f"{mode} mode requires tables to have at least one merge key. "
                 f"Table {namespace}.{table} has no merge keys. "
                 f"Use APPEND mode instead or specify merge keys in the schema."
             )
@@ -263,14 +281,17 @@ def write_to_table(
             table_version=table_version_obj.table_version,
             **kwargs,
         )
+        delta_type = DeltaType.UPSERT if mode == TableWriteMode.MERGE else DeltaType.DELETE
     else:
         # AUTO and CREATE modes: Get the existing stream
+        table_schema = table_definition.table_version.schema
         stream = _get_storage(**kwargs).get_stream(
             namespace=namespace,
             table_name=table,
             table_version=table_version_obj.table_version,
             **kwargs,
         )
+        delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
 
     if not stream:
         raise ValueError(f"No default stream found for table {namespace}.{table}")
@@ -355,7 +376,7 @@ def write_to_table(
     delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
         partition=partition,
-        delta_type=DeltaType.UPSERT,
+        delta_type=delta_type,
         content_type=content_type,
         author=ManifestAuthor.of(name="write_to_table", version="1.0"),
         **kwargs,
@@ -374,16 +395,203 @@ def write_to_table(
             **kwargs,
         )
 
+    # Check compaction trigger decision  
+    should_compact = _trigger_compaction(table_version_obj, delta, TableReadOptimizationLevel.MAX, **kwargs)
+    
+    if should_compact:
+        # Run V2 compaction session to merge or delete data
+        _run_compaction_session(
+            table_version_obj=table_version_obj,
+            partition=partition,
+            namespace=namespace,
+            table=table,
+            **kwargs,
+        )
+
+def _trigger_compaction(
+        table_version_obj: TableVersion, 
+        latest_delta: Optional[Delta],
+        target_read_optimization_level: TableReadOptimizationLevel,
+        **kwargs,
+    ) -> bool:
+    # Import inside function to avoid circular imports
+    from deltacat.compute.compactor.utils import round_completion_reader as rci
+    
+    # Extract delta type from latest_delta if available, otherwise default to no compaction
+    if latest_delta is not None:
+        delta_type = latest_delta.type
+        partition_values = latest_delta.partition_locator.partition_values
+        logger.info(f"Using delta type {delta_type} from latest delta {latest_delta.locator}")
+    else:
+        logger.info(f"No latest delta discovered, defaulting to no compaction.")
+        return False
+    
+    if table_version_obj.read_table_property(TableProperty.READ_OPTIMIZATION_LEVEL) == target_read_optimization_level:
+        if delta_type == DeltaType.DELETE or delta_type == DeltaType.UPSERT:
+            return True
+        elif delta_type == DeltaType.APPEND:
+            # Get default stream to determine partition locator
+            stream = _get_storage(**kwargs).get_stream(
+                table_version_obj.locator.namespace,
+                table_version_obj.locator.table_name,
+                table_version_obj.locator.table_version,
+                **kwargs,
+            )
+            
+            if not stream:
+                return False
+                
+            # Use provided partition_values or None for unpartitioned tables
+            partition_locator = PartitionLocator.of(
+                stream_locator=stream.locator,
+                partition_values=partition_values,
+                partition_id=None,
+            )
+            
+            # Get round completion info to determine high watermark
+            round_completion_info = rci.read_round_completion_info(
+                source_partition_locator=partition_locator,
+                destination_partition_locator=partition_locator,
+                deltacat_storage=_get_storage(**kwargs),
+                deltacat_storage_kwargs=kwargs,
+            )
+            
+            high_watermark = round_completion_info.high_watermark if round_completion_info and isinstance(round_completion_info.high_watermark, int) else 0
+            
+            # Get all deltas appended since last compaction
+            deltas = _get_storage(**kwargs).list_deltas(
+                namespace=table_version_obj.locator.namespace,
+                table_name=table_version_obj.locator.table_name,
+                table_version=table_version_obj.locator.table_version,
+                partition_values=partition_values,
+                start_stream_position=high_watermark + 1,
+                **kwargs,
+            )
+            
+            if not deltas:
+                return False
+                
+            # Count deltas appended since last compaction
+            appended_deltas_since_last_compaction = len(deltas)
+            delta_trigger = table_version_obj.read_table_property(TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER)
+            if delta_trigger and appended_deltas_since_last_compaction >= delta_trigger:
+                return True
+                
+            # Count files appended since last compaction
+            appended_files_since_last_compaction = 0
+            for delta in deltas:
+                if delta.manifest and delta.manifest.entries:
+                    appended_files_since_last_compaction += len(delta.manifest.entries)
+                    
+            file_trigger = table_version_obj.read_table_property(TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER)
+            if file_trigger and appended_files_since_last_compaction >= file_trigger:
+                return True
+                
+            # Count records appended since last compaction
+            appended_records_since_last_compaction = 0
+            for delta in deltas:
+                if delta.meta and delta.meta.record_count:
+                    appended_records_since_last_compaction += delta.meta.record_count
+                    
+            record_trigger = table_version_obj.read_table_property(TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER)
+            if record_trigger and appended_records_since_last_compaction >= record_trigger:
+                return True
+    return False
+
+
+def _run_compaction_session(
+    table_version_obj: TableVersion,
+    partition: Partition,
+    namespace: str,
+    table: str,
+    **kwargs,
+) -> None:
+    """
+    Run a V2 compaction session for the given table and partition.
+    
+    Args:
+        table_version_obj: The table version object
+        partition: The partition to compact
+        namespace: The table namespace
+        table: The table name
+        **kwargs: Additional arguments including catalog and storage parameters
+    """
+    # Import inside function to avoid circular imports
+    from deltacat.compute.compactor.model.compact_partition_params import (
+        CompactPartitionParams,
+    )
+    from deltacat.compute.compactor_v2.compaction_session import compact_partition
+    
+    try:
+        # Get the table schema for primary keys
+        table_schema = table_version_obj.schema
+        primary_keys = set(table_schema.merge_keys) if table_schema and table_schema.merge_keys else set()
+        
+        # Get the latest stream position from deltas
+        # TODO(pdames): We should be able to get this from the partition object instead.
+        stream_locator = partition.stream_locator
+        all_deltas = _get_storage(**kwargs).list_deltas(
+            namespace=namespace,
+            table_name=table,
+            table_version=stream_locator.table_version,
+            partition_values=partition.locator.partition_values,
+            **kwargs,
+        )
+        
+        # Find the highest stream position
+        latest_stream_position = 0
+        if all_deltas:
+            # all_deltas is a regular list, not a pagination object
+            latest_stream_position = max(delta.stream_position for delta in all_deltas)
+        
+        # Determine hash bucket count from previous compaction or default to 8
+        hash_bucket_count = 8  # Default
+        if partition.compaction_round_completion_info and partition.compaction_round_completion_info.hash_bucket_count:
+            hash_bucket_count = partition.compaction_round_completion_info.hash_bucket_count
+            logger.info(f"Using hash bucket count {hash_bucket_count} from previous compaction")
+        else:
+            logger.info(f"Using default hash bucket count {hash_bucket_count}")
+        
+        # Set up compaction parameters
+        # Note that, for scalability, compaction always hash buckets its input partitions independently of
+        # whether the parent table version is hash partitioned or not.
+        compact_partition_params = CompactPartitionParams.of({
+            "catalog": kwargs.get("inner", kwargs.get("catalog")),
+            "source_partition_locator": partition.locator,
+            "destination_partition_locator": partition.locator,  # In-place compaction
+            "primary_keys": primary_keys,
+            "last_stream_position_to_compact": latest_stream_position,
+            "deltacat_storage": _get_storage(**kwargs),
+            "deltacat_storage_kwargs": kwargs,
+            "list_deltas_kwargs": kwargs,
+            # TODO: Determine and evolve hash bucket count based on table size
+            "hash_bucket_count": hash_bucket_count,
+            "records_per_compacted_file": table_version_obj.read_table_property(
+                TableProperty.RECORDS_PER_COMPACTED_FILE,
+            ),
+            "compacted_file_content_type": ContentType.PARQUET,
+            "drop_duplicates": True,
+            "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
+        })
+        
+        logger.info(f"Starting V2 compaction session for table {namespace}.{table}, partition {partition.locator}")
+        
+        # Run V2 compaction session
+        compact_partition(params=compact_partition_params, **kwargs)
+        
+        logger.info(f"Completed V2 compaction session for table {namespace}.{table}, partition {partition.locator}")
+    except Exception as e:
+        logger.error(f"Error during compaction session for {namespace}.{table}, partition {partition.locator}: {e}")
+        raise
+
 
 def read_table(
     table: str,
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    table_type: Optional[TableType] = TableType.PYARROW,
-    distributed_dataset_type: Optional[
-        DistributedDatasetType
-    ] = DistributedDatasetType.RAY_DATASET,
+    table_type: Optional[DatasetType] = DatasetType.PYARROW,
+    distributed_dataset_type: Optional[DatasetType] = DatasetType.RAY_DATASET,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     stream_position_range_inclusive: Optional[Tuple[int, int]] = None,
     merge_on_read: Optional[bool] = False,
@@ -447,6 +655,24 @@ def read_table(
         partition_filter=partition_filter,
         **kwargs,
     )
+    
+    # Validate that all qualified deltas are append type - merge-on-read not yet implemented
+    if qualified_deltas:
+        non_append_deltas = []
+        for delta in qualified_deltas:
+            if delta.type != DeltaType.APPEND:
+                non_append_deltas.append(delta)
+        
+        if non_append_deltas:
+            delta_types = {delta.type for delta in non_append_deltas}
+            delta_info = [(str(delta.locator), delta.type) for delta in non_append_deltas[:5]]  # Show first 5
+            raise NotImplementedError(
+                f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-append deltas "
+                f"with types {delta_types}. All deltas must be APPEND type for read operations. "
+                f"Examples: {delta_info}. Please run compaction first to merge non-append deltas."
+            )
+        
+        logger.info(f"Validated {len(qualified_deltas)} qualified deltas are all APPEND type")
 
     logger.info(
         f"Total qualified deltas={len(qualified_deltas)} "
@@ -907,7 +1133,7 @@ def default_namespace(*args, **kwargs) -> str:
 
 def _validate_read_table_args(
     namespace: Optional[str] = None,
-    table_type: Optional[TableType] = None,
+    table_type: Optional[DatasetType] = None,
     distributed_dataset_type: Optional[DistributedDatasetType] = None,
     merge_on_read: Optional[bool] = None,
     **kwargs,
@@ -922,7 +1148,7 @@ def _validate_read_table_args(
     if merge_on_read:
         raise ValueError("Merge on read not supported currently.")
 
-    if table_type is not TableType.PYARROW:
+    if table_type is not DatasetType.PYARROW:
         raise ValueError("Only PYARROW table type is supported as of now")
 
     if distributed_dataset_type is not DistributedDatasetType.DAFT:

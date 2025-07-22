@@ -19,7 +19,7 @@ from deltacat.utils.ray_utils.runtime import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
 from deltacat.utils.metrics import emit_timer_metrics, MetricsConfig
-from deltacat.storage import Delta
+from deltacat.storage import Delta, DeltaType
 from enum import Enum
 
 if importlib.util.find_spec("memray"):
@@ -144,6 +144,7 @@ def repartition_range(
                 partition_delta: Delta = deltacat_storage.stage_delta(
                     partition_table,
                     destination_partition,
+                    delta_type=DeltaType.APPEND,  # Repartition always produces APPEND deltas
                     max_records_per_entry=max_records_per_output_file,
                     content_type=repartitioned_file_content_type,
                     table_writer_kwargs=table_writer_kwargs,

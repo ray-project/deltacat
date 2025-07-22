@@ -35,7 +35,7 @@ from deltacat.types.media import (
     ContentType,
     DistributedDatasetType,
     StorageType,
-    TableType,
+    DatasetType,
 )
 from deltacat.utils.common import ReadKwargsProvider
 
@@ -206,7 +206,7 @@ def get_latest_delta(
 
 def download_delta(
     delta_like: Union[Delta, DeltaLocator],
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     storage_type: StorageType = StorageType.DISTRIBUTED,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -229,7 +229,7 @@ def download_delta(
 def download_delta_manifest_entry(
     delta_like: Union[Delta, DeltaLocator],
     entry_index: int,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,

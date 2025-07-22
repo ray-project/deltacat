@@ -19,10 +19,10 @@ from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.tests.compute.test_util_common import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
     create_incremental_deltas_on_source_table_main,
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKey,
-    get_compacted_delta_locator_from_rcf,
+    get_compacted_delta_locator_from_partition,
 )
 from deltacat.tests.compute.compact_partition_rebase_then_incremental_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
@@ -276,9 +276,9 @@ def test_compact_partition_rebase_then_incremental_main(
             }
         )
         # execute
-        rcf_file_path = benchmark(compact_partition_func, compact_partition_params)
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            rcf_file_path
+        benchmark(compact_partition_func, compact_partition_params)
+        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
+            destination_partition_locator, metastore, catalog=catalog
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
@@ -363,10 +363,10 @@ def test_compact_partition_rebase_then_incremental_main(
                     compact_partition_func(compact_partition_params)
                 assert expected_terminal_exception_message in str(exc_info.value)
                 return
-            rcf_file_path = compact_partition_func(compact_partition_params)
+            compact_partition_func(compact_partition_params)
             # assert
-            compacted_delta_locator: DeltaLocator = (
-                get_compacted_delta_locator_from_rcf(rcf_file_path)
+            compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
+                destination_partition_locator, metastore, catalog=catalog
             )
             tables = metastore.download_delta(
                 compacted_delta_locator,
@@ -376,7 +376,9 @@ def test_compact_partition_rebase_then_incremental_main(
             actual_compact_partition_result = pa.concat_tables(tables)
 
             # Get compaction audit for verification if needed
-            round_completion_info = get_rcf(rcf_file_path)
+            round_completion_info = get_rci_from_partition(
+                destination_partition_locator, metastore, catalog=catalog
+            )
             compaction_audit_obj: dict = read_audit_file(
                 round_completion_info.compaction_audit_url
             )

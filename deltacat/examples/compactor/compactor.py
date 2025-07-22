@@ -151,10 +151,9 @@ def run(
         print(f"   Hash Bucket Count: {hash_bucket_count}")
 
     # Run compaction
-    result = compact_partition(CompactPartitionParams.of(params_dict))
+    compact_partition(CompactPartitionParams.of(params_dict))
 
     print(f"✅ Compaction completed successfully!")
-    print(f"   Result: {result}")
 
 
 if __name__ == "__main__":

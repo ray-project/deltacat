@@ -4,12 +4,12 @@ from deltacat.storage.model.types import DistributedDataset
 from deltacat.storage import (
     interface as unimplemented_deltacat_storage,
 )
-from deltacat.types.media import TableType, StorageType, DistributedDatasetType
+from deltacat.types.media import DatasetType, StorageType, DistributedDatasetType
 
 
 def create_df_from_all_deltas(
     deltas: List[Union[Delta, DeltaLocator]],
-    table_type: TableType,
+    table_type: DatasetType,
     distributed_dataset_type: DistributedDatasetType,
     reader_kwargs: Optional[Dict[Any, Any]] = None,
     deltacat_storage=unimplemented_deltacat_storage,

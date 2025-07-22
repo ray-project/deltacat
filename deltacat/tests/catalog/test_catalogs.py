@@ -1,4 +1,3 @@
-import unittest
 import pytest
 import tempfile
 import shutil
@@ -41,21 +40,21 @@ def reset_catalogs():
     clear_catalogs()
 
 
-class TestCatalog(unittest.TestCase):
+class TestCatalog:
     """Tests for the Catalog class itself, without Ray initialization."""
 
     def test_catalog_constructor(self):
         """Test that the Catalog constructor correctly initializes with the given implementation."""
         catalog = Catalog(impl=MockCatalogImpl)
 
-        self.assertEqual(catalog.impl, MockCatalogImpl)
+        assert catalog.impl == MockCatalogImpl
 
         # Check that inner state was correctly initialized
         # This just asserts that kwargs were plumbed through from Catalog constructor
-        self.assertTrue(catalog.inner["initialized"])
-        self.assertIsNone(catalog.inner["config"])
-        self.assertEqual(catalog.inner["args"], ())
-        self.assertEqual(catalog.inner["kwargs"], {})
+        assert catalog.inner["initialized"]
+        assert catalog.inner["config"] is None
+        assert catalog.inner["args"] == ()
+        assert catalog.inner["kwargs"] == {}
 
     def test_iceberg_factory_method(self):
         """Test the iceberg factory method correctly creates an Iceberg catalog."""
@@ -71,9 +70,9 @@ class TestCatalog(unittest.TestCase):
             catalog = IcebergCatalog.from_config(config)
 
             # Check that the implementation is set to iceberg_catalog
-            self.assertEqual(catalog.impl, mock_iceberg_catalog)
+            assert catalog.impl == mock_iceberg_catalog
             # Check that the inner state is set to the output of initialize
-            self.assertEqual(catalog.inner, {"iceberg": True})
+            assert catalog.inner == {"iceberg": True}
 
 
 class TestCatalogsIntegration:

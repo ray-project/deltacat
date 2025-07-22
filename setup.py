@@ -40,7 +40,7 @@ setuptools.setup(
             "pyiceberg[sql-sqlite] >= 0.9.0",
         ],
         "beam": [
-            "apache-beam[gcs] == 2.65.0",
+            "apache-beam == 2.65.0",
         ],
         # separate s3fs from other AWS dependencies due to vastly increased
         # installation times when included (due to boto version conflicts)

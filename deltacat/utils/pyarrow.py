@@ -37,7 +37,6 @@ from deltacat.types.partial_download import (
 )
 from deltacat.utils.common import ContentTypeKwargsProvider, ReadKwargsProvider
 from deltacat.utils.performance import timed_invocation
-from deltacat.utils.daft import daft_s3_file_to_table
 from deltacat.utils.schema import coerce_pyarrow_table_to_schema
 from deltacat.utils.arguments import (
     sanitize_kwargs_to_callable,
@@ -924,6 +923,7 @@ def s3_file_to_table(
 
         parquet_reader_func = None
         if kwargs.get(READER_TYPE_KWARG, "daft") == "daft":
+            from deltacat.utils.daft import daft_s3_file_to_table
             parquet_reader_func = daft_s3_file_to_table
         elif partial_file_download_params and isinstance(
             partial_file_download_params, PartialParquetParameters

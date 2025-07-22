@@ -29,7 +29,8 @@ from tenacity import (
     retry_if_exception_type,
 )
 
-import deltacat.storage as dcs
+from deltacat.compute.compactor_v2.constants import MAX_RECORDS_PER_COMPACTED_FILE
+from deltacat.storage.model.types import LocalTable, DistributedDataset
 from deltacat import logs
 from deltacat.constants import (
     UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY,
@@ -42,7 +43,7 @@ from deltacat.storage.model.types import (
     LocalDataset,
 )
 from deltacat.types.media import (
-    TableType,
+    DatasetType,
     DistributedDatasetType,
     ContentType,
     EXPLICIT_COMPRESSION_CONTENT_TYPES,
@@ -52,7 +53,6 @@ from deltacat.utils import numpy as np_utils
 from deltacat.utils import pandas as pd_utils
 from deltacat.utils import polars as pl_utils
 from deltacat.utils import pyarrow as pa_utils
-from deltacat.utils import daft as daft_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 from deltacat.storage.model.manifest import (
     ManifestEntryList,
@@ -77,25 +77,25 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 TABLE_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
-    TableType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
-    TableType.PYARROW.value: pa_utils.s3_file_to_table,
-    TableType.PANDAS.value: pd_utils.s3_file_to_dataframe,
-    TableType.NUMPY.value: np_utils.s3_file_to_ndarray,
-    TableType.POLARS.value: pl_utils.s3_file_to_dataframe,
+    DatasetType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
+    DatasetType.PYARROW.value: pa_utils.s3_file_to_table,
+    DatasetType.PANDAS.value: pd_utils.s3_file_to_dataframe,
+    DatasetType.NUMPY.value: np_utils.s3_file_to_ndarray,
+    DatasetType.POLARS.value: pl_utils.s3_file_to_dataframe,
 }
 
 
 TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
-    TableType.PYARROW_PARQUET.value: pa_utils.file_to_parquet,
-    TableType.PYARROW.value: pa_utils.file_to_table,
-    TableType.PANDAS.value: pd_utils.file_to_dataframe,
-    TableType.NUMPY.value: np_utils.file_to_ndarray,
-    TableType.POLARS.value: pl_utils.file_to_dataframe,
+    DatasetType.PYARROW_PARQUET.value: pa_utils.file_to_parquet,
+    DatasetType.PYARROW.value: pa_utils.file_to_table,
+    DatasetType.PANDAS.value: pd_utils.file_to_dataframe,
+    DatasetType.NUMPY.value: np_utils.file_to_ndarray,
+    DatasetType.POLARS.value: pl_utils.file_to_dataframe,
 }
 
 
 TABLE_CLASS_TO_WRITER_FUNC: Dict[
-    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
+    Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
     pa.Table: pa_utils.table_to_file,
     pd.DataFrame: pd_utils.dataframe_to_file,
@@ -106,7 +106,7 @@ TABLE_CLASS_TO_WRITER_FUNC: Dict[
 }
 
 TABLE_CLASS_TO_SLICER_FUNC: Dict[
-    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
+    Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
     pa.Table: pa_utils.slice_table,
     pd.DataFrame: pd_utils.slice_dataframe,
@@ -117,7 +117,7 @@ TABLE_CLASS_TO_SLICER_FUNC: Dict[
 }
 
 TABLE_CLASS_TO_SIZE_FUNC: Dict[
-    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
+    Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
     pa.Table: pa_utils.table_size,
     papq.ParquetFile: pa_utils.parquet_file_size,
@@ -129,7 +129,7 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
 }
 
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[
-    Type[Union[dcs.LocalTable, dcs.DistributedDataset]], Callable
+    Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
     pa.Table: lambda table, **kwargs: table,
     papq.ParquetFile: lambda table, **kwargs: table.read(**kwargs),
@@ -140,35 +140,45 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     ),
 }
 
-TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[dcs.LocalTable], str] = {
-    pa.Table: TableType.PYARROW.value,
-    papq.ParquetFile: TableType.PYARROW_PARQUET.value,
-    pl.DataFrame: TableType.POLARS.value,
-    pd.DataFrame: TableType.PANDAS.value,
-    np.ndarray: TableType.NUMPY.value,
+TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[LocalTable], str] = {
+    pa.Table: DatasetType.PYARROW.value,
+    papq.ParquetFile: DatasetType.PYARROW_PARQUET.value,
+    pl.DataFrame: DatasetType.POLARS.value,
+    pd.DataFrame: DatasetType.PANDAS.value,
+    np.ndarray: DatasetType.NUMPY.value,
 }
 
 TABLE_TYPE_TO_DATASET_CREATE_FUNC: Dict[str, Callable] = {
-    TableType.PYARROW.value: from_arrow,
-    TableType.PYARROW_PARQUET.value: from_arrow,
-    TableType.NUMPY.value: from_numpy,
-    TableType.PANDAS.value: from_pandas,
+    DatasetType.PYARROW.value: from_arrow,
+    DatasetType.PYARROW_PARQUET.value: from_arrow,
+    DatasetType.NUMPY.value: from_numpy,
+    DatasetType.PANDAS.value: from_pandas,
 }
 
 TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
-    TableType.PYARROW.value: from_arrow_refs,
-    TableType.PYARROW_PARQUET.value: from_arrow_refs,
-    TableType.NUMPY.value: from_numpy,
-    TableType.PANDAS.value: from_pandas_refs,
-    TableType.POLARS.value: from_arrow_refs,  # We cast Polars to Arrow for Ray Datasets
+    DatasetType.PYARROW.value: from_arrow_refs,
+    DatasetType.PYARROW_PARQUET.value: from_arrow_refs,
+    DatasetType.NUMPY.value: from_numpy,
+    DatasetType.PANDAS.value: from_pandas_refs,
+    DatasetType.POLARS.value: from_arrow_refs,  # We cast Polars to Arrow for Ray Datasets
 }
 
+def _daft_s3_reader_wrapper(*args, **kwargs):
+    """Wrapper for daft s3 reader with lazy import to avoid circular import."""
+    from deltacat.utils.daft import s3_files_to_dataframe
+    return s3_files_to_dataframe(*args, **kwargs)
+
+def _daft_reader_wrapper(*args, **kwargs):
+    """Wrapper for daft reader with lazy import to avoid circular import."""
+    from deltacat.utils.daft import files_to_dataframe
+    return files_to_dataframe(*args, **kwargs)
+
 DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
-    DistributedDatasetType.DAFT.value: daft_utils.s3_files_to_dataframe
+    DistributedDatasetType.DAFT.value: _daft_s3_reader_wrapper
 }
 
 DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
-    DistributedDatasetType.DAFT.value: daft_utils.files_to_dataframe
+    DistributedDatasetType.DAFT.value: _daft_reader_wrapper
 }
 
 
@@ -181,9 +191,10 @@ class TableWriteMode(str, Enum):
     CREATE: Create the table if it doesn't exist, throw an error if it does.
     APPEND: Append to the table if it exists, throw an error if it doesn't.
     REPLACE: Replace existing table contents with the data to write.
-    MERGE: Insert, update, or delete records matching a given predicate.
-    Updates or inserts records based on the table's primary and sort keys by
+    MERGE: Insert or update records matching table merge keys.
+    Updates or inserts records based on the table's merge and sort keys by
     default.
+    DELETE: Delete records matching table merge keys.
     """
 
     AUTO = "auto"
@@ -191,15 +202,61 @@ class TableWriteMode(str, Enum):
     APPEND = "append"
     REPLACE = "replace"
     MERGE = "merge"
+    DELETE = "delete"
+
+
+class TableProperty(str, Enum):
+    """
+    Enum defining known table property key names.
+    """
+    READ_OPTIMIZATION_LEVEL = "read_optimization_level"
+    RECORDS_PER_COMPACTED_FILE = "records_per_compacted_file"
+    APPENDED_RECORD_COUNT_COMPACTION_TRIGGER = "appended_record_count_compaction_trigger"
+    APPENDED_FILE_COUNT_COMPACTION_TRIGGER = "appended_file_count_compaction_trigger"
+    APPENDED_DELTA_COUNT_COMPACTION_TRIGGER = "appended_delta_count_compaction_trigger"
+
+
+class TableReadOptimizationLevel(str, Enum):
+    """
+    Enum controlling the how much to optimize reads when writing to a table. Different levels
+    here correspond to different tradeoffs between write and read performance.
+
+    NONE: No read optimization. Deletes and updates are resolved by finding the values
+    that match merge key predicates by running compaction at read time. Provides the 
+    fastest/cheapest writes but slow/expensive reads. Resilient to conflicts with concurrent 
+    writes, including table management jobs like compaction.
+
+    MODERATE: Discover record indexes that match merge key predicates at write time and record
+    those values as logically deleted (e.g., using a bitmask). Provides faster/cheaper reads but
+    slower/more-expensive writes. May conflict with concurrent writes that remove/replace data
+    files like compaction.
+
+    MAX: Materialize all deletes and updates at write time by running compaction during
+    every write. Provides fast/cheap reads but slow/expensive writes. May conflict with
+    concurrent writes, including table management jobs like compaction.
+    """
+
+    NONE = "none"
+    MODERATE = "moderate"
+    MAX = "max"
+
+
+TablePropertyDefaultValues: Dict[TableProperty, Any] = {
+    TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+    TableProperty.RECORDS_PER_COMPACTED_FILE: MAX_RECORDS_PER_COMPACTED_FILE,
+    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: MAX_RECORDS_PER_COMPACTED_FILE * 2,
+    TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+    TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+}
 
 
 def get_table_length(
-    table: Union[dcs.LocalTable, dcs.DistributedDataset, BlockAccessor]
+    table: Union[LocalTable, DistributedDataset, BlockAccessor]
 ) -> int:
     return len(table) if not isinstance(table, RayDataset) else table.count()
 
 
-def get_table_size(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> int:
+def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
     table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
     if table_size_func is None:
         msg = (
@@ -210,7 +267,7 @@ def get_table_size(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> int:
     return table_size_func(table)
 
 
-def get_table_writer(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> Callable:
+def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     table_writer_func = TABLE_CLASS_TO_WRITER_FUNC.get(type(table))
     if table_writer_func is None:
         msg = (
@@ -221,7 +278,7 @@ def get_table_writer(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> Ca
     return table_writer_func
 
 
-def get_table_slicer(table: Union[dcs.LocalTable, dcs.DistributedDataset]) -> Callable:
+def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     table_slicer_func = TABLE_CLASS_TO_SLICER_FUNC.get(type(table))
     if table_slicer_func is None:
         msg = (
@@ -538,7 +595,7 @@ def get_block_metadata(
 
 def download_manifest_entries(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -566,7 +623,7 @@ def download_manifest_entries(
 
 def _download_manifest_entries(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -587,7 +644,7 @@ def _download_manifest_entries(
 @ray.remote
 def download_manifest_entry_ray(
     manifest_entry: ManifestEntry,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -612,7 +669,7 @@ def download_manifest_entry_ray(
     )
 
     # If table_type is POLARS, convert to Arrow for Ray dataset compatibility
-    if table_type == TableType.POLARS:
+    if table_type == DatasetType.POLARS:
         if isinstance(result, pl.DataFrame):
             # Convert Polars DataFrame to PyArrow Table
             result = result.to_arrow()
@@ -622,7 +679,7 @@ def download_manifest_entry_ray(
 
 def download_manifest_entries_distributed(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -656,7 +713,7 @@ def download_manifest_entries_distributed(
 
 def _download_manifest_entries_ray_data_distributed(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -682,7 +739,7 @@ def _download_manifest_entries_ray_data_distributed(
 
 def _download_manifest_entries_all_dataset_distributed(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = 1000,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -737,7 +794,7 @@ def _download_manifest_entries_all_dataset_distributed(
 
 def _download_manifest_entries_parallel(
     manifest: Manifest,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     max_parallelism: Optional[int] = None,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
@@ -760,7 +817,7 @@ def _download_manifest_entries_parallel(
 
 def download_manifest_entry(
     manifest_entry: ManifestEntry,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -819,7 +876,7 @@ def read_file(
     path: str,
     content_type: ContentType,
     content_encoding: ContentEncoding = ContentEncoding.IDENTITY,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,

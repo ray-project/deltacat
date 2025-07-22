@@ -13,10 +13,10 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKey,
-    get_compacted_delta_locator_from_rcf,
+    get_compacted_delta_locator_from_partition,
 )
 from deltacat.tests.compute.test_util_common import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
@@ -262,11 +262,14 @@ def test_compact_partition_rebase_same_source_and_destination_main(
         object_store_put_many_spy = mocker.spy(FileObjectStore, "put_many")
 
         # execute
-        rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
+        benchmark(compact_partition_func, compact_partition_params)
 
-        round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
+        # Get RoundCompletionInfo from the compacted partition
+        round_completion_info: RoundCompletionInfo = get_rci_from_partition(
+            rebased_partition.locator, metastore, catalog=ds_mock_kwargs.get("inner")
+        )
 
-        # assert if RCF covers all files
+        # assert if RCI covers all files
         if compactor_version != CompactorVersion.V1.value:
             previous_end = None
             for start, end in round_completion_info.hb_index_to_entry_range.values():
@@ -288,8 +291,8 @@ def test_compact_partition_rebase_same_source_and_destination_main(
         assert (
             execute_compaction_result_spy.call_args.args[-1] is False
         ), "Table version erroneously marked as in-place compacted!"
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            rcf_file_s3_uri
+        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
+            rebased_partition.locator, metastore, catalog=ds_mock_kwargs.get("inner")
         )
         assert (
             compacted_delta_locator.stream_position == last_stream_position_to_compact

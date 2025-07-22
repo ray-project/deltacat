@@ -34,6 +34,7 @@ from deltacat.storage.model.table import (
 from deltacat.types.media import ContentType
 from deltacat.storage.model.sort_key import SortScheme, SortSchemeList
 from deltacat.storage.model.types import LifecycleState
+from deltacat.types.tables import TableProperty, TablePropertyDefaultValues
 
 TableVersionProperties = Dict[str, Any]
 
@@ -354,6 +355,10 @@ class TableVersion(Metafile):
             else (None, None)
         )
         return int(version_number) if version_number is not None else None
+
+    def read_table_property(self, property: TableProperty) -> Any:
+        properties = self.properties or {}
+        return properties.get(property.value, TablePropertyDefaultValues[property])
 
     @staticmethod
     def next_version(previous_version: Optional[str] = None) -> str:
