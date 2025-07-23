@@ -36,6 +36,7 @@ from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
 )
 from deltacat.compute.compactor_v2.private.compaction_utils import (
+    _get_rci_source_partition_locator,
     _fetch_compaction_metadata,
     _build_uniform_deltas,
     _group_uniform_deltas,
@@ -98,9 +99,7 @@ def _execute_compaction(
         previous_compacted_delta_manifest,
         round_completion_info,
     ) = fetch_compaction_metadata_result
-    rci_source_partition_locator: PartitionLocator = (
-        params.rebase_source_partition_locator or params.source_partition_locator
-    )
+    rci_source_partition_locator: PartitionLocator = _get_rci_source_partition_locator(params)
 
     base_audit_url: str = rci_source_partition_locator.path(
         f"{params.compaction_artifact_path}/compaction-audit"

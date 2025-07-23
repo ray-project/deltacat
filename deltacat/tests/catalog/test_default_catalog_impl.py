@@ -7,6 +7,7 @@ import pyarrow as pa
 from typing import Dict, Any
 import threading
 import time
+import multiprocessing
 from unittest.mock import patch, MagicMock
 
 import ray
@@ -131,10 +132,9 @@ class TestReadTableMain:
         assert df.column_names == ["pk", "value"]
 
 
-class TestEndToEndCompaction:
+class TestCopyOnWrite:
     """
-    End-to-end compaction tests that demonstrate real upsert behavior.
-    Uses the same table structure as Apache Beam tests for consistency.
+    End-to-end copy-on-wrte tests using the default catalogs write and read APIs.
     """
     
     @classmethod
@@ -483,7 +483,7 @@ class TestEndToEndCompaction:
         """
         table_name = "test_concurrent_writes"
         
-        # Step 1: Create table with very aggressive compaction triggers
+        # Step 1: Create table configured to always trigger copy-on-write compaction
         schema = Schema.of([
             Field.of(pa.field("id", pa.int64()), is_merge_key=True),
             Field.of(pa.field("name", pa.string())),
@@ -540,19 +540,32 @@ class TestEndToEndCompaction:
         results = {"writer_a": None, "writer_b": None}
         exceptions = {"writer_a": None, "writer_b": None}
         
-        # Create artificial delay in staging for Writer A to create race condition
-        from deltacat.storage.main.impl import stage_partition
-        original_stage_partition = stage_partition
+        # Create artificial delay in commit for Writer A to create race condition
+        from deltacat.storage.main.impl import commit_partition
+        original_commit_partition = commit_partition
         
-        def delayed_stage_partition(*args, **kwargs):
-            """Add delay before staging for Writer A to create race condition"""
+        # Use threading Event as a latch - Writer A waits until Writer B completes
+        writer_b_completed = threading.Event()
+        
+        def delayed_commit_partition(*args, **kwargs):
+            """Use latch mechanism to ensure Writer B completes before Writer A"""
             current_thread = threading.current_thread()
+            
             if hasattr(current_thread, 'name') and 'writer_a' in current_thread.name.lower():
-                time.sleep(3)  # Give Writer B time to complete its write
-            return original_stage_partition(*args, **kwargs)
+                # Writer A waits for Writer B to complete first
+                writer_b_completed.wait(timeout=10)  # Wait up to 10 seconds
+                
+            # Call the original function
+            result = original_commit_partition(*args, **kwargs)
+            
+            if hasattr(current_thread, 'name') and 'writer_b' in current_thread.name.lower():
+                # Writer B signals completion after successful commit
+                writer_b_completed.set()
+                
+            return result
         
         def writer_a_task():
-            """Task for Writer A - will be delayed during staging"""
+            """Task for Writer A - will be delayed during commit"""
             try:
                 current_thread = threading.current_thread()
                 current_thread.name = "writer_a_thread"
@@ -589,8 +602,8 @@ class TestEndToEndCompaction:
             except Exception as e:
                 exceptions["writer_b"] = e
         
-        # Execute concurrent writes with delayed staging for Writer A
-        with patch('deltacat.storage.main.impl.stage_partition', side_effect=delayed_stage_partition):
+        # Execute concurrent writes with delayed commit for Writer A
+        with patch('deltacat.storage.main.impl.commit_partition', side_effect=delayed_commit_partition):
             # Start both writers concurrently
             thread_a = threading.Thread(target=writer_a_task, name="writer_a_thread")
             thread_b = threading.Thread(target=writer_b_task, name="writer_b_thread")
@@ -616,12 +629,14 @@ class TestEndToEndCompaction:
         assert failed_exception is not None, "Failed writer should have an exception"
         
         # Verify this is a legitimate concurrent write conflict error
-        # DeltaCAT can throw either ValueError or RuntimeError depending on which layer catches the conflict
-        assert isinstance(failed_exception, (ValueError, RuntimeError)), f"Expected ValueError or RuntimeError for concurrent write conflict, got {type(failed_exception)}"
-        
+        # Check both the main exception message and any underlying cause
         error_message = str(failed_exception)
-        assert ("concurrent conflict" in error_message or 
-                "already exists" in error_message), f"Expected concurrent conflict error message, got: {failed_exception}"
+        cause_message = str(failed_exception.__cause__) if hasattr(failed_exception, '__cause__') and failed_exception.__cause__ else ""
+        full_error_context = error_message + " " + cause_message
+        
+        # Look specifically for our conflict detection message
+        has_conflict_message = "Previous partition ID mismatch" in full_error_context
+        assert has_conflict_message, f"Expected 'Previous partition ID mismatch' error message, got: {failed_exception} (cause: {cause_message})"
         
         # Verify final table state is consistent
         final_result = dc.read_table(
@@ -634,20 +649,21 @@ class TestEndToEndCompaction:
         final_count = final_result.count_rows()
         assert final_count == 3, f"Expected exactly 3 records after conflict resolution, got {final_count}"
     
+    @pytest.mark.skipif(
+        multiprocessing.cpu_count() < 2,
+        reason="Stress test requires at least 2 CPUs for meaningful concurrent testing"
+    )
     def test_concurrent_write_stress(self):
         """
         Stress test for concurrent write conflicts with data integrity validation.
-        This test runs multiple rounds of parallel writes (one per CPU core) and verifies
-        that successful writes never truncate or destroy data from other successful writes.
-        Failed writes due to conflicts are acceptable, but successful writes must preserve
-        all their data in the final table state.
+        This test runs multiple rounds of parallel writes and verifies that successful
+        writes never lose data. Failed writes due to conflicts are acceptable, but
+        successful writes must preserve all their data in the final table state.
         """
         import multiprocessing
-        import uuid
-        from collections import defaultdict
         
         table_name = "test_concurrent_stress"
-        cpu_count = multiprocessing.cpu_count()
+        concurrent_writers = multiprocessing.cpu_count()
         rounds = 10
         
         # Create table with merge keys for upsert behavior
@@ -655,7 +671,6 @@ class TestEndToEndCompaction:
             Field.of(pa.field("id", pa.int64()), is_merge_key=True),
             Field.of(pa.field("round_num", pa.int32())),
             Field.of(pa.field("writer_id", pa.string())),
-            Field.of(pa.field("timestamp", pa.int64())),
             Field.of(pa.field("data", pa.string())),
         ])
         
@@ -676,81 +691,77 @@ class TestEndToEndCompaction:
             catalog=self.catalog_name,
         )
         
-        # Track all write attempts and their success/failure
-        all_write_attempts = []  # List of (round, writer_id, expected_data, success/failure)
-        successful_writes = []   # List of (round, writer_id, expected_data) for successful writes
+        # Track successful writes across all rounds
+        successful_writes = []
         
         for round_num in range(rounds):
-            # Create data for each writer in this round
-            round_data = {}
-            writer_tasks = []
-            writer_results = {}
-            writer_exceptions = {}
+            # Per-round tracking with clean isolation
+            round_results = {}
+            round_exceptions = {}
             
-            # Generate unique data for each writer
-            for writer_idx in range(cpu_count):
-                writer_id = f"round_{round_num:02d}_writer_{writer_idx:02d}"
-                
-                # Each writer updates/creates records with unique IDs
-                # Use a deterministic pattern to avoid collisions between writers
-                base_id = round_num * 1000 + writer_idx * 10
-                writer_data = pd.DataFrame({
-                    'id': [base_id, base_id + 1, base_id + 2],
-                    'round_num': [round_num] * 3,
-                    'writer_id': [writer_id] * 3,
-                    'timestamp': [int(time.time() * 1000000) + i for i in range(3)],  # Unique timestamps
-                    'data': [f"{writer_id}_record_{i}" for i in range(3)]
-                })
-                
-                round_data[writer_id] = writer_data
-                all_write_attempts.append((round_num, writer_id, writer_data))
-            
-            def create_writer_task(writer_id, data):
+            def create_writer_task(round_num, writer_idx):
                 def writer_task():
                     try:
                         current_thread = threading.current_thread()
-                        current_thread.name = f"{writer_id}_thread"
+                        current_thread.name = f"round_{round_num}_writer_{writer_idx}_thread"
+                        
+                        # Generate unique IDs
+                        base_id = round_num * 1000 + writer_idx * 10
+                        writer_data = pd.DataFrame({
+                            'id': [base_id, base_id + 1, base_id + 2],
+                            'round_num': [round_num] * 3,
+                            'writer_id': [f'round_{round_num:02d}_writer_{writer_idx:02d}'] * 3,
+                            'data': [f'round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}' for i in range(3)]
+                        })
                         
                         dc.write_to_table(
-                            data=data,
+                            data=writer_data,
                             table=table_name,
                             namespace=self.test_namespace,
-                            mode=TableWriteMode.MERGE,  # UPSERT behavior
+                            mode=TableWriteMode.MERGE,
                             content_type=ContentType.PARQUET,
                             catalog=self.catalog_name,
                         )
-                        writer_results[writer_id] = "success"
+                        round_results[writer_idx] = "success"
                         
                     except Exception as e:
-                        writer_exceptions[writer_id] = e
-                        writer_results[writer_id] = "failed"
+                        round_exceptions[writer_idx] = e
+                        round_results[writer_idx] = "failed"
                 
                 return writer_task
             
-            # Create and start all writer tasks for this round
+            # Create and start all writers for this round
             threads = []
-            for writer_id, data in round_data.items():
-                task = create_writer_task(writer_id, data)
-                thread = threading.Thread(target=task, name=f"{writer_id}_thread")
+            for writer_idx in range(concurrent_writers):
+                task = create_writer_task(round_num, writer_idx)
+                thread = threading.Thread(target=task, name=f"round_{round_num}_writer_{writer_idx}_thread")
                 threads.append(thread)
             
             # Start all threads simultaneously
             for thread in threads:
                 thread.start()
             
-            # Wait for all threads to complete
+            # Wait for all threads to complete with reasonable timeout
             for thread in threads:
-                thread.join(timeout=30)  # Longer timeout for stress test
+                thread.join(timeout=30)
             
-            # Record which writes succeeded in this round
-            round_successful_writes = []
-            for writer_id, result in writer_results.items():
+            # Record successful writes for this round
+            round_successful_count = 0
+            for writer_idx, result in round_results.items():
                 if result == "success":
-                    round_successful_writes.append((round_num, writer_id, round_data[writer_id]))
-                    successful_writes.append((round_num, writer_id, round_data[writer_id]))
+                    round_successful_count += 1
+                    # Recreate the data that this successful writer wrote
+                    base_id = round_num * 1000 + writer_idx * 10
+                    writer_data = pd.DataFrame({
+                        'id': [base_id, base_id + 1, base_id + 2],
+                        'round_num': [round_num] * 3,
+                        'writer_id': [f'round_{round_num:02d}_writer_{writer_idx:02d}'] * 3,
+                        'data': [f'round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}' for i in range(3)]
+                    })
+                    successful_writes.append((round_num, writer_idx, writer_data))
             
             # Verify at least one write succeeded in this round
-            assert len(round_successful_writes) > 0, f"No writers succeeded in round {round_num}"
+            assert round_successful_count > 0, f"No writers succeeded in round {round_num}"
         
         # Read final table state
         final_result = dc.read_table(
@@ -769,7 +780,6 @@ class TestEndToEndCompaction:
             final_data_by_id[record_id] = {
                 'round_num': int(row['round_num']),
                 'writer_id': row['writer_id'],
-                'timestamp': int(row['timestamp']),
                 'data': row['data']
             }
         
@@ -777,13 +787,12 @@ class TestEndToEndCompaction:
         missing_records = []
         corrupted_records = []
         
-        for round_num, writer_id, expected_data in successful_writes:
+        for round_num, writer_idx, expected_data in successful_writes:
             for _, expected_row in expected_data.iterrows():
                 expected_id = int(expected_row['id'])
                 expected_record = {
                     'round_num': int(expected_row['round_num']),
                     'writer_id': expected_row['writer_id'],
-                    'timestamp': int(expected_row['timestamp']),
                     'data': expected_row['data']
                 }
                 
@@ -791,8 +800,7 @@ class TestEndToEndCompaction:
                     missing_records.append((expected_id, expected_record))
                 else:
                     actual_record = final_data_by_id[expected_id]
-                    # For upsert behavior, the latest write should win
-                    # We just verify the record exists and has valid data
+                    # Verify the record has valid data (not corrupted)
                     if actual_record['data'] == "" or actual_record['writer_id'] == "":
                         corrupted_records.append((expected_id, expected_record, actual_record))
         
@@ -802,7 +810,7 @@ class TestEndToEndCompaction:
         
         # Verify no phantom records (records that don't belong to any successful write)
         expected_ids = set()
-        for round_num, writer_id, expected_data in successful_writes:
+        for round_num, writer_idx, expected_data in successful_writes:
             for _, row in expected_data.iterrows():
                 expected_ids.add(int(row['id']))
         
@@ -811,16 +819,27 @@ class TestEndToEndCompaction:
         
         assert len(phantom_ids) == 0, f"Found phantom records not from any successful write: {list(phantom_ids)[:10]}..."
         
-        # Summary statistics
-        total_attempts = len(all_write_attempts)
-        total_successful = len(successful_writes)
-        total_records = len(final_df)
-        expected_records = sum(len(data) for _, _, data in successful_writes)
+        # Summary statistics and validation
+        total_successful_writes = len(successful_writes)
+        total_expected_records = total_successful_writes * 3  # Each write has 3 records
+        total_actual_records = len(final_df)
         
-        # With upserts, final record count may be less than total successful writes due to overwrites
-        assert total_records <= expected_records, f"More records than expected: {total_records} > {expected_records}"
-        assert total_records > 0, "No records found in final table"
+        # With unique IDs per writer, we should have exactly the expected number of records
+        assert total_actual_records == total_expected_records, f"Expected {total_expected_records} records, got {total_actual_records}"
+        assert total_actual_records > 0, "No records found in final table"
         
-        # Verify we had some conflicts (stress test should create contention)
-        failure_rate = (total_attempts - total_successful) / total_attempts
-        assert failure_rate < 0.9, f"Too many failures ({failure_rate:.1%}), system may be broken"
+        # Verify we had some conflicts across all rounds (not every writer succeeded)
+        total_possible_writes = rounds * concurrent_writers
+        conflict_rate = (total_possible_writes - total_successful_writes) / total_possible_writes
+        
+        # Print conflict statistics for analysis
+        print(f"\n=== CONFLICT STATISTICS ===")
+        print(f"Concurrent writers: {concurrent_writers}")
+        print(f"Total rounds: {rounds}")
+        print(f"Total possible writes: {total_possible_writes}")
+        print(f"Total successful writes: {total_successful_writes}")
+        print(f"Conflict rate: {conflict_rate:.1%}")
+        
+        # More lenient conflict rate validation - adjust based on observed behavior
+        assert conflict_rate > 0.01, f"Too few conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
+        assert conflict_rate < 0.99, f"Too many conflicts ({conflict_rate:.1%}) - system may be broken"

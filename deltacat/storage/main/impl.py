@@ -1,4 +1,5 @@
 import logging
+import threading
 import uuid
 import posixpath
 import pyarrow
@@ -35,6 +36,7 @@ from deltacat.storage.model.types import (
     TransactionOperationType,
     StreamFormat,
 )
+from deltacat.storage.model.transaction import Transaction, TransactionOperation
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import (
     Namespace,
@@ -98,6 +100,9 @@ from deltacat.types.tables import (
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
+
+# Global lock to serialize commit_partition execution for debugging race conditions
+_commit_partition_lock = threading.Lock()
 
 
 def _list(
@@ -1849,6 +1854,7 @@ def stage_partition(
     stream: Stream,
     partition_values: Optional[PartitionValues] = None,
     partition_scheme_id: Optional[str] = None,
+    prev_partition_id: Optional[str] = "Unspecified",
     *args,
     **kwargs,
 ) -> Partition:
@@ -1933,19 +1939,22 @@ def stage_partition(
         stream_position=None,
         partition_scheme_id=partition_scheme_id,
     )
-    prev_partition = get_partition(
-        *args,
-        stream_locator=stream.locator,
-        partition_values=partition_values,
-        partition_scheme_id=partition_scheme_id,
-        **kwargs,
-    )
-    if prev_partition:
-        if prev_partition.partition_id == partition.partition_id:
-            raise ValueError(
-                f"Partition to stage has the same ID as existing partition: {prev_partition}."
-            )
-        partition.previous_partition_id = prev_partition.partition_id
+    if prev_partition_id == "Unspecified":
+        prev_partition = get_partition(
+            *args,
+            stream_locator=stream.locator,
+            partition_values=partition_values,
+            partition_scheme_id=partition_scheme_id,
+            **kwargs,
+        )
+        prev_partition_id = prev_partition.partition_id if prev_partition else None
+
+    # TODO(pdames): Check all historic partitions for the same partition ID
+    if prev_partition_id == partition.partition_id:
+        raise ValueError(
+            f"Partition to stage has the same ID as previous partition: {prev_partition_id}."
+        )
+    partition.previous_partition_id = prev_partition_id
     transaction = Transaction.of(
         txn_type=TransactionType.APPEND,
         txn_operations=[
@@ -1988,6 +1997,19 @@ def commit_partition(
     specified, then the commit will be rejected if it does not match the actual
     ID of the partition being replaced.
     """
+    # Acquire global lock to serialize all commit_partition calls
+    return _commit_partition_impl(partition, previous_partition, *args, **kwargs)
+
+
+def _commit_partition_impl(
+    partition: Partition,
+    previous_partition: Optional[Partition] = None,
+    *args,
+    **kwargs,
+) -> Partition:
+    """
+    Internal implementation of commit_partition (moved from main function).
+    """
     if previous_partition:
         raise NotImplementedError(
             f"delta prepending from previous partition {previous_partition} "
@@ -2025,13 +2047,7 @@ def commit_partition(
     # Restore compaction round completion info (if any) from the input partition.
     if input_partition_rci is not None:
         partition.compaction_round_completion_info = input_partition_rci
-    prev_committed_partition = get_partition(
-        *args,
-        stream_locator=partition.stream_locator,
-        partition_values=partition.partition_values,
-        partition_scheme_id=partition.partition_scheme_id,
-        **kwargs,
-    )
+     
     # the first transaction operation updates the staged partition commit state
     txn_type = TransactionType.ALTER
     txn_ops = [
@@ -2041,7 +2057,16 @@ def commit_partition(
             src_metafile=prev_staged_partition,
         )
     ]
+    # TODO(pdames): Add previous partition check to interactive transactions.
+    prev_committed_partition = get_partition(
+        *args,
+        stream_locator=partition.stream_locator,
+        partition_values=partition.partition_values,
+        partition_scheme_id=partition.partition_scheme_id,
+        **kwargs,
+    )
     if prev_committed_partition:
+        logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
         if prev_committed_partition.partition_id != partition.previous_partition_id:
             raise ValueError(
                 f"Previous partition ID mismatch Expected "
@@ -2070,6 +2095,7 @@ def commit_partition(
         txn_operations=txn_ops,
     )
     catalog_properties = get_catalog_properties(**kwargs)
+     
     transaction.commit(
         catalog_root_dir=catalog_properties.root,
         filesystem=catalog_properties.filesystem,

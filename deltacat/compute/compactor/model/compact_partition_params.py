@@ -494,6 +494,7 @@ class CompactPartitionParams(dict):
     def table_writer_kwargs(self, kwargs: dict) -> None:
         self["table_writer_kwargs"] = kwargs
 
+
     @staticmethod
     def json_handler_for_compact_partition_params(obj):
         """

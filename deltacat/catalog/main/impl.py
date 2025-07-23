@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
+import threading
+from collections import defaultdict
 
 import pandas as pd
 import polars as pl
@@ -31,6 +33,8 @@ from deltacat.storage.model.types import (
     LocalDataset,
     LocalTable,
     StreamFormat,
+    TransactionType,
+    TransactionOperationType,
 )
 from deltacat.storage.model.partition import (
     Partition,
@@ -42,6 +46,9 @@ from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import Delta
+from deltacat.storage.model.transaction import Transaction, TransactionOperation
+from deltacat.storage.model.metafile import Metafile
+from deltacat.storage.model.types import CommitState
 from deltacat.types.media import ContentType, DatasetType, DistributedDatasetType
 from deltacat.types.tables import TableProperty, TableReadOptimizationLevel, TableWriteMode
 from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
@@ -112,15 +119,17 @@ def write_to_table(
         namespace: Optional namespace for the table. Uses default if not specified.
         mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
         content_type: Content type for the data files.
-        compaction_cluster_config_path: Optional path to Ray cluster config file
-            for remote compaction jobs. If provided, compaction will run on the
-            remote cluster. If None, compaction runs locally.
         **kwargs: Additional keyword arguments.
     """
     namespace = namespace or default_namespace()
 
     # Determine if table exists and what action to take
-    table_exists_flag = table_exists(table, namespace=namespace, **kwargs)
+    table_exists_flag = table_exists(
+        table, 
+        namespace=namespace, 
+        **kwargs,
+    )
+    logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
 
     if mode == TableWriteMode.CREATE and table_exists_flag:
         raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
@@ -128,7 +137,7 @@ def write_to_table(
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode}")
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper()}")
 
     # Create table if needed
     if not table_exists_flag:
@@ -228,6 +237,7 @@ def write_to_table(
         **kwargs,
     )
 
+
     # Handle different write modes
     delta_type = None
     if mode == TableWriteMode.REPLACE:
@@ -269,7 +279,7 @@ def write_to_table(
         table_schema = table_definition.table_version.schema
         if not table_schema or not table_schema.merge_keys:
             raise ValueError(
-                f"{mode} mode requires tables to have at least one merge key. "
+                f"{mode.value.upper()} mode requires tables to have at least one merge key. "
                 f"Table {namespace}.{table} has no merge keys. "
                 f"Use APPEND mode instead or specify merge keys in the schema."
             )
@@ -330,23 +340,31 @@ def write_to_table(
             f"Please use the lower-level metastore API for sorted tables."
         )
 
-    commit_staged_partition = False
+    staged_partition_for_compaction = None
+    current_thread = threading.current_thread()
+    thread_id = current_thread.name
+    logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] Write mode={mode}, table_exists={table_exists_flag}, delta_type={delta_type}")
+    
     # Handle partition creation/retrieval based on write mode
-    if mode == TableWriteMode.REPLACE or not table_exists_flag:
-        # REPLACE mode or new table: Create a new partition
+    if (mode == TableWriteMode.REPLACE or not table_exists_flag or 
+        delta_type in (DeltaType.UPSERT, DeltaType.DELETE)):
+        # REPLACE mode, new table, or UPSERT/DELETE operations: Stage a new partition
         partition = _get_storage(**kwargs).stage_partition(
             stream=stream,
             **kwargs,
         )
-        commit_staged_partition = True
+        commit_staged_partition = (delta_type not in (DeltaType.UPSERT, DeltaType.DELETE))
+        if not commit_staged_partition:
+            # The staged partition will be committed during compaction
+            staged_partition_for_compaction = partition
     else:
-        # APPEND/MERGE/AUTO modes on existing table: Get existing partition
-        # For unpartitioned tables, partition_values should be None
+        # APPEND mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
             stream_locator=stream.locator,
-            partition_values=None,  # Assuming unpartitioned tables for now
+            partition_values=None,
             **kwargs,
         )
+        commit_staged_partition = False
 
         if not partition:
             # No existing partition found, create a new one
@@ -372,7 +390,58 @@ def write_to_table(
             # Running with local backend - convert to PyArrow Table
             converted_data = data.to_arrow()
 
+    # If we have a staged partition for compaction, we need to copy all existing deltas
+    # from the current committed partition to avoid data loss
+    if staged_partition_for_compaction:
+        # Get the current committed partition
+        current_partition = _get_storage(**kwargs).get_partition(
+            stream_locator=stream.locator,
+            partition_values=None,  # Assuming unpartitioned tables for now
+            **kwargs,
+        )
+        
+        if current_partition:
+            logger.info(f"Copying existing deltas from committed partition {current_partition.locator} to staged partition {staged_partition_for_compaction.locator}")
+            
+            # List all deltas from the current committed partition
+            current_thread = threading.current_thread()
+            thread_id = current_thread.name
+            logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] About to list_partition_deltas from committed partition {current_partition.partition_id[:8]}...")
+            
+            existing_deltas = _get_storage(**kwargs).list_partition_deltas(
+                partition_like=current_partition,
+                ascending_order=True,
+                include_manifest=True,
+                **kwargs,
+            ).all_items()
+            
+            # Log all delta locators that we found
+            delta_locators_found = [delta.locator for delta in existing_deltas]
+            logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] Found {len(existing_deltas)} deltas from committed partition {current_partition.partition_id[:8]}: {[str(loc)[:50] for loc in delta_locators_found]}")
+            
+            # Copy each existing delta to the staged partition
+            for existing_delta in existing_deltas:
+                logger.debug(f"Copying delta {existing_delta.locator} to staged partition")
+                
+                # Create a copy of the existing delta with a new ID
+                copied_delta = Delta.based_on(existing_delta, str(existing_delta.stream_position))
+                # Update the copied delta's partition locator to point to the staged partition
+                copied_delta.locator.partition_locator = staged_partition_for_compaction.locator
+                 
+                _get_storage(**kwargs).commit_delta(
+                    copied_delta,
+                    **kwargs,
+                )
+            
+            logger.info(f"Copied {len(existing_deltas)} existing deltas to staged partition")
+        else:
+            logger.info(f"No existing committed partition found - this is the first write for this partition")
+
     # Stage a delta with the data
+    current_thread = threading.current_thread()
+    thread_id = current_thread.name
+    logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] About to stage and commit new delta for partition {partition.partition_id[:8]}...")
+    
     delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
         partition=partition,
@@ -382,31 +451,39 @@ def write_to_table(
         **kwargs,
     )
 
-    # Commit the delta
-    _get_storage(**kwargs).commit_delta(
+    delta = _get_storage(**kwargs).commit_delta(
         delta=delta,
         **kwargs,
     )
+    
+    logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] Successfully committed new delta {str(delta.locator)[:50]} for partition {partition.partition_id[:8]}")
 
     if commit_staged_partition:
-        # Commit the partition
         _get_storage(**kwargs).commit_partition(
             partition=partition,
             **kwargs,
         )
 
     # Check compaction trigger decision  
-    should_compact = _trigger_compaction(table_version_obj, delta, TableReadOptimizationLevel.MAX, **kwargs)
-    
+    should_compact = _trigger_compaction(
+        table_version_obj,
+        delta,
+        TableReadOptimizationLevel.MAX,
+        **kwargs,
+    )
     if should_compact:
         # Run V2 compaction session to merge or delete data
         _run_compaction_session(
             table_version_obj=table_version_obj,
             partition=partition,
+            staged_partition_for_compaction=staged_partition_for_compaction,
+            latest_delta_stream_position=delta.stream_position,
             namespace=namespace,
             table=table,
             **kwargs,
         )
+    
+    
 
 def _trigger_compaction(
         table_version_obj: TableVersion, 
@@ -502,6 +579,8 @@ def _trigger_compaction(
 def _run_compaction_session(
     table_version_obj: TableVersion,
     partition: Partition,
+    staged_partition_for_compaction: Optional[Partition],
+    latest_delta_stream_position: int,
     namespace: str,
     table: str,
     **kwargs,
@@ -527,22 +606,8 @@ def _run_compaction_session(
         table_schema = table_version_obj.schema
         primary_keys = set(table_schema.merge_keys) if table_schema and table_schema.merge_keys else set()
         
-        # Get the latest stream position from deltas
-        # TODO(pdames): We should be able to get this from the partition object instead.
-        stream_locator = partition.stream_locator
-        all_deltas = _get_storage(**kwargs).list_deltas(
-            namespace=namespace,
-            table_name=table,
-            table_version=stream_locator.table_version,
-            partition_values=partition.locator.partition_values,
-            **kwargs,
-        )
-        
-        # Find the highest stream position
-        latest_stream_position = 0
-        if all_deltas:
-            # all_deltas is a regular list, not a pagination object
-            latest_stream_position = max(delta.stream_position for delta in all_deltas)
+        # Use the provided latest delta stream position
+        latest_stream_position = latest_delta_stream_position
         
         # Determine hash bucket count from previous compaction or default to 8
         hash_bucket_count = 8  # Default
@@ -555,9 +620,12 @@ def _run_compaction_session(
         # Set up compaction parameters
         # Note that, for scalability, compaction always hash buckets its input partitions independently of
         # whether the parent table version is hash partitioned or not.
+        # For staged partition compaction, use the staged partition as the source
+        source_locator = staged_partition_for_compaction.locator if staged_partition_for_compaction else partition.locator
+        
         compact_partition_params = CompactPartitionParams.of({
             "catalog": kwargs.get("inner", kwargs.get("catalog")),
-            "source_partition_locator": partition.locator,
+            "source_partition_locator": source_locator,
             "destination_partition_locator": partition.locator,  # In-place compaction
             "primary_keys": primary_keys,
             "last_stream_position_to_compact": latest_stream_position,
@@ -573,13 +641,9 @@ def _run_compaction_session(
             "drop_duplicates": True,
             "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
         })
-        
-        logger.info(f"Starting V2 compaction session for table {namespace}.{table}, partition {partition.locator}")
-        
+          
         # Run V2 compaction session
         compact_partition(params=compact_partition_params, **kwargs)
-        
-        logger.info(f"Completed V2 compaction session for table {namespace}.{table}, partition {partition.locator}")
     except Exception as e:
         logger.error(f"Error during compaction session for {namespace}.{table}, partition {partition.locator}: {e}")
         raise
@@ -649,6 +713,18 @@ def read_table(
             )
             .all_items()
         )
+        partition_filter = [partition for partition in partition_filter if partition.state == CommitState.COMMITTED]
+        logger.info(f"Found {len(partition_filter)} committed partitions for table={namespace}/{table}/{table_version}") # count the number of committed partitions for each partition value
+        commit_count_per_partition_value = defaultdict(int)
+        for partition in partition_filter:
+            commit_count_per_partition_value[partition.partition_values] += 1
+        # if there are multiple committed partitions for different partition values, raise an error
+        for partition_values, commit_count in commit_count_per_partition_value.items():
+            if commit_count > 1:
+                raise RuntimeError(
+                    f"Multiple committed partitions found for table={namespace}/{table}/{table_version}. "
+                    f"Partition values: {partition_values}. Commit count: {commit_count}"
+                )
 
     qualified_deltas = _get_deltas_from_partition_filter(
         stream_position_range_inclusive=stream_position_range_inclusive,

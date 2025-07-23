@@ -67,6 +67,9 @@ def discover_deltas(
         f"Length of input deltas from delta source table is {len(delta_source_incremental_deltas)}"
         f" from ({previous_compacted_high_watermark}, {last_stream_position_to_compact}]"
     )
+    logger.info(f"DEBUG: source_partition_locator = {source_partition_locator}")
+    logger.info(f"DEBUG: source_partition_locator.partition_id = {getattr(source_partition_locator, 'partition_id', 'NO_PARTITION_ID')}")
+    logger.info(f"DEBUG: total input deltas found = {len(result)}")
 
     if rebase_source_partition_locator:
         previous_compacted_deltas = io_v1._discover_deltas(
