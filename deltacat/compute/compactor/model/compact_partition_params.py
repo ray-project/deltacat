@@ -494,6 +494,14 @@ class CompactPartitionParams(dict):
     def table_writer_kwargs(self, kwargs: dict) -> None:
         self["table_writer_kwargs"] = kwargs
 
+    @property
+    def expected_previous_partition_id(self) -> Optional[str]:
+        return self.get("expected_previous_partition_id")
+
+    @expected_previous_partition_id.setter
+    def expected_previous_partition_id(self, partition_id: Optional[str]) -> None:
+        self["expected_previous_partition_id"] = partition_id
+
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

@@ -231,30 +231,9 @@ def _stage_new_partition(params: CompactPartitionParams) -> Partition:
         compacted_stream_locator.table_version,
         **params.deltacat_storage_kwargs,
     )
-    prev_partition_id: Optional[str] = None
-    rci_source_partition_locator: PartitionLocator = _get_rci_source_partition_locator(params)
-    is_inplace_compacted: bool = _is_inplace_compacted(
-        rci_source_partition_locator, 
-        params.destination_partition_locator
-    )
-    if is_inplace_compacted:
-        source_partition: Partition = params.deltacat_storage.get_partition_by_id(
-            rci_source_partition_locator.stream_locator,
-            rci_source_partition_locator.partition_id,
-            **params.deltacat_storage_kwargs,
-        )
-        if source_partition.state == CommitState.STAGED:
-            # in-place compaction against a staged source indicates this is a copy-on-write job
-            # override the expected previous partition ID to the staged source partition ID
-            # to prevent clobbering concurrent writes to the committed source partition
-            logger.info(
-                f"Detected copy-on-write compaction against staged source partition {source_partition.partition_id}. Overriding expected previous partition ID to {source_partition.previous_partition_id}."
-            )
-            prev_partition_id = source_partition.previous_partition_id
     compacted_partition: Partition = params.deltacat_storage.stage_partition(
         compacted_stream,
         params.destination_partition_locator.partition_values,
-        prev_partition_id=prev_partition_id,
         **params.deltacat_storage_kwargs,
     )
     return compacted_partition
@@ -817,6 +796,7 @@ def _commit_compaction_result(
         committed_partition: Partition = params.deltacat_storage.commit_partition(
             execute_compaction_result.new_compacted_partition,
             previous_partition,
+            expected_previous_partition_id=params.expected_previous_partition_id,
             **params.deltacat_storage_kwargs,
         )
         logger.info(f"Committed compacted partition: {committed_partition}")

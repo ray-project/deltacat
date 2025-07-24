@@ -1,5 +1,4 @@
 import logging
-import threading
 import uuid
 import posixpath
 import pyarrow
@@ -100,9 +99,6 @@ from deltacat.types.tables import (
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-# Global lock to serialize commit_partition execution for debugging race conditions
-_commit_partition_lock = threading.Lock()
 
 
 def _list(
@@ -1854,7 +1850,6 @@ def stage_partition(
     stream: Stream,
     partition_values: Optional[PartitionValues] = None,
     partition_scheme_id: Optional[str] = None,
-    prev_partition_id: Optional[str] = "Unspecified",
     *args,
     **kwargs,
 ) -> Partition:
@@ -1939,15 +1934,14 @@ def stage_partition(
         stream_position=None,
         partition_scheme_id=partition_scheme_id,
     )
-    if prev_partition_id == "Unspecified":
-        prev_partition = get_partition(
-            *args,
-            stream_locator=stream.locator,
-            partition_values=partition_values,
-            partition_scheme_id=partition_scheme_id,
-            **kwargs,
-        )
-        prev_partition_id = prev_partition.partition_id if prev_partition else None
+    prev_partition = get_partition(
+        *args,
+        stream_locator=stream.locator,
+        partition_values=partition_values,
+        partition_scheme_id=partition_scheme_id,
+        **kwargs,
+    )
+    prev_partition_id = prev_partition.partition_id if prev_partition else None
 
     # TODO(pdames): Check all historic partitions for the same partition ID
     if prev_partition_id == partition.partition_id:
@@ -1975,6 +1969,7 @@ def stage_partition(
 def commit_partition(
     partition: Partition,
     previous_partition: Optional[Partition] = None,
+    expected_previous_partition_id: Optional[str] = "Unspecified",
     *args,
     **kwargs,
 ) -> Partition:
@@ -1997,19 +1992,6 @@ def commit_partition(
     specified, then the commit will be rejected if it does not match the actual
     ID of the partition being replaced.
     """
-    # Acquire global lock to serialize all commit_partition calls
-    return _commit_partition_impl(partition, previous_partition, *args, **kwargs)
-
-
-def _commit_partition_impl(
-    partition: Partition,
-    previous_partition: Optional[Partition] = None,
-    *args,
-    **kwargs,
-) -> Partition:
-    """
-    Internal implementation of commit_partition (moved from main function).
-    """
     if previous_partition:
         raise NotImplementedError(
             f"delta prepending from previous partition {previous_partition} "
@@ -2026,7 +2008,7 @@ def _commit_partition_impl(
         *args,
         stream_locator=partition.stream_locator,
         partition_id=partition.partition_id,
-        **kwargs,
+        **kwargs
     )
     if not prev_staged_partition:
         raise ValueError(
@@ -2058,21 +2040,26 @@ def _commit_partition_impl(
         )
     ]
     # TODO(pdames): Add previous partition check to interactive transactions.
-    prev_committed_partition = get_partition(
-        *args,
-        stream_locator=partition.stream_locator,
-        partition_values=partition.partition_values,
-        partition_scheme_id=partition.partition_scheme_id,
-        **kwargs,
-    )
+    expected_previous_partition_id = partition.previous_partition_id if expected_previous_partition_id == "Unspecified" else expected_previous_partition_id
+    prev_committed_partition = None
+    if expected_previous_partition_id is not None:
+        prev_committed_partition = get_partition(
+            *args,
+            stream_locator=partition.stream_locator,
+            partition_values=partition.partition_values,
+            partition_scheme_id=partition.partition_scheme_id,
+            **kwargs,
+        )
+        if prev_committed_partition:
+            logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
+            if prev_committed_partition.partition_id != expected_previous_partition_id:
+                raise ValueError(
+                    f"Concurrent modification detected: Expected committed partition "
+                    f"{expected_previous_partition_id} but found "
+                    f"{current_committed_partition.partition_id}."
+                )
+    
     if prev_committed_partition:
-        logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
-        if prev_committed_partition.partition_id != partition.previous_partition_id:
-            raise ValueError(
-                f"Previous partition ID mismatch Expected "
-                f"{partition.previous_partition_id} but found "
-                f"{prev_committed_partition.partition_id}."
-            )
         # TODO(pdames): Add previous partition stream position validation.
         if prev_committed_partition.partition_id == partition.partition_id:
             raise ValueError(

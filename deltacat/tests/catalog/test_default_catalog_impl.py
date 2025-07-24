@@ -635,8 +635,8 @@ class TestCopyOnWrite:
         full_error_context = error_message + " " + cause_message
         
         # Look specifically for our conflict detection message
-        has_conflict_message = "Previous partition ID mismatch" in full_error_context
-        assert has_conflict_message, f"Expected 'Previous partition ID mismatch' error message, got: {failed_exception} (cause: {cause_message})"
+        has_conflict_message = "Concurrent modification detected" in full_error_context
+        assert has_conflict_message, f"Expected 'Concurrent modification detected' error message, got: {failed_exception} (cause: {cause_message})"
         
         # Verify final table state is consistent
         final_result = dc.read_table(

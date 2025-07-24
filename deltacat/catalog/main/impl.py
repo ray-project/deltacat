@@ -343,7 +343,6 @@ def write_to_table(
     staged_partition_for_compaction = None
     current_thread = threading.current_thread()
     thread_id = current_thread.name
-    logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] Write mode={mode}, table_exists={table_exists_flag}, delta_type={delta_type}")
     
     # Handle partition creation/retrieval based on write mode
     if (mode == TableWriteMode.REPLACE or not table_exists_flag or 
@@ -383,6 +382,7 @@ def write_to_table(
         runner = ctx.get_or_create_runner()
         runner_type = runner.name
 
+
         if runner_type == "ray":
             # Running with Ray backend - convert to Ray Dataset
             converted_data = data.to_ray_dataset()
@@ -406,7 +406,6 @@ def write_to_table(
             # List all deltas from the current committed partition
             current_thread = threading.current_thread()
             thread_id = current_thread.name
-            logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] About to list_partition_deltas from committed partition {current_partition.partition_id[:8]}...")
             
             existing_deltas = _get_storage(**kwargs).list_partition_deltas(
                 partition_like=current_partition,
@@ -417,7 +416,6 @@ def write_to_table(
             
             # Log all delta locators that we found
             delta_locators_found = [delta.locator for delta in existing_deltas]
-            logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] Found {len(existing_deltas)} deltas from committed partition {current_partition.partition_id[:8]}: {[str(loc)[:50] for loc in delta_locators_found]}")
             
             # Copy each existing delta to the staged partition
             for existing_delta in existing_deltas:
@@ -440,7 +438,6 @@ def write_to_table(
     # Stage a delta with the data
     current_thread = threading.current_thread()
     thread_id = current_thread.name
-    logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] About to stage and commit new delta for partition {partition.partition_id[:8]}...")
     
     delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
@@ -456,8 +453,6 @@ def write_to_table(
         **kwargs,
     )
     
-    logger.info(f"DELTA_RACE_DEBUG: [{thread_id}] Successfully committed new delta {str(delta.locator)[:50]} for partition {partition.partition_id[:8]}")
-
     if commit_staged_partition:
         _get_storage(**kwargs).commit_partition(
             partition=partition,
@@ -620,12 +615,9 @@ def _run_compaction_session(
         # Set up compaction parameters
         # Note that, for scalability, compaction always hash buckets its input partitions independently of
         # whether the parent table version is hash partitioned or not.
-        # For staged partition compaction, use the staged partition as the source
-        source_locator = staged_partition_for_compaction.locator if staged_partition_for_compaction else partition.locator
-        
         compact_partition_params = CompactPartitionParams.of({
             "catalog": kwargs.get("inner", kwargs.get("catalog")),
-            "source_partition_locator": source_locator,
+            "source_partition_locator": staged_partition_for_compaction.locator if staged_partition_for_compaction else partition.locator,
             "destination_partition_locator": partition.locator,  # In-place compaction
             "primary_keys": primary_keys,
             "last_stream_position_to_compact": latest_stream_position,
@@ -640,6 +632,7 @@ def _run_compaction_session(
             "compacted_file_content_type": ContentType.PARQUET,
             "drop_duplicates": True,
             "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
+            "expected_previous_partition_id": staged_partition_for_compaction.previous_partition_id if staged_partition_for_compaction else None,
         })
           
         # Run V2 compaction session
@@ -723,7 +716,7 @@ def read_table(
             if commit_count > 1:
                 raise RuntimeError(
                     f"Multiple committed partitions found for table={namespace}/{table}/{table_version}. "
-                    f"Partition values: {partition_values}. Commit count: {commit_count}"
+                    f"Partition values: {partition_values}. Commit count: {commit_count}. This should not happen."
                 )
 
     qualified_deltas = _get_deltas_from_partition_filter(

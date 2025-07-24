@@ -152,6 +152,7 @@ def compact_partition(
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
+    expected_previous_partition_id: Optional[str] = "Unspecified",
     **kwargs,
 ) -> None:
     if deltacat_storage_kwargs is None:
@@ -206,7 +207,9 @@ def compact_partition(
             # Set the round completion info on the partition before committing
             partition.compaction_round_completion_info = new_rci
             partition = deltacat_storage.commit_partition(
-                partition, **deltacat_storage_kwargs
+                partition, 
+                expected_previous_partition_id=expected_previous_partition_id, 
+                **deltacat_storage_kwargs,
             )
             logger.info(f"Committed compacted partition: {partition}")
         logger.info(f"Completed compaction session for: {source_partition_locator}")
@@ -502,29 +505,9 @@ def _execute_compaction_round(
         **deltacat_storage_kwargs,
     )
 
-    prev_partition_id = None
-    is_inplace_compacted = (
-        rci_source_partition_locator.partition_values
-        == destination_partition_locator.partition_values
-        and rci_source_partition_locator.stream_id
-        == destination_partition_locator.stream_id
-    )
-    if is_inplace_compacted:
-        source_partition = deltacat_storage.get_partition_by_id(
-            source_partition_locator.stream_locator,
-            source_partition_locator.partition_id,
-            **deltacat_storage_kwargs,
-        )
-        if source_partition.state == CommitState.STAGED:
-            # in-place compaction against a staged source means this is a copy-on-write job
-            # override the expected previous partition ID to the staged source partition ID
-            # to prevent clobbering concurrent writes to the committed source partition
-            prev_partition_id = source_partition.previous_partition_id
-
     partition = deltacat_storage.stage_partition(
         stream,
         destination_partition_locator.partition_values,
-        prev_partition_id=prev_partition_id,
         **deltacat_storage_kwargs,
     )
     new_compacted_partition_locator = partition.locator
