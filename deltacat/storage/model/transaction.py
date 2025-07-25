@@ -725,14 +725,19 @@ class Transaction(dict):
         - For READ transactions:  List[ListResult[Metafile]]
         - For WRITE transactions: Tuple[List[str], str]
             (list of successful write-paths, path to success-txn log file)
+        - For mixed READ/WRITE transactions: Tuple[List["ListResult[Metafile]"], List[str], str]
         """
+
+        if self.interactive:
+            raise RuntimeError("Cannot commit an interactive transaction. Use transaction.start(),transaction.step(), and transaction.seal() instead.")
+        
         if self.operations and len(self.operations) > 0:
             # Start a working copy (deep-copy, directory scaffolding, start-time, running/failed/success/paused dirs …)
             txn_active = self.start(catalog_root_dir, filesystem)  # deep copy
             # Sequentially execute every TransactionOperation
             for op in txn_active.operations:
                 txn_active.step(op)
-        return txn_active.commit_all()
+        return txn_active._seal_steps()
 
     def start(
         self,
@@ -772,13 +777,13 @@ class Transaction(dict):
     def step(
         self,
         operation: "TransactionOperation",
-    ) -> None:
+    ) -> Union[ListResult[Metafile], Tuple[List[str], List[str]]]:
 
         catalog_root_normalized = self.catalog_root_normalized
         filesystem = self._filesystem
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
 
-        running_txn_log_file_path = posixpath.join(
+        running_txn_log_file_path i posixpath.join(
             txn_log_dir, RUNNING_TXN_DIR_NAME, self.id
         )
 
@@ -797,7 +802,7 @@ class Transaction(dict):
                 filesystem=filesystem,
             )
             self._list_results.append(list_result)
-            return
+            return list_result
 
         # (b) WRITE txn op
         # First operation? -> create running log so an external janitor can
@@ -806,7 +811,7 @@ class Transaction(dict):
             self._write_running_log(running_txn_log_file_path)
 
         try:
-            operation.dest_metafile.write_txn(
+            metafile_write_paths, locator_write_paths = operation.dest_metafile.write_txn(
                 catalog_root_dir=catalog_root_normalized,
                 success_txn_log_dir=posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME),
                 current_txn_op=operation,
@@ -815,24 +820,18 @@ class Transaction(dict):
                 current_txn_type=self.type,
                 filesystem=filesystem,
             )
-
-            for path in self.metafile_write_paths:
+            # Check for concurrent txn conflicts on the metafile and locator write paths just written
+            # TODO(pdames): Remove the fast-fail check here if it grows too expensive? 
+            for path in metafile_write_paths + locator_write_paths:
                 MetafileRevisionInfo.check_for_concurrent_txn_conflict(
                     success_txn_log_dir=posixpath.join(
-                        txn_log_dir, SUCCESS_TXN_DIR_NAME
+                        txn_log_dir, 
+                        SUCCESS_TXN_DIR_NAME,
                     ),
                     current_txn_revision_file_path=path,
                     filesystem=filesystem,
                 )
-            for path in self.locator_write_paths:
-                MetafileRevisionInfo.check_for_concurrent_txn_conflict(
-                    success_txn_log_dir=posixpath.join(
-                        txn_log_dir, SUCCESS_TXN_DIR_NAME
-                    ),
-                    current_txn_revision_file_path=path,
-                    filesystem=filesystem,
-                )
-
+            return metafile_write_paths, locator_write_paths
         except Exception:
             # convert in-flight txn → FAILED and clean up partial files
             self._fail_and_cleanup(
@@ -901,13 +900,18 @@ class Transaction(dict):
             f.write(msgpack.dumps(self.to_serializable(root)))
         fs.delete_file(paused_path)
 
-    def commit_all(
+    def seal(
         self,
     ) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
         """
         For READ → returns list_results collected during step().
         For WRITE → returns (written_paths, success_log_path).
         """
+        if not self.interactive:
+            raise RuntimeError("Cannot seal a non-interactive transaction. Call transaction.commit() instead.")
+        return self._seal_steps()
+
+    def _seal_steps(self) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
         fs = self._filesystem
         root = self.catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)
@@ -924,6 +928,23 @@ class Transaction(dict):
         # If no operations ever succeeded we still need a running log.
         if not self.running_log_written:
             self._write_running_log(running_path)
+        try:
+            # Check for concurrent txn conflicts on metafile and locator write paths
+            for path in self.metafile_write_paths + self.locator_write_paths:
+                MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+                    success_txn_log_dir=posixpath.join(
+                        txn_log_dir, SUCCESS_TXN_DIR_NAME
+                    ),
+                    current_txn_revision_file_path=path,
+                    filesystem=filesystem,
+                )
+        except Exception as e:
+            self._fail_and_cleanup(
+                failed_txn_log_dir=failed_dir,
+                running_log_path=running_path,
+            )
+            # raise the original error
+            raise
         success_log_path = None
         try:
             # write transaction log
