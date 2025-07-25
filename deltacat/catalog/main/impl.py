@@ -41,6 +41,8 @@ from deltacat.storage.model.partition import (
     PartitionLocator,
     PartitionScheme,
     PartitionValues,
+    UNKNOWN_PARTITION_ID,
+    UNSPECIFIED_PARTITION_ID,
 )
 from deltacat.storage.model.table_version import TableVersion
 from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams

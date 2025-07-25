@@ -715,7 +715,7 @@ class Transaction(dict):
         self,
         catalog_root_dir: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> Union[List[ListResult[Metafile]], Tuple[List[str], str]]:
+    ) -> Union[List[ListResult[Metafile]], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
         """
         Legacy wrapper that preserves the original `commit()` contract while
         delegating the heavy lifting to the incremental helpers.
@@ -786,8 +786,8 @@ class Transaction(dict):
         if self.interactive:
             self.operations = self.operations + [operation]
 
-        # (a) READ txn
-        if self.type == TransactionType.READ:
+        # (a) READ txn op
+        if operation.type.is_read_operation():
             list_result = operation.dest_metafile.read_txn(
                 catalog_root_dir=catalog_root_normalized,
                 success_txn_log_dir=posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME),
@@ -799,7 +799,7 @@ class Transaction(dict):
             self._list_results.append(list_result)
             return
 
-        # (b) WRITE txn
+        # (b) WRITE txn op
         # First operation? -> create running log so an external janitor can
         # see that a txn is in-flight.
         if not self.running_log_written:
@@ -903,7 +903,7 @@ class Transaction(dict):
 
     def commit_all(
         self,
-    ) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str]]:
+    ) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
         """
         For READ → returns list_results collected during step().
         For WRITE → returns (written_paths, success_log_path).
@@ -914,7 +914,7 @@ class Transaction(dict):
         end_time = self._mark_end_time(self._time_provider)
 
         # READ path: nothing persisted, so we are done
-        if self.type == TransactionType.READ:
+        if all(op.type.is_read_operation() for op in self.operations):
             return self._list_results
 
         running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, self.id)
@@ -950,7 +950,12 @@ class Transaction(dict):
 
         else:
             fs.delete_file(running_path)
-            return self.metafile_write_paths, success_log_path
+            if all(op.type.is_write_operation() for op in self.operations):
+                # pure write transaction - just return write paths and success log path
+                return self.metafile_write_paths, success_log_path
+            else:
+                # mixed read/write transaction - return read results, write paths, and success log path
+                return self._list_results, self.metafile_write_paths, success_log_path
 
     #  Helper: write or overwrite the running/ID file exactly once
     def _write_running_log(self, running_log_path: str) -> None:

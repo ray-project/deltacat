@@ -94,7 +94,7 @@ class TransactionOperationType(str, Enum):
         return self in TransactionOperationType.write_operations()
 
     def is_read_operation(self) -> bool:
-        return self in TransactionOperationType.read_operatins()
+        return self in TransactionOperationType.read_operations()
 
 
 class TransactionState(str, Enum):

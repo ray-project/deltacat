@@ -39,8 +39,14 @@ An ordered list of partition values. Partition values are typically derived
 by applying one or more transforms to a table's fields.
 """
 PartitionValues = List[Any]
+
+"""
+Constants for special partition types.
+"""
 UNPARTITIONED_SCHEME_NAME = "unpartitioned_scheme"
 UNPARTITIONED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
+UNKNOWN_PARTITION_ID = "deadbeef-2fe7-4557-82c9-da53b1862003" # a partition ID that is assumed to exist but is not known
+UNSPECIFIED_PARTITION_ID = "deadbeef-5bff-41ea-b82c-e531f445632b" # a partition ID that has been left intentionally unspecified 
 
 
 class Partition(Metafile):

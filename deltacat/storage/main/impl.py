@@ -49,6 +49,8 @@ from deltacat.storage.model.partition import (
     PartitionValues,
     UNPARTITIONED_SCHEME,
     UNPARTITIONED_SCHEME_ID,
+    UNKNOWN_PARTITION_ID,
+    UNSPECIFIED_PARTITION_ID,
 )
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.sort_key import (
@@ -105,40 +107,50 @@ def _list(
     metafile: Metafile,
     txn_op_type: TransactionOperationType,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
-) -> ListResult[Metafile]:
+) -> Optional[ListResult[Metafile]]:
     catalog_properties = get_catalog_properties(**kwargs)
     limit = kwargs.get("limit") or None
-    transaction = Transaction.of(
-        txn_type=TransactionType.READ,
-        txn_operations=[
-            TransactionOperation.of(
-                operation_type=txn_op_type,
-                dest_metafile=metafile,
-                read_limit=limit,
-            )
-        ],
+    
+    operation = TransactionOperation.of(
+        operation_type=txn_op_type,
+        dest_metafile=metafile,
+        read_limit=limit,
     )
-    list_results_per_op = transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
-    return list_results_per_op[0]
+    
+    if transaction is not None:
+        # Add the read operation to the existing transaction
+        transaction.step(operation)
+    else:
+        # Create and commit a new transaction (legacy behavior)
+        new_transaction = Transaction.of(
+            txn_type=TransactionType.READ,
+            txn_operations=[operation],
+        )
+        list_results_per_op = new_transaction.commit(
+            catalog_root_dir=catalog_properties.root,
+            filesystem=catalog_properties.filesystem,
+        )
+        return list_results_per_op[0]
 
 
 def _latest(
     metafile: Metafile,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[Metafile]:
     list_results = _list(
         *args,
         metafile=metafile,
         txn_op_type=TransactionOperationType.READ_LATEST,
+        transaction=transaction,
         **kwargs,
     )
-    results = list_results.all_items()
-    return results[0] if results else None
+    if list_results:
+        results = list_results.all_items()
+        return results[0] if results else None
 
 
 def _exists(
@@ -1772,6 +1784,7 @@ def get_stream(
     table_version: Optional[str] = None,
     stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[Stream]:
     """
@@ -1802,6 +1815,7 @@ def get_stream(
             partition_scheme=None,
             state=CommitState.COMMITTED,
         ),
+        transaction=transaction,
         **kwargs,
     )
 
@@ -1969,7 +1983,7 @@ def stage_partition(
 def commit_partition(
     partition: Partition,
     previous_partition: Optional[Partition] = None,
-    expected_previous_partition_id: Optional[str] = "Unspecified",
+    expected_previous_partition_id: Optional[str] = UNKNOWN_PARTITION_ID,
     *args,
     **kwargs,
 ) -> Partition:
@@ -1984,6 +1998,15 @@ def commit_partition(
     prepended to the new partition being committed. Otherwise the latest
     committed partition with the same keys and partition scheme ID will be
     retrieved.
+
+    Unless an expected previous partition ID is explicitly specified, the 
+    commit will be rejected if the partition to commit's previous partition ID 
+    does not match the actual partition ID of the previously committed 
+    partition being replaced. If expected previous partition ID is provided,
+    then it will override the input partition's previous partition ID. Note
+    that expected previous partition ID can be explicitly set to 
+    UNSPECIFIED_PARTITION_ID to disable this check (unsafe - clobbers any
+    concurrent writes to the same partition).
 
     Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
@@ -2004,12 +2027,57 @@ def commit_partition(
             "Partition to commit must have its stream locator "
             "set to the parent of its staged partition ID."
         )
-    prev_staged_partition = get_partition_by_id(
-        *args,
+    
+    # Start a single multi-step transaction for all operations (both read and write)
+    catalog_properties = get_catalog_properties(**kwargs)
+    transaction = Transaction.of(
+        txn_type=TransactionType.ALTER,  # Start with ALTER, will update based on read results
+        txn_operations=[],
+    ).start(catalog_properties.root)
+    
+    # Step 1: Get the staged partition using transaction
+    get_partition_by_id(
         stream_locator=partition.stream_locator,
         partition_id=partition.partition_id,
+        transaction=transaction,
         **kwargs
     )
+    
+    # Step 2: Check for existing committed partition using transaction
+    expected_previous_partition_id = partition.previous_partition_id if expected_previous_partition_id == UNKNOWN_PARTITION_ID else expected_previous_partition_id
+    if expected_previous_partition_id is not None:
+        get_partition(
+            stream_locator=partition.stream_locator,
+            partition_values=partition.partition_values,
+            partition_scheme_id=partition.partition_scheme_id,
+            transaction=transaction,
+            **kwargs,
+        )
+    
+    # Step 3: Get the results from the read operations accumulated so far
+    read_results = transaction._list_results  # Access read results collected during steps
+    
+    # Extract the staged and committed partitions from results
+    prev_staged_partition = None
+    prev_committed_partition = None
+    
+    if len(read_results) >= 1:
+        staged_result = read_results[0]
+        staged_items = staged_result.all_items()
+        prev_staged_partition = staged_items[0] if staged_items else None
+    
+    if len(read_results) >= 2:
+        committed_result = read_results[1]
+        committed_items = committed_result.all_items()
+        prev_committed_partition = committed_items[0] if committed_items else None
+    
+    # Update transaction type based on what we found
+    if prev_committed_partition:
+        transaction.type = TransactionType.OVERWRITE
+    else:
+        transaction.type = TransactionType.ALTER
+    
+    # Validate staged partition
     if not prev_staged_partition:
         raise ValueError(
             f"Partition at stream {partition.stream_locator} with ID "
@@ -2021,43 +2089,16 @@ def commit_partition(
             f"{partition.stream_locator} with ID {partition.partition_id},"
             f"but found a `{prev_staged_partition.state}` partition."
         )
-    # Compaction round completion info (if any) is not set on the staged partition,
-    # so we need to save it from the input partition to commit.
-    input_partition_rci = partition.compaction_round_completion_info
-    partition: Partition = Metafile.update_for(prev_staged_partition)
-    partition.state = CommitState.COMMITTED
-    # Restore compaction round completion info (if any) from the input partition.
-    if input_partition_rci is not None:
-        partition.compaction_round_completion_info = input_partition_rci
-     
-    # the first transaction operation updates the staged partition commit state
-    txn_type = TransactionType.ALTER
-    txn_ops = [
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.UPDATE,
-            dest_metafile=partition,
-            src_metafile=prev_staged_partition,
-        )
-    ]
-    # TODO(pdames): Add previous partition check to interactive transactions.
-    expected_previous_partition_id = partition.previous_partition_id if expected_previous_partition_id == "Unspecified" else expected_previous_partition_id
-    prev_committed_partition = None
-    if expected_previous_partition_id is not None:
-        prev_committed_partition = get_partition(
-            *args,
-            stream_locator=partition.stream_locator,
-            partition_values=partition.partition_values,
-            partition_scheme_id=partition.partition_scheme_id,
-            **kwargs,
-        )
-        if prev_committed_partition:
-            logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
-            if prev_committed_partition.partition_id != expected_previous_partition_id:
-                raise ValueError(
-                    f"Concurrent modification detected: Expected committed partition "
-                    f"{expected_previous_partition_id} but found "
-                    f"{current_committed_partition.partition_id}."
-                )
+    
+    # Validate expected previous partition ID for race condition detection
+    if prev_committed_partition and expected_previous_partition_id != UNSPECIFIED_PARTITION_ID:
+        logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
+        if prev_committed_partition.partition_id != expected_previous_partition_id:
+            raise ValueError(
+                f"Concurrent modification detected: Expected committed partition "
+                f"{expected_previous_partition_id} but found "
+                f"{prev_committed_partition.partition_id}."
+            )
     
     if prev_committed_partition:
         # TODO(pdames): Add previous partition stream position validation.
@@ -2066,27 +2107,45 @@ def commit_partition(
                 f"Partition to commit has the same ID as existing partition: "
                 f"{prev_committed_partition}."
             )
-        # there's a previously committed partition, so update the transaction
-        # type to overwrite the previously committed partition, and add another
-        # transaction operation to replace it with the staged partition
-        txn_type = TransactionType.OVERWRITE
-        txn_ops.append(
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
-                dest_metafile=partition,
-                src_metafile=prev_committed_partition,
-            )
-        )
-    transaction = Transaction.of(
-        txn_type=txn_type,
-        txn_operations=txn_ops,
-    )
-    catalog_properties = get_catalog_properties(**kwargs)
-     
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+    
+    # Prepare the committed partition based on the staged partition
+    input_partition_rci = partition.compaction_round_completion_info
+    partition: Partition = Metafile.update_for(prev_staged_partition)
+    partition.state = CommitState.COMMITTED
+    # Restore compaction round completion info (if any) from the input partition.
+    if input_partition_rci is not None:
+        partition.compaction_round_completion_info = input_partition_rci
+    
+    # Step 4: Add write operations to the same transaction
+    # Always UPDATE the staged partition to committed state
+    transaction.step(TransactionOperation.of(
+        operation_type=TransactionOperationType.UPDATE,
+        dest_metafile=partition,
+        src_metafile=prev_staged_partition,
+    ))
+    
+    # If there's a previously committed partition, we need to replace it too
+    if prev_committed_partition:
+        transaction.step(TransactionOperation.of(
+            operation_type=TransactionOperationType.UPDATE,
+            dest_metafile=partition,
+            src_metafile=prev_committed_partition,
+        ))
+    
+    # Step 5: Commit all operations atomically (both reads and writes)
+    result = transaction.commit_all()
+    
+    # Handle mixed read/write transaction result
+    if isinstance(result, tuple) and len(result) == 3:
+        # Mixed transaction returns (read_results, write_paths, success_log_path)
+        read_results, write_paths, success_log_path = result
+    elif isinstance(result, tuple) and len(result) == 2:
+        # Pure write transaction returns (write_paths, success_log_path)
+        write_paths, success_log_path = result
+    else:
+        # This shouldn't happen for our use case
+        pass
+    
     return partition
 
 
@@ -2136,6 +2195,7 @@ def get_partition_by_id(
     stream_locator: StreamLocator,
     partition_id: str,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[Partition]:
     """
@@ -2155,6 +2215,7 @@ def get_partition_by_id(
             schema=None,
             content_types=None,
         ),
+        transaction=transaction,
         **kwargs,
     )
 
@@ -2164,6 +2225,7 @@ def get_partition(
     partition_values: Optional[PartitionValues] = None,
     partition_scheme_id: Optional[str] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[Partition]:
     """
@@ -2187,6 +2249,7 @@ def get_partition(
             namespace=stream_locator.namespace,
             table_name=stream_locator.table_name,
             table_version=stream_locator.table_version,
+            transaction=transaction,
             **kwargs,
         )
         if not stream:
@@ -2201,6 +2264,7 @@ def get_partition(
             state=CommitState.COMMITTED,
             partition_scheme_id=partition_scheme_id,
         ),
+        transaction=transaction,
         **kwargs,
     )
 
