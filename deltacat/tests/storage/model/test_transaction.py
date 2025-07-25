@@ -368,8 +368,8 @@ class TestTransactionPersistence:
         txn.step(op1)
         txn.step(op2)
 
-        # commit_all() instead of commit(), but legacy method still supported
-        write_paths, success_log_path = txn.commit_all()
+        # seal() for interactive transactions
+        write_paths, success_log_path = txn.seal()
 
         # Check output files exist and are valid
         deserialized_ns1 = Namespace.read(write_paths[0])
@@ -390,7 +390,7 @@ class TestTransactionPersistence:
         )
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
         txn.step(op)
-        write_paths, success_log_path = txn.commit_all()
+        write_paths, success_log_path = txn.seal()
 
         # check the files were created
         for path in write_paths:
@@ -422,7 +422,7 @@ class TestTransactionPersistence:
         txn.resume()
 
         # Commit resumed transaction
-        write_paths, success_log_path = txn.commit_all()
+        write_paths, success_log_path = txn.seal()
 
         # Validate outputs
         deserialized = Namespace.read(write_paths[0])
@@ -452,7 +452,7 @@ class TestTransactionPersistence:
         assert len(txn.metafile_write_paths) == 1
 
         # Check commit still works
-        write_paths, success_log_path = txn.commit_all()
+        write_paths, success_log_path = txn.seal()
         assert os.path.exists(success_log_path)
 
     # Explicitly checks that fields are preserved
@@ -496,7 +496,7 @@ class TestTransactionPersistence:
         assert txn.pause_time is not None, "Pause time should be restored"
 
         # Final commit still works
-        write_paths, success_log_path = txn.commit_all()
+        write_paths, success_log_path = txn.seal()
         assert os.path.exists(success_log_path)
 
     # Checks that pausing a transaction moves its log from running/ to paused/ and preserves valid transaction state
@@ -573,7 +573,7 @@ class TestTransactionPersistence:
         txn.step(op3)
 
         # Final commit
-        write_paths, success_log_path = txn.commit_all()
+        write_paths, success_log_path = txn.seal()
 
         # Read and verify written namespaces
         for i, ns in enumerate([ns1, ns2, ns3]):
@@ -623,7 +623,7 @@ class TestTransactionPersistence:
         txn.step(op3)
 
         # Final commit
-        write_paths, success_log_path = txn.commit_all()
+        write_paths, success_log_path = txn.seal()
 
         print("\nstart time: " + str(txn.start_time))
         print("end time: " + str(txn.end_time))

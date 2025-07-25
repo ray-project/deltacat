@@ -109,7 +109,7 @@ def _list(
     *args,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> Optional[ListResult[Metafile]]:
+) -> ListResult[Metafile]:
     catalog_properties = get_catalog_properties(**kwargs)
     limit = kwargs.get("limit") or None
     
@@ -120,8 +120,8 @@ def _list(
     )
     
     if transaction is not None:
-        # Add the read operation to the existing transaction
-        transaction.step(operation)
+        # Add the read operation to the existing transaction and return the result
+        return transaction.step(operation)
     else:
         # Create and commit a new transaction (legacy behavior)
         new_transaction = Transaction.of(
@@ -148,9 +148,8 @@ def _latest(
         transaction=transaction,
         **kwargs,
     )
-    if list_results:
-        results = list_results.all_items()
-        return results[0] if results else None
+    results = list_results.all_items()
+    return results[0] if results else None
 
 
 def _exists(
@@ -2036,46 +2035,13 @@ def commit_partition(
     ).start(catalog_properties.root)
     
     # Step 1: Get the staged partition using transaction
-    get_partition_by_id(
+    prev_staged_partition = get_partition_by_id(
+        *args,
         stream_locator=partition.stream_locator,
         partition_id=partition.partition_id,
         transaction=transaction,
         **kwargs
     )
-    
-    # Step 2: Check for existing committed partition using transaction
-    expected_previous_partition_id = partition.previous_partition_id if expected_previous_partition_id == UNKNOWN_PARTITION_ID else expected_previous_partition_id
-    if expected_previous_partition_id is not None:
-        get_partition(
-            stream_locator=partition.stream_locator,
-            partition_values=partition.partition_values,
-            partition_scheme_id=partition.partition_scheme_id,
-            transaction=transaction,
-            **kwargs,
-        )
-    
-    # Step 3: Get the results from the read operations accumulated so far
-    read_results = transaction._list_results  # Access read results collected during steps
-    
-    # Extract the staged and committed partitions from results
-    prev_staged_partition = None
-    prev_committed_partition = None
-    
-    if len(read_results) >= 1:
-        staged_result = read_results[0]
-        staged_items = staged_result.all_items()
-        prev_staged_partition = staged_items[0] if staged_items else None
-    
-    if len(read_results) >= 2:
-        committed_result = read_results[1]
-        committed_items = committed_result.all_items()
-        prev_committed_partition = committed_items[0] if committed_items else None
-    
-    # Update transaction type based on what we found
-    if prev_committed_partition:
-        transaction.type = TransactionType.OVERWRITE
-    else:
-        transaction.type = TransactionType.ALTER
     
     # Validate staged partition
     if not prev_staged_partition:
@@ -2090,6 +2056,18 @@ def commit_partition(
             f"but found a `{prev_staged_partition.state}` partition."
         )
     
+    # Step 2: Check for existing committed partition using transaction
+    expected_previous_partition_id = partition.previous_partition_id if expected_previous_partition_id == UNKNOWN_PARTITION_ID else expected_previous_partition_id
+    prev_committed_partition = None
+    if expected_previous_partition_id is not None:
+        prev_committed_partition = get_partition(
+            stream_locator=partition.stream_locator,
+            partition_values=partition.partition_values,
+            partition_scheme_id=partition.partition_scheme_id,
+            transaction=transaction,
+            **kwargs,
+        )
+     
     # Validate expected previous partition ID for race condition detection
     if prev_committed_partition and expected_previous_partition_id != UNSPECIFIED_PARTITION_ID:
         logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
@@ -2102,6 +2080,8 @@ def commit_partition(
     
     if prev_committed_partition:
         # TODO(pdames): Add previous partition stream position validation.
+        # Update transaction type based on what we found
+        transaction.type = TransactionType.OVERWRITE
         if prev_committed_partition.partition_id == partition.partition_id:
             raise ValueError(
                 f"Partition to commit has the same ID as existing partition: "
@@ -2109,6 +2089,8 @@ def commit_partition(
             )
     
     # Prepare the committed partition based on the staged partition
+    # Compaction round completion info (if any) is not set on the staged partition,
+    # so we need to save it from the input partition to commit.
     input_partition_rci = partition.compaction_round_completion_info
     partition: Partition = Metafile.update_for(prev_staged_partition)
     partition.state = CommitState.COMMITTED
@@ -2118,33 +2100,26 @@ def commit_partition(
     
     # Step 4: Add write operations to the same transaction
     # Always UPDATE the staged partition to committed state
-    transaction.step(TransactionOperation.of(
-        operation_type=TransactionOperationType.UPDATE,
-        dest_metafile=partition,
-        src_metafile=prev_staged_partition,
-    ))
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.UPDATE,
+            dest_metafile=partition,
+            src_metafile=prev_staged_partition,
+        ),
+    )
     
     # If there's a previously committed partition, we need to replace it too
     if prev_committed_partition:
-        transaction.step(TransactionOperation.of(
-            operation_type=TransactionOperationType.UPDATE,
-            dest_metafile=partition,
-            src_metafile=prev_committed_partition,
-        ))
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=partition,
+                src_metafile=prev_committed_partition,
+        ),
+    )
     
-    # Step 5: Commit all operations atomically (both reads and writes)
-    result = transaction.commit_all()
-    
-    # Handle mixed read/write transaction result
-    if isinstance(result, tuple) and len(result) == 3:
-        # Mixed transaction returns (read_results, write_paths, success_log_path)
-        read_results, write_paths, success_log_path = result
-    elif isinstance(result, tuple) and len(result) == 2:
-        # Pure write transaction returns (write_paths, success_log_path)
-        write_paths, success_log_path = result
-    else:
-        # This shouldn't happen for our use case
-        pass
+    # Step 5: Seal the transaction as committed
+    transaction.seal()
     
     return partition
 

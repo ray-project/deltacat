@@ -842,4 +842,4 @@ class TestCopyOnWrite:
         
         # More lenient conflict rate validation - adjust based on observed behavior
         assert conflict_rate > 0.01, f"Too few conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
-        assert conflict_rate < 0.99, f"Too many conflicts ({conflict_rate:.1%}) - system may be broken"
+        assert conflict_rate < 0.99, f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working"

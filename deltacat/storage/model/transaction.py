@@ -747,7 +747,7 @@ class Transaction(dict):
         """
         Create directory scaffolding, timestamp the txn, and return a DEEP COPY
         that the caller should use for all subsequent calls to step(), pause(),
-        and commit_all().  The original object remains read-only.
+        and seal().  The original object remains read-only.
         """
         txn: "Transaction" = copy.deepcopy(self)
         txn._time_provider = TransactionSystemTimeProvider()
@@ -778,12 +778,26 @@ class Transaction(dict):
         self,
         operation: "TransactionOperation",
     ) -> Union[ListResult[Metafile], Tuple[List[str], List[str]]]:
+        """
+        Executes a single transaction operation.
+
+        Parameters
+        ----------
+        operation: TransactionOperation
+            The transaction operation to execute.
+
+        Returns
+        -------
+        - For READ transaction operation: ListResult[Metafile]
+        - For WRITE transaction operation: Tuple[List[str], List[str]]
+            (list of successful write-paths, list of successful locator write-paths)
+        """
 
         catalog_root_normalized = self.catalog_root_normalized
         filesystem = self._filesystem
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
 
-        running_txn_log_file_path i posixpath.join(
+        running_txn_log_file_path = posixpath.join(
             txn_log_dir, RUNNING_TXN_DIR_NAME, self.id
         )
 
@@ -936,7 +950,7 @@ class Transaction(dict):
                         txn_log_dir, SUCCESS_TXN_DIR_NAME
                     ),
                     current_txn_revision_file_path=path,
-                    filesystem=filesystem,
+                    filesystem=fs,
                 )
         except Exception as e:
             self._fail_and_cleanup(
