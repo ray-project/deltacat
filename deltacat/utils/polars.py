@@ -375,6 +375,19 @@ def concat_dataframes(dataframes: List[pl.DataFrame]) -> Optional[pl.DataFrame]:
         return next(iter(dataframes))
     return pl.concat(dataframes)
 
+def append_column_to_table(
+    table: pl.DataFrame, 
+    column_name: str, 
+    column_value: Any,
+) -> pl.DataFrame:
+    return table.with_columns(pl.lit(column_value).alias(column_name))
+
+def select_columns(
+    table: pl.DataFrame, 
+    column_names: List[str],
+) -> pl.DataFrame:
+    return table.select(column_names)
+
 
 def s3_file_to_dataframe(
     s3_url: str,

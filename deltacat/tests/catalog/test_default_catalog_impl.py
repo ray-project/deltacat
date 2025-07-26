@@ -418,7 +418,7 @@ class TestCopyOnWrite:
         result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
         assert result_count == 9, f"Expected 9 records after all merges, got {result_count}"
         
-        # Verify complex merge behavior:
+        # Verify merge behavior:
         # - ID 1: Updated in batch 3 (Alice_Final)
         # - ID 2: Never updated (Bob original)
         # - ID 3: Updated in batch 2 (Charlie_Updated)
@@ -472,7 +472,6 @@ class TestCopyOnWrite:
             catalog=self.catalog_name,
         )
         
-        
         # Verify schema has the expected merge key
         merge_keys = table_def.table_version.schema.merge_keys
         assert merge_keys is not None and len(merge_keys) > 0, "Expected merge keys on table"
@@ -501,9 +500,9 @@ class TestCopyOnWrite:
             Field.of(pa.field("timestamp", pa.int64())),
         ])
         
-        # Very aggressive triggers to ensure compaction happens on every write
+        # Ensure compaction happens on every write
         table_properties: TableProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX, # copy-on-write
             TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger on every record
             TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1,    # Trigger on every file
             TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1,   # Trigger on every delta
@@ -984,9 +983,6 @@ class TestMinIOIntegration:
                 catalog=Catalog(config=catalog_properties)
             )
             
-            # If we get here, S3 catalog initialization worked
-            print(f"✓ S3 catalog initialization succeeded with root: {s3_catalog_root}")
-            
             # Clean up
             dc.clear_catalogs()
             
@@ -1016,7 +1012,6 @@ class TestMinIOIntegration:
             })
             
             # Step 3: Write to S3 table via DeltaCAT
-            print(f"Writing table to S3 catalog root: {s3_catalog_root}")
             dc.write_to_table(
                 data=test_data,
                 table=table_name,
@@ -1024,12 +1019,8 @@ class TestMinIOIntegration:
                 catalog=catalog_name,
                 mode=TableWriteMode.CREATE
             )
-            
-            print("✓ write_to_table completed successfully")
-            
-            # Step 4: Read from S3 table via DeltaCAT (this is where issue #567 would manifest)
-            print(f"Reading table from S3 catalog root: {s3_catalog_root}")
-            
+             
+            # Step 4: Read from S3 table via DeltaCAT (this is where issue #567 would manifest) 
             # Create Daft IOConfig for MinIO authentication
             try:
                 from daft.io import IOConfig, S3Config
@@ -1050,14 +1041,11 @@ class TestMinIOIntegration:
                         force_virtual_addressing=False  # MinIO works better with path-style addressing
                     )
                     io_config = IOConfig(s3=s3_config)
-                    print(f"✓ Created Daft IOConfig for MinIO: {endpoint_url}")
                 else:
                     io_config = None
-                    print(f"✗ Missing MinIO config - using default Daft S3 config")
                     
             except ImportError as e:
                 io_config = None
-                print(f"✗ Could not import Daft config classes: {e}")
             
             result_table = dc.read_table(
                 table=table_name,
@@ -1066,9 +1054,7 @@ class TestMinIOIntegration:
                 distributed_dataset_type=DatasetType.DAFT,  # Force DAFT to test MinIO fix
                 io_config=io_config  # Pass IOConfig for MinIO authentication
             )
-            
-            print("✓ read_table completed successfully")
-            
+             
             # Step 5: Verify data integrity
             # Daft DataFrame has different attributes than PyArrow Table
             assert result_table.count_rows() == test_data.num_rows
@@ -1079,14 +1065,9 @@ class TestMinIOIntegration:
             result_df = result_table.to_pandas().sort_values('id').reset_index(drop=True)
             
             pd.testing.assert_frame_equal(original_df, result_df)
-            
-            print("✓ Data integrity verified - issue #567 appears to be resolved!")
-            
+             
         except Exception as e:
-            # If this fails, it likely indicates issue #567 still exists
-            print(f"✗ End-to-end S3 workflow failed: {e}")
-            print("This confirms issue #567 - S3 path handling problems persist")
-            
+            # If this fails, it likely indicates issue #567 still exists 
             # For debugging, let's see what happened
             if "s3://" in str(e) or "S3" in str(e):
                 print("Error appears to be S3-related, consistent with issue #567")
@@ -1100,45 +1081,8 @@ class TestMinIOIntegration:
                 dc.clear_catalogs()
             except Exception:
                 pass  # Ignore cleanup errors
-    
-    def test_s3_path_resolution_with_minio(self):
-        """Test S3 path resolution behavior with real MinIO server."""
-        # This test specifically examines the path resolution that's at the heart of issue #567
-        
-        test_cases = [
-            f"s3://{self.BUCKET_NAME}/path/to/file.parquet",
-            f"s3://{self.BUCKET_NAME}/deep/nested/path/file.parquet", 
-            f"s3://{self.BUCKET_NAME}/single-file.parquet"
-        ]
-        
-        for s3_path in test_cases:
-            print(f"Testing path resolution for: {s3_path}")
-            
-            try:
-                # Upload a test file to MinIO first
-                self.minio_client.put_object(
-                    self.BUCKET_NAME,
-                    s3_path.replace(f"s3://{self.BUCKET_NAME}/", ""),
-                    data=b"test content",
-                    length=len(b"test content")
-                )
-                
-                # Now test if DeltaCAT can resolve and access this path
-                # This would be where the s3:// prefix issue manifests
-                
-                # Note: We can't easily test the internal path resolution without
-                # going deep into DeltaCAT internals, but the end-to-end test above
-                # will catch the issue if it exists
-                
-                print(f"✓ Successfully uploaded test file: {s3_path}")
-                
-            except Exception as e:
-                print(f"✗ Path resolution test failed for {s3_path}: {e}")
-                # Continue testing other paths
-        
-        print("Path resolution test completed")
-        # This test mainly serves to validate our MinIO setup is working correctly
-    
+ 
+
     def test_s3_uri_reconstruction_fix(self):
         """Test that our fix correctly reconstructs S3 URIs for external readers."""
         from deltacat.catalog import get_catalog_properties
@@ -1159,17 +1103,13 @@ class TestMinIOIntegration:
         
         for input_path, expected_output in test_cases:
             result = catalog_properties.reconstruct_full_path(input_path)
-            print(f"Input: {input_path} -> Output: {result} (Expected: {expected_output})")
             assert result == expected_output, f"Expected {expected_output}, got {result}"
         
         # Test that paths with existing schemes are left unchanged
         full_s3_path = "s3://already-full/path/file.parquet"
         result = catalog_properties.reconstruct_full_path(full_s3_path)
         assert result == full_s3_path, f"Full S3 path should be unchanged, got {result}"
-        
-        print("✓ S3 URI reconstruction logic works correctly!")
-        print("This confirms our fix for GitHub issue #567 correctly handles path reconstruction")
-    
+         
     def test_local_storage_s3_uri_reconstruction(self):
         """
         Test that LOCAL storage type also handles S3 URI reconstruction correctly.
@@ -1196,9 +1136,7 @@ class TestMinIOIntegration:
             (DatasetType.NUMPY, "NumPy"),
         ]
 
-        for table_type, table_type_name in table_types_to_test:
-            print(f"\n=== Testing LOCAL storage with {table_type_name} table type ===")
-            
+        for table_type, table_type_name in table_types_to_test: 
             catalog_name = f"local-s3-test-{table_type_name.lower()}-{uuid.uuid4()}"
             table_name = f"test_table_{table_type_name.lower()}"
             
@@ -1211,7 +1149,6 @@ class TestMinIOIntegration:
                 )
 
                 # Step 2: Write to S3 table via DeltaCAT (this should work)
-                print(f"Writing table to S3 catalog root: {s3_catalog_root}")
                 dc.write_to_table(
                     data=test_data,
                     table=table_name,
@@ -1219,10 +1156,8 @@ class TestMinIOIntegration:
                     catalog=catalog_name,
                     mode=TableWriteMode.CREATE
                 )
-                print("✓ write_to_table completed successfully")
 
                 # Step 3: Read using LOCAL storage (distributed_dataset_type=None)
-                print(f"Reading table using LOCAL storage with {table_type_name}")
                 result_table = dc.read_table(
                     table=table_name,
                     namespace=namespace,
@@ -1231,12 +1166,8 @@ class TestMinIOIntegration:
                     distributed_dataset_type=None,  # Force LOCAL storage
                 )
 
-                print(f"✓ read_table completed successfully with LOCAL storage and {table_type_name}")
-
                 # Step 4: Verify data integrity
                 # LOCAL storage now returns a single concatenated table (not a list)
-                print(f"Result type: {type(result_table)}")
-
                 # Verify based on table type
                 if table_type == DatasetType.PYARROW:
                     assert isinstance(result_table, pa.Table)
@@ -1278,10 +1209,7 @@ class TestMinIOIntegration:
                     assert result_table.shape[0] == test_data.num_rows
                     
                     # NumPy arrays with mixed data types (strings and numbers) are stored as object arrays
-                    # This is expected behavior, so we just verify basic structure and data presence
-                    print(f"NumPy array shape: {result_table.shape}")
-                    print(f"NumPy array dtype: {result_table.dtype}")
-                    
+                    # This is expected behavior, so we just verify basic structure and data presence 
                     # For mixed-type data, NumPy typically flattens or converts to object array
                     # Just verify we have the correct number of rows and some data
                     if result_table.ndim == 2:
@@ -1296,16 +1224,7 @@ class TestMinIOIntegration:
                     array_str = str(result_table)
                     assert 'Alice' in array_str or '1' in array_str  # Check for some test data
 
-                print(f"✓ Data integrity verified for {table_type_name} with LOCAL storage")
-                print(f"✓ GitHub issue #567 S3 URI reconstruction works with LOCAL storage and {table_type_name}!")
-
             except Exception as e:
-                print(f"✗ LOCAL storage test failed for {table_type_name}: {e}")
-                
-                # Provide helpful debugging info
-                if "s3://" in str(e) or "S3" in str(e):
-                    print(f"Error appears to be S3-related for {table_type_name}")
-                
                 pytest.fail(f"LOCAL storage S3 URI reconstruction failed for {table_type_name}: {e}")
             
             finally:
@@ -1314,174 +1233,6 @@ class TestMinIOIntegration:
                     dc.clear_catalogs()
                 except Exception:
                     pass  # Ignore cleanup errors
-
-        print("\n✅ All LOCAL storage S3 URI reconstruction tests passed!")
-        print("✅ GitHub issue #567 is fully resolved for both DISTRIBUTED and LOCAL storage types!")
-
-    def test_custom_reader_kwargs_propagation(self):
-        """
-        Test that custom reader arguments are properly passed through for both
-        LOCAL storage types (PyArrow, Pandas, Polars) and DISTRIBUTED types (RAY_DATA, DAFT).
-        
-        This verifies that the kwargs filtering and propagation fixes enable users to pass
-        custom arguments like pandas read_parquet parameters, pyarrow read options, etc.
-        """
-        s3_catalog_root = f"s3://{self.BUCKET_NAME}/deltacat-kwargs-test"
-        namespace = "test_namespace"
-        catalog_name = f"kwargs-test-{uuid.uuid4()}"
-        table_name = "test_kwargs_table"
-
-        # Test data with some specific characteristics for testing custom kwargs
-        test_data = pa.table({
-            'id': [1, 2, 3, 4, 5],
-            'name': ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
-            'value': [10.1, 20.2, 30.3, 40.4, 50.5],
-            'category': ['A', 'B', 'A', 'C', 'B']
-        })
-
-        try:
-            # Step 1: Register S3 catalog and write test data
-            print(f"\n=== Setting up S3 catalog for kwargs test ===")
-            catalog_properties = CatalogProperties(root=s3_catalog_root)
-            catalog = dc.put_catalog(
-                catalog_name,
-                catalog=Catalog(config=catalog_properties)
-            )
-            
-            # Write test data
-            dc.write_to_table(
-                data=test_data,
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                mode=TableWriteMode.CREATE,
-            )
-            print(f"✓ Successfully wrote test data to {table_name}")
-
-            # Step 2: Test LOCAL storage types with custom kwargs
-            print(f"\n=== Testing LOCAL storage types with custom kwargs ===")
-            
-            local_test_cases = [
-                {
-                    "table_type": DatasetType.PYARROW,
-                    "name": "PyArrow",
-                    "custom_kwargs": {
-                        "pre_buffer": True,  # PyArrow-specific parameter for parquet reading
-                        "use_pandas_metadata": True,  # PyArrow-specific parameter
-                    }
-                },
-                {
-                    "table_type": DatasetType.PANDAS,
-                    "name": "Pandas", 
-                    "custom_kwargs": {
-                        "use_pandas_metadata": True,  # Pandas-compatible parameter for parquet
-                        # Note: Many pandas kwargs are handled by pyarrow under the hood
-                    }
-                },
-                {
-                    "table_type": DatasetType.POLARS,
-                    "name": "Polars",
-                    "custom_kwargs": {
-                        "use_pyarrow": True,  # Polars parameter to use PyArrow for reading
-                        # Removed rechunk as it's not a read parameter
-                    }
-                },
-                {
-                    "table_type": DatasetType.NUMPY,
-                    "name": "NumPy",
-                    "custom_kwargs": {
-                        "use_pandas_metadata": True,  # NumPy uses pandas under the hood
-                        # NumPy reader delegates to pandas, so pandas kwargs work
-                    }
-                }
-            ]
-
-            for test_case in local_test_cases:
-                print(f"\n--- Testing {test_case['name']} with LOCAL storage ---")
-                result_table = dc.read_table(
-                    table=table_name,
-                    namespace=namespace,
-                    catalog=catalog_name,
-                    distributed_dataset_type=None,  # Force LOCAL storage
-                    table_type=test_case["table_type"],
-                    **test_case["custom_kwargs"]  # Pass custom reader arguments
-                )
-                
-                # Verify the data was read correctly
-                # LOCAL storage now returns a single concatenated table (not a list)
-                if test_case["table_type"] == DatasetType.PYARROW:
-                    assert isinstance(result_table, pa.Table)
-                    assert result_table.num_rows == 5
-                    assert len(result_table.column_names) == 4
-                elif test_case["table_type"] == DatasetType.PANDAS:
-                    import pandas as pd
-                    assert isinstance(result_table, pd.DataFrame)
-                    assert len(result_table) == 5
-                    assert len(result_table.columns) == 4
-                elif test_case["table_type"] == DatasetType.POLARS:
-                    import polars as pl
-                    assert isinstance(result_table, pl.DataFrame)
-                    assert result_table.shape == (5, 4)
-                elif test_case["table_type"] == DatasetType.NUMPY:
-                    import numpy as np
-                    assert isinstance(result_table, np.ndarray)
-                    assert result_table.shape[0] == 5  # 5 rows
-                    # NumPy arrays from tabular data typically have shape (rows, cols)
-                
-                print(f"✓ {test_case['name']} LOCAL storage with custom kwargs: SUCCESS")                    
-
-            # Step 3: Test RAY_DATASET distributed dataset type with custom kwargs
-            print(f"\n=== Testing RAY_DATASET distributed dataset type with custom kwargs ===")
-            # Test custom kwargs that might be passed to Ray Data
-            ray_custom_kwargs = {
-                "use_pandas_metadata": True,  # Arrow/Pandas parameter
-                "pre_buffer": False,  # PyArrow parameter
-            }
-            
-            result_table = dc.read_table(
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                distributed_dataset_type=DatasetType.RAY_DATASET,
-                **ray_custom_kwargs  # Pass custom reader arguments
-            )
-            
-            # Verify the data was read correctly
-            # Ray Data should return the data in a format compatible with the library
-            print(f"✓ RAY_DATASET distributed dataset with custom kwargs: SUCCESS")
-            print(f"✓ Result type: {type(result_table)}")
-
-            # Step 4: Test DAFT distributed dataset type with custom kwargs (if available)
-            print(f"\n=== Testing DAFT distributed dataset type with custom kwargs ===")
-            # Test custom kwargs that might be passed to Daft
-            daft_custom_kwargs = {
-                "coerce_int96_timestamp_unit": "ns",  # Daft-specific parameter for read_parquet
-            }
-            
-            result_table = dc.read_table(
-                table=table_name,
-                namespace=namespace, 
-                catalog=catalog_name,
-                distributed_dataset_type=DatasetType.DAFT,
-                **daft_custom_kwargs  # Pass custom reader arguments
-            )
-            
-            # Verify the data was read correctly
-            print(f"✓ DAFT distributed dataset with custom kwargs: SUCCESS")
-            print(f"✓ Result type: {type(result_table)}")
-
-        except Exception as e:
-            pytest.fail(f"Custom kwargs test setup failed unexpectedly: {e}")
-            
-        finally:
-            # Clean up
-            try:
-                dc.clear_catalogs()
-            except Exception:
-                pass  # Ignore cleanup errors
-
-        print(f"\n✅ Custom reader kwargs propagation test completed!")
-        print(f"✅ Verified that custom arguments are properly passed to file readers for both LOCAL and DISTRIBUTED storage types!")
 
     def test_pyarrow_local_kwargs(self):
         """Test PyArrow LOCAL storage with custom kwargs."""
@@ -1496,7 +1247,6 @@ class TestMinIOIntegration:
             'value': [10.1, 20.2, 30.3]
         })
 
-        print(f"\n=== Testing PyArrow LOCAL storage with custom kwargs ===")
         catalog_properties = CatalogProperties(root=s3_catalog_root)
         catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
         
@@ -1513,7 +1263,6 @@ class TestMinIOIntegration:
         
         assert isinstance(result, pa.Table)
         assert result.num_rows == 3
-        print(f"✓ PyArrow LOCAL storage with custom kwargs: SUCCESS")
         dc.clear_catalogs()
 
     def test_pandas_local_kwargs(self):
@@ -1528,8 +1277,6 @@ class TestMinIOIntegration:
             'name': ['Alice', 'Bob', 'Charlie'],
             'value': [10.1, 20.2, 30.3]
         })
-
-        print(f"\n=== Testing Pandas LOCAL storage with custom kwargs ===")
         catalog_properties = CatalogProperties(root=s3_catalog_root)
         catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
         
@@ -1547,7 +1294,6 @@ class TestMinIOIntegration:
         import pandas as pd
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 3
-        print(f"✓ Pandas LOCAL storage with custom kwargs: SUCCESS")
         dc.clear_catalogs()
 
     def test_polars_local_kwargs(self):
@@ -1562,8 +1308,6 @@ class TestMinIOIntegration:
             'name': ['Alice', 'Bob', 'Charlie'],
             'value': [10.1, 20.2, 30.3]
         })
-
-        print(f"\n=== Testing Polars LOCAL storage with custom kwargs ===")
         catalog_properties = CatalogProperties(root=s3_catalog_root)
         catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
         
@@ -1581,7 +1325,6 @@ class TestMinIOIntegration:
         import polars as pl
         assert isinstance(result, pl.DataFrame)
         assert result.shape[0] == 3
-        print(f"✓ Polars LOCAL storage with custom kwargs: SUCCESS")
         dc.clear_catalogs()
 
     def test_numpy_local_kwargs(self):
@@ -1596,8 +1339,6 @@ class TestMinIOIntegration:
             'name': ['Alice', 'Bob', 'Charlie'],
             'value': [10.1, 20.2, 30.3]
         })
-
-        print(f"\n=== Testing NumPy LOCAL storage with custom kwargs ===")
         catalog_properties = CatalogProperties(root=s3_catalog_root)
         catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
         
@@ -1615,76 +1356,6 @@ class TestMinIOIntegration:
         import numpy as np
         assert isinstance(result, np.ndarray)
         assert result.shape[0] == 3
-        print(f"✓ NumPy LOCAL storage with custom kwargs: SUCCESS")
-        dc.clear_catalogs()
-
-    def test_ray_dataset_kwargs(self):
-        """Test RAY_DATASET distributed storage with custom kwargs."""
-        s3_catalog_root = f"s3://{self.BUCKET_NAME}/deltacat-ray-test"
-        namespace = "test_namespace"
-        catalog_name = f"ray-test-{uuid.uuid4()}"
-        table_name = "test_ray_table"
-
-        test_data = pa.table({
-            'id': [1, 2, 3],
-            'name': ['Alice', 'Bob', 'Charlie'],
-            'value': [10.1, 20.2, 30.3]
-        })
-
-        print(f"\n=== Testing RAY_DATASET distributed storage with custom kwargs ===")
-        catalog_properties = CatalogProperties(root=s3_catalog_root)
-        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-        
-        dc.write_to_table(
-            data=test_data, table=table_name, namespace=namespace,
-            catalog=catalog_name, mode=TableWriteMode.CREATE,
-        )
-        
-        result = dc.read_table(
-            table=table_name, namespace=namespace, catalog=catalog_name,
-            distributed_dataset_type=DatasetType.RAY_DATASET,
-            #use_pandas_metadata=True, 
-            #pre_buffer=False
-        )
-        
-        # Ray dataset should return a MaterializedDataset
-        assert result is not None
-        print(f"✓ RAY_DATASET distributed storage with custom kwargs: SUCCESS")
-        print(f"✓ Result type: {type(result)}")
-        dc.clear_catalogs()
-
-    def test_daft_kwargs(self):
-        """Test DAFT distributed storage with custom kwargs."""
-        s3_catalog_root = f"s3://{self.BUCKET_NAME}/deltacat-daft-test"
-        namespace = "test_namespace"
-        catalog_name = f"daft-test-{uuid.uuid4()}"
-        table_name = "test_daft_table"
-
-        test_data = pa.table({
-            'id': [1, 2, 3],
-            'name': ['Alice', 'Bob', 'Charlie'],
-            'value': [10.1, 20.2, 30.3]
-        })
-
-        print(f"\n=== Testing DAFT distributed storage with custom kwargs ===")
-        catalog_properties = CatalogProperties(root=s3_catalog_root)
-        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-        
-        dc.write_to_table(
-            data=test_data, table=table_name, namespace=namespace,
-            catalog=catalog_name, mode=TableWriteMode.CREATE,
-        )
-        
-        result = dc.read_table(
-            table=table_name, namespace=namespace, catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
-            coerce_int96_timestamp_unit="ns"
-        )
-        
-        # Daft should return a DataFrame
-        assert result is not None
-        print(f"✓ DAFT distributed storage with custom kwargs: SUCCESS")
-        print(f"✓ Result type: {type(result)}")
         dc.clear_catalogs()
 
     def test_baseline_storage_types_local_catalog(self):
@@ -1711,7 +1382,6 @@ class TestMinIOIntegration:
 
         try:
             # Step 1: Register local filesystem catalog
-            print(f"\n=== Setting up local catalog for baseline test ===")
             catalog_properties = CatalogProperties(root=local_catalog_root)
             catalog = dc.put_catalog(
                 catalog_name,
@@ -1726,11 +1396,8 @@ class TestMinIOIntegration:
                 catalog=catalog_name,
                 mode=TableWriteMode.CREATE,
             )
-            print(f"✓ Successfully wrote test data to {table_name}")
 
-            # Step 3: Test all LOCAL storage types (no custom kwargs)
-            print(f"\n=== Testing all LOCAL storage types (no custom kwargs) ===")
-            
+            # Step 3: Test all LOCAL storage types (no custom kwargs) 
             local_storage_types = [
                 (DatasetType.PYARROW, "PyArrow"),
                 (DatasetType.PANDAS, "Pandas"), 
@@ -1739,7 +1406,6 @@ class TestMinIOIntegration:
             ]
 
             for table_type, type_name in local_storage_types:
-                print(f"\n--- Testing {type_name} LOCAL storage ---")
                 try:
                     result_table = dc.read_table(
                         table=table_name,
@@ -1769,19 +1435,13 @@ class TestMinIOIntegration:
                         assert isinstance(result_table, np.ndarray)
                         assert result_table.shape[0] == 5
                         assert result_table.size > 0
-                    
-                    print(f"✓ {type_name} LOCAL storage baseline test: SUCCESS")
-                    
                 except Exception as e:
-                    print(f"✗ {type_name} LOCAL storage baseline test: {e}")
                     pytest.fail(f"Baseline test failed for {type_name} LOCAL storage: {e}")
 
         except Exception as e:
             pytest.fail(f"Baseline storage types test setup failed unexpectedly: {e}")
             
-        # Step 4: Test all DISTRIBUTED storage types (no custom kwargs) - separate try block
-        print(f"\n=== Testing all DISTRIBUTED storage types (no custom kwargs) ===")
-        
+        # Step 4: Test all DISTRIBUTED storage types (no custom kwargs) - separate try block 
         distributed_storage_types = [
             (DatasetType.RAY_DATASET, "RAY_DATASET"),
             (DatasetType.DAFT, "DAFT"),
@@ -1789,7 +1449,6 @@ class TestMinIOIntegration:
 
         distributed_successes = 0
         for distributed_type, type_name in distributed_storage_types:
-            print(f"\n--- Testing {type_name} DISTRIBUTED storage ---")
             result_table = dc.read_table(
                 table=table_name,
                 namespace=namespace,
@@ -1801,12 +1460,8 @@ class TestMinIOIntegration:
             # For distributed types, we expect different return types
             # Just verify we got something back and it's not None or empty
             assert result_table is not None
-            print(f"✓ {type_name} DISTRIBUTED storage baseline test: SUCCESS")
-            print(f"✓ Result type: {type(result_table)}")
             distributed_successes += 1
-        
-        print(f"✓ Tested {len(distributed_storage_types)} distributed storage types, {distributed_successes} successful")
-        
+         
         # Clean up
         try:
             dc.clear_catalogs()
@@ -1814,10 +1469,6 @@ class TestMinIOIntegration:
             shutil.rmtree(local_catalog_root, ignore_errors=True)
         except Exception:
             pass  # Ignore cleanup errors
-
-        print(f"\n✅ Baseline storage types test completed!")
-        print(f"✅ Verified that all LOCAL storage types work correctly with local catalog!")
-        print(f"✅ Verified basic functionality without custom kwargs!")
 
     def test_distributed_storage_debug(self):
         """
@@ -1837,7 +1488,6 @@ class TestMinIOIntegration:
         })
 
         # Setup catalog and write data
-        print(f"\n=== Setting up catalog for distributed storage debug ===")
         catalog_properties = CatalogProperties(root=local_catalog_root)
         catalog = dc.put_catalog(
             catalog_name,
@@ -1851,7 +1501,6 @@ class TestMinIOIntegration:
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
         )
-        print(f"✓ Successfully wrote test data")
 
         # Test each distributed storage type individually with detailed error reporting
         distributed_types = [
@@ -1860,18 +1509,411 @@ class TestMinIOIntegration:
         ]
 
         for distributed_type, type_name in distributed_types:
-            print(f"\n=== Debugging {type_name} ===")
-            print(f"Attempting to read with {type_name}...")
             result = dc.read_table(
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
                 distributed_dataset_type=distributed_type,
             )
-            print(f"✓ {type_name} SUCCESS!")
-            print(f"  Result type: {type(result)}")
-            print(f"  Result: {result}") 
                     
+        # Clean up
+        try:
+            dc.clear_catalogs()
+            import shutil
+            shutil.rmtree(local_catalog_root, ignore_errors=True)
+        except Exception:
+            pass
+
+
+class TestLocalIntegration:
+    """
+    Test suite to verify all DeltaCAT functionality using local filesystem storage.
+    
+    This provides a stable testing environment without cloud storage dependencies,
+    focusing on core functionality like distributed storage types, custom kwargs
+    propagation, and table concatenation.
+    """
+    
+    @classmethod
+    def setup_class(cls):
+        """Initialize test environment."""
+        dc.init()
+        
+    def test_comprehensive_storage_types_local_catalog(self):
+        """Test all LOCAL and DISTRIBUTED storage types with local filesystem catalog."""
+        local_catalog_root = f"/tmp/deltacat-comprehensive-test-{uuid.uuid4()}"
+        namespace = "test_namespace"
+        catalog_name = f"comprehensive-test-{uuid.uuid4()}"
+        table_name = "comprehensive_test_table"
+
+        # Test data
+        test_data = pa.table({
+            'id': [1, 2, 3, 4, 5],
+            'name': ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
+            'value': [10.1, 20.2, 30.3, 40.4, 50.5],
+            'category': ['A', 'B', 'A', 'C', 'B']
+        })
+
+        catalog_properties = CatalogProperties(root=local_catalog_root)
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+        
+        dc.write_to_table(
+            data=test_data, table=table_name, namespace=namespace,
+            catalog=catalog_name, mode=TableWriteMode.CREATE,
+        )
+
+        # Test all LOCAL storage types 
+        local_storage_types = [
+            (DatasetType.PYARROW, "PyArrow"),
+            (DatasetType.PANDAS, "Pandas"),
+            (DatasetType.POLARS, "Polars"),
+            (DatasetType.NUMPY, "NumPy"),
+        ]
+
+        local_successes = 0
+        for storage_type, type_name in local_storage_types:
+            result_table = dc.read_table(
+                table=table_name, namespace=namespace, catalog=catalog_name,
+                distributed_dataset_type=None, table_type=storage_type,
+            )
+            
+            # Verify the data was read correctly
+            if storage_type == DatasetType.PYARROW:
+                assert isinstance(result_table, pa.Table)
+                assert result_table.num_rows == 5
+                assert len(result_table.column_names) == 4
+            elif storage_type == DatasetType.PANDAS:
+                import pandas as pd
+                assert isinstance(result_table, pd.DataFrame)
+                assert len(result_table) == 5
+                assert len(result_table.columns) == 4
+            elif storage_type == DatasetType.POLARS:
+                import polars as pl
+                assert isinstance(result_table, pl.DataFrame)
+                assert result_table.shape == (5, 4)
+            elif storage_type == DatasetType.NUMPY:
+                import numpy as np
+                assert isinstance(result_table, np.ndarray)
+                assert result_table.shape[0] == 5
+            local_successes += 1
+
+        # Test all DISTRIBUTED storage types
+        distributed_storage_types = [
+            (DatasetType.RAY_DATASET, "RAY_DATASET"),
+            (DatasetType.DAFT, "DAFT"),
+        ]
+
+        distributed_successes = 0
+        for distributed_type, type_name in distributed_storage_types:
+            result_table = dc.read_table(
+                table=table_name, namespace=namespace, catalog=catalog_name,
+                distributed_dataset_type=distributed_type,
+            )
+            
+            # For distributed types, we expect different return types
+            assert result_table is not None
+            distributed_successes += 1
+            
+        # Clean up
+        try:
+            dc.clear_catalogs()
+            import shutil
+            shutil.rmtree(local_catalog_root, ignore_errors=True)
+        except Exception:
+            pass
+
+    def test_custom_kwargs_comprehensive_local_storage(self):
+        """Test custom kwargs propagation with all storage types using local filesystem."""
+        local_catalog_root = f"/tmp/deltacat-kwargs-comprehensive-test-{uuid.uuid4()}"
+        namespace = "test_namespace"
+        catalog_name = f"kwargs-comprehensive-test-{uuid.uuid4()}"
+        table_name = "kwargs_comprehensive_test_table"
+
+        # Test data
+        test_data = pa.table({
+            'id': [1, 2, 3, 4, 5],
+            'name': ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
+            'value': [10.1, 20.2, 30.3, 40.4, 50.5],
+            'category': ['A', 'B', 'A', 'C', 'B']
+        })
+
+        catalog_properties = CatalogProperties(root=local_catalog_root)
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+        
+        dc.write_to_table(
+            data=test_data, table=table_name, namespace=namespace,
+            catalog=catalog_name, mode=TableWriteMode.CREATE,
+        )
+
+        # Test LOCAL storage types with custom kwargs
+        local_test_cases = [
+            {
+                "table_type": DatasetType.PYARROW,
+                "name": "PyArrow",
+                "custom_kwargs": {
+                    "pre_buffer": True,
+                    "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",  # Test standardized file path column
+                }
+            },
+            {
+                "table_type": DatasetType.PANDAS,
+                "name": "Pandas", 
+                "custom_kwargs": {
+                    "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",  # Test standardized file path column
+                }
+            },
+            {
+                "table_type": DatasetType.POLARS,
+                "name": "Polars",
+                "custom_kwargs": {
+                    "use_pyarrow": True,
+                    "file_path_column": "_source_path",  # Test standardized file path column
+                }
+            },
+            {
+                "table_type": DatasetType.NUMPY,
+                "name": "NumPy",
+                "custom_kwargs": {
+                    "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",  # Test standardized file path column
+                    # Note: NumPy doesn't support named columns, so no file_path_column
+                }
+            }
+        ]
+
+        for test_case in local_test_cases:
+            result_table = dc.read_table(
+                table=table_name, namespace=namespace, catalog=catalog_name,
+                distributed_dataset_type=None, table_type=test_case["table_type"],
+                **test_case["custom_kwargs"]
+            )
+            
+            # Verify the data was read correctly
+            file_path_column = test_case["custom_kwargs"].get("file_path_column")
+            
+            if test_case["table_type"] == DatasetType.PYARROW:
+                assert isinstance(result_table, pa.Table)
+                assert result_table.num_rows == 5
+                expected_cols = 5 if file_path_column else 4
+                assert len(result_table.column_names) == expected_cols
+                if file_path_column:
+                    assert file_path_column in result_table.column_names
+                    
+            elif test_case["table_type"] == DatasetType.PANDAS:
+                import pandas as pd
+                assert isinstance(result_table, pd.DataFrame)
+                assert len(result_table) == 5
+                expected_cols = 5 if file_path_column else 4
+                assert len(result_table.columns) == expected_cols
+                if file_path_column:
+                    assert file_path_column in result_table.columns
+                    
+            elif test_case["table_type"] == DatasetType.POLARS:
+                import polars as pl
+                assert isinstance(result_table, pl.DataFrame)
+                expected_cols = 5 if file_path_column else 4
+                assert result_table.shape == (5, expected_cols)
+                if file_path_column:
+                    assert file_path_column in result_table.columns
+                    
+            elif test_case["table_type"] == DatasetType.NUMPY:
+                import numpy as np
+                assert isinstance(result_table, np.ndarray)
+                expected_cols = 5 if file_path_column else 4
+                assert result_table.shape[0] == expected_cols
+                # NumPy doesn't support named columns, so we just validate column count
+            
+        # Test DISTRIBUTED storage types with custom kwargs
+        distributed_test_cases = [
+            {
+                "distributed_dataset_type": DatasetType.RAY_DATASET,
+                "name": "RAY_DATASET",
+                "custom_kwargs": {
+                    "file_path_column": "path",  # Standardized file path column parameter
+                }
+            },
+            {
+                "distributed_dataset_type": DatasetType.DAFT,
+                "name": "DAFT", 
+                "custom_kwargs": {
+                    "io_config": None,  # Daft IOConfig - None means use default local filesystem
+                    "ray_init_options": {"num_cpus": 1},  # Ray options for Daft's Ray backend
+                    "file_path_column": "_source_file_path",  # Add source file path column
+                }
+            }
+        ]
+
+        for test_case in distributed_test_cases:
+            result_table = dc.read_table(
+                table=table_name, namespace=namespace, catalog=catalog_name,
+                distributed_dataset_type=test_case["distributed_dataset_type"],
+                **test_case["custom_kwargs"]
+            )
+            assert result_table is not None
+            
+            # Additional validation based on type
+            if test_case["distributed_dataset_type"] == DatasetType.RAY_DATASET:
+                # Ray dataset should be materialized
+                assert hasattr(result_table, 'num_rows') or hasattr(result_table, 'count')
+                
+                # Special validation for file_path_column if it was specified
+                if test_case["custom_kwargs"].get("file_path_column"):
+                    file_path_column_name = test_case["custom_kwargs"]["file_path_column"]
+                    
+                    # Check schema for path column
+                    schema_names = result_table.schema().names
+                    
+                    # Ray dataset should have the file path column
+                    sample_data = result_table.take(2)
+                    assert sample_data and file_path_column_name in sample_data[0], f"File path column '{file_path_column_name}' not found in data!"
+                    paths = [row[file_path_column_name] for row in sample_data]
+                    assert all(path is not None and len(str(path)) > 0 for path in paths), "Ray paths should not be empty"
+                    assert any("/" in str(path) for path in paths), "Ray paths should contain valid file system paths"
+            elif test_case["distributed_dataset_type"] == DatasetType.DAFT:
+                # Daft dataframe should have proper methods
+                assert hasattr(result_table, 'collect') or hasattr(result_table, 'show')
+                
+                # Special validation for file_path_column if it was specified
+                if "file_path_column" in test_case["custom_kwargs"]:
+                    file_path_column_name = test_case["custom_kwargs"]["file_path_column"]
+                    
+                    # Get the column names from the Daft DataFrame
+                    column_names = result_table.column_names
+                    
+                    # Verify the file path column exists
+                    assert file_path_column_name in column_names, f"File path column '{file_path_column_name}' not found in columns: {column_names}"
+                    
+                    # Collect a sample to verify the file paths are populated
+                    sample_data = result_table.limit(3).collect()
+                    file_paths = sample_data.to_pydict()[file_path_column_name]
+                    
+                    # Verify file paths are not None/empty and contain actual paths
+                    assert all(path is not None and len(str(path)) > 0 for path in file_paths), "File paths should not be empty"
+                    assert any("/" in str(path) for path in file_paths), "File paths should contain valid file system paths"
+            
+        # Clean up
+        try:
+            dc.clear_catalogs()
+            import shutil
+            shutil.rmtree(local_catalog_root, ignore_errors=True)
+        except Exception:
+            pass
+
+    def test_file_path_column_with_column_selection(self):
+        """
+        Test that file_path_column is always included when used with column selection.
+        
+        This test verifies that when both file_path_column and include_columns are specified,
+        the file path column is always present in the result, even if it wasn't explicitly
+        included in the include_columns list.
+        """
+        local_catalog_root = f"/tmp/deltacat-file-path-col-test-{uuid.uuid4()}"
+        namespace = "test_namespace"
+        catalog_name = f"file-path-col-test-{uuid.uuid4()}"
+        table_name = "file_path_column_test_table"
+
+        # Test data with multiple columns
+        test_data = pa.table({
+            'id': [1, 2, 3],
+            'name': ['Alice', 'Bob', 'Charlie'], 
+            'value': [10.1, 20.2, 30.3],
+            'category': ['A', 'B', 'A'],
+            'extra_col': ['x', 'y', 'z']
+        })
+
+        catalog_properties = CatalogProperties(root=local_catalog_root)
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+        
+        dc.write_to_table(
+            data=test_data, table=table_name, namespace=namespace,
+            catalog=catalog_name, mode=TableWriteMode.CREATE,
+        )
+
+        # Test cases for different combinations of file_path_column and column selection
+        test_cases = [
+            {
+                "name": "PyArrow LOCAL with file_path_column + include_columns (path NOT in include)",
+                "table_type": DatasetType.PYARROW,
+                "distributed_dataset_type": None,
+                "include_columns": ["id", "name"],  # Deliberately exclude file path column
+                "file_path_column": "_file_source",
+                "expected_columns": {"id", "name", "_file_source"},  # Should include path column anyway
+            },
+            {
+                "name": "PyArrow LOCAL with file_path_column + include_columns (path IN include)",
+                "table_type": DatasetType.PYARROW,
+                "distributed_dataset_type": None,
+                "include_columns": ["id", "name", "_file_source"],  # Explicitly include file path column
+                "file_path_column": "_file_source",
+                "expected_columns": {"id", "name", "_file_source"},
+            },
+            {
+                "name": "Pandas LOCAL with file_path_column + include_columns (path NOT in include)",
+                "table_type": DatasetType.PANDAS,
+                "distributed_dataset_type": None,
+                "include_columns": ["value", "category"],  # Deliberately exclude file path column
+                "file_path_column": "_source_file",
+                "expected_columns": {"value", "category", "_source_file"},  # Should include path column anyway
+            },
+            {
+                "name": "RAY_DATASET with file_path_column + include_columns (path NOT in include)",
+                "table_type": None,
+                "distributed_dataset_type": DatasetType.RAY_DATASET,
+                "include_columns": ["id", "category"],  # Deliberately exclude file path column
+                "file_path_column": "ray_path",
+                "expected_columns": {"id", "category", "ray_path"},  # Should include path column anyway
+            },
+            {
+                "name": "DAFT with file_path_column + include_columns (path NOT in include)",
+                "table_type": None,
+                "distributed_dataset_type": DatasetType.DAFT,
+                "include_columns": ["name", "value"],  # Deliberately exclude file path column
+                "file_path_column": "daft_source",
+                "expected_columns": {"name", "value", "daft_source"},  # Should include path column anyway
+            },
+        ]
+
+        for test_case in test_cases: 
+            # Prepare arguments
+            read_args = {
+                "table": table_name,
+                "namespace": namespace, 
+                "catalog": catalog_name,
+                "columns": test_case["include_columns"],  # Use 'columns' not 'include_columns'
+                "file_path_column": test_case["file_path_column"],
+            }
+            
+            if test_case["table_type"]:
+                read_args["table_type"] = test_case["table_type"]
+                read_args["distributed_dataset_type"] = None
+            else:
+                read_args["distributed_dataset_type"] = test_case["distributed_dataset_type"]
+            
+            # Read the table
+            result = dc.read_table(**read_args)
+            
+            # Get column names based on result type
+            if test_case["table_type"] == DatasetType.PYARROW:
+                actual_columns = set(result.column_names)
+            elif test_case["table_type"] == DatasetType.PANDAS:
+                actual_columns = set(result.columns)
+            elif test_case["distributed_dataset_type"] == DatasetType.RAY_DATASET:
+                actual_columns = set(result.schema().names)
+            elif test_case["distributed_dataset_type"] == DatasetType.DAFT:
+                actual_columns = set(result.column_names)
+            else:
+                raise ValueError(f"Unsupported test case: {test_case}")
+            
+            # Verify that we got exactly the expected columns
+            assert actual_columns == test_case["expected_columns"], \
+                f"Column mismatch. Expected: {test_case['expected_columns']}, Got: {actual_columns}"
+            
+            # Specifically verify that the file path column is present
+            assert test_case["file_path_column"] in actual_columns, \
+                f"File path column '{test_case['file_path_column']}' missing from result"
+
         # Clean up
         try:
             dc.clear_catalogs()

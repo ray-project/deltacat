@@ -768,7 +768,7 @@ def _download_delta_distributed(
         file_reader_kwargs_provider=file_reader_kwargs_provider,
         ray_options_provider=ray_options_provider,
         distributed_dataset_type=distributed_dataset_type,
-        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction (GitHub issue #567)
+        **kwargs,
     )
 
     return distributed_dataset
@@ -791,7 +791,7 @@ def _download_delta_local(
         column_names,
         include_columns,
         file_reader_kwargs_provider,
-        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction (GitHub issue #567)
+        **kwargs,
     )
     return tables
 
@@ -805,6 +805,7 @@ def download_delta(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
+    file_path_column: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
@@ -850,12 +851,15 @@ def download_delta(
         **kwargs,
     )
     if columns:
+        # Extract file_path_column since it's appended after reading each file
+        columns_to_validate = [col for col in columns if col != file_path_column] if file_path_column else columns
+        
         if not all(
             col in [col_name.lower() for col_name in all_column_names]
-            for col in columns
+            for col in columns_to_validate
         ):
             raise ValueError(
-                f"One or more columns in {columns} are not present in table "
+                f"One or more columns in {columns_to_validate} are not present in table "
                 f"version columns {all_column_names}"
             )
         columns = [column.lower() for column in columns]
@@ -872,7 +876,8 @@ def download_delta(
         file_reader_kwargs_provider,
         ray_options_provider=ray_options_provider,
         distributed_dataset_type=distributed_dataset_type,
-        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction (GitHub issue #567)
+        file_path_column=file_path_column,
+        **kwargs,
     )
 
 

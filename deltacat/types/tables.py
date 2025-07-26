@@ -141,6 +141,23 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     ),
 }
 
+TABLE_CLASS_TO_APPEND_COLUMN_FUNC: Dict[
+    Type[Union[LocalTable, DistributedDataset]], Callable
+] = {
+    pa.Table: pa_utils.append_column_to_table,
+    pd.DataFrame: pd_utils.append_column_to_dataframe,
+    pl.DataFrame: pl_utils.append_column_to_table,
+    np.ndarray: np_utils.append_column_to_ndarray,
+}
+
+TABLE_CLASS_TO_SELECT_COLUMNS_FUNC: Dict[
+    Type[Union[LocalTable, DistributedDataset]], Callable
+] = {
+    pa.Table: pa_utils.select_columns,
+    pd.DataFrame: pd_utils.select_columns,
+    pl.DataFrame: pl_utils.select_columns,
+}
+
 TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[LocalTable], str] = {
     pa.Table: DatasetType.PYARROW.value,
     papq.ParquetFile: DatasetType.PYARROW_PARQUET.value,
@@ -323,6 +340,47 @@ def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
         )
         raise ValueError(msg)
     return table_slicer_func
+
+
+def append_column_to_table(
+    table: LocalTable, 
+    column_name: str, 
+    column_value: Any, 
+) -> LocalTable:
+    """
+    Generic function to append a column with a specified value to any supported dataset type.
+    
+    Args:
+        table: The table/dataset to add column to
+        column_name: Name of the new column
+        column_value: Value to populate in all rows of the new column
+        table_type: Type of the dataset
+        
+    Returns:
+        Updated table with the new column
+    """
+    append_column_to_table_func = TABLE_CLASS_TO_APPEND_COLUMN_FUNC.get(type(table))
+    if append_column_to_table_func is None:
+        msg = (
+            f"No append column function found for table type: {type(table)}.\n"
+            f"Known table types: {TABLE_CLASS_TO_APPEND_COLUMN_FUNC.keys}"
+        )
+        raise ValueError(msg)
+    return append_column_to_table_func(table, column_name, column_value)
+
+
+def select_columns_from_table(
+    table: LocalTable, 
+    column_names: List[str],
+) -> LocalTable:
+    select_columns_func = TABLE_CLASS_TO_SELECT_COLUMNS_FUNC.get(type(table))
+    if select_columns_func is None:
+        msg = (
+            f"No select columns function found for table type: {type(table)}.\n"
+            f"Known table types: {TABLE_CLASS_TO_SELECT_COLUMNS_FUNC.keys}"
+        )
+        raise ValueError(msg)
+    return select_columns_func(table, column_names)
 
 
 def write_sliced_table(
@@ -629,6 +687,33 @@ def get_block_metadata(
     )
 
 
+def _reconstruct_manifest_entry_uri(
+    manifest_entry: ManifestEntry,
+    **kwargs,
+) -> ManifestEntry:
+    # Reconstruct full URI with scheme for external readers (see GitHub issue #567)
+    from deltacat.catalog import get_catalog_properties
+    catalog_properties = get_catalog_properties(**kwargs)
+
+    original_uri = manifest_entry.uri
+    reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
+    if original_uri != reconstructed_uri:
+        # Create a copy of the manifest entry with the reconstructed URI
+        from deltacat.storage.model.manifest import ManifestEntry
+        reconstructed_entry = ManifestEntry(
+            uri=reconstructed_uri,
+            url=manifest_entry.url,
+            meta=manifest_entry.meta
+        )
+        return reconstructed_entry
+    return manifest_entry
+
+
+def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    # Filter out DeltaCAT system kwargs that external readers don't expect.
+    return {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
+
+
 def download_manifest_entries(
     manifest: Manifest,
     table_type: DatasetType = DatasetType.PYARROW,
@@ -636,7 +721,8 @@ def download_manifest_entries(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **kwargs,  # Accept catalog properties for S3 scheme reconstruction (GitHub issue #567)
+    file_path_column: Optional[str] = None,
+    **kwargs,
 ) -> LocalDataset:
 
     if max_parallelism and max_parallelism <= 1:
@@ -646,6 +732,7 @@ def download_manifest_entries(
             column_names,
             include_columns,
             file_reader_kwargs_provider,
+            file_path_column,
             **kwargs,
         )
     else:
@@ -656,6 +743,7 @@ def download_manifest_entries(
             column_names,
             include_columns,
             file_reader_kwargs_provider,
+            file_path_column,
             **kwargs,
         )
 
@@ -666,43 +754,24 @@ def _download_manifest_entries(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
-
-    # Get catalog properties to reconstruct full S3 URIs (fixes GitHub issue #567)
-    from deltacat.catalog import get_catalog_properties
-    catalog_properties = get_catalog_properties(**kwargs)
-
     result = []
     for e in manifest.entries:
-        # Create a copy of the manifest entry with reconstructed URI for external readers
-        if hasattr(catalog_properties, '_original_scheme') and catalog_properties._original_scheme == 's3':
-            # Reconstruct S3 URI with proper scheme
-            original_uri = e.uri
-            reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
-            
-            # Create a copy of the manifest entry with the reconstructed URI
-            from deltacat.storage.model.manifest import ManifestEntry
-            reconstructed_entry = ManifestEntry(
-                uri=reconstructed_uri,
-                url=e.url,
-                meta=e.meta
-            )
-            entry_to_use = reconstructed_entry
-        else:
-            entry_to_use = e
-            
-        # Filter out DeltaCAT-specific kwargs that external readers don't expect
-        reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
-        
-        result.append(download_manifest_entry(
-            manifest_entry=entry_to_use,
-            table_type=table_type,
-            column_names=column_names,
-            include_columns=include_columns,
-            file_reader_kwargs_provider=file_reader_kwargs_provider,
-            **reader_kwargs,  # Pass through filtered kwargs for custom reader args
-        ))
+        manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
+        reader_kwargs = _filter_kwargs(kwargs)
+        result.append(
+            download_manifest_entry(
+                manifest_entry=manifest_entry,
+                table_type=table_type,
+                column_names=column_names,
+                include_columns=include_columns,
+                file_reader_kwargs_provider=file_reader_kwargs_provider,
+                file_path_column=file_path_column,
+                **reader_kwargs,  # Pass through filtered kwargs for custom reader args
+            ),
+        )
     
     return result
 
@@ -717,11 +786,13 @@ def download_manifest_entry_ray(
     content_type: Optional[ContentType] = None,
     content_encoding: Optional[ContentEncoding] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    file_path_column: Optional[str] = None,
+    **kwargs,  # Accept additional kwargs like include_paths
 ) -> LocalTable:
     """
     Ray remote function for downloading manifest entries.
     For Polars table types, converts the result to Arrow format since Ray datasets work with Arrow.
-    """
+    """ 
     # Call the regular download function
     result = download_manifest_entry(
         manifest_entry=manifest_entry,
@@ -732,6 +803,8 @@ def download_manifest_entry_ray(
         content_type=content_type,
         content_encoding=content_encoding,
         filesystem=filesystem,
+        file_path_column=file_path_column,
+        **kwargs,
     )
 
     # If table_type is POLARS, convert to Arrow for Ray dataset compatibility
@@ -754,6 +827,7 @@ def download_manifest_entries_distributed(
     distributed_dataset_type: Optional[
         DistributedDatasetType
     ] = DistributedDatasetType.RAY_DATASET,
+    file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
 
@@ -765,7 +839,8 @@ def download_manifest_entries_distributed(
         "include_columns": include_columns,
         "file_reader_kwargs_provider": file_reader_kwargs_provider,
         "ray_options_provider": ray_options_provider,
-        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction
+        "file_path_column": file_path_column,
+        **kwargs,
     }
 
     if distributed_dataset_type and distributed_dataset_type.value == DistributedDatasetType.RAY_DATASET.value:
@@ -787,9 +862,10 @@ def _download_manifest_entries_ray_data_distributed(
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    file_path_column: Optional[str] = None,
     **kwargs,  # Accept kwargs for consistency
 ) -> DistributedDataset:
-
+    
     table_pending_ids = []
     manifest_entries = manifest.entries
     if manifest_entries:
@@ -802,6 +878,8 @@ def _download_manifest_entries_ray_data_distributed(
             file_reader_kwargs_provider,
             max_parallelism=max_parallelism,
             options_provider=ray_options_provider,
+            file_path_column=file_path_column,
+            **kwargs,  # Pass through kwargs like include_paths
         )
     return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type.value](table_pending_ids)
 
@@ -817,6 +895,7 @@ def _download_manifest_entries_all_dataset_distributed(
     distributed_dataset_type: Optional[
         DistributedDatasetType
     ] = DistributedDatasetType.RAY_DATASET,
+    file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
 
@@ -824,7 +903,6 @@ def _download_manifest_entries_all_dataset_distributed(
     entry_content_encoding = None
     uris = []
     
-    # Get catalog properties to reconstruct full S3 URIs (fixes GitHub issue #567)
     from deltacat.catalog import get_catalog_properties
     catalog_properties = get_catalog_properties(**kwargs)
     
@@ -850,14 +928,11 @@ def _download_manifest_entries_all_dataset_distributed(
         entry_content_type = entry.meta.content_type
         entry_content_encoding = entry.meta.content_encoding
         
-        # Reconstruct full URI with scheme for external readers (fixes GitHub issue #567)
         full_uri = catalog_properties.reconstruct_full_path(entry.uri)
         uris.append(full_uri)
 
     if distributed_dataset_type.value in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
-        # Filter out DeltaCAT-specific kwargs that external readers don't expect
-        reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
-        
+        reader_kwargs = _filter_kwargs(kwargs)
         return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
             uris=uris,
             content_type=entry_content_type,
@@ -866,6 +941,7 @@ def _download_manifest_entries_all_dataset_distributed(
             include_columns=include_columns,
             read_func_kwargs_provider=file_reader_kwargs_provider,
             ray_options_provider=ray_options_provider,
+            file_path_column=file_path_column,
             **reader_kwargs,  # Pass through filtered kwargs (like io_config)
         )
     else:
@@ -881,37 +957,18 @@ def _download_manifest_entries_parallel(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
-
-    # Get catalog properties to reconstruct full S3 URIs (fixes GitHub issue #567)
-    from deltacat.catalog import get_catalog_properties
-    catalog_properties = get_catalog_properties(**kwargs)
-
-    # Prepare manifest entries with S3 URI reconstruction if needed
     entries_to_process = []
     for e in manifest.entries:
-        if hasattr(catalog_properties, '_original_scheme') and catalog_properties._original_scheme == 's3':
-            # Reconstruct S3 URI with proper scheme
-            original_uri = e.uri
-            reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
-            
-            # Create a copy of the manifest entry with the reconstructed URI
-            from deltacat.storage.model.manifest import ManifestEntry
-            reconstructed_entry = ManifestEntry(
-                uri=reconstructed_uri,
-                url=e.url,
-                meta=e.meta
-            )
-            entries_to_process.append(reconstructed_entry)
-        else:
-            entries_to_process.append(e)
+        manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
+        entries_to_process.append(manifest_entry)
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
     
-    # Filter out DeltaCAT-specific kwargs that external readers don't expect
-    reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog']}
+    reader_kwargs = _filter_kwargs(kwargs)
     
     downloader = partial(
         download_manifest_entry,
@@ -919,6 +976,7 @@ def _download_manifest_entries_parallel(
         column_names=column_names,
         include_columns=include_columns,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
+        file_path_column=file_path_column,
         **reader_kwargs,  # Pass through filtered kwargs for custom reader arguments
     )
     for table in pool.map(downloader, entries_to_process):
@@ -935,6 +993,7 @@ def download_manifest_entry(
     content_type: Optional[ContentType] = None,
     content_encoding: Optional[ContentEncoding] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    file_path_column: Optional[str] = None,
     **kwargs,  # Accept additional kwargs for custom reader arguments
 ) -> LocalTable:
     if not content_type:
@@ -960,7 +1019,13 @@ def download_manifest_entry(
             if isinstance(type_params, PartialFileDownloadParams):
                 partial_file_download_params = type_params
                 break
-
+ 
+    reader_kwargs = _filter_kwargs(kwargs)
+    
+    # Filter out file_path_column from include_columns if present, since it's populated after reading the file
+    if file_path_column and include_columns:
+        include_columns = [col for col in include_columns if col != file_path_column]
+     
     # @retry decorator can't be pickled by Ray, so wrap download in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
@@ -979,8 +1044,17 @@ def download_manifest_entry(
         file_reader_kwargs_provider,
         partial_file_download_params,
         filesystem,
-        **kwargs,  # Pass through additional kwargs for custom reader arguments
+        **reader_kwargs,  # Pass through filtered kwargs for custom reader arguments
     )
+    
+    # Add file path column if requested
+    if file_path_column:
+        table = append_column_to_table(
+            table, 
+            file_path_column, 
+            manifest_entry.uri, 
+        )
+
     return table
 
 

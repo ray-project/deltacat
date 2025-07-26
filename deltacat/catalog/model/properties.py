@@ -118,8 +118,10 @@ class CatalogProperties:
         """
         Reconstruct a full path with the original scheme for external readers.
         
-        This addresses GitHub issue #567 by ensuring that S3 paths include the
-        s3:// prefix that readers like Daft require.
+        This addresses GitHub issue #567 by ensuring that cloud storage URIs
+        include the relevant scheme prefix (e.g., s3://) that some file readers
+        require regardless of the filesystem being used to read the file 
+        (e.g., Daft).
         
         Args:
             path: A path relative to the catalog root or absolute path
@@ -134,19 +136,16 @@ class CatalogProperties:
         # If we don't have an original scheme (local filesystem), return as-is
         if not self._original_scheme:
             return path
-            
-        # For S3 paths, reconstruct the full S3 URL
-        if self._original_scheme == 's3':
-            # Handle both absolute and relative paths
-            if path.startswith('/'):
-                # Absolute path - this shouldn't happen normally but handle it
-                return f"s3:/{path}"
-            else:
-                # Relative path - prepend the s3:// scheme
-                return f"s3://{path}"
+
+        # Reconstruct the full path with the original scheme
+        # Handle both absolute and relative paths
+        if path.startswith('/'):
+            # Absolute path - this shouldn't happen normally but handle it
+            return f"{self._original_scheme}:/{path}"
+        else:
+            # Relative path - prepend the s3:// scheme
+            return f"{self._original_scheme}://{path}"
                 
-        # For other schemes, reconstruct accordingly
-        return f"{self._original_scheme}://{path}"
 
     def __str__(self):
         return (

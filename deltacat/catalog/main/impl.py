@@ -650,6 +650,7 @@ def read_table(
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
+    file_path_column: Optional[str] = None,
     **kwargs,
 ) -> Dataset: 
     """Read a table into a dataset."""
@@ -730,6 +731,7 @@ def read_table(
         max_parallelism=max_parallelism,
         columns=columns,
         distributed_dataset_type=distributed_dataset_type,
+        file_path_column=file_path_column,
         **kwargs,
     )
     

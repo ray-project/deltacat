@@ -675,7 +675,10 @@ ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
 }
 
 
-def slice_table(table: pa.Table, max_len: Optional[int]) -> List[pa.Table]:
+def slice_table(
+    table: pa.Table, 
+    max_len: Optional[int],
+) -> List[pa.Table]:
     """
     Iteratively create 0-copy table slices.
     """
@@ -690,6 +693,23 @@ def slice_table(table: pa.Table, max_len: Optional[int]) -> List[pa.Table]:
         records_remaining -= records_this_entry
         offset += records_this_entry
     return tables
+
+
+def append_column_to_table(
+    table: pa.Table, 
+    column_name: str, 
+    column_value: Any,
+) -> pa.Table:
+    num_rows = table.num_rows
+    column_array = pa.array([column_value] * num_rows)
+    return table.append_column(column_name, column_array)
+
+
+def select_columns(
+    table: pa.Table, 
+    column_names: List[str],
+) -> pa.Table:
+    return table.select(column_names)
 
 
 class ReadKwargsProviderPyArrowCsvPureUtf8(ContentTypeKwargsProvider):

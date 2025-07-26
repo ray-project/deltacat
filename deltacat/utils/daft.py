@@ -370,10 +370,11 @@ def files_to_dataframe(
     # Extract io_config from kwargs if provided, otherwise use None
     io_config = kwargs.pop("io_config", None)
 
-    # Merge any remaining kwargs into read_kwargs
+    # Merge any remaining kwargs into read_kwargs (including file_path_column for native Daft support)
     read_kwargs.update(kwargs)
 
     logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
+    logger.debug(f"Final read_kwargs for daft.read_parquet: {read_kwargs}")
 
     # Call daft.read_parquet with io_config only if provided
     if io_config is not None:
@@ -386,6 +387,11 @@ def files_to_dataframe(
     logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
 
     columns_to_read = include_columns or column_names
+    
+    # Add file_path_column to selection if it was specified
+    file_path_column = read_kwargs.get('file_path_column')
+    if file_path_column and columns_to_read and file_path_column not in columns_to_read:
+        columns_to_read = list(columns_to_read) + [file_path_column]
 
     logger.debug(f"Taking columns {columns_to_read} from the daft df.")
 

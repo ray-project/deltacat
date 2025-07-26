@@ -151,3 +151,12 @@ def concat_ndarrays(arrays: List[np.ndarray]) -> Optional[np.ndarray]:
     if len(arrays) == 1:
         return next(iter(arrays))
     return np.concatenate(arrays, axis=0)
+
+
+def append_column_to_ndarray(
+    np_array: np.ndarray, 
+    column_name: str, 
+    column_value: Any,
+) -> np.ndarray:
+    # Add a new column with value repeating for each row of np_array
+    return np.concatenate((np_array, np.full((len(np_array), 1), column_value)), axis=1) 
