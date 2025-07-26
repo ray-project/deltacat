@@ -657,12 +657,16 @@ def _download_manifest_entries(
         else:
             entry_to_use = e
             
+        # Filter out DeltaCAT-specific kwargs that external readers don't expect
+        reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
+        
         result.append(download_manifest_entry(
             manifest_entry=entry_to_use,
             table_type=table_type,
             column_names=column_names,
             include_columns=include_columns,
             file_reader_kwargs_provider=file_reader_kwargs_provider,
+            **reader_kwargs,  # Pass through filtered kwargs for custom reader args
         ))
     
     return result
@@ -817,7 +821,7 @@ def _download_manifest_entries_all_dataset_distributed(
 
     if distributed_dataset_type.value in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
         # Filter out DeltaCAT-specific kwargs that external readers don't expect
-        reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog']}
+        reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
         
         return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
             uris=uris,
@@ -870,12 +874,17 @@ def _download_manifest_entries_parallel(
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
+    
+    # Filter out DeltaCAT-specific kwargs that external readers don't expect
+    reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog']}
+    
     downloader = partial(
         download_manifest_entry,
         table_type=table_type,
         column_names=column_names,
         include_columns=include_columns,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
+        **reader_kwargs,  # Pass through filtered kwargs for custom reader arguments
     )
     for table in pool.map(downloader, entries_to_process):
         tables.append(table)
@@ -891,6 +900,7 @@ def download_manifest_entry(
     content_type: Optional[ContentType] = None,
     content_encoding: Optional[ContentEncoding] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    **kwargs,  # Accept additional kwargs for custom reader arguments
 ) -> LocalTable:
     if not content_type:
         content_type = manifest_entry.meta.content_type
@@ -934,6 +944,7 @@ def download_manifest_entry(
         file_reader_kwargs_provider,
         partial_file_download_params,
         filesystem,
+        **kwargs,  # Pass through additional kwargs for custom reader arguments
     )
     return table
 
@@ -949,6 +960,7 @@ def read_file(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    **kwargs,  # Accept additional kwargs for custom reader arguments
 ) -> LocalTable:
 
     reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
@@ -962,6 +974,7 @@ def read_file(
             include_columns,
             file_reader_kwargs_provider,
             partial_file_download_params,
+            **kwargs,  # Pass through additional kwargs for custom reader arguments
         )
         return table
     except RETRYABLE_TRANSIENT_ERRORS as e:
