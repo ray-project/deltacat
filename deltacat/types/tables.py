@@ -164,6 +164,39 @@ TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS: Dict[str, Callable] = {
     DatasetType.POLARS.value: from_arrow_refs,  # We cast Polars to Arrow for Ray Datasets
 }
 
+TABLE_TYPE_TO_CONCAT_FUNC: Dict[str, Callable] = {
+    DatasetType.PYARROW_PARQUET.value: pa_utils.concat_tables,
+    DatasetType.PYARROW.value: pa_utils.concat_tables,
+    DatasetType.PANDAS.value: pd_utils.concat_dataframes,
+    DatasetType.NUMPY.value: np_utils.concat_ndarrays,
+    DatasetType.POLARS.value: pl_utils.concat_dataframes,
+}
+
+
+def concat_tables(tables: List[LocalTable], table_type: DatasetType) -> LocalTable:
+    """
+    Concatenate a list of tables into a single table using the appropriate 
+    concatenation function for the given table type.
+    
+    Args:
+        tables: List of tables to concatenate
+        table_type: The DatasetType indicating which concatenation function to use
+        
+    Returns:
+        Single concatenated table of the appropriate type
+        
+    Raises:
+        ValueError: If no concatenation function is found for the table type
+    """
+    concat_func = TABLE_TYPE_TO_CONCAT_FUNC.get(table_type.value)
+    if concat_func is None:
+        msg = (
+            f"No concatenation function found for table type: {table_type}.\n"
+            f"Known table types: {list(TABLE_TYPE_TO_CONCAT_FUNC.keys())}"
+        )
+        raise ValueError(msg)
+    return concat_func(tables)
+
 def _daft_s3_reader_wrapper(*args, **kwargs):
     """Wrapper for daft s3 reader with lazy import to avoid circular import."""
     from deltacat.utils.daft import s3_files_to_dataframe
@@ -174,12 +207,14 @@ def _daft_reader_wrapper(*args, **kwargs):
     from deltacat.utils.daft import files_to_dataframe
     return files_to_dataframe(*args, **kwargs)
 
+
+
 DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
-    DistributedDatasetType.DAFT.value: _daft_s3_reader_wrapper
+    DistributedDatasetType.DAFT.value: _daft_s3_reader_wrapper,
 }
 
 DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
-    DistributedDatasetType.DAFT.value: _daft_reader_wrapper
+    DistributedDatasetType.DAFT.value: _daft_reader_wrapper,
 }
 
 
@@ -733,7 +768,7 @@ def download_manifest_entries_distributed(
         **kwargs,  # Pass through catalog properties for S3 scheme reconstruction
     }
 
-    if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
+    if distributed_dataset_type and distributed_dataset_type.value == DistributedDatasetType.RAY_DATASET.value:
         return _download_manifest_entries_ray_data_distributed(**params)
     elif distributed_dataset_type is not None:
         params["distributed_dataset_type"] = distributed_dataset_type

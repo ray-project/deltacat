@@ -49,7 +49,7 @@ from deltacat.types.media import (
     DatasetType,
     StorageType,
 )
-from deltacat.types.tables import TableProperty, TableReadOptimizationLevel, TableWriteMode
+from deltacat.types.tables import TableProperty, TableReadOptimizationLevel, TableWriteMode, concat_tables
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
 
@@ -723,7 +723,7 @@ def read_table(
 
     merged_delta = Delta.merge_deltas(qualified_deltas)
 
-    return _get_storage(**kwargs).download_delta(
+    result = _get_storage(**kwargs).download_delta(
         merged_delta,
         table_type=table_type,
         storage_type=StorageType.DISTRIBUTED if distributed_dataset_type else StorageType.LOCAL,
@@ -732,6 +732,18 @@ def read_table(
         distributed_dataset_type=distributed_dataset_type,
         **kwargs,
     )
+    
+    # For LOCAL storage, concatenate the list of tables into a single table
+    if not distributed_dataset_type and table_type and isinstance(result, list):
+        try:
+            logger.debug(f"Concatenating {len(result)} LOCAL tables of type {table_type}")
+            result = concat_tables(result, table_type)
+            logger.debug(f"Concatenation complete, result type: {type(result)}")
+        except ValueError as e:
+            logger.warning(f"Could not concatenate tables for type {table_type}: {e}")
+            # Fall back to returning the list if concatenation fails
+    
+    return result
 
 
 def alter_table(

@@ -1481,3 +1481,20 @@ def file_to_parquet(
     logger.debug(f"Time to get {path} into parquet file: {latency}s")
 
     return pq_file
+
+
+def concat_tables(tables: List[pa.Table]) -> Optional[pa.Table]:
+    """
+    Concatenate a list of PyArrow Tables into a single Table.
+    
+    Args:
+        tables: List of PyArrow Tables to concatenate
+        
+    Returns:
+        Concatenated PyArrow Table, or None if input is empty
+    """
+    if tables is None or not len(tables):
+        return None
+    if len(tables) == 1:
+        return next(iter(tables))
+    return pa.concat_tables(tables)

@@ -134,3 +134,20 @@ def ndarray_to_file(
         content_type,
         **kwargs,
     )
+
+
+def concat_ndarrays(arrays: List[np.ndarray]) -> Optional[np.ndarray]:
+    """
+    Concatenate a list of NumPy ndarrays into a single ndarray.
+    
+    Args:
+        arrays: List of NumPy ndarrays to concatenate
+        
+    Returns:
+        Concatenated NumPy ndarray, or None if input is empty
+    """
+    if arrays is None or not len(arrays):
+        return None
+    if len(arrays) == 1:
+        return next(iter(arrays))
+    return np.concatenate(arrays, axis=0)
