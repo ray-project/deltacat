@@ -31,6 +31,7 @@ from deltacat.storage import (
     TableVersionProperties,
 )
 from deltacat.storage.model.manifest import Manifest
+from deltacat.storage.model.partition import UNKNOWN_PARTITION_ID
 from deltacat.types.media import (
     ContentType,
     DistributedDatasetType,
@@ -510,6 +511,7 @@ def stage_partition(
 def commit_partition(
     partition: Partition,
     previous_partition: Optional[Partition] = None,
+    expected_previous_partition_id: Optional[str] = UNKNOWN_PARTITION_ID,
     *args,
     **kwargs,
 ) -> Partition:

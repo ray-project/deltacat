@@ -17,7 +17,7 @@ from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     commit_delta_to_partition,
 )
-from deltacat.types.media import DistributedDatasetType, ContentType
+from deltacat.types.media import DatasetType, ContentType
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import metastore
 from deltacat.storage.model.schema import Schema, Field
@@ -82,7 +82,7 @@ class TestReadTableMain:
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=env["catalog_name"],
-            distributed_dataset_type=DistributedDatasetType.DAFT,
+            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # verify
@@ -123,8 +123,7 @@ class TestReadTableMain:
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=env["catalog_name"],
-            distributed_dataset_type=DistributedDatasetType.DAFT,
-            merge_on_read=False,
+            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # verify
@@ -272,7 +271,7 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DistributedDatasetType.DAFT,
+            distributed_dataset_type=DatasetType.DAFT,
         )
         
         # Should get all original records
@@ -328,7 +327,7 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DistributedDatasetType.DAFT,
+            distributed_dataset_type=DatasetType.DAFT,
         )
         
         
@@ -399,7 +398,7 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DistributedDatasetType.DAFT,
+            distributed_dataset_type=DatasetType.DAFT,
         )
         
         
@@ -643,7 +642,7 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DistributedDatasetType.DAFT,
+            distributed_dataset_type=DatasetType.DAFT,
         )
         
         final_count = final_result.count_rows()
@@ -768,7 +767,7 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DistributedDatasetType.DAFT,
+            distributed_dataset_type=DatasetType.DAFT,
         )
         
         final_df = final_result.collect().to_pandas()

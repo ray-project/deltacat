@@ -28,13 +28,9 @@ from deltacat.storage.model.namespace import Namespace, NamespaceProperties
 from deltacat.storage.model.schema import Schema
 from deltacat.storage.model.table import TableProperties, Table
 from deltacat.storage.model.types import (
-    DistributedDataset,
+    Dataset,
     LifecycleState,
-    LocalDataset,
-    LocalTable,
     StreamFormat,
-    TransactionType,
-    TransactionOperationType,
 )
 from deltacat.storage.model.partition import (
     Partition,
@@ -45,15 +41,15 @@ from deltacat.storage.model.partition import (
     UNSPECIFIED_PARTITION_ID,
 )
 from deltacat.storage.model.table_version import TableVersion
-from deltacat.compute.merge_on_read.model.merge_on_read_params import MergeOnReadParams
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import Delta
-from deltacat.storage.model.transaction import Transaction, TransactionOperation
-from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.types import CommitState
-from deltacat.types.media import ContentType, DatasetType, DistributedDatasetType
+from deltacat.types.media import (
+    ContentType, 
+    DatasetType,
+    StorageType,
+)
 from deltacat.types.tables import TableProperty, TableReadOptimizationLevel, TableWriteMode
-from deltacat.compute.merge_on_read import MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
 
@@ -99,7 +95,7 @@ def initialize(
 
 # table functions
 def write_to_table(
-    data: Union[LocalTable, LocalDataset, DistributedDataset],  # type: ignore
+    data: Dataset,
     table: str,
     *args,
     namespace: Optional[str] = None,
@@ -650,26 +646,21 @@ def read_table(
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
     table_type: Optional[DatasetType] = DatasetType.PYARROW,
-    distributed_dataset_type: Optional[DatasetType] = DatasetType.RAY_DATASET,
+    distributed_dataset_type: Optional[DatasetType] = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
-    stream_position_range_inclusive: Optional[Tuple[int, int]] = None,
-    merge_on_read: Optional[bool] = False,
-    reader_kwargs: Optional[Dict[Any, Any]] = None,
+    max_parallelism: Optional[int] = None,
+    columns: Optional[List[str]] = None,
     **kwargs,
-) -> DistributedDataset:  # type: ignore
-    """Read a table into a distributed dataset."""
+) -> Dataset: 
+    """Read a table into a dataset."""
 
-    if reader_kwargs is None:
-        reader_kwargs = {}
+    if distributed_dataset_type and distributed_dataset_type not in DatasetType.distributed():
+        raise ValueError(f"{distributed_dataset_type} is not a valid distributed dataset type. Valid distributed dataset types are: {DatasetType.distributed()}.")
+    if table_type and table_type not in DatasetType.local():
+        raise ValueError(f"{table_type} is not a valid table type. Valid table types are: {DatasetType.local()}.")
 
-    _validate_read_table_args(
-        namespace=namespace,
-        table_type=table_type,
-        distributed_dataset_type=distributed_dataset_type,
-        merge_on_read=merge_on_read,
-        **kwargs,
-    )
-
+    namespace = namespace or default_namespace()
+    
     table_version_obj = _get_latest_or_given_table_version(
         namespace=namespace,
         table_name=table,
@@ -689,8 +680,7 @@ def read_table(
 
     logger.info(
         f"Reading metadata for table={namespace}/{table}/{table_version} "
-        f"with partition_filters={partition_filter} and stream position"
-        f" range={stream_position_range_inclusive}"
+        f"with partition_filters={partition_filter}."
     )
 
     if partition_filter is None:
@@ -722,45 +712,25 @@ def read_table(
                 )
 
     qualified_deltas = _get_deltas_from_partition_filter(
-        stream_position_range_inclusive=stream_position_range_inclusive,
         partition_filter=partition_filter,
         **kwargs,
     )
-    
-    # Validate that all qualified deltas are append type - merge-on-read not yet implemented
-    if qualified_deltas:
-        non_append_deltas = []
-        for delta in qualified_deltas:
-            if delta.type != DeltaType.APPEND:
-                non_append_deltas.append(delta)
-        
-        if non_append_deltas:
-            delta_types = {delta.type for delta in non_append_deltas}
-            delta_info = [(str(delta.locator), delta.type) for delta in non_append_deltas[:5]]  # Show first 5
-            raise NotImplementedError(
-                f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-append deltas "
-                f"with types {delta_types}. All deltas must be APPEND type for read operations. "
-                f"Examples: {delta_info}. Please run compaction first to merge non-append deltas."
-            )
-        
-        logger.info(f"Validated {len(qualified_deltas)} qualified deltas are all APPEND type")
 
     logger.info(
         f"Total qualified deltas={len(qualified_deltas)} "
         f"from {len(partition_filter)} partitions."
     )
 
-    merge_on_read_params = MergeOnReadParams.of(
-        {
-            "deltas": qualified_deltas,
-            "deltacat_storage": _get_storage(**kwargs),
-            "deltacat_storage_kwargs": {**kwargs},
-            "reader_kwargs": reader_kwargs,
-        }
-    )
+    merged_delta = Delta.merge_deltas(qualified_deltas)
 
-    return MERGE_FUNC_BY_DISTRIBUTED_DATASET_TYPE[distributed_dataset_type.value](
-        params=merge_on_read_params, **kwargs
+    return _get_storage(**kwargs).download_delta(
+        merged_delta,
+        table_type=table_type,
+        storage_type=StorageType.DISTRIBUTED if distributed_dataset_type else StorageType.LOCAL,
+        max_parallelism=max_parallelism,
+        columns=columns,
+        distributed_dataset_type=distributed_dataset_type,
+        **kwargs,
     )
 
 
@@ -1202,35 +1172,6 @@ def default_namespace(*args, **kwargs) -> str:
     return DEFAULT_NAMESPACE  # table functions
 
 
-def _validate_read_table_args(
-    namespace: Optional[str] = None,
-    table_type: Optional[DatasetType] = None,
-    distributed_dataset_type: Optional[DistributedDatasetType] = None,
-    merge_on_read: Optional[bool] = None,
-    **kwargs,
-):
-    storage = _get_storage(**kwargs)
-    if storage is None:
-        raise ValueError(
-            "Catalog not initialized. Did you miss calling "
-            "initialize(ds=<deltacat_storage>)?"
-        )
-
-    if merge_on_read:
-        raise ValueError("Merge on read not supported currently.")
-
-    if table_type is not DatasetType.PYARROW:
-        raise ValueError("Only PYARROW table type is supported as of now")
-
-    if distributed_dataset_type is not DistributedDatasetType.DAFT:
-        raise ValueError("Only DAFT dataset type is supported as of now")
-
-    if namespace is None:
-        raise ValueError(
-            "namespace must be passed to uniquely identify a table in the catalog."
-        )
-
-
 def _get_latest_or_given_table_version(
     namespace: str,
     table_name: str,
@@ -1241,7 +1182,10 @@ def _get_latest_or_given_table_version(
     table_version_obj = None
     if table_version is None:
         table_version_obj = _get_storage(**kwargs).get_latest_table_version(
-            namespace=namespace, table_name=table_name, *args, **kwargs
+            namespace=namespace, 
+            table_name=table_name, 
+            *args, 
+            **kwargs,
         )
         table_version = table_version_obj.table_version
     else:
@@ -1258,16 +1202,10 @@ def _get_latest_or_given_table_version(
 
 def _get_deltas_from_partition_filter(
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
-    stream_position_range_inclusive: Optional[Tuple[int, int]] = None,
     *args,
     **kwargs,
 ):
-
     result_deltas = []
-    start_stream_position, end_stream_position = stream_position_range_inclusive or (
-        None,
-        None,
-    )
     for partition_like in partition_filter:
         deltas = (
             _get_storage(**kwargs)
@@ -1275,26 +1213,31 @@ def _get_deltas_from_partition_filter(
                 partition_like=partition_like,
                 ascending_order=True,
                 include_manifest=True,
-                start_stream_position=start_stream_position,
-                last_stream_position=end_stream_position,
                 *args,
                 **kwargs,
             )
             .all_items()
         )
 
-        for delta in deltas:
-            if (
-                start_stream_position is None
-                or delta.stream_position >= start_stream_position
-            ) and (
-                end_stream_position is None
-                or delta.stream_position <= end_stream_position
-            ):
-                if delta.type == DeltaType.DELETE:
-                    raise ValueError("DELETE type deltas are not supported")
-                result_deltas.append(delta)
-
+        # Validate that all qualified deltas are append type - merge-on-read not yet implemented
+        # TODO(pdames): Run compaction minus materialize for MoR of each partition.
+        if deltas:
+            non_append_deltas = []
+            for delta in deltas:
+                if delta.type != DeltaType.APPEND:
+                    non_append_deltas.append(delta)
+                else:
+                    result_deltas.append(delta)
+            if non_append_deltas:
+                delta_types = {delta.type for delta in non_append_deltas}
+                delta_info = [(str(delta.locator), delta.type) for delta in non_append_deltas[:5]]  # Show first 5
+                raise NotImplementedError(
+                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-append deltas "
+                    f"with types {delta_types}. All deltas must be APPEND type for read operations. "
+                    f"Examples: {delta_info}. Please run compaction first to merge non-append deltas."
+                )
+ 
+            logger.info(f"Validated {len(deltas)} qualified deltas are all APPEND type")
     return result_deltas
 
 
