@@ -8,6 +8,7 @@ from typing import Dict, Any
 import threading
 import time
 import multiprocessing
+import os
 from unittest.mock import patch, MagicMock
 
 import ray
@@ -17,7 +18,7 @@ from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     commit_delta_to_partition,
 )
-from deltacat.types.media import DatasetType, ContentType
+from deltacat.types.media import DatasetType, ContentType, DistributedDatasetType
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import metastore
 from deltacat.storage.model.schema import Schema, Field
@@ -1199,16 +1200,49 @@ class TestMinIOIntegration:
             
             # Step 4: Read from S3 table via DeltaCAT (this is where issue #567 would manifest)
             print(f"Reading table from S3 catalog root: {s3_catalog_root}")
+            
+            # Create Daft IOConfig for MinIO authentication
+            try:
+                from daft.io import IOConfig, S3Config
+                
+                # Get MinIO configuration from environment variables
+                endpoint_url = os.environ.get('AWS_ENDPOINT_URL_S3')
+                access_key_id = os.environ.get('AWS_ACCESS_KEY_ID')
+                secret_access_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+                region = os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
+                
+                if endpoint_url and access_key_id and secret_access_key:
+                    # Create S3Config for MinIO
+                    s3_config = S3Config(
+                        endpoint_url=endpoint_url,
+                        key_id=access_key_id,
+                        access_key=secret_access_key,
+                        region_name=region,
+                        force_virtual_addressing=False  # MinIO works better with path-style addressing
+                    )
+                    io_config = IOConfig(s3=s3_config)
+                    print(f"✓ Created Daft IOConfig for MinIO: {endpoint_url}")
+                else:
+                    io_config = None
+                    print(f"✗ Missing MinIO config - using default Daft S3 config")
+                    
+            except ImportError as e:
+                io_config = None
+                print(f"✗ Could not import Daft config classes: {e}")
+            
             result_table = dc.read_table(
                 table=table_name,
                 namespace=namespace,
-                catalog=catalog_name
+                catalog=catalog_name,
+                distributed_dataset_type=DatasetType.DAFT,  # Force DAFT to test MinIO fix
+                io_config=io_config  # Pass IOConfig for MinIO authentication
             )
             
             print("✓ read_table completed successfully")
             
             # Step 5: Verify data integrity
-            assert result_table.num_rows == test_data.num_rows
+            # Daft DataFrame has different attributes than PyArrow Table
+            assert result_table.count_rows() == test_data.num_rows
             assert result_table.column_names == test_data.column_names
             
             # Convert to pandas for easier comparison
@@ -1275,6 +1309,37 @@ class TestMinIOIntegration:
         
         print("Path resolution test completed")
         # This test mainly serves to validate our MinIO setup is working correctly
+    
+    def test_s3_uri_reconstruction_fix(self):
+        """Test that our fix correctly reconstructs S3 URIs for external readers."""
+        from deltacat.catalog import get_catalog_properties
+        from deltacat.catalog.model.properties import CatalogProperties
+        
+        # Test the S3 scheme reconstruction logic directly
+        s3_catalog_root = f"s3://{self.BUCKET_NAME}/deltacat-test-reconstruction"
+        
+        # Create catalog properties with S3 root
+        catalog_properties = CatalogProperties(root=s3_catalog_root)
+        
+        # Test reconstruction with various path formats
+        test_cases = [
+            ("bucket/path/file.parquet", "s3://bucket/path/file.parquet"),
+            ("test-bucket/data/table.parquet", "s3://test-bucket/data/table.parquet"),
+            ("mybucket/nested/deep/file.parquet", "s3://mybucket/nested/deep/file.parquet"),
+        ]
+        
+        for input_path, expected_output in test_cases:
+            result = catalog_properties.reconstruct_full_path(input_path)
+            print(f"Input: {input_path} -> Output: {result} (Expected: {expected_output})")
+            assert result == expected_output, f"Expected {expected_output}, got {result}"
+        
+        # Test that paths with existing schemes are left unchanged
+        full_s3_path = "s3://already-full/path/file.parquet"
+        result = catalog_properties.reconstruct_full_path(full_s3_path)
+        assert result == full_s3_path, f"Full S3 path should be unchanged, got {result}"
+        
+        print("✓ S3 URI reconstruction logic works correctly!")
+        print("This confirms our fix for GitHub issue #567 correctly handles path reconstruction")
     
     def test_local_catalog_workflow_for_comparison(self):
         """Test the same workflow with local filesystem to verify it works correctly."""
@@ -1343,3 +1408,144 @@ class TestMinIOIntegration:
                 shutil.rmtree(local_catalog_root, ignore_errors=True)
             except Exception:
                 pass  # Ignore cleanup errors
+
+    def test_local_storage_s3_uri_reconstruction(self):
+        """
+        Test that LOCAL storage type also handles S3 URI reconstruction correctly.
+        
+        This test specifically verifies that GitHub issue #567 is fixed for the LOCAL
+        storage path by setting distributed_dataset_type=None and testing different
+        table types (PyArrow, Pandas, Polars).
+        """
+        s3_catalog_root = f"s3://{self.BUCKET_NAME}/deltacat-local-test"
+        namespace = "test_namespace"
+
+        # Test data
+        test_data = pa.table({
+            'id': [1, 2, 3, 4, 5],
+            'name': ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
+            'value': [10.1, 20.2, 30.3, 40.4, 50.5]
+        })
+
+        # Test different table types with LOCAL storage
+        table_types_to_test = [
+            (DatasetType.PYARROW, "PyArrow"),
+            (DatasetType.PANDAS, "Pandas"),
+            (DatasetType.POLARS, "Polars"),
+        ]
+
+        for table_type, table_type_name in table_types_to_test:
+            print(f"\n=== Testing LOCAL storage with {table_type_name} table type ===")
+            
+            catalog_name = f"local-s3-test-{table_type_name.lower()}-{uuid.uuid4()}"
+            table_name = f"test_table_{table_type_name.lower()}"
+            
+            try:
+                # Step 1: Register S3 catalog
+                catalog_properties = CatalogProperties(root=s3_catalog_root)
+                catalog = dc.put_catalog(
+                    catalog_name,
+                    catalog=Catalog(config=catalog_properties)
+                )
+
+                # Step 2: Write to S3 table via DeltaCAT (this should work)
+                print(f"Writing table to S3 catalog root: {s3_catalog_root}")
+                dc.write_to_table(
+                    data=test_data,
+                    table=table_name,
+                    namespace=namespace,
+                    catalog=catalog_name,
+                    mode=TableWriteMode.CREATE
+                )
+                print("✓ write_to_table completed successfully")
+
+                # Step 3: Read using LOCAL storage (distributed_dataset_type=None)
+                print(f"Reading table using LOCAL storage with {table_type_name}")
+                result_table = dc.read_table(
+                    table=table_name,
+                    namespace=namespace,
+                    catalog=catalog_name,
+                    table_type=table_type,
+                    distributed_dataset_type=None,  # Force LOCAL storage
+                )
+
+                print(f"✓ read_table completed successfully with LOCAL storage and {table_type_name}")
+
+                # Step 4: Verify data integrity
+                # LOCAL storage returns a list of tables, so we need to handle that
+                print(f"Result type: {type(result_table)}")
+                print(f"Result length: {len(result_table) if isinstance(result_table, list) else 'Not a list'}")
+                
+                if isinstance(result_table, list):
+                    # LOCAL storage returns LocalDataset (list of tables)
+                    # For this test, we expect a small dataset that fits in one table
+                    assert len(result_table) > 0, "Expected at least one table in LocalDataset"
+                    
+                    # Combine all tables if there are multiple
+                    if table_type == DatasetType.PYARROW:
+                        if len(result_table) == 1:
+                            combined_table = result_table[0]
+                        else:
+                            combined_table = pa.concat_tables(result_table)
+                        
+                        assert combined_table.num_rows == test_data.num_rows
+                        assert combined_table.column_names == test_data.column_names
+                        
+                        # Convert to pandas for comparison
+                        original_df = test_data.to_pandas().sort_values('id').reset_index(drop=True) 
+                        result_df = combined_table.to_pandas().sort_values('id').reset_index(drop=True)
+                        pd.testing.assert_frame_equal(original_df, result_df)
+                        
+                    elif table_type == DatasetType.PANDAS:
+                        if len(result_table) == 1:
+                            combined_df = result_table[0]
+                        else:
+                            combined_df = pd.concat(result_table, ignore_index=True)
+                        
+                        assert len(combined_df) == test_data.num_rows
+                        assert list(combined_df.columns) == test_data.column_names
+                        
+                        # Compare DataFrames directly
+                        original_df = test_data.to_pandas().sort_values('id').reset_index(drop=True)
+                        result_df = combined_df.sort_values('id').reset_index(drop=True)
+                        pd.testing.assert_frame_equal(original_df, result_df)
+                        
+                    elif table_type == DatasetType.POLARS:
+                        if len(result_table) == 1:
+                            combined_df = result_table[0]
+                        else:
+                            import polars as pl
+                            combined_df = pl.concat(result_table)
+                        
+                        assert combined_df.height == test_data.num_rows
+                        assert combined_df.columns == test_data.column_names
+                        
+                        # Convert both to pandas for comparison
+                        original_df = test_data.to_pandas().sort_values('id').reset_index(drop=True)
+                        result_df = combined_df.to_pandas().sort_values('id').reset_index(drop=True)
+                        pd.testing.assert_frame_equal(original_df, result_df)
+                else:
+                    # This shouldn't happen with LOCAL storage, but handle it just in case
+                    pytest.fail(f"Expected LocalDataset (list) but got {type(result_table)}")
+
+                print(f"✓ Data integrity verified for {table_type_name} with LOCAL storage")
+                print(f"✓ GitHub issue #567 S3 URI reconstruction works with LOCAL storage and {table_type_name}!")
+
+            except Exception as e:
+                print(f"✗ LOCAL storage test failed for {table_type_name}: {e}")
+                
+                # Provide helpful debugging info
+                if "s3://" in str(e) or "S3" in str(e):
+                    print(f"Error appears to be S3-related for {table_type_name}")
+                
+                pytest.fail(f"LOCAL storage S3 URI reconstruction failed for {table_type_name}: {e}")
+            
+            finally:
+                # Clean up this catalog
+                try:
+                    dc.clear_catalogs()
+                except Exception:
+                    pass  # Ignore cleanup errors
+
+        print("\n✅ All LOCAL storage S3 URI reconstruction tests passed!")
+        print("✅ GitHub issue #567 is fully resolved for both DISTRIBUTED and LOCAL storage types!")

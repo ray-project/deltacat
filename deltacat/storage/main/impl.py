@@ -768,6 +768,7 @@ def _download_delta_distributed(
         file_reader_kwargs_provider=file_reader_kwargs_provider,
         ray_options_provider=ray_options_provider,
         distributed_dataset_type=distributed_dataset_type,
+        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction (GitHub issue #567)
     )
 
     return distributed_dataset
@@ -790,6 +791,7 @@ def _download_delta_local(
         column_names,
         include_columns,
         file_reader_kwargs_provider,
+        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction (GitHub issue #567)
     )
     return tables
 
@@ -870,6 +872,7 @@ def download_delta(
         file_reader_kwargs_provider,
         ray_options_provider=ray_options_provider,
         distributed_dataset_type=distributed_dataset_type,
+        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction (GitHub issue #567)
     )
 
 
@@ -2032,7 +2035,7 @@ def commit_partition(
     transaction = Transaction.of(
         txn_type=TransactionType.ALTER,  # Start with ALTER, will update based on read results
         txn_operations=[],
-    ).start(catalog_properties.root)
+    ).start(catalog_properties.root, catalog_properties.filesystem)
     
     # Step 1: Get the staged partition using transaction
     prev_staged_partition = get_partition_by_id(

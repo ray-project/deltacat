@@ -1,5 +1,6 @@
 import logging
 import multiprocessing
+import os
 from enum import Enum
 from functools import partial
 from typing import Callable, Dict, Type, Union, Optional, Any, List
@@ -600,6 +601,7 @@ def download_manifest_entries(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    **kwargs,  # Accept catalog properties for S3 scheme reconstruction (GitHub issue #567)
 ) -> LocalDataset:
 
     if max_parallelism and max_parallelism <= 1:
@@ -609,6 +611,7 @@ def download_manifest_entries(
             column_names,
             include_columns,
             file_reader_kwargs_provider,
+            **kwargs,
         )
     else:
         return _download_manifest_entries_parallel(
@@ -618,6 +621,7 @@ def download_manifest_entries(
             column_names,
             include_columns,
             file_reader_kwargs_provider,
+            **kwargs,
         )
 
 
@@ -627,18 +631,41 @@ def _download_manifest_entries(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    **kwargs,
 ) -> LocalDataset:
 
-    return [
-        download_manifest_entry(
-            manifest_entry=e,
+    # Get catalog properties to reconstruct full S3 URIs (fixes GitHub issue #567)
+    from deltacat.catalog import get_catalog_properties
+    catalog_properties = get_catalog_properties(**kwargs)
+
+    result = []
+    for e in manifest.entries:
+        # Create a copy of the manifest entry with reconstructed URI for external readers
+        if hasattr(catalog_properties, '_original_scheme') and catalog_properties._original_scheme == 's3':
+            # Reconstruct S3 URI with proper scheme
+            original_uri = e.uri
+            reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
+            
+            # Create a copy of the manifest entry with the reconstructed URI
+            from deltacat.storage.model.manifest import ManifestEntry
+            reconstructed_entry = ManifestEntry(
+                uri=reconstructed_uri,
+                url=e.url,
+                meta=e.meta
+            )
+            entry_to_use = reconstructed_entry
+        else:
+            entry_to_use = e
+            
+        result.append(download_manifest_entry(
+            manifest_entry=entry_to_use,
             table_type=table_type,
             column_names=column_names,
             include_columns=include_columns,
             file_reader_kwargs_provider=file_reader_kwargs_provider,
-        )
-        for e in manifest.entries
-    ]
+        ))
+    
+    return result
 
 
 @ray.remote
@@ -688,6 +715,7 @@ def download_manifest_entries_distributed(
     distributed_dataset_type: Optional[
         DistributedDatasetType
     ] = DistributedDatasetType.RAY_DATASET,
+    **kwargs,
 ) -> DistributedDataset:
 
     params = {
@@ -698,6 +726,7 @@ def download_manifest_entries_distributed(
         "include_columns": include_columns,
         "file_reader_kwargs_provider": file_reader_kwargs_provider,
         "ray_options_provider": ray_options_provider,
+        **kwargs,  # Pass through catalog properties for S3 scheme reconstruction
     }
 
     if distributed_dataset_type == DistributedDatasetType.RAY_DATASET:
@@ -719,6 +748,7 @@ def _download_manifest_entries_ray_data_distributed(
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    **kwargs,  # Accept kwargs for consistency
 ) -> DistributedDataset:
 
     table_pending_ids = []
@@ -748,11 +778,17 @@ def _download_manifest_entries_all_dataset_distributed(
     distributed_dataset_type: Optional[
         DistributedDatasetType
     ] = DistributedDatasetType.RAY_DATASET,
+    **kwargs,
 ) -> DistributedDataset:
 
     entry_content_type = None
     entry_content_encoding = None
     uris = []
+    
+    # Get catalog properties to reconstruct full S3 URIs (fixes GitHub issue #567)
+    from deltacat.catalog import get_catalog_properties
+    catalog_properties = get_catalog_properties(**kwargs)
+    
     for entry in manifest.entries or []:
         if (
             entry_content_type is not None
@@ -774,9 +810,15 @@ def _download_manifest_entries_all_dataset_distributed(
 
         entry_content_type = entry.meta.content_type
         entry_content_encoding = entry.meta.content_encoding
-        uris.append(entry.uri)
+        
+        # Reconstruct full URI with scheme for external readers (fixes GitHub issue #567)
+        full_uri = catalog_properties.reconstruct_full_path(entry.uri)
+        uris.append(full_uri)
 
     if distributed_dataset_type.value in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
+        # Filter out DeltaCAT-specific kwargs that external readers don't expect
+        reader_kwargs = {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog']}
+        
         return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
             uris=uris,
             content_type=entry_content_type,
@@ -785,6 +827,7 @@ def _download_manifest_entries_all_dataset_distributed(
             include_columns=include_columns,
             read_func_kwargs_provider=file_reader_kwargs_provider,
             ray_options_provider=ray_options_provider,
+            **reader_kwargs,  # Pass through filtered kwargs (like io_config)
         )
     else:
         raise ValueError(
@@ -799,7 +842,31 @@ def _download_manifest_entries_parallel(
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    **kwargs,
 ) -> LocalDataset:
+
+    # Get catalog properties to reconstruct full S3 URIs (fixes GitHub issue #567)
+    from deltacat.catalog import get_catalog_properties
+    catalog_properties = get_catalog_properties(**kwargs)
+
+    # Prepare manifest entries with S3 URI reconstruction if needed
+    entries_to_process = []
+    for e in manifest.entries:
+        if hasattr(catalog_properties, '_original_scheme') and catalog_properties._original_scheme == 's3':
+            # Reconstruct S3 URI with proper scheme
+            original_uri = e.uri
+            reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
+            
+            # Create a copy of the manifest entry with the reconstructed URI
+            from deltacat.storage.model.manifest import ManifestEntry
+            reconstructed_entry = ManifestEntry(
+                uri=reconstructed_uri,
+                url=e.url,
+                meta=e.meta
+            )
+            entries_to_process.append(reconstructed_entry)
+        else:
+            entries_to_process.append(e)
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
@@ -810,7 +877,7 @@ def _download_manifest_entries_parallel(
         include_columns=include_columns,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
     )
-    for table in pool.map(downloader, [e for e in manifest.entries]):
+    for table in pool.map(downloader, entries_to_process):
         tables.append(table)
     return tables
 

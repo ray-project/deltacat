@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Any
+import urllib.parse
 
 import os
 
@@ -86,6 +87,10 @@ class CatalogProperties:
                 # Default to "./.deltacat/"
                 root = os.path.join(os.getcwd(), ".deltacat")
 
+        # Store the original root with its scheme for reconstruction later
+        self._original_root = root
+        self._original_scheme = urllib.parse.urlparse(root).scheme
+
         resolved_root, resolved_filesystem = resolve_path_and_filesystem(
             path=root,
             filesystem=filesystem,
@@ -108,6 +113,40 @@ class CatalogProperties:
         Return overridden storage impl, if any
         """
         return self._storage
+
+    def reconstruct_full_path(self, path: str) -> str:
+        """
+        Reconstruct a full path with the original scheme for external readers.
+        
+        This addresses GitHub issue #567 by ensuring that S3 paths include the
+        s3:// prefix that readers like Daft require.
+        
+        Args:
+            path: A path relative to the catalog root or absolute path
+            
+        Returns:
+            Full path with appropriate scheme prefix for external readers
+        """
+        # If the path already has a scheme, return it as-is
+        if urllib.parse.urlparse(path).scheme:
+            return path
+            
+        # If we don't have an original scheme (local filesystem), return as-is
+        if not self._original_scheme:
+            return path
+            
+        # For S3 paths, reconstruct the full S3 URL
+        if self._original_scheme == 's3':
+            # Handle both absolute and relative paths
+            if path.startswith('/'):
+                # Absolute path - this shouldn't happen normally but handle it
+                return f"s3:/{path}"
+            else:
+                # Relative path - prepend the s3:// scheme
+                return f"s3://{path}"
+                
+        # For other schemes, reconstruct accordingly
+        return f"{self._original_scheme}://{path}"
 
     def __str__(self):
         return (
