@@ -889,26 +889,37 @@ class Schema(dict):
             return pa.unify_schemas(all_schemas), subschema_to_field_names
         return Schema._to_pyarrow_schema(schema), {}  # SingleSchema
 
-    def validate_and_coerce_table(self, table: pa.Table) -> pa.Table:
+    def validate_and_coerce_table(
+        self, 
+        table: pa.Table, 
+        schema_evolution_mode: Optional[str] = None,
+        default_schema_consistency_type: Optional['SchemaConsistencyType'] = None
+    ) -> Tuple[pa.Table, bool]:
         """Validate and coerce a PyArrow table to match this schema's field types and constraints.
         
         Args:
             table: PyArrow Table to validate and coerce
+            schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
+            default_schema_consistency_type: Default consistency type for new fields in AUTO mode
             
         Returns:
-            pa.Table: Table with data validated/coerced according to schema consistency types
+            Tuple[pa.Table, bool]: Table with data validated/coerced according to schema consistency types,
+                                  and a boolean indicating if the schema was modified
             
         Raises:
             ValueError: If validation fails or coercion is not possible
         """
         if not self.field_ids_to_fields:
             # No fields defined in schema, return original table
-            return table
+            return table, False
         
         # Create a mapping from field names to Field objects
         field_name_to_field = {}
         for field in self.field_ids_to_fields.values():
             field_name_to_field[field.arrow.name] = field
+        
+        # Track if schema was modified
+        schema_modified = False
         
         # Process each column in the table
         new_columns = []
@@ -934,8 +945,22 @@ class Schema(dict):
                     new_columns.append(column_data)
                     new_schema_fields.append(field.arrow)
             else:
-                # Field not in schema - raise error
-                raise ValueError(f"Field '{column_name}' is not present in the schema")
+                # Field not in schema - handle based on evolution mode
+                if schema_evolution_mode == "AUTO":
+                    # Add new field to schema with default consistency type
+                    new_field = Field.of(
+                        pa.field(column_name, column_data.type, nullable=True),
+                        consistency_type=default_schema_consistency_type or SchemaConsistencyType.NONE
+                    )
+                    # Add the field to our schema
+                    self.field_ids_to_fields[len(self.field_ids_to_fields)] = new_field
+                    schema_modified = True  # Mark that schema was modified
+                    # Process the column with the new field
+                    new_columns.append(column_data)
+                    new_schema_fields.append(new_field.arrow)
+                else:
+                    # MANUAL mode or not specified - raise error
+                    raise ValueError(f"Field '{column_name}' is not present in the schema")
         
         # Add any missing fields from schema with appropriate handling
         table_column_names = set(table.column_names)
@@ -969,7 +994,7 @@ class Schema(dict):
                         new_columns.append(null_column)
                     new_schema_fields.append(field.arrow)
         
-        return pa.table(new_columns, schema=pa.schema(new_schema_fields))
+        return pa.table(new_columns, schema=pa.schema(new_schema_fields)), schema_modified
 
     @staticmethod
     def _del_subschema(

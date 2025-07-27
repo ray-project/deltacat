@@ -854,14 +854,16 @@ def download_delta(
         # Extract file_path_column since it's appended after reading each file
         columns_to_validate = [col for col in columns if col != file_path_column] if file_path_column else columns
         
-        if not all(
-            col in [col_name.lower() for col_name in all_column_names]
-            for col in columns_to_validate
-        ):
-            raise ValueError(
-                f"One or more columns in {columns_to_validate} are not present in table "
-                f"version columns {all_column_names}"
-            )
+        # Only validate columns if we have schema information (all_column_names is not None)
+        if all_column_names is not None:
+            if not all(
+                col in [col_name.lower() for col_name in all_column_names]
+                for col in columns_to_validate
+            ):
+                raise ValueError(
+                    f"One or more columns in {columns_to_validate} are not present in table "
+                    f"version columns {all_column_names}"
+                )
         columns = [column.lower() for column in columns]
     logger.debug(
         f"Reading {columns or 'all'} columns from table version column "

@@ -31,6 +31,7 @@ from deltacat.storage.model.types import (
     Dataset,
     LifecycleState,
     StreamFormat,
+    SchemaConsistencyType,
 )
 from deltacat.storage.model.partition import (
     Partition,
@@ -375,6 +376,8 @@ def write_to_table(
             uses the latest version.
         mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
         content_type: Content type for the data files.
+        schema: Optional DeltaCAT schema for the table. Used when creating tables
+            and updating existing table version schemas.
         **kwargs: Additional keyword arguments.
     """
     namespace = namespace or default_namespace()
@@ -420,10 +423,36 @@ def write_to_table(
     # Convert data to supported format
     converted_data = _convert_data_if_needed(data)
 
+    # Get table properties for schema evolution
+    from deltacat.types.tables import TableProperty, SchemaEvolutionMode
+    schema_evolution_mode = table_version_obj.read_table_property(TableProperty.SCHEMA_EVOLUTION_MODE)
+    default_schema_consistency_type = table_version_obj.read_table_property(TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE)
+
     # Validate and coerce data against schema if schema consistency types are set
-    validated_data = _validate_and_coerce_data_against_schema(
-        converted_data, table_version_obj.schema
+    validated_data, schema_modified = _validate_and_coerce_data_against_schema(
+        converted_data, 
+        table_version_obj.schema,
+        schema_evolution_mode=schema_evolution_mode,
+        default_schema_consistency_type=default_schema_consistency_type
     )
+
+    # Update table version if schema was modified during evolution
+    if schema_modified:
+        # Extract catalog properties and filter kwargs
+        catalog_kwargs = {}
+        if 'catalog' in kwargs:
+            catalog_kwargs['catalog'] = kwargs['catalog']
+        elif 'inner' in kwargs:
+            catalog_kwargs['inner'] = kwargs['inner']
+        
+        storage = _get_storage(**catalog_kwargs)
+        storage.update_table_version(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version_obj.table_version,
+            schema=table_version_obj.schema,
+            **catalog_kwargs
+        )
 
     # Copy existing deltas if needed for compaction
     if staged_partition_for_compaction:
@@ -600,22 +629,26 @@ def _convert_data_if_needed(data: Dataset) -> Dataset:
 
 def _validate_and_coerce_data_against_schema(
     data: Dataset, 
-    schema: Optional[Schema]
-) -> Dataset:
+    schema: Optional[Schema],
+    schema_evolution_mode: Optional[str] = None,
+    default_schema_consistency_type: Optional[SchemaConsistencyType] = None
+) -> Tuple[Dataset, bool]:
     """Validate and coerce data against the table schema if schema consistency types are set.
     
     Args:
         data: The dataset to validate/coerce
         schema: The DeltaCAT schema to validate against (optional)
+        schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
+        default_schema_consistency_type: Default consistency type for new fields in AUTO mode
         
     Returns:
-        Dataset: Validated/coerced data
+        Tuple[Dataset, bool]: Validated/coerced data and flag indicating if schema was modified
         
     Raises:
         ValueError: If validation fails or coercion is not possible
     """
     if not schema:
-        return data
+        return data, False
     
     # Convert data to PyArrow table for validation
     if isinstance(data, pa.Table):
@@ -637,33 +670,37 @@ def _validate_and_coerce_data_against_schema(
         # For Ray Dataset, we can't easily validate without converting to PyArrow
         # For now, skip validation for Ray datasets
         logger.warning("Schema validation skipped for Ray Dataset - not yet supported")
-        return data
+        return data, False
     elif isinstance(data, daft.DataFrame):
         pa_table = data.to_arrow()
     else:
         # Unknown data type, skip validation
         logger.warning(f"Schema validation skipped for unsupported data type: {type(data)}")
-        return data
+        return data, False
     
     # Validate and coerce the table against the schema
-    validated_table = schema.validate_and_coerce_table(pa_table)
+    validated_table, schema_modified = schema.validate_and_coerce_table(
+        pa_table, 
+        schema_evolution_mode=schema_evolution_mode,
+        default_schema_consistency_type=default_schema_consistency_type
+    )
     
     # Convert back to original data type if needed
     if isinstance(data, pa.Table):
-        return validated_table
+        return validated_table, schema_modified
     elif isinstance(data, pd.DataFrame):
-        return validated_table.to_pandas()
+        return validated_table.to_pandas(), schema_modified
     elif isinstance(data, pl.DataFrame):
-        return pl.from_arrow(validated_table)
+        return pl.from_arrow(validated_table), schema_modified
     elif isinstance(data, np.ndarray):
         if validated_table.num_columns == 1:
-            return validated_table.column(0).to_numpy()
+            return validated_table.column(0).to_numpy(), schema_modified
         else:
-            return validated_table.to_pandas().values
+            return validated_table.to_pandas().values, schema_modified
     elif isinstance(data, daft.DataFrame):
-        return daft.from_arrow(validated_table)
+        return daft.from_arrow(validated_table), schema_modified
     else:
-        return validated_table
+        return validated_table, schema_modified
 
 
 def _copy_existing_deltas_for_compaction(

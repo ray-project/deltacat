@@ -43,6 +43,7 @@ from deltacat.storage.model.types import (
     DistributedDataset,
     LocalDataset,
 )
+from deltacat.storage.model.schema import SchemaConsistencyType
 from deltacat.types.media import (
     DatasetType,
     DistributedDatasetType,
@@ -252,6 +253,20 @@ class TableWriteMode(str, Enum):
     DELETE = "delete"
 
 
+class SchemaEvolutionMode(str, Enum):
+    """
+    Enum controlling how schema changes are handled when writing to a table.
+    
+    MANUAL: Schema changes must be explicitly handled by the user. New fields
+    not in the existing schema will cause an error.
+    AUTO: Schema changes are automatically handled. New fields are added to
+    the schema using the table's default_schema_consistency_type.
+    """
+    
+    MANUAL = "manual"
+    AUTO = "auto"
+
+
 class TableProperty(str, Enum):
     """
     Enum defining known table property key names.
@@ -261,6 +276,8 @@ class TableProperty(str, Enum):
     APPENDED_RECORD_COUNT_COMPACTION_TRIGGER = "appended_record_count_compaction_trigger"
     APPENDED_FILE_COUNT_COMPACTION_TRIGGER = "appended_file_count_compaction_trigger"
     APPENDED_DELTA_COUNT_COMPACTION_TRIGGER = "appended_delta_count_compaction_trigger"
+    SCHEMA_EVOLUTION_MODE = "schema_evolution_mode"
+    DEFAULT_SCHEMA_CONSISTENCY_TYPE = "default_schema_consistency_type"
 
 
 class TableReadOptimizationLevel(str, Enum):
@@ -294,6 +311,8 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: MAX_RECORDS_PER_COMPACTED_FILE * 2,
     TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+    TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
+    TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
 }
 
 

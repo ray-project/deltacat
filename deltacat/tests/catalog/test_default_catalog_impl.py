@@ -1802,42 +1802,54 @@ class TestTableVersionWriteModes:
 
 def test_missing_field_backfill_behavior():
     """Test missing field handling and backfill behavior based on SchemaConsistencyType."""
-    from deltacat.catalog.main.impl import write_to_table, read_table
+    # Import deltacat API functions instead of internal implementation
     from deltacat.storage.model.schema import Schema, Field, SchemaConsistencyType
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    import deltacat as dc
     import pyarrow as pa
     import pandas as pd
+    import uuid
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"test-{uuid.uuid4()}"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
     
     # Create a schema with different consistency types and field configurations
     fields = [
         # VALIDATE type - should error when missing
-        Field(pa.field("required_field", pa.string(), nullable=False), 
-              consistency_type=SchemaConsistencyType.VALIDATE),
+        Field.of(pa.field("required_field", pa.string(), nullable=False), 
+                 consistency_type=SchemaConsistencyType.VALIDATE),
         
         # COERCE type with future_default - should use default when missing
-        Field(pa.field("default_field", pa.int64(), nullable=False), 
-              consistency_type=SchemaConsistencyType.COERCE,
-              future_default=42),
+        Field.of(pa.field("default_field", pa.int64(), nullable=False), 
+                 consistency_type=SchemaConsistencyType.COERCE,
+                 future_default=42),
         
         # COERCE type nullable without default - should backfill with nulls
-        Field(pa.field("nullable_field", pa.string(), nullable=True), 
-              consistency_type=SchemaConsistencyType.COERCE),
+        Field.of(pa.field("nullable_field", pa.string(), nullable=True), 
+                 consistency_type=SchemaConsistencyType.COERCE),
         
         # COERCE type non-nullable without default - should error when missing
-        Field(pa.field("non_nullable_no_default", pa.float64(), nullable=False), 
-              consistency_type=SchemaConsistencyType.COERCE),
+        Field.of(pa.field("non_nullable_no_default", pa.float64(), nullable=False), 
+                 consistency_type=SchemaConsistencyType.COERCE),
         
         # NONE type with future_default - should use default
-        Field(pa.field("none_with_default", pa.string(), nullable=False), 
-              consistency_type=SchemaConsistencyType.NONE,
-              future_default="default_value"),
+        Field.of(pa.field("none_with_default", pa.string(), nullable=False), 
+                 consistency_type=SchemaConsistencyType.NONE,
+                 future_default="default_value"),
         
         # NONE type without default - should backfill with nulls
-        Field(pa.field("none_nullable", pa.int32(), nullable=True), 
-              consistency_type=SchemaConsistencyType.NONE),
+        Field.of(pa.field("none_nullable", pa.int32(), nullable=True), 
+                 consistency_type=SchemaConsistencyType.NONE),
     ]
     
-    schema = Schema(fields)
-    table_name = "test_missing_fields_table"
+    schema = Schema.of(fields)
+    table_name_base = "test_missing_fields_table"
     
     # Test 1: Missing required field (VALIDATE) should fail
     incomplete_data = pd.DataFrame({
@@ -1850,9 +1862,11 @@ def test_missing_field_backfill_behavior():
     })
     
     with pytest.raises(ValueError, match="required but not present"):
-        write_to_table(
-            table_name=table_name,
+        dc.write_to_table(
             data=incomplete_data,
+            table=table_name_base + "_test1",
+            namespace=namespace,
+            catalog=catalog_name,
             schema=schema
         )
     
@@ -1867,9 +1881,11 @@ def test_missing_field_backfill_behavior():
     })
     
     with pytest.raises(ValueError, match="not nullable.*not present.*no future_default"):
-        write_to_table(
-            table_name=table_name,
+        dc.write_to_table(
             data=incomplete_data2,
+            table=table_name_base + "_test2",
+            namespace=namespace,
+            catalog=catalog_name,
             schema=schema
         )
     
@@ -1882,14 +1898,23 @@ def test_missing_field_backfill_behavior():
     })
     
     # This should succeed with appropriate backfilling
-    write_to_table(
-        table_name=table_name,
+    dc.write_to_table(
         data=partial_data,
-        schema=schema
+        table=table_name_base + "_test3",
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=schema,
+        mode=TableWriteMode.CREATE
     )
     
     # Read back and verify backfill behavior
-    result_df = read_table(table_name=table_name)
+    result_df = dc.read_table(table=table_name_base + "_test3", namespace=namespace, catalog=catalog_name)
+    
+    # Convert to pandas for easier testing
+    if hasattr(result_df, 'to_pandas'):
+        result_df = result_df.to_pandas()
+    elif hasattr(result_df, 'collect'):
+        result_df = result_df.collect().to_pandas()
     
     assert len(result_df) == 2
     assert list(result_df["required_field"]) == ["val1", "val2"]
@@ -1899,7 +1924,10 @@ def test_missing_field_backfill_behavior():
     assert list(result_df["default_field"]) == [42, 42]  # future_default used
     assert list(result_df["nullable_field"]) == [None, None]  # nulls for nullable COERCE
     assert list(result_df["none_with_default"]) == ["default_value", "default_value"]  # future_default used
-    assert list(result_df["none_nullable"]) == [None, None]  # nulls for NONE type
+    
+    # For integer columns, pandas represents nulls as NaN
+    import numpy as np
+    assert all(np.isnan(x) for x in result_df["none_nullable"])  # nulls for NONE type
     
     # Test 4: Verify extra field rejection
     data_with_extra = pd.DataFrame({
@@ -1913,8 +1941,10 @@ def test_missing_field_backfill_behavior():
     })
     
     with pytest.raises(ValueError, match="not present in the schema"):
-        write_to_table(
-            table_name=table_name,
+        dc.write_to_table(
             data=data_with_extra,
+            table=table_name_base + "_test4",
+            namespace=namespace,
+            catalog=catalog_name,
             schema=schema
         )
