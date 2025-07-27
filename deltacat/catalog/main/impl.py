@@ -94,6 +94,128 @@ def initialize(
 
 
 # table functions
+def _validate_write_mode_and_table_existence(
+    table: str,
+    namespace: str,
+    mode: TableWriteMode,
+    **kwargs,
+) -> bool:
+    """Validate write mode against table existence and return whether table exists."""
+    table_exists_flag = table_exists(
+        table, 
+        namespace=namespace, 
+        **kwargs,
+    )
+    logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
+
+    if mode == TableWriteMode.CREATE and table_exists_flag:
+        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
+    elif (
+        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
+        and not table_exists_flag
+    ):
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper()}")
+    
+    return table_exists_flag
+
+
+def _infer_schema_from_data(data: Dataset) -> Schema:
+    """Infer schema from various data types."""
+    if isinstance(data, pd.DataFrame):
+        arrow_schema = pa.Schema.from_pandas(data)
+        return Schema.of(schema=arrow_schema)
+    elif isinstance(data, pl.DataFrame):
+        arrow_table = data.to_arrow()
+        return Schema.of(schema=arrow_table.schema)
+    elif isinstance(data, (pa.Table, pa.RecordBatch, ds.Dataset)):
+        return Schema.of(schema=data.schema)
+    elif isinstance(data, rd.Dataset):
+        return _infer_schema_from_ray_dataset(data)
+    elif isinstance(data, daft.DataFrame):
+        daft_schema = data.schema()
+        arrow_schema = daft_schema.to_pyarrow_schema()
+        return Schema.of(schema=arrow_schema)
+    elif isinstance(data, np.ndarray):
+        return _infer_schema_from_numpy_array(data)
+    else:
+        raise ValueError(
+            "Could not infer schema from data. Please provide schema explicitly."
+        )
+
+
+def _infer_schema_from_ray_dataset(data: rd.Dataset) -> Schema:
+    """Infer schema from Ray Dataset."""
+    ray_schema = data.schema()
+    base_schema = ray_schema.base_schema
+    
+    if isinstance(base_schema, pa.Schema):
+        arrow_schema = base_schema
+    elif isinstance(base_schema, PandasBlockSchema):
+        try:
+            dtype_dict = {
+                name: dtype
+                for name, dtype in zip(base_schema.names, base_schema.types)
+            }
+            empty_df = pd.DataFrame(columns=base_schema.names).astype(dtype_dict)
+            arrow_schema = pa.Schema.from_pandas(empty_df)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to convert Ray Dataset PandasBlockSchema to PyArrow schema: {e}"
+            )
+    else:
+        raise ValueError(
+            f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
+            f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
+        )
+    
+    return Schema.of(schema=arrow_schema)
+
+
+def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
+    """Infer schema from NumPy array."""
+    if data.ndim == 1:
+        arrow_type = pa.from_numpy_dtype(data.dtype)
+        arrow_schema = pa.schema([("column_0", arrow_type)])
+    elif data.ndim == 2:
+        arrow_type = pa.from_numpy_dtype(data.dtype)
+        fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
+        arrow_schema = pa.schema(fields)
+    else:
+        raise ValueError(
+            f"NumPy arrays with {data.ndim} dimensions are not supported. "
+            f"Only 1D and 2D arrays are supported."
+        )
+    
+    return Schema.of(schema=arrow_schema)
+
+
+def _get_or_create_table(
+    data: Dataset,
+    table: str,
+    namespace: str,
+    table_exists_flag: bool,
+    content_type: ContentType,
+    *args,
+    **kwargs,
+) -> TableDefinition:
+    """Get existing table or create new one based on existence flag."""
+    if not table_exists_flag:
+        # Handle schema: differentiate between explicit schema=None vs no schema argument
+        if "schema" not in kwargs:
+            # No schema argument provided - infer schema from data
+            kwargs["schema"] = _infer_schema_from_data(data)
+        
+        return create_table(
+            table,
+            namespace=namespace,
+            content_types=[content_type],
+            *args,
+            **kwargs,
+        )
+    else:
+        return get_table(table, namespace=namespace, **kwargs)
+
+
 def write_to_table(
     data: Dataset,
     table: str,
@@ -121,111 +243,16 @@ def write_to_table(
     """
     namespace = namespace or default_namespace()
 
-    # Determine if table exists and what action to take
-    table_exists_flag = table_exists(
-        table, 
-        namespace=namespace, 
-        **kwargs,
+    # Validate write mode and table existence
+    table_exists_flag = _validate_write_mode_and_table_existence(
+        table, namespace, mode, **kwargs
     )
-    logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
 
-    if mode == TableWriteMode.CREATE and table_exists_flag:
-        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
-    elif (
-        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
-        and not table_exists_flag
-    ):
-        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper()}")
+    # Get or create table
+    table_definition = _get_or_create_table(
+        data, table, namespace, table_exists_flag, content_type, *args, **kwargs
+    )
 
-    # Create table if needed
-    if not table_exists_flag:
-        # Handle schema: differentiate between explicit schema=None vs no schema argument
-        if "schema" not in kwargs:
-            # No schema argument provided - infer schema from data
-            # Try to infer schema from data
-            if isinstance(data, pd.DataFrame):
-                # Pandas DataFrame - already supported
-                arrow_schema = pa.Schema.from_pandas(data)
-                schema = Schema.of(schema=arrow_schema)
-            elif isinstance(data, pl.DataFrame):
-                # Polars DataFrame - already supported
-                arrow_table = data.to_arrow()
-                schema = Schema.of(schema=arrow_table.schema)
-            elif isinstance(data, (pa.Table, pa.RecordBatch, ds.Dataset)):
-                # PyArrow table/dataset/recordbatch - already supported
-                schema = Schema.of(schema=data.schema)
-            elif isinstance(data, rd.Dataset):
-                # Ray Dataset - get schema using schema() method
-                ray_schema = data.schema()
-                # Convert Ray schema to PyArrow schema using base_schema
-                base_schema = ray_schema.base_schema
-                if isinstance(base_schema, pa.Schema):
-                    # Already a PyArrow schema
-                    arrow_schema = base_schema
-                elif isinstance(base_schema, PandasBlockSchema):
-                    # PandasBlockSchema - extract names and types and convert to PyArrow
-                    try:
-                        # Create a DataFrame with the correct dtypes and convert to PyArrow
-                        dtype_dict = {
-                            name: dtype
-                            for name, dtype in zip(base_schema.names, base_schema.types)
-                        }
-                        empty_df = pd.DataFrame(columns=base_schema.names).astype(
-                            dtype_dict
-                        )
-                        arrow_schema = pa.Schema.from_pandas(empty_df)
-                    except Exception as e:
-                        raise ValueError(
-                            f"Failed to convert Ray Dataset PandasBlockSchema to PyArrow schema: {e}"
-                        )
-                else:
-                    # Unknown schema type - raise error instead of fallback
-                    raise ValueError(
-                        f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
-                        f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
-                    )
-                schema = Schema.of(schema=arrow_schema)
-            elif isinstance(data, daft.DataFrame):
-                # Daft DataFrame - get native schema and convert to PyArrow
-                daft_schema = data.schema()
-                arrow_schema = daft_schema.to_pyarrow_schema()
-                schema = Schema.of(schema=arrow_schema)
-            elif isinstance(data, np.ndarray):
-                # NumPy ndarray - already supported
-                if data.ndim == 1:
-                    # 1D array - single column
-                    arrow_type = pa.from_numpy_dtype(data.dtype)
-                    arrow_schema = pa.schema([("column_0", arrow_type)])
-                elif data.ndim == 2:
-                    # 2D array - multiple columns
-                    arrow_type = pa.from_numpy_dtype(data.dtype)
-                    fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
-                    arrow_schema = pa.schema(fields)
-                else:
-                    raise ValueError(
-                        f"NumPy arrays with {data.ndim} dimensions are not supported. Only 1D and 2D arrays are supported."
-                    )
-                schema = Schema.of(schema=arrow_schema)
-            else:
-                raise ValueError(
-                    "Could not infer schema from data. Please provide schema explicitly."
-                )
-
-            # Set the inferred schema in kwargs
-            kwargs["schema"] = schema
-        # ELSE User explicitly set schema=None - create schemaless table
-        #   Keep schema=None in kwargs, don't infer
-        # OR User provided an explicit schema - use it as-is
-        #   Schema is already in kwargs, no action needed
-        table_definition = create_table(
-            table,
-            namespace=namespace,
-            content_types=[content_type],
-            *args,
-            **kwargs,
-        )
-    else:
-        table_definition = get_table(table, namespace=namespace, **kwargs)
 
     # Get the active table version and stream
     table_version_obj = _get_latest_or_given_table_version(
@@ -235,80 +262,135 @@ def write_to_table(
         **kwargs,
     )
 
-
-    # Handle different write modes
-    delta_type = None
-    if mode == TableWriteMode.REPLACE:
-        # REPLACE mode: Stage and commit a new stream to replace existing data
-        table_schema = table_definition.table_version.schema
-        stream = _get_storage(**kwargs).stage_stream(
-            namespace=namespace,
-            table_name=table,
-            table_version=table_version_obj.table_version,
-            **kwargs,
-        )
-
-        # Commit the new stream (this replaces the old stream)
-        stream = _get_storage(**kwargs).commit_stream(
-            stream=stream,
-            **kwargs,
-        )
-        delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
-    elif mode == TableWriteMode.APPEND:
-        # APPEND mode: Ensure no merge keys exist (pure append operation)
-        table_schema = table_definition.table_version.schema
-        if table_schema and table_schema.merge_keys:
-            raise ValueError(
-                f"APPEND mode cannot be used with tables that have merge keys. "
-                f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
-                f"Use MERGE mode instead."
-            )
-
-        # Get the existing stream for append
-        stream = _get_storage(**kwargs).get_stream(
-            namespace=namespace,
-            table_name=table,
-            table_version=table_version_obj.table_version,
-            **kwargs,
-        )
-        delta_type = DeltaType.APPEND
-    elif mode == TableWriteMode.MERGE or mode == TableWriteMode.DELETE:
-        # MERGE/DELETE mode: Ensure merge keys exist (required for merge/delete operations)
-        table_schema = table_definition.table_version.schema
-        if not table_schema or not table_schema.merge_keys:
-            raise ValueError(
-                f"{mode.value.upper()} mode requires tables to have at least one merge key. "
-                f"Table {namespace}.{table} has no merge keys. "
-                f"Use APPEND mode instead or specify merge keys in the schema."
-            )
-
-        # Get the existing stream for merge
-        stream = _get_storage(**kwargs).get_stream(
-            namespace=namespace,
-            table_name=table,
-            table_version=table_version_obj.table_version,
-            **kwargs,
-        )
-        delta_type = DeltaType.UPSERT if mode == TableWriteMode.MERGE else DeltaType.DELETE
-    else:
-        # AUTO and CREATE modes: Get the existing stream
-        table_schema = table_definition.table_version.schema
-        stream = _get_storage(**kwargs).get_stream(
-            namespace=namespace,
-            table_name=table,
-            table_version=table_version_obj.table_version,
-            **kwargs,
-        )
-        delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
+    # Handle different write modes and get stream and delta type
+    stream, delta_type = _handle_write_mode(
+        mode, table_definition, table_version_obj, namespace, table, **kwargs
+    )
 
     if not stream:
         raise ValueError(f"No default stream found for table {namespace}.{table}")
 
-    # Check if table is partitioned and raise NotImplementedError
-    # TODO: Honor partitioning during write based on the table's PartitionScheme.
-    # This requires deriving partition values from the data based on the partition keys
-    # and transforms defined in the PartitionScheme, then using those values when
-    # creating/retrieving partitions.
+    # Validate table configuration
+    _validate_table_configuration(stream, table_version_obj, namespace, table)
+
+    # Handle partition creation/retrieval
+    partition, staged_partition_for_compaction, commit_staged_partition = _handle_partition_creation(
+        mode, table_exists_flag, delta_type, stream, **kwargs
+    )
+
+    # Convert data to supported format
+    converted_data = _convert_data_if_needed(data)
+
+    # Copy existing deltas if needed for compaction
+    if staged_partition_for_compaction:
+        _copy_existing_deltas_for_compaction(stream, staged_partition_for_compaction, **kwargs)
+
+    # Stage and commit delta, handle compaction
+    _stage_commit_and_compact(
+        converted_data, partition, delta_type, content_type, commit_staged_partition,
+        table_version_obj, staged_partition_for_compaction, namespace, table, **kwargs
+    )
+    
+    
+
+def _handle_write_mode(
+    mode: TableWriteMode,
+    table_definition: TableDefinition,
+    table_version_obj: TableVersion,
+    namespace: str,
+    table: str,
+    **kwargs,
+) -> Tuple[Any, DeltaType]:  # Using Any for stream type to avoid complex imports
+    """Handle different write modes and return appropriate stream and delta type."""
+    table_schema = table_definition.table_version.schema
+    
+    if mode == TableWriteMode.REPLACE:
+        return _handle_replace_mode(table_schema, namespace, table, table_version_obj, **kwargs)
+    elif mode == TableWriteMode.APPEND:
+        return _handle_append_mode(table_schema, namespace, table, table_version_obj, **kwargs)
+    elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
+        return _handle_merge_delete_mode(mode, table_schema, namespace, table, table_version_obj, **kwargs)
+    else:
+        # AUTO and CREATE modes
+        return _handle_auto_create_mode(table_schema, namespace, table, table_version_obj, **kwargs)
+
+
+def _handle_replace_mode(
+    table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+) -> Tuple[Any, DeltaType]:
+    """Handle REPLACE mode by staging and committing a new stream."""
+    stream = _get_storage(**kwargs).stage_stream(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version_obj.table_version,
+        **kwargs,
+    )
+    
+    stream = _get_storage(**kwargs).commit_stream(stream=stream, **kwargs)
+    delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
+    return stream, delta_type
+
+
+def _handle_append_mode(
+    table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+) -> Tuple[Any, DeltaType]:
+    """Handle APPEND mode by validating no merge keys and getting existing stream."""
+    if table_schema and table_schema.merge_keys:
+        raise ValueError(
+            f"APPEND mode cannot be used with tables that have merge keys. "
+            f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+            f"Use MERGE mode instead."
+        )
+    
+    stream = _get_storage(**kwargs).get_stream(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version_obj.table_version,
+        **kwargs,
+    )
+    return stream, DeltaType.APPEND
+
+
+def _handle_merge_delete_mode(
+    mode: TableWriteMode, table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+) -> Tuple[Any, DeltaType]:
+    """Handle MERGE/DELETE modes by validating merge keys and getting existing stream."""
+    if not table_schema or not table_schema.merge_keys:
+        raise ValueError(
+            f"{mode.value.upper()} mode requires tables to have at least one merge key. "
+            f"Table {namespace}.{table} has no merge keys. "
+            f"Use APPEND mode instead or specify merge keys in the schema."
+        )
+    
+    stream = _get_storage(**kwargs).get_stream(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version_obj.table_version,
+        **kwargs,
+    )
+    delta_type = DeltaType.UPSERT if mode == TableWriteMode.MERGE else DeltaType.DELETE
+    return stream, delta_type
+
+
+def _handle_auto_create_mode(
+    table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+) -> Tuple[Any, DeltaType]:
+    """Handle AUTO and CREATE modes by getting existing stream."""
+    stream = _get_storage(**kwargs).get_stream(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version_obj.table_version,
+        **kwargs,
+    )
+    delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
+    return stream, delta_type
+
+
+def _validate_table_configuration(
+    stream, table_version_obj: TableVersion, namespace: str, table: str
+) -> None:
+    """Validate table configuration for unsupported features."""
+    # Check if table is partitioned
     if (
         stream.partition_scheme
         and stream.partition_scheme.keys is not None
@@ -322,9 +404,7 @@ def write_to_table(
             f"Please use the lower-level metastore API for partitioned tables."
         )
 
-    # Check if table has sort keys and raise NotImplementedError
-    # TODO: Implement support for SortScheme during write based on the table's sort keys.
-    # This requires sorting the data according to the sort scheme before writing deltas.
+    # Check if table has sort keys
     if (
         table_version_obj.sort_scheme
         and table_version_obj.sort_scheme.keys is not None
@@ -338,22 +418,22 @@ def write_to_table(
             f"Please use the lower-level metastore API for sorted tables."
         )
 
-    staged_partition_for_compaction = None
-    current_thread = threading.current_thread()
-    thread_id = current_thread.name
-    
-    # Handle partition creation/retrieval based on write mode
+
+def _handle_partition_creation(
+    mode: TableWriteMode,
+    table_exists_flag: bool,
+    delta_type: DeltaType,
+    stream,
+    **kwargs,
+) -> Tuple[Any, Any, bool]:  # partition, staged_partition_for_compaction, commit_staged_partition
+    """Handle partition creation/retrieval based on write mode."""
     if (mode == TableWriteMode.REPLACE or not table_exists_flag or 
         delta_type in (DeltaType.UPSERT, DeltaType.DELETE)):
         # REPLACE mode, new table, or UPSERT/DELETE operations: Stage a new partition
-        partition = _get_storage(**kwargs).stage_partition(
-            stream=stream,
-            **kwargs,
-        )
+        partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
         commit_staged_partition = (delta_type not in (DeltaType.UPSERT, DeltaType.DELETE))
-        if not commit_staged_partition:
-            # The staged partition will be committed during compaction
-            staged_partition_for_compaction = partition
+        staged_partition_for_compaction = partition if not commit_staged_partition else None
+        return partition, staged_partition_for_compaction, commit_staged_partition
     else:
         # APPEND mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
@@ -365,78 +445,84 @@ def write_to_table(
 
         if not partition:
             # No existing partition found, create a new one
-            partition = _get_storage(**kwargs).stage_partition(
-                stream=stream,
-                **kwargs,
-            )
+            partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
             commit_staged_partition = True
+        
+        return partition, None, commit_staged_partition
 
-    # Convert unsupported data types to supported ones before staging delta
-    converted_data = data
+
+def _convert_data_if_needed(data: Dataset) -> Dataset:
+    """Convert unsupported data types to supported ones."""
     if isinstance(data, daft.DataFrame):
         # Daft DataFrame - convert based on execution mode
-        # Check if Daft is running with Ray backend or local backend
         ctx = daft.context.get_context()
         runner = ctx.get_or_create_runner()
         runner_type = runner.name
 
-
         if runner_type == "ray":
             # Running with Ray backend - convert to Ray Dataset
-            converted_data = data.to_ray_dataset()
+            return data.to_ray_dataset()
         else:
             # Running with local backend - convert to PyArrow Table
-            converted_data = data.to_arrow()
+            return data.to_arrow()
+    
+    return data
 
-    # If we have a staged partition for compaction, we need to copy all existing deltas
-    # from the current committed partition to avoid data loss
-    if staged_partition_for_compaction:
-        # Get the current committed partition
-        current_partition = _get_storage(**kwargs).get_partition(
-            stream_locator=stream.locator,
-            partition_values=None,  # Assuming unpartitioned tables for now
-            **kwargs,
+
+def _copy_existing_deltas_for_compaction(
+    stream, staged_partition_for_compaction, **kwargs
+) -> None:
+    """Copy existing deltas from current partition to staged partition for compaction."""
+    # Get the current committed partition
+    current_partition = _get_storage(**kwargs).get_partition(
+        stream_locator=stream.locator,
+        partition_values=None,  # Assuming unpartitioned tables for now
+        **kwargs,
+    )
+    
+    if current_partition:
+        logger.info(
+            f"Copying existing deltas from committed partition {current_partition.locator} "
+            f"to staged partition {staged_partition_for_compaction.locator}"
         )
         
-        if current_partition:
-            logger.info(f"Copying existing deltas from committed partition {current_partition.locator} to staged partition {staged_partition_for_compaction.locator}")
+        existing_deltas = _get_storage(**kwargs).list_partition_deltas(
+            partition_like=current_partition,
+            ascending_order=True,
+            include_manifest=True,
+            **kwargs,
+        ).all_items()
+        
+        # Copy each existing delta to the staged partition
+        for existing_delta in existing_deltas:
+            logger.debug(f"Copying delta {existing_delta.locator} to staged partition")
             
-            # List all deltas from the current committed partition
-            current_thread = threading.current_thread()
-            thread_id = current_thread.name
-            
-            existing_deltas = _get_storage(**kwargs).list_partition_deltas(
-                partition_like=current_partition,
-                ascending_order=True,
-                include_manifest=True,
-                **kwargs,
-            ).all_items()
-            
-            # Log all delta locators that we found
-            delta_locators_found = [delta.locator for delta in existing_deltas]
-            
-            # Copy each existing delta to the staged partition
-            for existing_delta in existing_deltas:
-                logger.debug(f"Copying delta {existing_delta.locator} to staged partition")
-                
-                # Create a copy of the existing delta with a new ID
-                copied_delta = Delta.based_on(existing_delta, str(existing_delta.stream_position))
-                # Update the copied delta's partition locator to point to the staged partition
-                copied_delta.locator.partition_locator = staged_partition_for_compaction.locator
-                 
-                _get_storage(**kwargs).commit_delta(
-                    copied_delta,
-                    **kwargs,
-                )
-            
-            logger.info(f"Copied {len(existing_deltas)} existing deltas to staged partition")
-        else:
-            logger.info(f"No existing committed partition found - this is the first write for this partition")
+            # Create a copy of the existing delta with a new ID
+            copied_delta = Delta.based_on(existing_delta, str(existing_delta.stream_position))
+            # Update the copied delta's partition locator to point to the staged partition
+            copied_delta.locator.partition_locator = staged_partition_for_compaction.locator
+             
+            _get_storage(**kwargs).commit_delta(copied_delta, **kwargs)
+        
+        logger.info(f"Copied {len(existing_deltas)} existing deltas to staged partition")
+    else:
+        logger.info("No existing committed partition found - this is the first write for this partition")
 
+
+def _stage_commit_and_compact(
+    converted_data: Dataset,
+    partition,
+    delta_type: DeltaType,
+    content_type: ContentType,
+    commit_staged_partition: bool,
+    table_version_obj: TableVersion,
+    staged_partition_for_compaction,
+    namespace: str,
+    table: str,
+    **kwargs,
+) -> None:
+    """Stage and commit delta, then handle compaction if needed."""
     # Stage a delta with the data
-    current_thread = threading.current_thread()
-    thread_id = current_thread.name
-    
     delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
         partition=partition,
@@ -446,16 +532,10 @@ def write_to_table(
         **kwargs,
     )
 
-    delta = _get_storage(**kwargs).commit_delta(
-        delta=delta,
-        **kwargs,
-    )
+    delta = _get_storage(**kwargs).commit_delta(delta=delta, **kwargs)
     
     if commit_staged_partition:
-        _get_storage(**kwargs).commit_partition(
-            partition=partition,
-            **kwargs,
-        )
+        _get_storage(**kwargs).commit_partition(partition=partition, **kwargs)
 
     # Check compaction trigger decision  
     should_compact = _trigger_compaction(
@@ -464,6 +544,7 @@ def write_to_table(
         TableReadOptimizationLevel.MAX,
         **kwargs,
     )
+    
     if should_compact:
         # Run V2 compaction session to merge or delete data
         _run_compaction_session(
@@ -475,8 +556,7 @@ def write_to_table(
             table=table,
             **kwargs,
         )
-    
-    
+
 
 def _trigger_compaction(
         table_version_obj: TableVersion, 
@@ -569,6 +649,66 @@ def _trigger_compaction(
     return False
 
 
+def _get_compaction_primary_keys(table_version_obj: TableVersion) -> set:
+    """Extract primary keys from table schema for compaction."""
+    table_schema = table_version_obj.schema
+    return set(table_schema.merge_keys) if table_schema and table_schema.merge_keys else set()
+
+
+def _get_compaction_hash_bucket_count(partition: Partition) -> int:
+    """Determine hash bucket count from previous compaction or default."""
+    hash_bucket_count = 8  # Default
+    if (
+        partition.compaction_round_completion_info 
+        and partition.compaction_round_completion_info.hash_bucket_count
+    ):
+        hash_bucket_count = partition.compaction_round_completion_info.hash_bucket_count
+        logger.info(f"Using hash bucket count {hash_bucket_count} from previous compaction")
+    else:
+        logger.info(f"Using default hash bucket count {hash_bucket_count}")
+    return hash_bucket_count
+
+
+def _create_compaction_params(
+    table_version_obj: TableVersion,
+    partition: Partition,
+    staged_partition_for_compaction: Optional[Partition],
+    latest_stream_position: int,
+    primary_keys: set,
+    hash_bucket_count: int,
+    **kwargs,
+):
+    """Create compaction parameters for the compaction session."""
+    from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
+    
+    return CompactPartitionParams.of({
+        "catalog": kwargs.get("inner", kwargs.get("catalog")),
+        "source_partition_locator": (
+            staged_partition_for_compaction.locator 
+            if staged_partition_for_compaction 
+            else partition.locator
+        ),
+        "destination_partition_locator": partition.locator,  # In-place compaction
+        "primary_keys": primary_keys,
+        "last_stream_position_to_compact": latest_stream_position,
+        "deltacat_storage": _get_storage(**kwargs),
+        "deltacat_storage_kwargs": kwargs,
+        "list_deltas_kwargs": kwargs,
+        "hash_bucket_count": hash_bucket_count,
+        "records_per_compacted_file": table_version_obj.read_table_property(
+            TableProperty.RECORDS_PER_COMPACTED_FILE,
+        ),
+        "compacted_file_content_type": ContentType.PARQUET,
+        "drop_duplicates": True,
+        "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
+        "expected_previous_partition_id": (
+            staged_partition_for_compaction.previous_partition_id 
+            if staged_partition_for_compaction 
+            else None
+        ),
+    })
+
+
 def _run_compaction_session(
     table_version_obj: TableVersion,
     partition: Partition,
@@ -584,59 +724,38 @@ def _run_compaction_session(
     Args:
         table_version_obj: The table version object
         partition: The partition to compact
+        staged_partition_for_compaction: Optional staged partition for compaction
+        latest_delta_stream_position: Stream position of the latest delta
         namespace: The table namespace
         table: The table name
         **kwargs: Additional arguments including catalog and storage parameters
     """
     # Import inside function to avoid circular imports
-    from deltacat.compute.compactor.model.compact_partition_params import (
-        CompactPartitionParams,
-    )
     from deltacat.compute.compactor_v2.compaction_session import compact_partition
     
     try:
-        # Get the table schema for primary keys
-        table_schema = table_version_obj.schema
-        primary_keys = set(table_schema.merge_keys) if table_schema and table_schema.merge_keys else set()
+        # Extract compaction configuration
+        primary_keys = _get_compaction_primary_keys(table_version_obj)
+        hash_bucket_count = _get_compaction_hash_bucket_count(partition)
         
-        # Use the provided latest delta stream position
-        latest_stream_position = latest_delta_stream_position
-        
-        # Determine hash bucket count from previous compaction or default to 8
-        hash_bucket_count = 8  # Default
-        if partition.compaction_round_completion_info and partition.compaction_round_completion_info.hash_bucket_count:
-            hash_bucket_count = partition.compaction_round_completion_info.hash_bucket_count
-            logger.info(f"Using hash bucket count {hash_bucket_count} from previous compaction")
-        else:
-            logger.info(f"Using default hash bucket count {hash_bucket_count}")
-        
-        # Set up compaction parameters
-        # Note that, for scalability, compaction always hash buckets its input partitions independently of
-        # whether the parent table version is hash partitioned or not.
-        compact_partition_params = CompactPartitionParams.of({
-            "catalog": kwargs.get("inner", kwargs.get("catalog")),
-            "source_partition_locator": staged_partition_for_compaction.locator if staged_partition_for_compaction else partition.locator,
-            "destination_partition_locator": partition.locator,  # In-place compaction
-            "primary_keys": primary_keys,
-            "last_stream_position_to_compact": latest_stream_position,
-            "deltacat_storage": _get_storage(**kwargs),
-            "deltacat_storage_kwargs": kwargs,
-            "list_deltas_kwargs": kwargs,
-            # TODO: Determine and evolve hash bucket count based on table size
-            "hash_bucket_count": hash_bucket_count,
-            "records_per_compacted_file": table_version_obj.read_table_property(
-                TableProperty.RECORDS_PER_COMPACTED_FILE,
-            ),
-            "compacted_file_content_type": ContentType.PARQUET,
-            "drop_duplicates": True,
-            "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
-            "expected_previous_partition_id": staged_partition_for_compaction.previous_partition_id if staged_partition_for_compaction else None,
-        })
+        # Create compaction parameters
+        compact_partition_params = _create_compaction_params(
+            table_version_obj,
+            partition,
+            staged_partition_for_compaction,
+            latest_delta_stream_position,
+            primary_keys,
+            hash_bucket_count,
+            **kwargs,
+        )
           
         # Run V2 compaction session
         compact_partition(params=compact_partition_params, **kwargs)
     except Exception as e:
-        logger.error(f"Error during compaction session for {namespace}.{table}, partition {partition.locator}: {e}")
+        logger.error(
+            f"Error during compaction session for {namespace}.{table}, "
+            f"partition {partition.locator}: {e}"
+        )
         raise
 
 
@@ -685,32 +804,9 @@ def read_table(
     )
 
     if partition_filter is None:
-        logger.info(
-            f"Reading all partitions metadata in the table={table} "
-            "as partition_filter was None."
+        partition_filter = _get_all_committed_partitions(
+            table, namespace, table_version, **kwargs
         )
-        partition_filter = (
-            _get_storage(**kwargs)
-            .list_partitions(
-                table_name=table,
-                namespace=namespace,
-                table_version=table_version,
-                **kwargs,
-            )
-            .all_items()
-        )
-        partition_filter = [partition for partition in partition_filter if partition.state == CommitState.COMMITTED]
-        logger.info(f"Found {len(partition_filter)} committed partitions for table={namespace}/{table}/{table_version}") # count the number of committed partitions for each partition value
-        commit_count_per_partition_value = defaultdict(int)
-        for partition in partition_filter:
-            commit_count_per_partition_value[partition.partition_values] += 1
-        # if there are multiple committed partitions for different partition values, raise an error
-        for partition_values, commit_count in commit_count_per_partition_value.items():
-            if commit_count > 1:
-                raise RuntimeError(
-                    f"Multiple committed partitions found for table={namespace}/{table}/{table_version}. "
-                    f"Partition values: {partition_values}. Commit count: {commit_count}. This should not happen."
-                )
 
     qualified_deltas = _get_deltas_from_partition_filter(
         partition_filter=partition_filter,
@@ -1212,6 +1308,58 @@ def _get_latest_or_given_table_version(
         )
 
     return table_version_obj
+
+
+def _get_all_committed_partitions(
+    table: str, namespace: str, table_version: str, **kwargs
+) -> List[Union[Partition, PartitionLocator]]:
+    """Get all committed partitions for a table and validate uniqueness."""
+    logger.info(
+        f"Reading all partitions metadata in the table={table} "
+        "as partition_filter was None."
+    )
+    
+    all_partitions = (
+        _get_storage(**kwargs)
+        .list_partitions(
+            table_name=table,
+            namespace=namespace,
+            table_version=table_version,
+            **kwargs,
+        )
+        .all_items()
+    )
+    
+    committed_partitions = [
+        partition for partition in all_partitions 
+        if partition.state == CommitState.COMMITTED
+    ]
+    
+    logger.info(
+        f"Found {len(committed_partitions)} committed partitions for "
+        f"table={namespace}/{table}/{table_version}"
+    )
+    
+    _validate_partition_uniqueness(committed_partitions, namespace, table, table_version)
+    return committed_partitions
+
+
+def _validate_partition_uniqueness(
+    partitions: List[Partition], namespace: str, table: str, table_version: str
+) -> None:
+    """Validate that there are no duplicate committed partitions for the same partition values."""
+    commit_count_per_partition_value = defaultdict(int)
+    for partition in partitions:
+        commit_count_per_partition_value[partition.partition_values] += 1
+    
+    # Check for multiple committed partitions for the same partition values
+    for partition_values, commit_count in commit_count_per_partition_value.items():
+        if commit_count > 1:
+            raise RuntimeError(
+                f"Multiple committed partitions found for table={namespace}/{table}/{table_version}. "
+                f"Partition values: {partition_values}. Commit count: {commit_count}. "
+                f"This should not happen."
+            )
 
 
 def _get_deltas_from_partition_filter(
