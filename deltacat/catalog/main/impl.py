@@ -481,12 +481,7 @@ def _handle_append_mode(
             f"Use MERGE mode instead."
         )
     
-    stream = _get_storage(**kwargs).get_stream(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version_obj.table_version,
-        **kwargs,
-    )
+    stream = _get_table_stream(namespace, table, table_version_obj.table_version, **kwargs)
     return stream, DeltaType.APPEND
 
 
@@ -501,12 +496,7 @@ def _handle_merge_delete_mode(
             f"Use APPEND mode instead or specify merge keys in the schema."
         )
     
-    stream = _get_storage(**kwargs).get_stream(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version_obj.table_version,
-        **kwargs,
-    )
+    stream = _get_table_stream(namespace, table, table_version_obj.table_version, **kwargs)
     delta_type = DeltaType.UPSERT if mode == TableWriteMode.MERGE else DeltaType.DELETE
     return stream, delta_type
 
@@ -515,12 +505,7 @@ def _handle_auto_create_mode(
     table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
 ) -> Tuple[Any, DeltaType]:
     """Handle AUTO and CREATE modes by getting existing stream."""
-    stream = _get_storage(**kwargs).get_stream(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version_obj.table_version,
-        **kwargs,
-    )
+    stream = _get_table_stream(namespace, table, table_version_obj.table_version, **kwargs)
     delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
     return stream, delta_type
 
@@ -720,7 +705,7 @@ def _trigger_compaction(
             return True
         elif delta_type == DeltaType.APPEND:
             # Get default stream to determine partition locator
-            stream = _get_storage(**kwargs).get_stream(
+            stream = _get_table_stream(
                 table_version_obj.locator.namespace,
                 table_version_obj.locator.table_name,
                 table_version_obj.locator.table_version,
@@ -933,8 +918,8 @@ def _set_entry_params_if_needed(
         table_version_obj: The table version object containing schema
         kwargs: Keyword arguments dictionary that may contain entry_params
     """
-    # Only set entry_params for DELETE mode
-    if mode != TableWriteMode.DELETE:
+    # Only set entry_params for DELETE and MERGE modes
+    if mode not in [TableWriteMode.DELETE, TableWriteMode.MERGE]:
         return
     
     # Don't override if user already provided entry_params
@@ -953,6 +938,137 @@ def _set_entry_params_if_needed(
         kwargs['entry_params'] = EntryParams.of(merge_key_field_names)
 
 
+def _get_table_stream(namespace: str, table: str, table_version: str, **kwargs):
+    """Helper function to get a stream for a table version."""
+    return _get_storage(**kwargs).get_stream(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version,
+        **kwargs,
+    )
+
+
+def _validate_read_table_input(
+    table_type: Optional[DatasetType], 
+    distributed_dataset_type: Optional[DatasetType]
+) -> None:
+    """Validate input parameters for read_table operation."""
+    if distributed_dataset_type and distributed_dataset_type not in DatasetType.distributed():
+        raise ValueError(
+            f"{distributed_dataset_type} is not a valid distributed dataset type. "
+            f"Valid distributed dataset types are: {DatasetType.distributed()}."
+        )
+    if table_type and table_type not in DatasetType.local():
+        raise ValueError(
+            f"{table_type} is not a valid table type. "
+            f"Valid table types are: {DatasetType.local()}."
+        )
+
+
+def _get_and_validate_table_metadata(
+    table: str, namespace: str, table_version: Optional[str], **kwargs
+) -> TableVersion:
+    """Get table version object and validate its metadata."""
+    table_version_obj = _get_latest_or_given_table_version(
+        namespace=namespace,
+        table_name=table,
+        table_version=table_version,
+        **kwargs,
+    )
+    
+    # Validate content types
+    if (
+        table_version_obj.content_types is None
+        or len(table_version_obj.content_types) != 1
+    ):
+        raise ValueError(
+            "Expected exactly one content type but "
+            f"found {table_version_obj.content_types}."
+        )
+    
+    return table_version_obj
+
+
+def _get_qualified_deltas_for_read(
+    table: str, 
+    namespace: str, 
+    table_version: str, 
+    partition_filter: Optional[List[Union[Partition, PartitionLocator]]], 
+    **kwargs
+) -> List[Delta]:
+    """Get qualified deltas for reading based on partition filter."""
+    logger.info(
+        f"Reading metadata for table={namespace}/{table}/{table_version} "
+        f"with partition_filters={partition_filter}."
+    )
+    
+    # Get partition filter if not provided
+    if partition_filter is None:
+        partition_filter = _get_all_committed_partitions(
+            table, namespace, table_version, **kwargs
+        )
+    
+    # Get deltas from partitions
+    qualified_deltas = _get_deltas_from_partition_filter(
+        partition_filter=partition_filter,
+        **kwargs,
+    )
+    
+    logger.info(
+        f"Total qualified deltas={len(qualified_deltas)} "
+        f"from {len(partition_filter)} partitions."
+    )
+    
+    return qualified_deltas
+
+
+def _download_and_process_table_data(
+    qualified_deltas: List[Delta],
+    table_type: Optional[DatasetType],
+    distributed_dataset_type: Optional[DatasetType],
+    max_parallelism: Optional[int],
+    columns: Optional[List[str]],
+    file_path_column: Optional[str],
+    **kwargs
+) -> Dataset:
+    """Download delta data and process result based on storage type."""
+    # Merge deltas and download data
+    merged_delta = Delta.merge_deltas(qualified_deltas)
+    
+    result = _get_storage(**kwargs).download_delta(
+        merged_delta,
+        table_type=table_type,
+        storage_type=StorageType.DISTRIBUTED if distributed_dataset_type else StorageType.LOCAL,
+        max_parallelism=max_parallelism,
+        columns=columns,
+        distributed_dataset_type=distributed_dataset_type,
+        file_path_column=file_path_column,
+        **kwargs,
+    )
+    
+    # Process result for local storage
+    return _process_local_table_result(result, table_type, distributed_dataset_type)
+
+
+def _process_local_table_result(
+    result: Dataset, 
+    table_type: Optional[DatasetType], 
+    distributed_dataset_type: Optional[DatasetType]
+) -> Dataset:
+    """Process and concatenate local table results if needed."""
+    # For LOCAL storage, concatenate the list of tables into a single table
+    if not distributed_dataset_type and table_type and isinstance(result, list):
+        try:
+            logger.debug(f"Concatenating {len(result)} LOCAL tables of type {table_type}")
+            result = concat_tables(result, table_type)
+            logger.debug(f"Concatenation complete, result type: {type(result)}")
+        except ValueError as e:
+            logger.warning(f"Could not concatenate tables for type {table_type}: {e}")
+            # Fall back to returning the list if concatenation fails
+    
+    return result
+
+
 def read_table(
     table: str,
     *args,
@@ -966,74 +1082,47 @@ def read_table(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> Dataset: 
-    """Read a table into a dataset."""
-
-    if distributed_dataset_type and distributed_dataset_type not in DatasetType.distributed():
-        raise ValueError(f"{distributed_dataset_type} is not a valid distributed dataset type. Valid distributed dataset types are: {DatasetType.distributed()}.")
-    if table_type and table_type not in DatasetType.local():
-        raise ValueError(f"{table_type} is not a valid table type. Valid table types are: {DatasetType.local()}.")
-
+    """Read a table into a dataset.
+    
+    Args:
+        table: Name of the table to read.
+        namespace: Optional namespace of the table. Uses default if not specified.
+        table_version: Optional specific version of the table to read.
+        table_type: Type of dataset to return for local storage.
+        distributed_dataset_type: Type of dataset to return for distributed storage.
+        partition_filter: Optional list of partitions to read from.
+        max_parallelism: Optional maximum parallelism for data download.
+        columns: Optional list of columns to include in the result.
+        file_path_column: Optional column name to add file paths to the result.
+        **kwargs: Additional keyword arguments.
+        
+    Returns:
+        Dataset containing the table data.
+    """
+    # Validate input parameters
+    _validate_read_table_input(table_type, distributed_dataset_type)
+    
+    # Resolve namespace and get table metadata
     namespace = namespace or default_namespace()
-    
-    table_version_obj = _get_latest_or_given_table_version(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version,
-        **kwargs,
-    )
-    table_version = table_version_obj.table_version
-
-    if (
-        table_version_obj.content_types is None
-        or len(table_version_obj.content_types) != 1
-    ):
-        raise ValueError(
-            "Expected exactly one content type but "
-            f"found {table_version_obj.content_types}."
-        )
-
-    logger.info(
-        f"Reading metadata for table={namespace}/{table}/{table_version} "
-        f"with partition_filters={partition_filter}."
-    )
-
-    if partition_filter is None:
-        partition_filter = _get_all_committed_partitions(
-            table, namespace, table_version, **kwargs
-        )
-
-    qualified_deltas = _get_deltas_from_partition_filter(
-        partition_filter=partition_filter,
-        **kwargs,
-    )
-
-    logger.info(
-        f"Total qualified deltas={len(qualified_deltas)} "
-        f"from {len(partition_filter)} partitions."
-    )
-
-    merged_delta = Delta.merge_deltas(qualified_deltas)
-
-    result = _get_storage(**kwargs).download_delta(
-        merged_delta,
-        table_type=table_type,
-        storage_type=StorageType.DISTRIBUTED if distributed_dataset_type else StorageType.LOCAL,
-        max_parallelism=max_parallelism,
-        columns=columns,
-        distributed_dataset_type=distributed_dataset_type,
-        file_path_column=file_path_column,
-        **kwargs,
+    table_version_obj = _get_and_validate_table_metadata(
+        table, namespace, table_version, **kwargs
     )
     
-    # For LOCAL storage, concatenate the list of tables into a single table
-    if not distributed_dataset_type and table_type and isinstance(result, list):
-        try:
-            logger.debug(f"Concatenating {len(result)} LOCAL tables of type {table_type}")
-            result = concat_tables(result, table_type)
-            logger.debug(f"Concatenation complete, result type: {type(result)}")
-        except ValueError as e:
-            logger.warning(f"Could not concatenate tables for type {table_type}: {e}")
-            # Fall back to returning the list if concatenation fails
+    # Get partitions and deltas to read
+    qualified_deltas = _get_qualified_deltas_for_read(
+        table, namespace, table_version_obj.table_version, partition_filter, **kwargs
+    )
+    
+    # Download and process the data
+    result = _download_and_process_table_data(
+        qualified_deltas, 
+        table_type, 
+        distributed_dataset_type,
+        max_parallelism,
+        columns,
+        file_path_column,
+        **kwargs
+    )
     
     return result
 
