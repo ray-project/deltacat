@@ -119,6 +119,62 @@ def _validate_write_mode_and_table_existence(
     return table_exists_flag
 
 
+def _validate_write_mode_and_table_version_existence(
+    table: str,
+    namespace: str,
+    table_version: Optional[str],
+    mode: TableWriteMode,
+    **kwargs,
+) -> Tuple[bool, bool]:
+    """Validate write mode against table and table version existence.
+    
+    Returns:
+        Tuple of (table_exists_flag, table_version_exists_flag)
+    """
+    # First validate table existence
+    table_exists_flag = table_exists(
+        table, 
+        namespace=namespace, 
+        **kwargs,
+    )
+    logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
+
+    # Validate table existence constraints
+    if mode == TableWriteMode.CREATE and table_exists_flag and table_version is None:
+        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
+    elif (
+        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
+        and not table_exists_flag
+    ):
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper()}")
+    
+    # Check table version existence if specified
+    table_version_exists_flag = False
+    if table_version is not None and table_exists_flag:
+        try:
+            existing_table_def = get_table(
+                table, 
+                namespace=namespace, 
+                table_version=table_version, 
+                **kwargs
+            )
+            table_version_exists_flag = existing_table_def is not None
+        except (TableVersionNotFoundError, Exception):
+            table_version_exists_flag = False
+            
+        logger.info(
+            f"Table version ({namespace}.{table}.{table_version}) exists: {table_version_exists_flag}"
+        )
+        
+        # Validate table version constraints
+        if mode == TableWriteMode.CREATE and table_version_exists_flag:
+            raise ValueError(
+                f"Table version {namespace}.{table}.{table_version} already exists and mode is CREATE"
+            )
+    
+    return table_exists_flag, table_version_exists_flag
+
+
 def _infer_schema_from_data(data: Dataset) -> Schema:
     """Infer schema from various data types."""
     if isinstance(data, pd.DataFrame):
@@ -216,11 +272,87 @@ def _get_or_create_table(
         return get_table(table, namespace=namespace, **kwargs)
 
 
+def _get_or_create_table_and_version(
+    data: Dataset,
+    table: str,
+    namespace: str,
+    table_version: Optional[str],
+    table_exists_flag: bool,
+    table_version_exists_flag: bool,
+    content_type: ContentType,
+    mode: TableWriteMode,
+    *args,
+    **kwargs,
+) -> TableDefinition:
+    """Get existing table/version or create new one based on existence flags."""
+    if not table_exists_flag:
+        # Table doesn't exist - create new table with specified version
+        if "schema" not in kwargs:
+            kwargs["schema"] = _infer_schema_from_data(data)
+        
+        return create_table(
+            table,
+            namespace=namespace,
+            version=table_version,  # Pass the specific version
+            content_types=[content_type],
+            *args,
+            **kwargs,
+        )
+    elif table_version is not None:
+        if table_version_exists_flag:
+            # Table version exists - get it
+            return get_table(table, namespace=namespace, table_version=table_version, **kwargs)
+        else:
+            # Table exists but version doesn't - create new version if allowed
+            if mode == TableWriteMode.CREATE:
+                # For CREATE mode, we want to create a new table version
+                if "schema" not in kwargs:
+                    kwargs["schema"] = _infer_schema_from_data(data)
+                
+                # Create a new table version directly using storage API
+                # We need to bypass the create_table function's existence check
+                (table_obj, table_version_obj, stream) = _get_storage(**kwargs).create_table_version(
+                    *args,
+                    namespace=namespace,
+                    table_name=table,
+                    table_version=table_version,
+                    schema=kwargs.get("schema"),
+                    partition_scheme=kwargs.get("partition_scheme"),
+                    sort_keys=kwargs.get("sort_keys"),
+                    table_version_description=kwargs.get("description"),
+                    table_description=kwargs.get("description"),
+                    table_properties=kwargs.get("table_properties"),
+                    lifecycle_state=kwargs.get("lifecycle_state", LifecycleState.ACTIVE),
+                    supported_content_types=[content_type],
+                    **{k: v for k, v in kwargs.items() if k not in [
+                        'schema', 'partition_scheme', 'sort_keys', 'description', 
+                        'table_properties', 'lifecycle_state'
+                    ]},
+                )
+                
+                from deltacat.catalog.model.table_definition import TableDefinition
+                return TableDefinition.of(
+                    table=table_obj,
+                    table_version=table_version_obj,
+                    stream=stream,
+                )
+            else:
+                raise ValueError(
+                    f"Table version {namespace}.{table}.{table_version} does not exist. "
+                    f"Use CREATE mode to create a new table version or omit table_version "
+                    f"to use the latest version."
+                )
+    else:
+        # No specific version requested - get latest
+        return get_table(table, namespace=namespace, **kwargs)
+
+
 def write_to_table(
     data: Dataset,
     table: str,
     *args,
     namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
     **kwargs,
@@ -237,28 +369,32 @@ def write_to_table(
         data: Local or distributed data to write to the table.
         table: Name of the table to write to.
         namespace: Optional namespace for the table. Uses default if not specified.
+        table_version: Optional version of the table to write to. If specified,
+            will create this version if it doesn't exist (in CREATE mode) or
+            get this version if it exists (in other modes). If not specified,
+            uses the latest version.
         mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
         content_type: Content type for the data files.
         **kwargs: Additional keyword arguments.
     """
     namespace = namespace or default_namespace()
 
-    # Validate write mode and table existence
-    table_exists_flag = _validate_write_mode_and_table_existence(
-        table, namespace, mode, **kwargs
+    # Validate write mode and table/table version existence
+    table_exists_flag, table_version_exists_flag = _validate_write_mode_and_table_version_existence(
+        table, namespace, table_version, mode, **kwargs
     )
 
-    # Get or create table
-    table_definition = _get_or_create_table(
-        data, table, namespace, table_exists_flag, content_type, *args, **kwargs
+    # Get or create table and table version
+    table_definition = _get_or_create_table_and_version(
+        data, table, namespace, table_version, table_exists_flag, 
+        table_version_exists_flag, content_type, mode, *args, **kwargs
     )
-
 
     # Get the active table version and stream
     table_version_obj = _get_latest_or_given_table_version(
         namespace=namespace,
         table_name=table,
-        table_version=table_definition.table_version.table_version,
+        table_version=table_version or table_definition.table_version.table_version,
         **kwargs,
     )
 
@@ -269,6 +405,9 @@ def write_to_table(
 
     if not stream:
         raise ValueError(f"No default stream found for table {namespace}.{table}")
+
+    # Automatically set entry_params for DELETE/MERGE modes if not provided
+    _set_entry_params_if_needed(mode, table_version_obj, kwargs)
 
     # Validate table configuration
     _validate_table_configuration(stream, table_version_obj, namespace, table)
@@ -757,6 +896,61 @@ def _run_compaction_session(
             f"partition {partition.locator}: {e}"
         )
         raise
+
+
+def _get_merge_key_field_names_from_schema(schema) -> List[str]:
+    """Extract merge key field names from a DeltaCAT Schema object.
+    
+    Args:
+        schema: DeltaCAT Schema object
+        
+    Returns:
+        List of field names that are marked as merge keys
+    """
+    if not schema or not hasattr(schema, 'merge_keys') or not schema.merge_keys:
+        return []
+    
+    merge_key_field_names = []
+    field_ids_to_fields = schema.field_ids_to_fields
+    
+    for merge_key_id in schema.merge_keys:
+        if merge_key_id in field_ids_to_fields:
+            field = field_ids_to_fields[merge_key_id]
+            merge_key_field_names.append(field.arrow.name)
+    
+    return merge_key_field_names
+
+
+def _set_entry_params_if_needed(
+    mode: TableWriteMode,
+    table_version_obj,
+    kwargs: dict
+) -> None:
+    """Automatically set entry_params to merge keys if not already set by user.
+    
+    Args:
+        mode: The table write mode
+        table_version_obj: The table version object containing schema
+        kwargs: Keyword arguments dictionary that may contain entry_params
+    """
+    # Only set entry_params for DELETE mode
+    if mode != TableWriteMode.DELETE:
+        return
+    
+    # Don't override if user already provided entry_params
+    if 'entry_params' in kwargs and kwargs['entry_params'] is not None:
+        return
+    
+    # Get schema from table version
+    if not table_version_obj or not hasattr(table_version_obj, 'schema') or not table_version_obj.schema:
+        return
+    
+    # Extract merge key field names
+    merge_key_field_names = _get_merge_key_field_names_from_schema(table_version_obj.schema)
+    
+    if merge_key_field_names:
+        from deltacat.storage import EntryParams
+        kwargs['entry_params'] = EntryParams.of(merge_key_field_names)
 
 
 def read_table(

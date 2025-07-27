@@ -371,20 +371,29 @@ def read_parquet(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Convert DeltaCAT Schema to PyArrow Schema if present
+    if 'schema' in read_kwargs:
+        from deltacat.storage.model.schema import Schema as DeltaCATSchema
+        schema = read_kwargs['schema']
+        if isinstance(schema, DeltaCATSchema):
+            read_kwargs['schema'] = schema.arrow
+
+    # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
+    pyarrow_kwargs = {k: v for k, v in read_kwargs.items() if k not in ['entry_params']}
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                return papq.read_table(input_file, **read_kwargs)
+                return papq.read_table(input_file, **pyarrow_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                return papq.read_table(input_file, **read_kwargs)
+                return papq.read_table(input_file, **pyarrow_kwargs)
 
 
 def read_avro(

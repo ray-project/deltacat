@@ -1251,3 +1251,442 @@ class TestDatasetTypes:
             shutil.rmtree(local_catalog_root, ignore_errors=True)
         except Exception:
             pass
+
+
+class TestTableVersionWriteModes:
+    """
+    Comprehensive test suite for write_to_table with table_version parameter.
+    Tests all combinations of:
+    - Write modes: CREATE, APPEND, REPLACE, MERGE, DELETE, AUTO
+    - Table version specification: None (latest) vs specific version
+    - Table existence: exists vs doesn't exist
+    - Table version existence: exists vs doesn't exist
+    """
+    
+    @classmethod
+    def setup_class(cls):
+        """Set up catalog for all tests in this class."""
+        cls.local_catalog_root = tempfile.mkdtemp()
+        cls.catalog_name = "test_table_version_catalog"
+        catalog_properties = CatalogProperties(root=cls.local_catalog_root)
+        cls.catalog = dc.put_catalog(cls.catalog_name, catalog=Catalog(config=catalog_properties))
+        
+        # Test data
+        cls.test_data = {
+            'initial': pd.DataFrame({'id': [1, 2], 'name': ['Alice', 'Bob']}),
+            'additional': pd.DataFrame({'id': [3, 4], 'name': ['Charlie', 'David']}),
+            'merge_data': pd.DataFrame({'id': [1, 3], 'name': ['Alice_Updated', 'Charlie_New']}),
+        }
+    
+    @classmethod
+    def teardown_class(cls):
+        """Clean up after all tests."""
+        try:
+            dc.clear_catalogs()
+            shutil.rmtree(cls.local_catalog_root, ignore_errors=True)
+        except Exception:
+            pass
+    
+    def test_create_mode_combinations(self):
+        """Test CREATE mode with all table/version existence combinations."""
+        
+        test_cases = [
+            # (table_suffix, setup_versions, test_version, should_succeed, description)
+            ('new', [], '1', True, 'Create new table with version 1'),
+            ('new2', [], None, True, 'Create new table without specifying version'),
+            
+            ('existing', ['1'], '2', True, 'Create version 2 of existing table'),
+            ('existing2', ['1'], '1', False, 'Try to create existing version 1'),
+            ('existing3', ['1'], None, False, 'Try to create existing table without version'),
+            
+            ('multi', ['1', '2'], '3', True, 'Create version 3 when 1,2 exist'),
+            ('multi2', ['1', '2'], '1', False, 'Try to create existing version 1 when 1,2 exist'),
+            ('multi3', ['1', '2'], '2', False, 'Try to create existing version 2 when 1,2 exist'),
+        ]
+        
+        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
+            table_name = f'create_test_{table_suffix}'
+            namespace = 'test_ns'
+            
+            # Set up existing versions if needed
+            for version in setup_versions:
+                dc.write_to_table(
+                    self.test_data['initial'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=version,
+                    mode=TableWriteMode.CREATE
+                )
+            
+            if should_succeed:
+                # Should succeed
+                dc.write_to_table(
+                    self.test_data['initial'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=test_version,
+                    mode=TableWriteMode.CREATE
+                )
+                
+                # Verify the table/version was created
+                if test_version:
+                    table_def = dc.get_table(
+                        table_name, 
+                        catalog=self.catalog_name, 
+                        namespace=namespace, 
+                        table_version=test_version
+                    )
+                    assert table_def is not None, f"Failed to create version {test_version}"
+                    assert table_def.table_version.table_version == test_version
+                
+            else:
+                # Should fail
+                with pytest.raises((ValueError, Exception)):
+                    dc.write_to_table(
+                        self.test_data['initial'],
+                        table_name,
+                        catalog=self.catalog_name,
+                        namespace=namespace,
+                        table_version=test_version,
+                        mode=TableWriteMode.CREATE
+                    )
+    
+    def test_append_mode_combinations(self):
+        """Test APPEND mode with all table/version existence combinations."""
+        
+        test_cases = [
+            # (table_suffix, setup_versions, test_version, should_succeed, description)
+            ('new', [], None, False, 'Try to append to non-existent table'),
+            ('new2', [], '1', False, 'Try to append to non-existent table version'),
+            
+            ('existing', ['1'], None, True, 'Append to existing table (latest version)'),
+            ('existing2', ['1'], '1', True, 'Append to existing version 1'),
+            ('existing3', ['1'], '2', False, 'Try to append to non-existent version 2'),
+            
+            ('multi', ['1', '2'], None, True, 'Append to existing table (latest is 2)'),
+            ('multi2', ['1', '2'], '1', True, 'Append to existing version 1'),
+            ('multi3', ['1', '2'], '2', True, 'Append to existing version 2'),
+            ('multi4', ['1', '2'], '3', False, 'Try to append to non-existent version 3'),
+        ]
+        
+        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
+            table_name = f'append_test_{table_suffix}'
+            namespace = 'test_ns'
+            
+            # Set up existing versions if needed
+            for version in setup_versions:
+                dc.write_to_table(
+                    self.test_data['initial'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=version,
+                    mode=TableWriteMode.CREATE
+                )
+            
+            if should_succeed:
+                # Should succeed
+                dc.write_to_table(
+                    self.test_data['additional'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=test_version,
+                    mode=TableWriteMode.APPEND
+                )
+            else:
+                # Should fail
+                with pytest.raises((ValueError, Exception)):
+                    dc.write_to_table(
+                        self.test_data['additional'],
+                        table_name,
+                        catalog=self.catalog_name,
+                        namespace=namespace,
+                        table_version=test_version,
+                        mode=TableWriteMode.APPEND
+                    )
+    
+    def test_auto_mode_combinations(self):
+        """Test AUTO mode with all table/version existence combinations."""
+        
+        test_cases = [
+            # (table_suffix, setup_versions, test_version, should_succeed, description)
+            ('new', [], None, True, 'Auto create new table'),
+            ('new2', [], '1', True, 'Auto create new table with version 1'),
+            
+            ('existing', ['1'], None, True, 'Auto use existing table (latest version)'),
+            ('existing2', ['1'], '1', True, 'Auto use existing version 1'),
+            ('existing3', ['1'], '2', False, 'Try auto with non-existent version 2'),
+            
+            ('multi', ['1', '2'], None, True, 'Auto use existing table (latest is 2)'),
+            ('multi2', ['1', '2'], '1', True, 'Auto use existing version 1'),
+            ('multi3', ['1', '2'], '2', True, 'Auto use existing version 2'),
+            ('multi4', ['1', '2'], '3', False, 'Try auto with non-existent version 3'),
+        ]
+        
+        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
+            table_name = f'auto_test_{table_suffix}'
+            namespace = 'test_ns'
+            
+            # Set up existing versions if needed
+            for version in setup_versions:
+                dc.write_to_table(
+                    self.test_data['initial'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=version,
+                    mode=TableWriteMode.CREATE
+                )
+            
+            if should_succeed:
+                # Should succeed
+                dc.write_to_table(
+                    self.test_data['additional'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=test_version,
+                    mode=TableWriteMode.AUTO
+                )
+            else:
+                # Should fail
+                with pytest.raises((ValueError, Exception)):
+                    dc.write_to_table(
+                        self.test_data['additional'],
+                        table_name,
+                        catalog=self.catalog_name,
+                        namespace=namespace,
+                        table_version=test_version,
+                        mode=TableWriteMode.AUTO
+                    )
+    
+    def test_replace_mode_combinations(self):
+        """Test REPLACE mode with all table/version existence combinations."""
+        
+        test_cases = [
+            # (table_suffix, setup_versions, test_version, should_succeed, description)
+            ('new', [], None, False, 'Try to replace non-existent table'),
+            ('new2', [], '1', False, 'Try to replace non-existent table version'),
+            
+            ('existing', ['1'], None, True, 'Replace existing table (latest version)'),
+            ('existing2', ['1'], '1', True, 'Replace existing version 1'),
+            ('existing3', ['1'], '2', False, 'Try to replace non-existent version 2'),
+            
+            ('multi', ['1', '2'], None, True, 'Replace existing table (latest is 2)'),
+            ('multi2', ['1', '2'], '1', True, 'Replace existing version 1'),
+            ('multi3', ['1', '2'], '2', True, 'Replace existing version 2'),
+            ('multi4', ['1', '2'], '3', False, 'Try to replace non-existent version 3'),
+        ]
+        
+        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
+            table_name = f'replace_test_{table_suffix}'
+            namespace = 'test_ns'
+            
+            # Set up existing versions if needed
+            for version in setup_versions:
+                dc.write_to_table(
+                    self.test_data['initial'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=version,
+                    mode=TableWriteMode.CREATE
+                )
+            
+            if should_succeed:
+                # Should succeed
+                dc.write_to_table(
+                    self.test_data['merge_data'],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=test_version,
+                    mode=TableWriteMode.REPLACE
+                )
+            else:
+                # Should fail
+                with pytest.raises((ValueError, Exception)):
+                    dc.write_to_table(
+                        self.test_data['merge_data'],
+                        table_name,
+                        catalog=self.catalog_name,
+                        namespace=namespace,
+                        table_version=test_version,
+                        mode=TableWriteMode.REPLACE
+                    )
+    
+    def test_merge_delete_modes_with_schema(self):
+        """Test MERGE and DELETE modes with schema requirements."""
+        
+        # Create table with merge keys using the same pattern as existing tests
+        merge_schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+            Field.of(pa.field("name", pa.string())),
+        ])
+        
+        table_name = 'merge_test_table'
+        namespace = 'test_ns'
+        
+        # Create table with merge keys
+        dc.write_to_table(
+            self.test_data['initial'],
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_version='1',
+            mode=TableWriteMode.CREATE,
+            schema=merge_schema
+        )
+        
+        # Create table without merge keys for negative testing
+        no_merge_table = 'no_merge_table'
+        dc.write_to_table(
+            self.test_data['initial'],
+            no_merge_table,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_version='1',
+            mode=TableWriteMode.CREATE
+        )
+        
+        # Test MERGE mode
+        test_cases = [
+            # (table, table_version, should_succeed, mode, description)
+            (table_name, '1', True, TableWriteMode.MERGE, 'MERGE on table with merge keys'),
+            (table_name, '2', False, TableWriteMode.MERGE, 'MERGE on non-existent version'),
+            (no_merge_table, '1', False, TableWriteMode.MERGE, 'MERGE on table without merge keys'),
+            
+            (table_name, '1', True, TableWriteMode.DELETE, 'DELETE on table with merge keys'),
+            (table_name, '2', False, TableWriteMode.DELETE, 'DELETE on non-existent version'),
+            (no_merge_table, '1', False, TableWriteMode.DELETE, 'DELETE on table without merge keys'),
+        ]
+        
+        for table, table_version, should_succeed, mode, description in test_cases:
+            if should_succeed:
+                # Should succeed - entry_params will be automatically set from schema merge keys
+                dc.write_to_table(
+                    self.test_data['merge_data'],
+                    table,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=table_version,
+                    mode=mode
+                )
+            else:
+                # Should fail
+                with pytest.raises((ValueError, Exception)):
+                    dc.write_to_table(
+                        self.test_data['merge_data'],
+                        table,
+                        catalog=self.catalog_name,
+                        namespace=namespace,
+                        table_version=table_version,
+                        mode=mode
+                    )
+ 
+    def test_backward_compatibility(self):
+        """Test that existing behavior is preserved when table_version is not specified."""
+        namespace = 'test_ns'
+        
+        # Test all modes without specifying table_version (should work exactly as before)
+        
+        # 1. CREATE mode without version - should create new table
+        dc.write_to_table(
+            self.test_data['initial'],
+            'compat_table_1',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE
+        )
+        
+        # 2. AUTO mode without version - should use latest
+        dc.write_to_table(
+            self.test_data['additional'],
+            'compat_table_1',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.AUTO
+        )
+        
+        # 3. APPEND mode without version - should append to latest
+        dc.write_to_table(
+            self.test_data['additional'],
+            'compat_table_1',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # 4. REPLACE mode without version - should replace latest
+        dc.write_to_table(
+            self.test_data['merge_data'],
+            'compat_table_1',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.REPLACE
+        )
+        
+    
+    def test_error_messages_quality(self):
+        """Test that error messages are clear and helpful."""
+        namespace = 'test_ns'
+        
+        # Create a table for testing
+        dc.write_to_table(
+            self.test_data['initial'],
+            'error_test_table',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_version='1',
+            mode=TableWriteMode.CREATE
+        )
+        
+        error_cases = [
+            {
+                'operation': lambda: dc.write_to_table(
+                    self.test_data['initial'],
+                    'error_test_table',
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version='1',
+                    mode=TableWriteMode.CREATE
+                ),
+                'expected_keywords': ['version', 'already exists', 'CREATE'],
+                'description': 'CREATE existing version error'
+            },
+            {
+                'operation': lambda: dc.write_to_table(
+                    self.test_data['initial'],
+                    'error_test_table',
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version='99',
+                    mode=TableWriteMode.APPEND
+                ),
+                'expected_keywords': ['version', 'does not exist'],
+                'description': 'APPEND to non-existent version error'
+            },
+            {
+                'operation': lambda: dc.write_to_table(
+                    self.test_data['initial'],
+                    'nonexistent_table',
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    mode=TableWriteMode.APPEND
+                ),
+                'expected_keywords': ['does not exist', 'APPEND'],
+                'description': 'APPEND to non-existent table error'
+            }
+        ]
+        
+        for case in error_cases:
+            with pytest.raises(Exception) as exc_info:
+                case['operation']()
+            
+            error_message = str(exc_info.value)
+            for keyword in case['expected_keywords']:
+                assert keyword.lower() in error_message.lower(), \
+                    f"Error message for {case['description']} should contain '{keyword}'. Got: {error_message}"
