@@ -390,7 +390,7 @@ class Field(dict):
             metadata=meta,
         )
 
-    def validate_data(self, column_data: pa.Array) -> None:
+    def validate(self, column_data: pa.Array) -> None:
         """Validate that data in a column matches this field's type and constraints.
         
         Args:
@@ -406,7 +406,7 @@ class Field(dict):
                 f"expected {self.arrow.type}, got {column_data.type}"
             )
     
-    def coerce_data(self, column_data: pa.Array) -> pa.Array:
+    def coerce(self, column_data: pa.Array) -> pa.Array:
         """Coerce data in a column to match this field's type.
         
         Args:
@@ -922,11 +922,11 @@ class Schema(dict):
                 field = field_name_to_field[column_name]
                 
                 if field.consistency_type == SchemaConsistencyType.VALIDATE:
-                    field.validate_data_against_field(column_data)
+                    field.validate(column_data)
                     new_columns.append(column_data)
                     new_schema_fields.append(field.arrow)
                 elif field.consistency_type == SchemaConsistencyType.COERCE:
-                    coerced_data = field.coerce_data_to_field(column_data)
+                    coerced_data = field.coerce(column_data)
                     new_columns.append(coerced_data)
                     new_schema_fields.append(field.arrow)
                 else:
@@ -934,17 +934,40 @@ class Schema(dict):
                     new_columns.append(column_data)
                     new_schema_fields.append(field.arrow)
             else:
-                # Field not in schema - keep as-is (this allows extra columns)
-                new_columns.append(column_data)
-                new_schema_fields.append(pa.field(column_name, column_data.type))
+                # Field not in schema - raise error
+                raise ValueError(f"Field '{column_name}' is not present in the schema")
         
-        # Add any missing fields from schema as null columns
+        # Add any missing fields from schema with appropriate handling
         table_column_names = set(table.column_names)
         for field in self.field_ids_to_fields.values():
             if field.arrow.name not in table_column_names:
-                null_column = pa.nulls(len(table), type=field.arrow.type)
-                new_columns.append(null_column)
-                new_schema_fields.append(field.arrow)
+                consistency_type = field.consistency_type
+                
+                if consistency_type == SchemaConsistencyType.VALIDATE:
+                    raise ValueError(f"Field '{field.arrow.name}' is required but not present in the data")
+                elif consistency_type == SchemaConsistencyType.COERCE:
+                    # Use future_default if available, otherwise check if nullable
+                    if field.future_default is not None:
+                        # Create column with future_default value
+                        default_array = pa.array([field.future_default] * len(table), type=field.arrow.type)
+                        new_columns.append(default_array)
+                    elif field.arrow.nullable:
+                        # Backfill with nulls if field is nullable
+                        null_column = pa.nulls(len(table), type=field.arrow.type)
+                        new_columns.append(null_column)
+                    else:
+                        # Field is not nullable and no future_default - error
+                        raise ValueError(f"Field '{field.arrow.name}' is required (not nullable) but not present in the data and no future_default is set")
+                    new_schema_fields.append(field.arrow)
+                else:
+                    # NONE or no consistency type - backfill with future_default or nulls
+                    if field.future_default is not None:
+                        default_array = pa.array([field.future_default] * len(table), type=field.arrow.type)
+                        new_columns.append(default_array)
+                    else:
+                        null_column = pa.nulls(len(table), type=field.arrow.type)
+                        new_columns.append(null_column)
+                    new_schema_fields.append(field.arrow)
         
         return pa.table(new_columns, schema=pa.schema(new_schema_fields))
 
