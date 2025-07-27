@@ -3,7 +3,7 @@ import multiprocessing
 import os
 from enum import Enum
 from functools import partial
-from typing import Callable, Dict, Type, Union, Optional, Any, List
+from typing import Callable, Dict, Type, Union, Optional, Any, List, Tuple
 from uuid import uuid4
 
 import numpy as np
@@ -205,13 +205,7 @@ def concat_tables(tables: List[LocalTable], table_type: DatasetType) -> LocalTab
     Raises:
         ValueError: If no concatenation function is found for the table type
     """
-    concat_func = TABLE_TYPE_TO_CONCAT_FUNC.get(table_type.value)
-    if concat_func is None:
-        msg = (
-            f"No concatenation function found for table type: {table_type}.\n"
-            f"Known table types: {list(TABLE_TYPE_TO_CONCAT_FUNC.keys())}"
-        )
-        raise ValueError(msg)
+    concat_func = _get_table_type_function(table_type, TABLE_TYPE_TO_CONCAT_FUNC, "concatenation")
     return concat_func(tables)
 
 def _daft_s3_reader_wrapper(*args, **kwargs):
@@ -303,6 +297,38 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
 }
 
 
+def _get_table_function(
+    table: Union[LocalTable, DistributedDataset],
+    function_map: Dict[Type, Callable],
+    operation_name: str
+) -> Callable:
+    """Generic helper to look up table-type-specific functions."""
+    table_func = function_map.get(type(table))
+    if table_func is None:
+        msg = (
+            f"No {operation_name} function found for table type: {type(table)}.\n"
+            f"Known table types: {list(function_map.keys())}"
+        )
+        raise ValueError(msg)
+    return table_func
+
+
+def _get_table_type_function(
+    table_type: DatasetType,
+    function_map: Dict[str, Callable],
+    operation_name: str
+) -> Callable:
+    """Generic helper to look up DatasetType-specific functions."""
+    table_func = function_map.get(table_type.value)
+    if table_func is None:
+        msg = (
+            f"No {operation_name} function found for table type: {table_type}.\n"
+            f"Known table types: {list(function_map.keys())}"
+        )
+        raise ValueError(msg)
+    return table_func
+
+
 def get_table_length(
     table: Union[LocalTable, DistributedDataset, BlockAccessor]
 ) -> int:
@@ -310,36 +336,16 @@ def get_table_length(
 
 
 def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
-    table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
-    if table_size_func is None:
-        msg = (
-            f"No size function found for table type: {type(table)}.\n"
-            f"Known table types: {TABLE_CLASS_TO_SIZE_FUNC.keys}"
-        )
-        raise ValueError(msg)
+    table_size_func = _get_table_function(table, TABLE_CLASS_TO_SIZE_FUNC, "size")
     return table_size_func(table)
 
 
 def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:
-    table_writer_func = TABLE_CLASS_TO_WRITER_FUNC.get(type(table))
-    if table_writer_func is None:
-        msg = (
-            f"No writer found for table type: {type(table)}.\n"
-            f"Known table types: {TABLE_CLASS_TO_WRITER_FUNC.keys}"
-        )
-        raise ValueError(msg)
-    return table_writer_func
+    return _get_table_function(table, TABLE_CLASS_TO_WRITER_FUNC, "writer")
 
 
 def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
-    table_slicer_func = TABLE_CLASS_TO_SLICER_FUNC.get(type(table))
-    if table_slicer_func is None:
-        msg = (
-            f"No slicer found for table type: {type(table)}.\n"
-            f"Known table types: {TABLE_CLASS_TO_SLICER_FUNC.keys}"
-        )
-        raise ValueError(msg)
-    return table_slicer_func
+    return _get_table_function(table, TABLE_CLASS_TO_SLICER_FUNC, "slicer")
 
 
 def append_column_to_table(
@@ -359,13 +365,7 @@ def append_column_to_table(
     Returns:
         Updated table with the new column
     """
-    append_column_to_table_func = TABLE_CLASS_TO_APPEND_COLUMN_FUNC.get(type(table))
-    if append_column_to_table_func is None:
-        msg = (
-            f"No append column function found for table type: {type(table)}.\n"
-            f"Known table types: {TABLE_CLASS_TO_APPEND_COLUMN_FUNC.keys}"
-        )
-        raise ValueError(msg)
+    append_column_to_table_func = _get_table_function(table, TABLE_CLASS_TO_APPEND_COLUMN_FUNC, "append column")
     return append_column_to_table_func(table, column_name, column_value)
 
 
@@ -373,13 +373,7 @@ def select_columns_from_table(
     table: LocalTable, 
     column_names: List[str],
 ) -> LocalTable:
-    select_columns_func = TABLE_CLASS_TO_SELECT_COLUMNS_FUNC.get(type(table))
-    if select_columns_func is None:
-        msg = (
-            f"No select columns function found for table type: {type(table)}.\n"
-            f"Known table types: {TABLE_CLASS_TO_SELECT_COLUMNS_FUNC.keys}"
-        )
-        raise ValueError(msg)
+    select_columns_func = _get_table_function(table, TABLE_CLASS_TO_SELECT_COLUMNS_FUNC, "select columns")
     return select_columns_func(table, column_names)
 
 
@@ -497,17 +491,12 @@ def write_table(
             )
             manifest_entries.append(manifest_entry)
         except RETRYABLE_TRANSIENT_ERRORS as e:
-            raise RetryableUploadTableError(
-                f"Retry write for: {path} after receiving {type(e).__name__}: {e}",
-            ) from e
+            _handle_retryable_error(e, path, "write", RetryableUploadTableError)
         except BaseException as e:
-            logger.warning(
-                f"Upload has failed for {path} and content_type={content_type}. Error: {e}",
-                exc_info=True,
+            _handle_non_retryable_error(
+                e, path, "upload", NonRetryableUploadTableError, 
+                f"and content_type={content_type}"
             )
-            raise NonRetryableUploadTableError(
-                f"Upload has failed for {path} and content_type={content_type} because of {type(e).__name__}: {e}",
-            ) from e
     return manifest_entries
 
 
@@ -714,6 +703,100 @@ def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
 
 
+def _extract_content_metadata(manifest_entry: ManifestEntry) -> Tuple[ContentType, ContentEncoding, str]:
+    """Extract content type, encoding, and path from manifest entry."""
+    content_type = manifest_entry.meta.content_type
+    assert content_type, f"Unknown content type for manifest entry: {manifest_entry}"
+    content_type = ContentType(content_type)
+    
+    content_encoding = manifest_entry.meta.content_encoding
+    assert content_encoding, f"Unknown content encoding for manifest entry: {manifest_entry}"
+    content_encoding = ContentEncoding(content_encoding)
+    
+    path = manifest_entry.uri
+    if path is None:
+        path = manifest_entry.url
+        
+    return content_type, content_encoding, path
+
+
+def _extract_partial_download_params(manifest_entry: ManifestEntry) -> Optional[PartialFileDownloadParams]:
+    """Extract partial file download parameters from manifest entry."""
+    if not manifest_entry.meta or not manifest_entry.meta.content_type_parameters:
+        return None
+        
+    for type_params in manifest_entry.meta.content_type_parameters:
+        if isinstance(type_params, PartialFileDownloadParams):
+            return type_params
+    return None
+
+
+def _create_retry_wrapper():
+    """Create a standardized retry wrapper for file operations."""
+    return Retrying(
+        wait=wait_random_exponential(multiplier=1, max=60),
+        stop=stop_after_delay(DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY),
+        retry=retry_if_exception_type(RetryableError),
+    )
+
+
+def _process_file_path_column(
+    include_columns: Optional[List[str]], 
+    file_path_column: Optional[str]
+) -> Optional[List[str]]:
+    """Process include_columns to filter out synthetic file_path_column."""
+    if file_path_column and include_columns:
+        return [col for col in include_columns if col != file_path_column]
+    return include_columns
+
+
+def _prepare_download_arguments(
+    table_type: DatasetType,
+    column_names: Optional[List[str]],
+    include_columns: Optional[List[str]],
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider],
+    file_path_column: Optional[str],
+    **kwargs
+) -> Dict[str, Any]:
+    """Prepare standardized arguments for download operations."""
+    reader_kwargs = _filter_kwargs(kwargs)
+    processed_include_columns = _process_file_path_column(include_columns, file_path_column)
+    
+    return {
+        'table_type': table_type,
+        'column_names': column_names,
+        'include_columns': processed_include_columns,
+        'file_reader_kwargs_provider': file_reader_kwargs_provider,
+        'file_path_column': file_path_column,
+        **reader_kwargs
+    }
+
+
+def _handle_retryable_error(e: Exception, path: str, operation: str, error_class: type):
+    """Handle retryable errors with standardized error message."""
+    raise error_class(
+        f"Retry {operation} for: {path} after receiving {type(e).__name__}: {e}"
+    ) from e
+
+
+def _handle_non_retryable_error(
+    e: Exception, 
+    path: str, 
+    operation: str, 
+    error_class: type,
+    extra_context: str = ""
+):
+    """Handle non-retryable errors with logging and standardized error message."""
+    context = f" {extra_context}" if extra_context else ""
+    logger.warning(
+        f"{operation.title()} has failed for {path}{context}. Error: {e}",
+        exc_info=True,
+    )
+    raise error_class(
+        f"{operation.title()} has failed for {path}{context}: Error: {e}"
+    ) from e
+
+
 def download_manifest_entries(
     manifest: Manifest,
     table_type: DatasetType = DatasetType.PYARROW,
@@ -757,21 +840,18 @@ def _download_manifest_entries(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
+    download_args = _prepare_download_arguments(
+        table_type, 
+        column_names, 
+        include_columns, 
+        file_reader_kwargs_provider, 
+        file_path_column, 
+        **kwargs,
+    )
     result = []
     for e in manifest.entries:
         manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
-        reader_kwargs = _filter_kwargs(kwargs)
-        result.append(
-            download_manifest_entry(
-                manifest_entry=manifest_entry,
-                table_type=table_type,
-                column_names=column_names,
-                include_columns=include_columns,
-                file_reader_kwargs_provider=file_reader_kwargs_provider,
-                file_path_column=file_path_column,
-                **reader_kwargs,  # Pass through filtered kwargs for custom reader args
-            ),
-        )
+        result.append(download_manifest_entry(manifest_entry=manifest_entry, **download_args))
     
     return result
 
@@ -787,7 +867,7 @@ def download_manifest_entry_ray(
     content_encoding: Optional[ContentEncoding] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
     file_path_column: Optional[str] = None,
-    **kwargs,  # Accept additional kwargs like include_paths
+    **kwargs,
 ) -> LocalTable:
     """
     Ray remote function for downloading manifest entries.
@@ -807,10 +887,9 @@ def download_manifest_entry_ray(
         **kwargs,
     )
 
-    # If table_type is POLARS, convert to Arrow for Ray dataset compatibility
+    # Convert Polars DataFrame to Arrow Table for Ray dataset compatibility
     if table_type == DatasetType.POLARS:
         if isinstance(result, pl.DataFrame):
-            # Convert Polars DataFrame to PyArrow Table
             result = result.to_arrow()
 
     return result
@@ -863,7 +942,7 @@ def _download_manifest_entries_ray_data_distributed(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
     file_path_column: Optional[str] = None,
-    **kwargs,  # Accept kwargs for consistency
+    **kwargs,
 ) -> DistributedDataset:
     
     table_pending_ids = []
@@ -881,30 +960,14 @@ def _download_manifest_entries_ray_data_distributed(
             file_path_column=file_path_column,
             **kwargs,  # Pass through kwargs like include_paths
         )
-    return TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS[table_type.value](table_pending_ids)
+    create_func = _get_table_type_function(table_type, TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS, "dataset create")
+    return create_func(table_pending_ids)
 
 
-def _download_manifest_entries_all_dataset_distributed(
-    manifest: Manifest,
-    table_type: DatasetType = DatasetType.PYARROW,
-    max_parallelism: Optional[int] = 1000,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-    distributed_dataset_type: Optional[
-        DistributedDatasetType
-    ] = DistributedDatasetType.RAY_DATASET,
-    file_path_column: Optional[str] = None,
-    **kwargs,
-) -> DistributedDataset:
-
+def _validate_manifest_consistency(manifest: Manifest) -> Tuple[str, str]:
+    """Validate that all manifest entries have consistent content type and encoding."""
     entry_content_type = None
     entry_content_encoding = None
-    uris = []
-    
-    from deltacat.catalog import get_catalog_properties
-    catalog_properties = get_catalog_properties(**kwargs)
     
     for entry in manifest.entries or []:
         if (
@@ -928,26 +991,60 @@ def _download_manifest_entries_all_dataset_distributed(
         entry_content_type = entry.meta.content_type
         entry_content_encoding = entry.meta.content_encoding
         
+    return entry_content_type, entry_content_encoding
+
+
+def _collect_manifest_uris(manifest: Manifest, **kwargs) -> List[str]:
+    """Collect and reconstruct URIs from manifest entries."""
+    from deltacat.catalog import get_catalog_properties
+    catalog_properties = get_catalog_properties(**kwargs)
+    
+    uris = []
+    for entry in manifest.entries or []:
         full_uri = catalog_properties.reconstruct_full_path(entry.uri)
         uris.append(full_uri)
+    return uris
 
-    if distributed_dataset_type.value in DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC:
-        reader_kwargs = _filter_kwargs(kwargs)
-        return DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value](
-            uris=uris,
-            content_type=entry_content_type,
-            content_encoding=entry_content_encoding,
-            column_names=column_names,
-            include_columns=include_columns,
-            read_func_kwargs_provider=file_reader_kwargs_provider,
-            ray_options_provider=ray_options_provider,
-            file_path_column=file_path_column,
-            **reader_kwargs,  # Pass through filtered kwargs (like io_config)
-        )
-    else:
+
+def _download_manifest_entries_all_dataset_distributed(
+    manifest: Manifest,
+    table_type: DatasetType = DatasetType.PYARROW,
+    max_parallelism: Optional[int] = 1000,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
+    distributed_dataset_type: Optional[
+        DistributedDatasetType
+    ] = DistributedDatasetType.RAY_DATASET,
+    file_path_column: Optional[str] = None,
+    **kwargs,
+) -> DistributedDataset:
+    # Validate manifest consistency and collect URIs
+    entry_content_type, entry_content_encoding = _validate_manifest_consistency(manifest)
+    uris = _collect_manifest_uris(manifest, **kwargs)
+
+    reader_kwargs = _filter_kwargs(kwargs)
+    
+    try:
+        reader_func = DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value]
+    except KeyError:
         raise ValueError(
-            f"Unsupported distributed dataset type={distributed_dataset_type}"
+            f"Unsupported distributed dataset type={distributed_dataset_type}. "
+            f"Supported types: {list(DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC.keys())}"
         )
+    
+    return reader_func(
+        uris=uris,
+        content_type=entry_content_type,
+        content_encoding=entry_content_encoding,
+        column_names=column_names,
+        include_columns=include_columns,
+        read_func_kwargs_provider=file_reader_kwargs_provider,
+        ray_options_provider=ray_options_provider,
+        file_path_column=file_path_column,
+        **reader_kwargs,
+    )
 
 
 def _download_manifest_entries_parallel(
@@ -960,6 +1057,15 @@ def _download_manifest_entries_parallel(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
+    download_args = _prepare_download_arguments(
+        table_type, 
+        column_names, 
+        include_columns, 
+        file_reader_kwargs_provider, 
+        file_path_column, 
+        **kwargs,
+    )
+    
     entries_to_process = []
     for e in manifest.entries:
         manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
@@ -968,17 +1074,7 @@ def _download_manifest_entries_parallel(
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
     
-    reader_kwargs = _filter_kwargs(kwargs)
-    
-    downloader = partial(
-        download_manifest_entry,
-        table_type=table_type,
-        column_names=column_names,
-        include_columns=include_columns,
-        file_reader_kwargs_provider=file_reader_kwargs_provider,
-        file_path_column=file_path_column,
-        **reader_kwargs,  # Pass through filtered kwargs for custom reader arguments
-    )
+    downloader = partial(download_manifest_entry, **download_args)
     for table in pool.map(downloader, entries_to_process):
         tables.append(table)
     return tables
@@ -994,45 +1090,22 @@ def download_manifest_entry(
     content_encoding: Optional[ContentEncoding] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
     file_path_column: Optional[str] = None,
-    **kwargs,  # Accept additional kwargs for custom reader arguments
+    **kwargs,
 ) -> LocalTable:
-    if not content_type:
-        content_type = manifest_entry.meta.content_type
-        assert (
-            content_type
-        ), f"Unknown content type for manifest entry: {manifest_entry}"
-        content_type = ContentType(content_type)
-    if not content_encoding:
-        content_encoding = manifest_entry.meta.content_encoding
-        assert (
-            content_encoding
-        ), f"Unknown content encoding for manifest entry: {manifest_entry}"
-        content_encoding = ContentEncoding(content_encoding)
-    path = manifest_entry.uri
-    if path is None:
-        path = manifest_entry.url
+    # Extract manifest metadata
+    extracted_content_type, extracted_content_encoding, path = _extract_content_metadata(manifest_entry)
+    content_type = content_type or extracted_content_type
+    content_encoding = content_encoding or extracted_content_encoding
 
-    partial_file_download_params = None
-
-    if manifest_entry.meta and manifest_entry.meta.content_type_parameters:
-        for type_params in manifest_entry.meta.content_type_parameters:
-            if isinstance(type_params, PartialFileDownloadParams):
-                partial_file_download_params = type_params
-                break
+    # Extract partial download parameters
+    partial_file_download_params = _extract_partial_download_params(manifest_entry)
  
+    # Filter kwargs and process file path column
     reader_kwargs = _filter_kwargs(kwargs)
-    
-    # Filter out file_path_column from include_columns if present, since it's populated after reading the file
-    if file_path_column and include_columns:
-        include_columns = [col for col in include_columns if col != file_path_column]
+    processed_include_columns = _process_file_path_column(include_columns, file_path_column)
      
-    # @retry decorator can't be pickled by Ray, so wrap download in Retrying
-    retrying = Retrying(
-        wait=wait_random_exponential(multiplier=1, max=60),
-        stop=stop_after_delay(DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY),
-        retry=retry_if_exception_type(RetryableError),
-    )
-
+    # Create retry wrapper and read file
+    retrying = _create_retry_wrapper()
     table = retrying(
         read_file,
         path,
@@ -1040,20 +1113,16 @@ def download_manifest_entry(
         content_encoding,
         table_type,
         column_names,
-        include_columns,
+        processed_include_columns,
         file_reader_kwargs_provider,
         partial_file_download_params,
         filesystem,
-        **reader_kwargs,  # Pass through filtered kwargs for custom reader arguments
+        **reader_kwargs,
     )
     
     # Add file path column if requested
     if file_path_column:
-        table = append_column_to_table(
-            table, 
-            file_path_column, 
-            manifest_entry.uri, 
-        )
+        table = append_column_to_table(table, file_path_column, manifest_entry.uri)
 
     return table
 
@@ -1069,7 +1138,7 @@ def read_file(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    **kwargs,  # Accept additional kwargs for custom reader arguments
+    **kwargs,
 ) -> LocalTable:
 
     reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
@@ -1083,20 +1152,13 @@ def read_file(
             include_columns,
             file_reader_kwargs_provider,
             partial_file_download_params,
-            **kwargs,  # Pass through additional kwargs for custom reader arguments
+            **kwargs,
         )
         return table
     except RETRYABLE_TRANSIENT_ERRORS as e:
-        raise RetryableDownloadTableError(
-            f"Retry download for: {path} after receiving {type(e).__name__}: {e}"
-        ) from e
+        _handle_retryable_error(e, path, "download", RetryableDownloadTableError)
     except BaseException as e:
-        logger.warning(
-            f"Read has failed for {path} and content_type={content_type} "
-            f"and encoding={content_encoding}. Error: {e}",
-            exc_info=True,
+        _handle_non_retryable_error(
+            e, path, "read", NonRetryableDownloadTableError, 
+            f"and content_type={content_type} and encoding={content_encoding}"
         )
-        raise NonRetryableDownloadTableError(
-            f"Read has failed for {path} and content_type={content_type} "
-            f"and encoding={content_encoding}: Error: {e}",
-        ) from e
