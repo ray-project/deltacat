@@ -390,6 +390,42 @@ class Field(dict):
             metadata=meta,
         )
 
+    def validate_data(self, column_data: pa.Array) -> None:
+        """Validate that data in a column matches this field's type and constraints.
+        
+        Args:
+            column_data: PyArrow Array containing the column data to validate
+            
+        Raises:
+            ValueError: If data doesn't match field requirements.
+        """
+        # Check if the data type matches the field type
+        if not column_data.type.equals(self.arrow.type):
+            raise ValueError(
+                f"Data type mismatch for field '{self.arrow.name}': "
+                f"expected {self.arrow.type}, got {column_data.type}"
+            )
+    
+    def coerce_data(self, column_data: pa.Array) -> pa.Array:
+        """Coerce data in a column to match this field's type.
+        
+        Args:
+            column_data: PyArrow Array containing the column data to coerce
+            
+        Returns:
+            pa.Array: Coerced data matching this field's type
+            
+        Raises:
+            ValueError: If data cannot be coerced to the field type
+        """
+        try:
+            return pa.compute.cast(column_data, self.arrow.type)
+        except (pa.ArrowTypeError, pa.ArrowInvalid) as e:
+            raise ValueError(
+                f"Cannot coerce data for field '{self.arrow.name}' "
+                f"from {column_data.type} to {self.arrow.type}: {e}"
+            )
+
 
 SingleSchema = Union[List[Field], pa.Schema]
 MultiSchema = Union[Dict[SchemaName, List[Field]], Dict[SchemaName, pa.Schema]]
@@ -852,6 +888,65 @@ class Schema(dict):
                 ]
             return pa.unify_schemas(all_schemas), subschema_to_field_names
         return Schema._to_pyarrow_schema(schema), {}  # SingleSchema
+
+    def validate_and_coerce_table(self, table: pa.Table) -> pa.Table:
+        """Validate and coerce a PyArrow table to match this schema's field types and constraints.
+        
+        Args:
+            table: PyArrow Table to validate and coerce
+            
+        Returns:
+            pa.Table: Table with data validated/coerced according to schema consistency types
+            
+        Raises:
+            ValueError: If validation fails or coercion is not possible
+        """
+        if not self.field_ids_to_fields:
+            # No fields defined in schema, return original table
+            return table
+        
+        # Create a mapping from field names to Field objects
+        field_name_to_field = {}
+        for field in self.field_ids_to_fields.values():
+            field_name_to_field[field.arrow.name] = field
+        
+        # Process each column in the table
+        new_columns = []
+        new_schema_fields = []
+        
+        for column_name in table.column_names:
+            column_data = table.column(column_name)
+            
+            if column_name in field_name_to_field:
+                # Field exists in schema - validate/coerce according to consistency type
+                field = field_name_to_field[column_name]
+                
+                if field.consistency_type == SchemaConsistencyType.VALIDATE:
+                    field.validate_data_against_field(column_data)
+                    new_columns.append(column_data)
+                    new_schema_fields.append(field.arrow)
+                elif field.consistency_type == SchemaConsistencyType.COERCE:
+                    coerced_data = field.coerce_data_to_field(column_data)
+                    new_columns.append(coerced_data)
+                    new_schema_fields.append(field.arrow)
+                else:
+                    # NONE or no consistency type - pass through as-is
+                    new_columns.append(column_data)
+                    new_schema_fields.append(field.arrow)
+            else:
+                # Field not in schema - keep as-is (this allows extra columns)
+                new_columns.append(column_data)
+                new_schema_fields.append(pa.field(column_name, column_data.type))
+        
+        # Add any missing fields from schema as null columns
+        table_column_names = set(table.column_names)
+        for field in self.field_ids_to_fields.values():
+            if field.arrow.name not in table_column_names:
+                null_column = pa.nulls(len(table), type=field.arrow.type)
+                new_columns.append(null_column)
+                new_schema_fields.append(field.arrow)
+        
+        return pa.table(new_columns, schema=pa.schema(new_schema_fields))
 
     @staticmethod
     def _del_subschema(

@@ -420,13 +420,18 @@ def write_to_table(
     # Convert data to supported format
     converted_data = _convert_data_if_needed(data)
 
+    # Validate and coerce data against schema if schema consistency types are set
+    validated_data = _validate_and_coerce_data_against_schema(
+        converted_data, table_version_obj.schema
+    )
+
     # Copy existing deltas if needed for compaction
     if staged_partition_for_compaction:
         _copy_existing_deltas_for_compaction(stream, staged_partition_for_compaction, **kwargs)
 
     # Stage and commit delta, handle compaction
     _stage_commit_and_compact(
-        converted_data, partition, delta_type, content_type, commit_staged_partition,
+        validated_data, partition, delta_type, content_type, commit_staged_partition,
         table_version_obj, staged_partition_for_compaction, namespace, table, **kwargs
     )
     
@@ -591,6 +596,74 @@ def _convert_data_if_needed(data: Dataset) -> Dataset:
             return data.to_arrow()
     
     return data
+
+
+def _validate_and_coerce_data_against_schema(
+    data: Dataset, 
+    schema: Optional[Schema]
+) -> Dataset:
+    """Validate and coerce data against the table schema if schema consistency types are set.
+    
+    Args:
+        data: The dataset to validate/coerce
+        schema: The DeltaCAT schema to validate against (optional)
+        
+    Returns:
+        Dataset: Validated/coerced data
+        
+    Raises:
+        ValueError: If validation fails or coercion is not possible
+    """
+    if not schema:
+        return data
+    
+    # Convert data to PyArrow table for validation
+    if isinstance(data, pa.Table):
+        pa_table = data
+    elif isinstance(data, pd.DataFrame):
+        pa_table = pa.Table.from_pandas(data)
+    elif isinstance(data, pl.DataFrame):
+        pa_table = data.to_arrow()
+    elif isinstance(data, np.ndarray):
+        # Convert numpy array to PyArrow table
+        if data.ndim == 1:
+            pa_table = pa.table([data], names=[f"column_0"])
+        elif data.ndim == 2:
+            column_names = [f"column_{i}" for i in range(data.shape[1])]
+            pa_table = pa.table([data[:, i] for i in range(data.shape[1])], names=column_names)
+        else:
+            raise ValueError(f"NumPy arrays with {data.ndim} dimensions are not supported")
+    elif isinstance(data, rd.Dataset):
+        # For Ray Dataset, we can't easily validate without converting to PyArrow
+        # For now, skip validation for Ray datasets
+        logger.warning("Schema validation skipped for Ray Dataset - not yet supported")
+        return data
+    elif isinstance(data, daft.DataFrame):
+        pa_table = data.to_arrow()
+    else:
+        # Unknown data type, skip validation
+        logger.warning(f"Schema validation skipped for unsupported data type: {type(data)}")
+        return data
+    
+    # Validate and coerce the table against the schema
+    validated_table = schema.validate_and_coerce_table(pa_table)
+    
+    # Convert back to original data type if needed
+    if isinstance(data, pa.Table):
+        return validated_table
+    elif isinstance(data, pd.DataFrame):
+        return validated_table.to_pandas()
+    elif isinstance(data, pl.DataFrame):
+        return pl.from_arrow(validated_table)
+    elif isinstance(data, np.ndarray):
+        if validated_table.num_columns == 1:
+            return validated_table.column(0).to_numpy()
+        else:
+            return validated_table.to_pandas().values
+    elif isinstance(data, daft.DataFrame):
+        return daft.from_arrow(validated_table)
+    else:
+        return validated_table
 
 
 def _copy_existing_deltas_for_compaction(

@@ -22,6 +22,7 @@ from deltacat.types.media import DatasetType, ContentType, DistributedDatasetTyp
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import metastore
 from deltacat.storage.model.schema import Schema, Field
+from deltacat.storage.model.types import SchemaConsistencyType
 from deltacat.storage.model.table import TableProperties
 from deltacat.types.tables import TableWriteMode, TableProperty, TableReadOptimizationLevel, TablePropertyDefaultValues
 from deltacat.exceptions import DeltaCatError, ValidationError
@@ -1586,6 +1587,113 @@ class TestTableVersionWriteModes:
                         table_version=table_version,
                         mode=mode
                     )
+
+    def test_schema_validation_and_coercion(self):
+        """Test schema validation and coercion functionality with different consistency types."""
+        
+        namespace = 'test_ns'
+        
+        # Test data with type mismatches that can be coerced
+        test_data_coercible = pa.table({
+            'id': [1, 2, 3],  # int64, should coerce to int32
+            'name': ['alice', 'bob', 'charlie'],  # string
+            'score': [95.5, 87.2, 92.1],  # float64, should coerce to float32
+        })
+        
+        # Test data with type mismatches that cannot be coerced
+        test_data_incompatible = pa.table({
+            'id': ['not_a_number', 'invalid', 'bad'],  # string, cannot coerce to int32
+            'name': ['alice', 'bob', 'charlie'],  # string
+            'score': [95.5, 87.2, 92.1],  # float64
+        })
+        
+        # Test 1: Schema with COERCE consistency type
+        coerce_schema = Schema.of([
+            Field.of(pa.field("id", pa.int32()), consistency_type=SchemaConsistencyType.COERCE),
+            Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.NONE),
+            Field.of(pa.field("score", pa.float32()), consistency_type=SchemaConsistencyType.COERCE),
+        ])
+        
+        # Should succeed - data can be coerced
+        dc.write_to_table(
+            test_data_coercible,
+            'coerce_test_table',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            schema=coerce_schema
+        )
+        print("✅ COERCE mode with compatible data types")
+        
+        # Test 2: Schema with VALIDATE consistency type
+        validate_schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
+            Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE),
+            Field.of(pa.field("score", pa.float64()), consistency_type=SchemaConsistencyType.VALIDATE),
+        ])
+        
+        # Should succeed - data types match exactly
+        dc.write_to_table(
+            test_data_coercible,
+            'validate_test_table',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            schema=validate_schema
+        )
+        print("✅ VALIDATE mode with exact type match")
+        
+        # Test 3: Schema with NONE consistency type (should always work)
+        none_schema = Schema.of([
+            Field.of(pa.field("id", pa.int32()), consistency_type=SchemaConsistencyType.NONE),
+            Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.NONE),
+            Field.of(pa.field("score", pa.float32()), consistency_type=SchemaConsistencyType.NONE),
+        ])
+        
+        # Should succeed - no validation performed
+        dc.write_to_table(
+            test_data_coercible,
+            'none_test_table',
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            schema=none_schema
+        )
+        print("✅ NONE consistency type (no validation)")
+        
+        # Test 4: COERCE should fail when types cannot be coerced
+        try:
+            dc.write_to_table(
+                test_data_incompatible,
+                'coerce_fail_table',
+                catalog=self.catalog_name,
+                namespace=namespace,
+                mode=TableWriteMode.CREATE,
+                schema=coerce_schema
+            )
+            assert False, "Expected coercion to fail with incompatible data"
+        except Exception as e:
+            print(f"✅ COERCE mode correctly failed with incompatible data: {type(e).__name__}")
+        
+        # Test 5: VALIDATE should fail when types don't match exactly
+        mismatch_schema = Schema.of([
+            Field.of(pa.field("id", pa.int32()), consistency_type=SchemaConsistencyType.VALIDATE),  # Expects int32 but gets int64
+            Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE),
+            Field.of(pa.field("score", pa.float32()), consistency_type=SchemaConsistencyType.VALIDATE),  # Expects float32 but gets float64
+        ])
+        
+        try:
+            dc.write_to_table(
+                test_data_coercible,  # This has int64 and float64, but schema expects int32 and float32
+                'validate_fail_table',
+                catalog=self.catalog_name,
+                namespace=namespace,
+                mode=TableWriteMode.CREATE,
+                schema=mismatch_schema
+            )
+            assert False, "Expected validation to fail with type mismatch"
+        except Exception as e:
+            print(f"✅ VALIDATE mode correctly failed with type mismatch: {type(e).__name__}")
  
     def test_backward_compatibility(self):
         """Test that existing behavior is preserved when table_version is not specified."""
