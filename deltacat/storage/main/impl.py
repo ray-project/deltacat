@@ -121,7 +121,10 @@ def _list(
     
     if transaction is not None:
         # Add the read operation to the existing transaction and return the result
-        return transaction.step(operation)
+        return transaction.step(
+            operation, 
+            txn_type=TransactionType.READ,
+        )
     else:
         # Create and commit a new transaction (legacy behavior)
         new_transaction = Transaction.of(
@@ -194,12 +197,14 @@ def _resolve_latest_table_version_id(
     table_name: str,
     fail_if_no_active_table_version: True,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[str]:
     table = get_table(
         *args,
         namespace=namespace,
         table_name=table_name,
+        transaction=transaction,
         **kwargs,
     )
     if not table:
@@ -809,6 +814,7 @@ def download_delta(
     distributed_dataset_type: DistributedDatasetType = DistributedDatasetType.RAY_DATASET,
     file_path_column: Optional[str] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
@@ -845,11 +851,18 @@ def download_delta(
     if is_delta and delta_like.manifest:
         manifest = delta_like.manifest
     else:
-        manifest = get_delta_manifest(delta_locator, **kwargs)
+        manifest = get_delta_manifest(
+            delta_locator, 
+            transaction=transaction,
+            *args,
+            **kwargs,
+        )
     all_column_names = get_table_version_column_names(
         delta_locator.namespace,
         delta_locator.table_name,
         delta_locator.table_version,
+        transaction=transaction,
+        *args,
         **kwargs,
     )
     if columns:
@@ -1021,30 +1034,38 @@ def create_namespace(
     namespace: str,
     properties: Optional[NamespaceProperties] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Namespace:
     """
     Creates a table namespace with the given name and properties. Returns
     the created namespace.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.APPEND
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=txn_type,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+    
     namespace = Namespace.of(
         locator=NamespaceLocator.of(namespace=namespace),
         properties=properties,
     )
-    transaction = Transaction.of(
-        txn_type=TransactionType.APPEND,
-        txn_operations=[
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=namespace,
-            )
-        ],
+    
+    # Add the operation to the transaction
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=namespace,
+        ),
+        txn_type=txn_type,
     )
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+    
+    if commit_transaction:
+        transaction.seal()
     return namespace
 
 
@@ -1106,6 +1127,7 @@ def create_table_version(
     table_properties: Optional[TableProperties] = None,
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Tuple[Table, TableVersion, Stream]:
     """
@@ -1119,9 +1141,19 @@ def create_table_version(
 
     Raises an error if the given namespace does not exist.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.APPEND
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=txn_type,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+    
     if not namespace_exists(
         *args,
         namespace=namespace,
+        transaction=transaction,
         **kwargs,
     ):
         raise ValueError(f"Namespace {namespace} does not exist")
@@ -1143,7 +1175,6 @@ def create_table_version(
     )
     if not prev_table:
         # no parent table exists, so we'll create it in this transaction
-        txn_type = TransactionType.APPEND
         table_txn_op_type = TransactionOperationType.CREATE
         prev_table = None
         new_table = Table.of(
@@ -1210,28 +1241,32 @@ def create_table_version(
         previous_stream_id=None,
         watermark=None,
     )
-    transaction = Transaction.of(
+    # Add operations to the transaction
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=table_txn_op_type,
+            dest_metafile=new_table,
+            src_metafile=prev_table,
+        ),
         txn_type=txn_type,
-        txn_operations=[
-            TransactionOperation.of(
-                operation_type=table_txn_op_type,
-                dest_metafile=new_table,
-                src_metafile=prev_table,
-            ),
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=table_version,
-            ),
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=stream,
-            ),
-        ],
     )
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=table_version,
+        ),
+        txn_type=txn_type,
     )
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=stream,
+        ),
+        txn_type=txn_type,
+    )
+    
+    if commit_transaction:
+        transaction.seal()
     return new_table, table_version, stream
 
 
@@ -1312,10 +1347,11 @@ def update_table_version(
                     creating and committing a new transaction.
     """
     commit_transaction = transaction is None
+    txn_type = TransactionType.ALTER
     if commit_transaction:
         catalog_properties = get_catalog_properties(**kwargs)
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
+            txn_type=txn_type,
             txn_operations=[],
         ).start(catalog_properties.root, catalog_properties.filesystem)
     old_table_version = get_table_version(
@@ -1431,6 +1467,7 @@ def update_table_version(
                     dest_metafile=new_table,
                     src_metafile=old_table,
                 ),
+                txn_type=txn_type,
             )
     transaction.step(
         TransactionOperation.of(
@@ -1438,6 +1475,7 @@ def update_table_version(
             dest_metafile=new_table_version,
             src_metafile=old_table_version,
         ),
+        txn_type=txn_type,
     )
     # TODO(pdames): Push changes down to non-deltacat streams via sync module.
     #   Also copy sort scheme changes down to deltacat child stream?
@@ -1458,6 +1496,7 @@ def update_table_version(
                 dest_metafile=new_stream,
                 src_metafile=old_stream,
             ),
+            txn_type=txn_type,
         )
     if commit_transaction:
         catalog_properties = get_catalog_properties(**kwargs)
@@ -1470,6 +1509,7 @@ def stage_stream(
     table_version: Optional[str] = None,
     stream_format: StreamFormat = StreamFormat.DELTACAT,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Stream:
     """
@@ -1481,11 +1521,21 @@ def stage_stream(
     Returns the staged stream. Raises an error if the table version does not
     exist.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.APPEND
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=txn_type,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+    
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
             *args,
             namespace=namespace,
             table_name=table_name,
+            transaction=transaction,
             **kwargs,
         )
     table_version_meta = get_table_version(
@@ -1493,6 +1543,7 @@ def stage_stream(
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
+        transaction=transaction,
         **kwargs,
     )
     if not table_version_meta:
@@ -1519,6 +1570,7 @@ def stage_stream(
         table_name=stream.table_name,
         table_version=stream.table_version,
         stream_format=stream.stream_format,
+        transaction=transaction,
         **kwargs,
     )
     if prev_stream:
@@ -1527,26 +1579,24 @@ def stage_stream(
                 f"Stream to stage has the same ID as existing stream: {prev_stream}."
             )
         stream.previous_stream_id = prev_stream.stream_id
-    transaction = Transaction.of(
-        txn_type=TransactionType.APPEND,
-        txn_operations=[
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=stream,
-            )
-        ],
+    # Add the operation to the transaction
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=stream,
+        ),
+        txn_type=txn_type,
     )
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+    
+    if commit_transaction:
+        transaction.seal()
     return stream
 
 
 def commit_stream(
     stream: Stream,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Stream:
     """
@@ -1554,6 +1604,15 @@ def commit_stream(
     previous stream registered for the same table version. Returns the
     committed stream.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.ALTER
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=txn_type,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+    
     if not stream.stream_id:
         raise ValueError("Stream ID to commit must be set to a staged stream ID.")
     if not stream.table_version_locator:
@@ -1565,6 +1624,7 @@ def commit_stream(
         *args,
         table_version_locator=stream.table_version_locator,
         stream_id=stream.stream_id,
+        transaction=transaction,
         **kwargs,
     )
     if not prev_staged_stream:
@@ -1597,17 +1657,23 @@ def commit_stream(
         table_name=stream.table_name,
         table_version=stream.table_version,
         stream_format=stream.stream_format,
+        transaction=transaction,
         **kwargs,
     )
+    if prev_committed_stream:
+        # there's a previously committed stream, so update the transaction
+        # type to overwrite the previously committed stream
+        txn_type = TransactionType.OVERWRITE
+
     # the first transaction operation updates the staged stream commit state
-    txn_type = TransactionType.ALTER
-    txn_ops = [
+    transaction.step(
         TransactionOperation.of(
             operation_type=TransactionOperationType.UPDATE,
             dest_metafile=stream,
             src_metafile=prev_staged_stream,
-        )
-    ]
+        ),
+        txn_type=txn_type,
+    )
     if prev_committed_stream:
         if prev_committed_stream.stream_id != stream.previous_stream_id:
             raise ValueError(
@@ -1619,26 +1685,18 @@ def commit_stream(
             raise ValueError(
                 f"Stream to commit has the same ID as existing stream: {prev_committed_stream}."
             )
-        # there's a previously committed stream, so update the transaction
-        # type to overwrite the previously committed stream, and add another
-        # transaction operation to replace it with the staged stream
-        txn_type = TransactionType.OVERWRITE
-        txn_ops.append(
+        # add another transaction operation to replace the previously committed stream 
+        # with the staged stream
+        transaction.step(
             TransactionOperation.of(
                 operation_type=TransactionOperationType.UPDATE,
                 dest_metafile=stream,
                 src_metafile=prev_committed_stream,
-            )
-        )
-    transaction = Transaction.of(
-        txn_type=txn_type,
-        txn_operations=txn_ops,
-    )
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+            ),
+            txn_type=txn_type,
+        ) 
+    if commit_transaction:
+        transaction.seal()
     return stream
 
 
@@ -1884,6 +1942,7 @@ def stage_partition(
     partition_values: Optional[PartitionValues] = None,
     partition_scheme_id: Optional[str] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Partition:
     """
@@ -1896,6 +1955,15 @@ def stage_partition(
     The partition_values must represent the results of transforms in a partition
     spec specified in the stream.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.APPEND
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=txn_type,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+
     # TODO(pdames): Cache last retrieved metafile revisions in memory to resolve
     #   potentially high cost of staging many partitions.
     table_version = get_table_version(
@@ -1903,6 +1971,7 @@ def stage_partition(
         namespace=stream.namespace,
         table_name=stream.table_name,
         table_version=stream.table_version,
+        transaction=transaction,
         **kwargs,
     )
     if not table_version:
@@ -1972,6 +2041,7 @@ def stage_partition(
         stream_locator=stream.locator,
         partition_values=partition_values,
         partition_scheme_id=partition_scheme_id,
+        transaction=transaction,
         **kwargs,
     )
     prev_partition_id = prev_partition.partition_id if prev_partition else None
@@ -1982,20 +2052,18 @@ def stage_partition(
             f"Partition to stage has the same ID as previous partition: {prev_partition_id}."
         )
     partition.previous_partition_id = prev_partition_id
-    transaction = Transaction.of(
-        txn_type=TransactionType.APPEND,
-        txn_operations=[
-            TransactionOperation.of(
-                operation_type=TransactionOperationType.CREATE,
-                dest_metafile=partition,
-            )
-        ],
+    
+    # Add the operation to the transaction
+    transaction.step(
+        TransactionOperation.of(
+            operation_type=TransactionOperationType.CREATE,
+            dest_metafile=partition,
+        ),
+        txn_type=txn_type,
     )
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+    
+    if commit_transaction:
+        transaction.seal()
     return partition
 
 
@@ -2004,6 +2072,7 @@ def commit_partition(
     previous_partition: Optional[Partition] = None,
     expected_previous_partition_id: Optional[str] = UNKNOWN_PARTITION_ID,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Partition:
     """
@@ -2034,6 +2103,15 @@ def commit_partition(
     specified, then the commit will be rejected if it does not match the actual
     ID of the partition being replaced.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.ALTER
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=txn_type,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+    
     if previous_partition:
         raise NotImplementedError(
             f"delta prepending from previous partition {previous_partition} "
@@ -2048,12 +2126,6 @@ def commit_partition(
         )
     
     # Start a single multi-step transaction for all operations (both read and write)
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction = Transaction.of(
-        txn_type=TransactionType.ALTER,  # Start with ALTER, will update based on read results
-        txn_operations=[],
-    ).start(catalog_properties.root, catalog_properties.filesystem)
-    
     # Step 1: Get the staged partition using transaction
     prev_staged_partition = get_partition_by_id(
         *args,
@@ -2101,7 +2173,7 @@ def commit_partition(
     if prev_committed_partition:
         # TODO(pdames): Add previous partition stream position validation.
         # Update transaction type based on what we found
-        transaction.type = TransactionType.OVERWRITE
+        txn_type = TransactionType.OVERWRITE
         if prev_committed_partition.partition_id == partition.partition_id:
             raise ValueError(
                 f"Partition to commit has the same ID as existing partition: "
@@ -2126,6 +2198,7 @@ def commit_partition(
             dest_metafile=partition,
             src_metafile=prev_staged_partition,
         ),
+        txn_type=txn_type,
     )
     
     # If there's a previously committed partition, we need to replace it too
@@ -2135,11 +2208,12 @@ def commit_partition(
                 operation_type=TransactionOperationType.UPDATE,
                 dest_metafile=partition,
                 src_metafile=prev_committed_partition,
-        ),
-    )
+            ),
+            txn_type=txn_type,
+        )
     
-    # Step 5: Seal the transaction as committed
-    transaction.seal()
+    if commit_transaction:
+        transaction.seal()
     
     return partition
 
@@ -2367,7 +2441,7 @@ def stage_delta(
     schema consistency policies configured for the parent table version.
     """
     # TODO(pdames): Validate that equality delete entry types either have
-    #  entry params specified, or are being added to a table with merge keys.
+    #  entry params specified, or are being added to a table with merge keys. 
     if not partition.is_supported_content_type(content_type):
         raise ValueError(
             f"Content type {content_type} is not supported by "
@@ -2401,7 +2475,7 @@ def stage_delta(
     return staged_delta
 
 
-def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
+def commit_delta(delta: Delta, *args, transaction: Optional[Transaction] = None, **kwargs) -> Delta:
     """
     Registers a new delta with its associated target table version and
     partition. Returns the registered delta. If the delta's previous stream
@@ -2410,6 +2484,15 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     stream position is specified, it must be greater than the latest stream
     position in the target partition.
     """
+    commit_transaction = transaction is None
+    txn_type = TransactionType.ALTER
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
+    
     delta: Delta = Metafile.update_for(delta)
     delta_type: Optional[DeltaType] = delta.type
     resolved_delta_type = delta_type if delta_type is not None else DeltaType.UPSERT
@@ -2420,6 +2503,7 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
         stream_locator=delta.stream_locator,
         partition_id=delta.partition_id,
         *args,
+        transaction=transaction,
         **kwargs,
     )
     if not parent_partition:
@@ -2444,29 +2528,27 @@ def commit_delta(delta: Delta, *args, **kwargs) -> Delta:
     new_parent_partition: Partition = Metafile.update_for(parent_partition)
     new_parent_partition.stream_position = delta.locator.stream_position
 
-    txn_type = TransactionType.ALTER
-    txn_ops = [
-        # the 1st operation creates the delta
+    # Add operations to the transaction
+    # the 1st operation creates the delta
+    transaction.step(
         TransactionOperation.of(
             operation_type=TransactionOperationType.CREATE,
             dest_metafile=delta,
         ),
-        # the 2nd operation alters the stream position of the partition
+        txn_type=txn_type,
+    )
+    # the 2nd operation alters the stream position of the partition
+    transaction.step(
         TransactionOperation.of(
             operation_type=TransactionOperationType.UPDATE,
             dest_metafile=new_parent_partition,
             src_metafile=parent_partition,
         ),
-    ]
-    transaction = Transaction.of(
         txn_type=txn_type,
-        txn_operations=txn_ops,
     )
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+    
+    if commit_transaction:
+        transaction.seal()
     return delta
 
 
@@ -2529,8 +2611,8 @@ def get_table_version(
     namespace: str,
     table_name: str,
     table_version: str,
-    transaction: Optional[Transaction] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[TableVersion]:
     """
@@ -2555,7 +2637,11 @@ def get_table_version(
 
 
 def get_latest_table_version(
-    namespace: str, table_name: str, *args, **kwargs
+    namespace: str, 
+    table_name: str, 
+    *args, 
+    transaction: Optional[Transaction] = None,
+    **kwargs,
 ) -> Optional[TableVersion]:
     """
     Gets table version metadata for the latest version of the specified table.
@@ -2567,6 +2653,7 @@ def get_latest_table_version(
         namespace=namespace,
         table_name=table_name,
         fail_if_no_active_table_version=False,
+        transaction=transaction,
         **kwargs,
     )
 
@@ -2576,6 +2663,7 @@ def get_latest_table_version(
             namespace=namespace,
             table_name=table_name,
             table_version=table_version_id,
+            transaction=transaction,
             **kwargs,
         )
         if table_version_id

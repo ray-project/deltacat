@@ -14,7 +14,10 @@ from ray.data._internal.pandas_block import PandasBlockSchema
 import deltacat as dc
 
 from deltacat.storage.model.manifest import ManifestAuthor
-from deltacat.catalog.model.properties import CatalogProperties
+from deltacat.catalog.model.properties import (
+    CatalogProperties, 
+    get_catalog_properties,
+)
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     StreamNotFoundError,
@@ -45,12 +48,19 @@ from deltacat.storage.model.table_version import TableVersion
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import Delta
 from deltacat.storage.model.types import CommitState
+from deltacat.storage.model.transaction import Transaction, TransactionType
 from deltacat.types.media import (
     ContentType, 
     DatasetType,
     StorageType,
 )
-from deltacat.types.tables import TableProperty, TableReadOptimizationLevel, TableWriteMode, concat_tables
+from deltacat.types.tables import (
+    SchemaEvolutionMode, 
+    TableProperty, 
+    TableReadOptimizationLevel, 
+    TableWriteMode, 
+    concat_tables,
+)
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
 
@@ -331,7 +341,6 @@ def _get_or_create_table_and_version(
                     ]},
                 )
                 
-                from deltacat.catalog.model.table_definition import TableDefinition
                 return TableDefinition.of(
                     table=table_obj,
                     table_version=table_version_obj,
@@ -356,6 +365,7 @@ def write_to_table(
     table_version: Optional[str] = None,
     mode: TableWriteMode = TableWriteMode.AUTO,
     content_type: ContentType = ContentType.PARQUET,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
     """Write local or distributed data to a table. Raises an error if the
@@ -378,89 +388,164 @@ def write_to_table(
         content_type: Content type for the data files.
         schema: Optional DeltaCAT schema for the table. Used when creating tables
             and updating existing table version schemas.
+        transaction: Optional transaction to append write operations to instead of 
+            creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
     """
     namespace = namespace or default_namespace()
 
-    # Validate write mode and table/table version existence
-    table_exists_flag, table_version_exists_flag = _validate_write_mode_and_table_version_existence(
-        table, namespace, table_version, mode, **kwargs
-    )
-
-    # Get or create table and table version
-    table_definition = _get_or_create_table_and_version(
-        data, table, namespace, table_version, table_exists_flag, 
-        table_version_exists_flag, content_type, mode, *args, **kwargs
-    )
-
-    # Get the active table version and stream
-    table_version_obj = _get_latest_or_given_table_version(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version or table_definition.table_version.table_version,
-        **kwargs,
-    )
-
-    # Handle different write modes and get stream and delta type
-    stream, delta_type = _handle_write_mode(
-        mode, table_definition, table_version_obj, namespace, table, **kwargs
-    )
-
-    if not stream:
-        raise ValueError(f"No default stream found for table {namespace}.{table}")
-
-    # Automatically set entry_params for DELETE/MERGE modes if not provided
-    _set_entry_params_if_needed(mode, table_version_obj, kwargs)
-
-    # Validate table configuration
-    _validate_table_configuration(stream, table_version_obj, namespace, table)
-
-    # Handle partition creation/retrieval
-    partition, staged_partition_for_compaction, commit_staged_partition = _handle_partition_creation(
-        mode, table_exists_flag, delta_type, stream, **kwargs
-    )
-
-    # Convert data to supported format
-    converted_data = _convert_data_if_needed(data)
-
-    # Get table properties for schema evolution
-    from deltacat.types.tables import TableProperty, SchemaEvolutionMode
-    schema_evolution_mode = table_version_obj.read_table_property(TableProperty.SCHEMA_EVOLUTION_MODE)
-    default_schema_consistency_type = table_version_obj.read_table_property(TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE)
-
-    # Validate and coerce data against schema if schema consistency types are set
-    validated_data, schema_modified, updated_schema = _validate_and_coerce_data_against_schema(
-        converted_data, 
-        table_version_obj.schema,
-        schema_evolution_mode=schema_evolution_mode,
-        default_schema_consistency_type=default_schema_consistency_type
-    )
-
-    # Update table version if schema was modified during evolution
-    if schema_modified:
-        # Extract catalog properties and filter kwargs
-        catalog_kwargs = {
-            'catalog': kwargs.get('catalog'),
-            'inner': kwargs.get('inner'),
-        }
+    # Check if a transaction was provided
+    write_transaction = transaction
+    commit_transaction = write_transaction is None
+    
+    if commit_transaction:
+        # Create and start an interactive transaction for atomic writes
+        write_transaction = Transaction.of(
+            txn_type=TransactionType.APPEND,  # Default transaction type
+            txn_operations=[],  # Start with empty operations to enable interactive mode
+        )
         
-        _get_storage(**catalog_kwargs).update_table_version(
-            namespace=namespace,
-            table_name=table,
-            table_version=table_version_obj.table_version,
-            schema=updated_schema or table_version_obj.schema,
-            **catalog_kwargs
+        # Get catalog properties for transaction management
+        catalog_properties = get_catalog_properties(**kwargs)
+        write_transaction = write_transaction.start(
+            catalog_root_dir=catalog_properties.root,
+            filesystem=catalog_properties.filesystem,
+        )
+        
+    # Add transaction to kwargs for all subsequent storage calls
+    kwargs['transaction'] = write_transaction
+
+    try:
+        # Validate write mode and table/table version existence
+        table_exists_flag, table_version_exists_flag = _validate_write_mode_and_table_version_existence(
+            table, 
+            namespace, 
+            table_version, 
+            mode, 
+            **kwargs,
         )
 
-    # Copy existing deltas if needed for compaction
-    if staged_partition_for_compaction:
-        _copy_existing_deltas_for_compaction(stream, staged_partition_for_compaction, **kwargs)
+        # Get or create table and table version
+        table_definition = _get_or_create_table_and_version(
+            data, 
+            table, 
+            namespace, 
+            table_version, 
+            table_exists_flag, 
+            table_version_exists_flag, 
+            content_type, 
+            mode, 
+            *args, 
+            **kwargs,
+        )
 
-    # Stage and commit delta, handle compaction
-    _stage_commit_and_compact(
-        validated_data, partition, delta_type, content_type, commit_staged_partition,
-        table_version_obj, staged_partition_for_compaction, namespace, table, **kwargs
-    )
+        # Get the active table version and stream
+        table_version_obj = _get_latest_or_given_table_version(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version or table_definition.table_version.table_version,
+            **kwargs,
+        )
+
+        # Handle different write modes and get stream and delta type
+        stream, delta_type = _handle_write_mode(
+            mode, 
+            table_definition, 
+            table_version_obj, 
+            namespace, 
+            table, 
+            **kwargs,
+        )
+
+        if not stream:
+            raise ValueError(f"No default stream found for table {namespace}.{table}")
+
+        # Automatically set entry_params for DELETE/MERGE modes if not provided
+        _set_entry_params_if_needed(
+            mode, 
+            table_version_obj, 
+            kwargs,
+        )
+
+        # Validate table configuration
+        _validate_table_configuration(
+            stream, 
+            table_version_obj, 
+            namespace, 
+            table,
+        )
+
+        # Handle partition creation/retrieval
+        partition, staged_partition_for_compaction, commit_staged_partition = _handle_partition_creation(
+            mode, 
+            table_exists_flag, 
+            delta_type, 
+            stream, 
+            **kwargs,
+        )
+
+        # Convert data to supported format
+        converted_data = _convert_data_if_needed(data)
+
+        # Get table properties for schema evolution
+        schema_evolution_mode = table_version_obj.read_table_property(TableProperty.SCHEMA_EVOLUTION_MODE)
+        default_schema_consistency_type = table_version_obj.read_table_property(TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE)
+
+        # Validate and coerce data against schema if schema consistency types are set
+        validated_data, schema_modified, updated_schema = _validate_and_coerce_data_against_schema(
+            converted_data, 
+            table_version_obj.schema,
+            schema_evolution_mode=schema_evolution_mode,
+            default_schema_consistency_type=default_schema_consistency_type
+        )
+
+        # Update table version if schema was modified during evolution
+        if schema_modified:
+            # Extract catalog properties and filter kwargs
+            catalog_kwargs = {
+                'catalog': kwargs.get('catalog'),
+                'inner': kwargs.get('inner'),
+                'transaction': write_transaction,  # Pass transaction to update_table_version
+            }
+            
+            _get_storage(**catalog_kwargs).update_table_version(
+                namespace=namespace,
+                table_name=table,
+                table_version=table_version_obj.table_version,
+                schema=updated_schema or table_version_obj.schema,
+                **catalog_kwargs
+            )
+
+        # Copy existing deltas if needed for compaction
+        if staged_partition_for_compaction:
+            _copy_existing_deltas_for_compaction(
+                stream, 
+                staged_partition_for_compaction, 
+                **kwargs,
+            )
+
+        # Stage and commit delta, handle compaction
+        _stage_commit_and_compact(
+            validated_data, 
+            partition, 
+            delta_type, 
+            content_type, 
+            commit_staged_partition,
+            table_version_obj, 
+            staged_partition_for_compaction, 
+            namespace, 
+            table, 
+            **kwargs,
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            write_transaction.seal()
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during write_to_table: {e}")
+        raise
     
     
 
@@ -476,18 +561,47 @@ def _handle_write_mode(
     table_schema = table_definition.table_version.schema
     
     if mode == TableWriteMode.REPLACE:
-        return _handle_replace_mode(table_schema, namespace, table, table_version_obj, **kwargs)
+        return _handle_replace_mode(
+            table_schema, 
+            namespace, 
+            table, 
+            table_version_obj, 
+            **kwargs,
+        )
     elif mode == TableWriteMode.APPEND:
-        return _handle_append_mode(table_schema, namespace, table, table_version_obj, **kwargs)
+        return _handle_append_mode(
+            table_schema, 
+            namespace, 
+            table, 
+            table_version_obj, 
+            **kwargs,
+        )
     elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
-        return _handle_merge_delete_mode(mode, table_schema, namespace, table, table_version_obj, **kwargs)
+        return _handle_merge_delete_mode(
+            mode, 
+            table_schema, 
+            namespace, 
+            table, 
+            table_version_obj, 
+            **kwargs,
+        )
     else:
         # AUTO and CREATE modes
-        return _handle_auto_create_mode(table_schema, namespace, table, table_version_obj, **kwargs)
+        return _handle_auto_create_mode(
+            table_schema, 
+            namespace, 
+            table, 
+            table_version_obj, 
+            **kwargs,
+        )
 
 
 def _handle_replace_mode(
-    table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+    table_schema, 
+    namespace: str, 
+    table: str, 
+    table_version_obj: TableVersion, 
+    **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle REPLACE mode by staging and committing a new stream."""
     stream = _get_storage(**kwargs).stage_stream(
@@ -503,7 +617,11 @@ def _handle_replace_mode(
 
 
 def _handle_append_mode(
-    table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+    table_schema, 
+    namespace: str, 
+    table: str, 
+    table_version_obj: TableVersion, 
+    **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle APPEND mode by validating no merge keys and getting existing stream."""
     if table_schema and table_schema.merge_keys:
@@ -513,12 +631,22 @@ def _handle_append_mode(
             f"Use MERGE mode instead."
         )
     
-    stream = _get_table_stream(namespace, table, table_version_obj.table_version, **kwargs)
+    stream = _get_table_stream(
+        namespace, 
+        table, 
+        table_version_obj.table_version, 
+        **kwargs,
+    )
     return stream, DeltaType.APPEND
 
 
 def _handle_merge_delete_mode(
-    mode: TableWriteMode, table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+    mode: TableWriteMode, 
+    table_schema, 
+    namespace: str, 
+    table: str, 
+    table_version_obj: TableVersion, 
+    **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle MERGE/DELETE modes by validating merge keys and getting existing stream."""
     if not table_schema or not table_schema.merge_keys:
@@ -528,22 +656,39 @@ def _handle_merge_delete_mode(
             f"Use APPEND mode instead or specify merge keys in the schema."
         )
     
-    stream = _get_table_stream(namespace, table, table_version_obj.table_version, **kwargs)
+    stream = _get_table_stream(
+        namespace, 
+        table, 
+        table_version_obj.table_version, 
+        **kwargs,
+    )
     delta_type = DeltaType.UPSERT if mode == TableWriteMode.MERGE else DeltaType.DELETE
     return stream, delta_type
 
 
 def _handle_auto_create_mode(
-    table_schema, namespace: str, table: str, table_version_obj: TableVersion, **kwargs
+    table_schema, 
+    namespace: str, 
+    table: str, 
+    table_version_obj: TableVersion, 
+    **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle AUTO and CREATE modes by getting existing stream."""
-    stream = _get_table_stream(namespace, table, table_version_obj.table_version, **kwargs)
+    stream = _get_table_stream(
+        namespace, 
+        table, 
+        table_version_obj.table_version, 
+        **kwargs,
+    )
     delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
     return stream, delta_type
 
 
 def _validate_table_configuration(
-    stream, table_version_obj: TableVersion, namespace: str, table: str
+    stream, 
+    table_version_obj: TableVersion, 
+    namespace: str, 
+    table: str,
 ) -> None:
     """Validate table configuration for unsupported features."""
     # Check if table is partitioned
@@ -705,7 +850,9 @@ def _validate_and_coerce_data_against_schema(
 
 
 def _copy_existing_deltas_for_compaction(
-    stream, staged_partition_for_compaction, **kwargs
+    stream, 
+    staged_partition_for_compaction, 
+    **kwargs,
 ) -> None:
     """Copy existing deltas from current partition to staged partition for compaction."""
     # Get the current committed partition
@@ -985,7 +1132,7 @@ def _run_compaction_session(
         )
           
         # Run V2 compaction session
-        compact_partition(params=compact_partition_params, **kwargs)
+        compact_partition(params=compact_partition_params)
     except Exception as e:
         logger.error(
             f"Error during compaction session for {namespace}.{table}, "
@@ -1164,9 +1311,7 @@ def _download_and_process_table_data(
 
 
 def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dataset:
-    """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method."""
-    from deltacat.storage.model.schema import Schema
-    
+    """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method.""" 
     # Convert target PyArrow schema to DeltaCAT schema and use its coerce method
     deltacat_schema = Schema.of(schema=target_schema)
     return deltacat_schema.coerce(dataset)

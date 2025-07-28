@@ -777,6 +777,7 @@ class Transaction(dict):
     def step(
         self,
         operation: "TransactionOperation",
+        txn_type: Optional[TransactionType] = None,
     ) -> Union[ListResult[Metafile], Tuple[List[str], List[str]]]:
         """
         Executes a single transaction operation.
@@ -785,6 +786,9 @@ class Transaction(dict):
         ----------
         operation: TransactionOperation
             The transaction operation to execute.
+        txn_type: Optional[TransactionType]
+            Optional transaction type to override the transaction type set 
+            on the transaction object for this step.
 
         Returns
         -------
@@ -804,6 +808,10 @@ class Transaction(dict):
         # Add new operation to the transaction's list of operations
         if self.interactive:
             self.operations = self.operations + [operation]
+
+        if txn_type:
+            old_type = self.type
+            self.type = txn_type
 
         # (a) READ txn op
         if operation.type.is_read_operation():
@@ -853,6 +861,9 @@ class Transaction(dict):
                 running_log_path=running_txn_log_file_path,
             )
             raise  # surface original error
+        finally:
+            if txn_type:
+                self.type = old_type
 
     def pause(self) -> None:
         fs = self._filesystem
