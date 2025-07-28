@@ -426,6 +426,210 @@ class Field(dict):
                 f"from {column_data.type} to {self.arrow.type}: {e}"
             )
 
+    def promote_type_if_needed(self, column_data: pa.Array) -> Tuple[pa.Array, bool]:
+        """Promote field type to accommodate new data when consistency type is NONE.
+        
+        This method implements intelligent type widening for fields with SchemaConsistencyType.NONE:
+        - Numeric types: int8 → int16 → int32 → int64 → float32 → float64 → decimal
+        - Any numeric → string (most permissive)
+        - Any type → binary (most permissive)
+        - Maintains nullability and metadata
+        
+        Args:
+            column_data: PyArrow Array containing the column data
+            
+        Returns:
+            Tuple[pa.Array, bool]: (data, type_was_promoted)
+                - data: Either original data or data cast to promoted type
+                - type_was_promoted: True if field type should be updated
+        """
+        current_type = self.arrow.type
+        data_type = column_data.type
+        
+        # If types are already compatible, no promotion needed
+        if current_type.equals(data_type):
+            return column_data, False
+            
+        # Try to find a promoted type that can accommodate both current and new data
+        promoted_type = self._find_promoted_type(current_type, data_type)
+        
+        if promoted_type is None:
+            # No compatible promotion found - return original data
+            return column_data, False
+            
+        if promoted_type.equals(current_type):
+            # Promoted type is same as current - just coerce the data
+            try:
+                coerced_data = pa.compute.cast(column_data, current_type)
+                return coerced_data, False
+            except (pa.ArrowTypeError, pa.ArrowInvalid):
+                # Coercion failed, return original data
+                return column_data, False
+        else:
+            # Type needs to be promoted
+            try:
+                promoted_data = pa.compute.cast(column_data, promoted_type)
+                return promoted_data, True
+            except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                # Direct cast failed - try multi-step conversion for binary
+                if pa.types.is_binary(promoted_type):
+                    try:
+                        # Try converting via string intermediate step
+                        string_data = pa.compute.cast(column_data, pa.string())
+                        binary_data = pa.compute.cast(string_data, promoted_type)
+                        return binary_data, True
+                    except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                        pass
+                # Promotion failed, return original data
+                return column_data, False
+    
+    def _find_promoted_type(self, current_type: pa.DataType, new_type: pa.DataType) -> Optional[pa.DataType]:
+        """Find the most specific type that can accommodate both current and new types.
+        
+        Returns the promoted type or None if no promotion is possible.
+        """
+        # Handle nullability - promoted type should be nullable if either type is nullable
+        make_nullable = current_type.value_type if hasattr(current_type, 'value_type') else None
+        if hasattr(new_type, 'value_type'):
+            make_nullable = True
+        
+        # Type promotion hierarchy
+        type_hierarchy = [
+            # Integer types (in order of promotion)
+            [pa.int8(), pa.int16(), pa.int32(), pa.int64()],
+            [pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64()],
+            # Float types
+            [pa.float32(), pa.float64()],
+            # Decimal types (most specific numeric)
+            [pa.decimal128(28, 10)],  # Use reasonable precision
+            # String types (most permissive for text)
+            [pa.string(), pa.large_string()],
+            # Binary types (most permissive overall)
+            [pa.binary(), pa.large_binary()],
+        ]
+        
+        # Special cross-type promotions (ordered by preference - most permissive first)
+        cross_type_promotions = {
+            # Any type can promote to binary (most permissive)
+            'any_to_binary': (
+                None,  # Any type  
+                [pa.binary(), pa.large_binary()]
+            ),
+            # Any type except binary can promote to string
+            'any_to_string': (
+                'not_binary',  # Any type except binary
+                [pa.string(), pa.large_string()]
+            ),
+            # Any numeric can promote to decimal
+            'numeric_to_decimal': (
+                [pa.int8(), pa.int16(), pa.int32(), pa.int64(), pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64(),
+                 pa.float32(), pa.float64()],
+                [pa.decimal128(28, 10)]
+            ),
+            # Any integer can promote to float
+            'int_to_float': (
+                [pa.int8(), pa.int16(), pa.int32(), pa.int64(), pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64()],
+                [pa.float32(), pa.float64()]
+            ),
+        }
+        
+        # First check within-hierarchy promotions
+        for hierarchy in type_hierarchy:
+            current_idx = self._find_type_in_hierarchy(current_type, hierarchy)
+            new_idx = self._find_type_in_hierarchy(new_type, hierarchy)
+            
+            if current_idx is not None and new_idx is not None:
+                # Both types are in same hierarchy - promote to the higher one
+                promoted_idx = max(current_idx, new_idx)
+                promoted_type = hierarchy[promoted_idx]
+                return self._maybe_make_nullable(promoted_type, current_type, new_type)
+        
+        # Check cross-type promotions
+        for promotion_name, (source_types, target_types) in cross_type_promotions.items():
+            if source_types is None:  # any_to_* cases
+                current_compatible = True
+                new_compatible = True
+            elif source_types == 'not_binary':  # any type except binary
+                current_compatible = not pa.types.is_binary(current_type)
+                new_compatible = not pa.types.is_binary(new_type)
+            else:
+                current_compatible = any(self._types_compatible(current_type, src) for src in source_types)
+                new_compatible = any(self._types_compatible(new_type, src) for src in source_types)
+            
+            if current_compatible or new_compatible:
+                # At least one type can be promoted to target - use the most specific target
+                for target_type in target_types:
+                    if self._can_cast_to(current_type, target_type) and self._can_cast_to(new_type, target_type):
+                        return self._maybe_make_nullable(target_type, current_type, new_type)
+        
+        # No promotion found
+        return None
+    
+    def _find_type_in_hierarchy(self, data_type: pa.DataType, hierarchy: List[pa.DataType]) -> Optional[int]:
+        """Find the index of a compatible type in the hierarchy."""
+        for i, hierarchy_type in enumerate(hierarchy):
+            if self._types_compatible(data_type, hierarchy_type):
+                return i
+        return None
+    
+    def _types_compatible(self, type1: pa.DataType, type2: pa.DataType) -> bool:
+        """Check if two types are compatible (ignoring nullability)."""
+        # Strip nullability for comparison
+        base_type1 = type1.value_type if hasattr(type1, 'value_type') else type1
+        base_type2 = type2.value_type if hasattr(type2, 'value_type') else type2
+        return base_type1.equals(base_type2)
+    
+    def _can_cast_to(self, from_type: pa.DataType, to_type: pa.DataType) -> bool:
+        """Check if a type can be cast to another type."""
+        try:
+            # Create a small test array to check if casting is possible
+            if from_type == pa.null():
+                return True  # null can cast to anything
+            
+            # Special case: any type can conceptually promote to binary via string
+            if pa.types.is_binary(to_type):
+                # For binary targets, check if we can cast to string first
+                # (since string->binary is always possible)
+                if not pa.types.is_binary(from_type) and not pa.types.is_string(from_type):
+                    return self._can_cast_to(from_type, pa.string())
+                # Binary and string can always cast to binary
+                return True
+            
+            # Create a minimal test array with the source type
+            if hasattr(from_type, 'value_type'):  # nullable type
+                test_array = pa.array([None], type=from_type)
+            else:
+                # Create appropriate test value based on type
+                if pa.types.is_integer(from_type):
+                    test_array = pa.array([0], type=from_type)
+                elif pa.types.is_floating(from_type):
+                    test_array = pa.array([0.0], type=from_type)
+                elif pa.types.is_string(from_type):
+                    test_array = pa.array([""], type=from_type)
+                elif pa.types.is_binary(from_type):
+                    test_array = pa.array([b""], type=from_type)
+                else:
+                    return False  # Unknown type
+                    
+            pa.compute.cast(test_array, to_type)
+            return True
+        except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
+            return False
+    
+    def _maybe_make_nullable(self, base_type: pa.DataType, type1: pa.DataType, type2: pa.DataType) -> pa.DataType:
+        """Make the base type nullable if either input type is nullable."""
+        type1_nullable = hasattr(type1, 'value_type') or type1 == pa.null()
+        type2_nullable = hasattr(type2, 'value_type') or type2 == pa.null()
+        
+        if type1_nullable or type2_nullable:
+            # Make nullable if not already
+            if hasattr(base_type, 'value_type'):
+                return base_type  # Already nullable
+            else:
+                return pa.field("", base_type, nullable=True).type
+        else:
+            return base_type
+
 
 SingleSchema = Union[List[Field], pa.Schema]
 MultiSchema = Union[Dict[SchemaName, List[Field]], Dict[SchemaName, pa.Schema]]
@@ -914,6 +1118,7 @@ class Schema(dict):
             return table, False
         
         # Create a mapping from field names to Field objects
+        # TODO(pdames): Ensure this works properly with subschemas.
         field_name_to_field = {}
         for field in self.field_ids_to_fields.values():
             field_name_to_field[field.arrow.name] = field
@@ -941,9 +1146,30 @@ class Schema(dict):
                     new_columns.append(coerced_data)
                     new_schema_fields.append(field.arrow)
                 else:
-                    # NONE or no consistency type - pass through as-is
-                    new_columns.append(column_data)
-                    new_schema_fields.append(field.arrow)
+                    # NONE or no consistency type - use type promotion
+                    promoted_data, type_was_promoted = field.promote_type_if_needed(column_data)
+                    new_columns.append(promoted_data)
+                    
+                    if type_was_promoted:
+                        # Update the field type in the schema
+                        promoted_field = pa.field(
+                            field.arrow.name,
+                            promoted_data.type,
+                            nullable=field.arrow.nullable,
+                            metadata=field.arrow.metadata
+                        )
+                        new_schema_fields.append(promoted_field)
+                        
+                        # Update the field in our schema mapping
+                        updated_field = Field.of(promoted_field, consistency_type=field.consistency_type)
+                        # Find and update the field in the schema
+                        for field_id, existing_field in self.field_ids_to_fields.items():
+                            if existing_field.arrow.name == field.arrow.name:
+                                self.field_ids_to_fields[field_id] = updated_field
+                                break
+                        schema_modified = True
+                    else:
+                        new_schema_fields.append(field.arrow)
             else:
                 # Field not in schema - handle based on evolution mode
                 if schema_evolution_mode == "AUTO":
@@ -993,6 +1219,10 @@ class Schema(dict):
                         null_column = pa.nulls(len(table), type=field.arrow.type)
                         new_columns.append(null_column)
                     new_schema_fields.append(field.arrow)
+        
+        # If schema was modified, update the schema's arrow property
+        if schema_modified:
+            self["arrow"] = pa.schema(new_schema_fields)
         
         return pa.table(new_columns, schema=pa.schema(new_schema_fields)), schema_modified
 

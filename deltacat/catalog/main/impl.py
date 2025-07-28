@@ -429,7 +429,7 @@ def write_to_table(
     default_schema_consistency_type = table_version_obj.read_table_property(TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE)
 
     # Validate and coerce data against schema if schema consistency types are set
-    validated_data, schema_modified = _validate_and_coerce_data_against_schema(
+    validated_data, schema_modified, updated_schema = _validate_and_coerce_data_against_schema(
         converted_data, 
         table_version_obj.schema,
         schema_evolution_mode=schema_evolution_mode,
@@ -450,7 +450,7 @@ def write_to_table(
             namespace=namespace,
             table_name=table,
             table_version=table_version_obj.table_version,
-            schema=table_version_obj.schema,
+            schema=updated_schema or table_version_obj.schema,
             **catalog_kwargs
         )
 
@@ -632,7 +632,7 @@ def _validate_and_coerce_data_against_schema(
     schema: Optional[Schema],
     schema_evolution_mode: Optional[str] = None,
     default_schema_consistency_type: Optional[SchemaConsistencyType] = None
-) -> Tuple[Dataset, bool]:
+) -> Tuple[Dataset, bool, Optional[Schema]]:
     """Validate and coerce data against the table schema if schema consistency types are set.
     
     Args:
@@ -642,13 +642,13 @@ def _validate_and_coerce_data_against_schema(
         default_schema_consistency_type: Default consistency type for new fields in AUTO mode
         
     Returns:
-        Tuple[Dataset, bool]: Validated/coerced data and flag indicating if schema was modified
+        Tuple[Dataset, bool, Optional[Schema]]: Validated/coerced data, flag indicating if schema was modified, and updated schema
         
     Raises:
         ValueError: If validation fails or coercion is not possible
     """
     if not schema:
-        return data, False
+        return data, False, None
     
     # Convert data to PyArrow table for validation
     if isinstance(data, pa.Table):
@@ -670,13 +670,13 @@ def _validate_and_coerce_data_against_schema(
         # For Ray Dataset, we can't easily validate without converting to PyArrow
         # For now, skip validation for Ray datasets
         logger.warning("Schema validation skipped for Ray Dataset - not yet supported")
-        return data, False
+        return data, False, None
     elif isinstance(data, daft.DataFrame):
         pa_table = data.to_arrow()
     else:
         # Unknown data type, skip validation
         logger.warning(f"Schema validation skipped for unsupported data type: {type(data)}")
-        return data, False
+        return data, False, None
     
     # Validate and coerce the table against the schema
     validated_table, schema_modified = schema.validate_and_coerce_table(
@@ -685,22 +685,25 @@ def _validate_and_coerce_data_against_schema(
         default_schema_consistency_type=default_schema_consistency_type
     )
     
+    # If schema was modified, the original schema object has been updated in-place
+    updated_schema = schema if schema_modified else None
+    
     # Convert back to original data type if needed
     if isinstance(data, pa.Table):
-        return validated_table, schema_modified
+        return validated_table, schema_modified, updated_schema
     elif isinstance(data, pd.DataFrame):
-        return validated_table.to_pandas(), schema_modified
+        return validated_table.to_pandas(), schema_modified, updated_schema
     elif isinstance(data, pl.DataFrame):
-        return pl.from_arrow(validated_table), schema_modified
+        return pl.from_arrow(validated_table), schema_modified, updated_schema
     elif isinstance(data, np.ndarray):
         if validated_table.num_columns == 1:
-            return validated_table.column(0).to_numpy(), schema_modified
+            return validated_table.column(0).to_numpy(), schema_modified, updated_schema
         else:
-            return validated_table.to_pandas().values, schema_modified
+            return validated_table.to_pandas().values, schema_modified, updated_schema
     elif isinstance(data, daft.DataFrame):
-        return daft.from_arrow(validated_table), schema_modified
+        return daft.from_arrow(validated_table), schema_modified, updated_schema
     else:
-        return validated_table, schema_modified
+        return validated_table, schema_modified, updated_schema
 
 
 def _copy_existing_deltas_for_compaction(

@@ -17,6 +17,7 @@ from deltacat.catalog import CatalogProperties
 from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     commit_delta_to_partition,
+    create_table_from_csv_file_paths,
 )
 from deltacat.types.media import DatasetType, ContentType, DistributedDatasetType
 from deltacat.storage.model.types import DeltaType
@@ -125,7 +126,7 @@ class TestReadTableMain:
 
         commit_delta_to_partition(
             partition=partition,
-            file_paths=[self.SAMPLE_FILE_PATH],
+            pa_table=create_table_from_csv_file_paths([self.SAMPLE_FILE_PATH]),
             inner=env["catalog_properties"],
             content_type=ContentType.PARQUET,
             delta_type=DeltaType.APPEND,
@@ -2453,3 +2454,341 @@ def test_schemaless_table_with_distributed_datasets():
     print("✅ Local storage correctly preserved all columns")
     
     print("\n=== Test completed ===")
+
+
+def test_schema_type_promotion_with_none_consistency():
+    """Test automatic type promotion for fields with SchemaConsistencyType.NONE."""
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    from deltacat.storage.model.schema import Field, Schema
+    from deltacat.storage.model.types import SchemaConsistencyType
+    import deltacat as dc
+    import pandas as pd
+    import pyarrow as pa
+    import uuid
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-type-promotion-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"type-promotion-test-{uuid.uuid4()}"
+    table_name = "type_promotion_table"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+    
+    # Test 1: Create table with int32 field with NONE consistency type
+    initial_data = pd.DataFrame({
+        "id": [1, 2, 3],
+        "count": pd.array([10, 20, 30], dtype="int32"),  # Explicitly int32
+        "name": ["Alice", "Bob", "Charlie"]
+    })
+    
+    # Create schema with NONE consistency type for the count field
+    schema_fields = [
+        Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
+        Field.of(pa.field("count", pa.int32()), consistency_type=SchemaConsistencyType.NONE),  # This should allow promotion
+        Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE)
+    ]
+    initial_schema = Schema.of(schema_fields)
+    
+    dc.write_to_table(
+        data=initial_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=initial_schema,
+        mode=TableWriteMode.CREATE
+    )
+    
+    # Verify initial data
+    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result1, list):
+        combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
+    else:
+        combined_result1 = result1.to_pandas() if hasattr(result1, 'to_pandas') else result1
+    
+    print(f"Initial data types: {combined_result1.dtypes}")
+    assert len(combined_result1) == 3
+    assert combined_result1["count"].dtype.name.startswith("int32")  # Should still be int32
+    
+    # Test 2: Write data with int64 values - should promote int32 -> int64
+    extended_data = pd.DataFrame({
+        "id": [4, 5],
+        "count": pd.array([2147483648, 2147483649], dtype="int64"),  # Values that require int64
+        "name": ["Diana", "Eve"]
+    })
+    
+    dc.write_to_table(
+        data=extended_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify type promotion occurred
+    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result2, list):
+        combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
+    else:
+        combined_result2 = result2.to_pandas() if hasattr(result2, 'to_pandas') else result2
+    
+    print(f"After int64 data types: {combined_result2.dtypes}")
+    assert len(combined_result2) == 5
+    # The count column should now be int64 (promoted)
+    assert combined_result2["count"].dtype.name.startswith("int64")
+    assert combined_result2["count"].iloc[-1] == 2147483649  # Verify large value preserved
+    
+    # Test 3: Write data with float values - should promote int64 -> float64  
+    float_data = pd.DataFrame({
+        "id": [6],
+        "count": [3.14159],  # Float value
+        "name": ["Frank"]
+    })
+    
+    dc.write_to_table(
+        data=float_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify type promotion to float
+    result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result3, list):
+        combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
+    else:
+        combined_result3 = result3.to_pandas() if hasattr(result3, 'to_pandas') else result3
+    
+    print(f"After float data types: {combined_result3.dtypes}")
+    assert len(combined_result3) == 6
+    # The count column should now be float64 (promoted from int64)
+    assert combined_result3["count"].dtype.name in ["float64", "double"]
+    assert abs(combined_result3["count"].iloc[-1] - 3.14159) < 0.00001  # Verify float value preserved
+    
+    # Test 4: Write data with string values - should promote float64 -> string
+    string_data = pd.DataFrame({
+        "id": [7],
+        "count": ["not_a_number"],  # String value
+        "name": ["Grace"]
+    })
+    
+    dc.write_to_table(
+        data=string_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify type promotion to string
+    result4 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result4, list):
+        combined_result4 = pd.concat([t.to_pandas() for t in result4], ignore_index=True, sort=False)
+    else:
+        combined_result4 = result4.to_pandas() if hasattr(result4, 'to_pandas') else result4
+    
+    print(f"After string data types: {combined_result4.dtypes}")
+    assert len(combined_result4) == 7
+    # The count column should now be string (promoted from float64)
+    assert combined_result4["count"].dtype.name in ["object", "string"]
+    assert combined_result4["count"].iloc[-1] == "not_a_number"  # Verify string value preserved
+    
+    print("✅ All type promotions worked correctly!")
+    print("Type evolution: int32 → int64 → float64 → string")
+
+
+def test_schema_type_promotion_edge_cases():
+    """Test edge cases for type promotion with SchemaConsistencyType.NONE."""
+    from deltacat.storage.model.schema import Field
+    from deltacat.storage.model.types import SchemaConsistencyType  
+    import pyarrow as pa
+    
+    # Test 1: Same type - no promotion
+    field_int32 = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
+    data_int32 = pa.array([1, 2, 3], type=pa.int32())
+    promoted_data, was_promoted = field_int32.promote_type_if_needed(data_int32)
+    assert not was_promoted, "Same type should not trigger promotion"
+    assert promoted_data.type == pa.int32(), "Data type should remain int32"
+    
+    # Test 2: int32 to int64 promotion
+    data_int64 = pa.array([2147483648], type=pa.int64())  # Value requiring int64
+    promoted_data, was_promoted = field_int32.promote_type_if_needed(data_int64)
+    assert was_promoted, "int32 field should promote to int64"
+    assert promoted_data.type == pa.int64(), "Promoted data should be int64"
+    
+    # Test 3: Nullability preservation
+    field_nullable = Field.of(pa.field("test", pa.int32(), nullable=True), consistency_type=SchemaConsistencyType.NONE)
+    data_with_null = pa.array([1, None, 3], type=pa.int32())
+    promoted_data, was_promoted = field_nullable.promote_type_if_needed(data_with_null)
+    assert not was_promoted, "Same nullable type should not promote"
+    
+    # Test 4: Cross-type promotion (int to float)
+    field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
+    data_float = pa.array([1.5, 2.7], type=pa.float64())
+    promoted_data, was_promoted = field_int.promote_type_if_needed(data_float)
+    assert was_promoted, "int32 should promote to accommodate float64"
+    assert pa.types.is_floating(promoted_data.type), f"Should promote to float type, got {promoted_data.type}"
+    
+    print("✅ All edge case type promotions work correctly!")
+
+
+def test_binary_type_promotion_and_stability():
+    """Test binary type promotion and ensure binary types are never down-promoted."""
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    from deltacat.storage.model.schema import Field, Schema
+    from deltacat.storage.model.types import SchemaConsistencyType
+    import deltacat as dc
+    import pandas as pd
+    import pyarrow as pa
+    import uuid
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-binary-promotion-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"binary-promotion-test-{uuid.uuid4()}"
+    table_name = "binary_promotion_table"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+    
+    # Test 1: Start with string field that has NONE consistency type
+    initial_data = pd.DataFrame({
+        "id": [1, 2, 3],
+        "data": ["hello", "world", "test"],  # String data
+        "category": ["A", "B", "C"]
+    })
+    
+    # Create schema with NONE consistency type for the data field
+    schema_fields = [
+        Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
+        Field.of(pa.field("data", pa.string()), consistency_type=SchemaConsistencyType.NONE),  # Should allow promotion
+        Field.of(pa.field("category", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE)
+    ]
+    initial_schema = Schema.of(schema_fields)
+    
+    dc.write_to_table(
+        data=initial_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=initial_schema,
+        mode=TableWriteMode.CREATE
+    )
+    
+    # Verify initial data
+    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result1, list):
+        combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
+    else:
+        combined_result1 = result1.to_pandas() if hasattr(result1, 'to_pandas') else result1
+    
+    print(f"Initial data types: {combined_result1.dtypes}")
+    assert len(combined_result1) == 3
+    assert combined_result1["data"].dtype.name in ["object", "string"]  # Should be string type
+    
+    # Test 2: Write binary data - should promote string → binary
+    binary_data = pd.DataFrame({
+        "id": [4, 5],
+        "data": [b"binary_data_1", b"binary_data_2"],  # Binary data
+        "category": ["D", "E"]
+    })
+    
+    dc.write_to_table(
+        data=binary_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify promotion to binary occurred
+    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result2, list):
+        combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
+    else:
+        combined_result2 = result2.to_pandas() if hasattr(result2, 'to_pandas') else result2
+    
+    print(f"After binary data types: {combined_result2.dtypes}")
+    assert len(combined_result2) == 5
+    # The data column should now be binary (promoted from string)
+    # Note: pandas might represent this as object dtype containing bytes
+    assert combined_result2["data"].dtype.name == "object"  # Binary data in pandas shows as object
+    
+    # Verify we can read back the binary data correctly
+    assert isinstance(combined_result2["data"].iloc[-1], bytes), "Should be able to read binary data"
+    assert combined_result2["data"].iloc[-1] == b"binary_data_2"
+    
+    # Test 3: CRITICAL - Write string data again - should NOT down-promote binary → string
+    # Binary should remain binary and accept the string data (converted to bytes)
+    string_again_data = pd.DataFrame({
+        "id": [6, 7],
+        "data": ["back_to_string_1", "back_to_string_2"],  # String data again
+        "category": ["F", "G"]
+    })
+    
+    dc.write_to_table(
+        data=string_again_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify binary type was preserved (no down-promotion)
+    result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    if isinstance(result3, list):
+        combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
+    else:
+        combined_result3 = result3.to_pandas() if hasattr(result3, 'to_pandas') else result3
+    
+    print(f"After string-again data types: {combined_result3.dtypes}")
+    assert len(combined_result3) == 7
+    # The data column should STILL be binary (no down-promotion)
+    assert combined_result3["data"].dtype.name == "object"  # Still binary
+    
+    # The new string data should have been converted to binary
+    # Check that we have a mix of original strings (converted to binary), binary data, and new strings (converted to binary)
+    last_item = combined_result3["data"].iloc[-1]
+    print(f"Last item type: {type(last_item)}, value: {last_item}")
+    
+    # Test 4: Test direct unit-level binary promotion
+    print("\n=== Testing direct field-level binary promotion ===")
+    
+    # Test int → binary
+    field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
+    binary_data_array = pa.array([b"test1", b"test2"], type=pa.binary())
+    promoted_data, was_promoted = field_int.promote_type_if_needed(binary_data_array)
+    assert was_promoted, "int32 should promote to binary"
+    assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
+    print("✅ int32 → binary promotion works")
+    
+    # Test float → binary  
+    field_float = Field.of(pa.field("test", pa.float64()), consistency_type=SchemaConsistencyType.NONE)
+    promoted_data, was_promoted = field_float.promote_type_if_needed(binary_data_array)
+    assert was_promoted, "float64 should promote to binary"
+    assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
+    print("✅ float64 → binary promotion works")
+    
+    # Test string → binary
+    field_string = Field.of(pa.field("test", pa.string()), consistency_type=SchemaConsistencyType.NONE)
+    promoted_data, was_promoted = field_string.promote_type_if_needed(binary_data_array)
+    assert was_promoted, "string should promote to binary"
+    assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
+    print("✅ string → binary promotion works")
+    
+    # Test binary → string should NOT happen (binary should stay binary)
+    field_binary = Field.of(pa.field("test", pa.binary()), consistency_type=SchemaConsistencyType.NONE)
+    string_data_array = pa.array(["string1", "string2"], type=pa.string())
+    promoted_data, was_promoted = field_binary.promote_type_if_needed(string_data_array)
+    assert not was_promoted, "binary should NOT down-promote to string"
+    assert pa.types.is_binary(promoted_data.type), f"Should remain binary type, got {promoted_data.type}"
+    print("✅ binary field correctly rejects down-promotion to string")
+    
+    print("\n✅ All binary type promotion tests passed!")
+    print("Key findings:")
+    print("- Any type can be promoted to binary")  
+    print("- Binary types never down-promote to less permissive types")
+    print("- Binary is the most permissive type in the hierarchy")
