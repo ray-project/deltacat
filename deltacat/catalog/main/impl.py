@@ -1165,6 +1165,15 @@ def _download_and_process_table_data(
     return _process_table_result(result, table_type, distributed_dataset_type, table_schema)
 
 
+def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dataset:
+    """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method."""
+    from deltacat.storage.model.schema import Schema
+    
+    # Convert target PyArrow schema to DeltaCAT schema and use its coerce method
+    deltacat_schema = Schema.of(schema=target_schema)
+    return deltacat_schema.coerce(dataset)
+
+
 def _process_table_result(
     result: Dataset, 
     table_type: Optional[DatasetType], 
@@ -1189,13 +1198,80 @@ def _process_table_result(
             logger.debug(f"Returning raw list of {len(result)} tables for schemaless table")
             return result
         
+        # Coerce all tables to match a unified schema for consistent concatenation
+        coerced_results = []
+        
         try:
-            logger.debug(f"Concatenating {len(result)} LOCAL tables of type {table_type}")
-            result = concat_tables(result, table_type)
+            # Determine target schema by combining table schema with any additional columns
+            # Get all column names across all results (convert everything to PyArrow first for consistent access)
+            all_columns = set()
+            for table_result in result:
+                # Convert to PyArrow temporarily to get column names consistently
+                if isinstance(table_result, pa.Table):
+                    temp_schema = table_result.schema
+                elif hasattr(table_result, 'to_arrow'):
+                    temp_schema = table_result.to_arrow().schema
+                elif isinstance(table_result, pd.DataFrame):
+                    temp_schema = pa.Table.from_pandas(table_result).schema
+                else:
+                    continue  # Skip unsupported types
+                
+                all_columns.update(temp_schema.names)
+            
+            # Create target schema with columns present in the results
+            # Use the latest table schema as the source of field definitions for table columns
+            # Preserve any additional columns (like file_path_column) that don't exist in table schema
+            latest_schema = table_schema.arrow
+            target_fields = []
+            table_column_names = {field.name for field in latest_schema}
+            
+            # First, add fields from table schema that are present in results
+            for field in latest_schema:
+                if field.name in all_columns:
+                    target_fields.append(field)
+            
+            # Then, add any additional columns from results that aren't in table schema
+            for table_result in result:
+                if isinstance(table_result, pa.Table):
+                    temp_schema = table_result.schema
+                elif hasattr(table_result, 'to_arrow'):
+                    temp_schema = table_result.to_arrow().schema
+                elif isinstance(table_result, pd.DataFrame):
+                    temp_schema = pa.Table.from_pandas(table_result).schema
+                else:
+                    continue
+                
+                for field in temp_schema:
+                    if field.name in all_columns and field.name not in table_column_names:
+                        target_fields.append(field)
+                        table_column_names.add(field.name)
+                break  # Only need to check first result for additional columns
+            
+            if target_fields:
+                target_schema = pa.schema(target_fields)
+                logger.debug(f"Target schema for coercion: {target_schema}")
+                
+                # Coerce each result to the target schema using unified coercion
+                for i, table_result in enumerate(result):
+                    coerced_result = _coerce_dataset_to_schema(table_result, target_schema)
+                    coerced_results.append(coerced_result)
+                    logger.debug(f"Coerced table {i} to unified schema")
+            else:
+                # No target schema determined, use original results
+                coerced_results = result
+        
+        except Exception as e:
+            logger.warning(f"Schema coercion failed: {e}. Using original results.")
+            coerced_results = result
+        
+        try:
+            logger.debug(f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type} with unified schema")
+            result = concat_tables(coerced_results, table_type)
             logger.debug(f"Concatenation complete, result type: {type(result)}")
         except ValueError as e:
             logger.warning(f"Could not concatenate tables for type {table_type}: {e}")
             # Fall back to returning the list if concatenation fails
+            result = coerced_results
     
     return result
 

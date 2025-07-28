@@ -11,7 +11,8 @@ import daft
 
 import deltacat.catalog.main.impl as catalog
 from deltacat.catalog import get_catalog_properties
-from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.schema import Schema, Field
+from deltacat.storage.model.types import SchemaConsistencyType
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
 from deltacat.storage.model.table import TableProperties
 from deltacat.storage.model.namespace import NamespaceProperties
@@ -910,16 +911,14 @@ class TestWriteToTable:
         table_name = "test_explicit_schema"
         data = self._create_test_pandas_data()
 
-        # Define explicit schema
+        # Define explicit schema with COERCE consistency types to preserve exact types
         explicit_schema = Schema.of(
-            schema=pa.schema(
-                [
-                    ("id", pa.int64()),
-                    ("name", pa.string()),
-                    ("age", pa.int32()),  # Different from inferred schema
-                    ("city", pa.string()),
-                ]
-            )
+            schema=[
+                Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.COERCE),
+                Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.COERCE),
+                Field.of(pa.field("age", pa.int32()), consistency_type=SchemaConsistencyType.COERCE),  # Different from inferred schema
+                Field.of(pa.field("city", pa.string()), consistency_type=SchemaConsistencyType.COERCE),
+            ]
         )
 
         catalog.write_to_table(

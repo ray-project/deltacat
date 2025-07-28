@@ -9,6 +9,8 @@ from typing import Optional, Any, Dict, Union, List, Callable, Tuple
 
 import pyarrow as pa
 from pyarrow import ArrowInvalid
+import pandas as pd
+import numpy as np
 
 from deltacat.constants import BYTES_PER_KIBIBYTE
 from deltacat.storage.model.types import (
@@ -508,17 +510,12 @@ class Field(dict):
             [pa.binary(), pa.large_binary()],
         ]
         
-        # Special cross-type promotions (ordered by preference - most permissive first)
+        # Special cross-type promotions (ordered by specificity - most specific first)
         cross_type_promotions = {
-            # Any type can promote to binary (most permissive)
-            'any_to_binary': (
-                None,  # Any type  
-                [pa.binary(), pa.large_binary()]
-            ),
-            # Any type except binary can promote to string
-            'any_to_string': (
-                'not_binary',  # Any type except binary
-                [pa.string(), pa.large_string()]
+            # Any integer can promote to float (most specific numeric promotion)
+            'int_to_float': (
+                [pa.int8(), pa.int16(), pa.int32(), pa.int64(), pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64()],
+                [pa.float32(), pa.float64()]
             ),
             # Any numeric can promote to decimal
             'numeric_to_decimal': (
@@ -526,10 +523,15 @@ class Field(dict):
                  pa.float32(), pa.float64()],
                 [pa.decimal128(28, 10)]
             ),
-            # Any integer can promote to float
-            'int_to_float': (
-                [pa.int8(), pa.int16(), pa.int32(), pa.int64(), pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64()],
-                [pa.float32(), pa.float64()]
+            # Any type except binary can promote to string
+            'any_to_string': (
+                'not_binary',  # Any type except binary
+                [pa.string(), pa.large_string()]
+            ),
+            # Any type can promote to binary (most permissive, checked last)
+            'any_to_binary': (
+                None,  # Any type  
+                [pa.binary(), pa.large_binary()]
             ),
         }
         
@@ -552,6 +554,9 @@ class Field(dict):
             elif source_types == 'not_binary':  # any type except binary
                 current_compatible = not pa.types.is_binary(current_type)
                 new_compatible = not pa.types.is_binary(new_type)
+                # For string promotion, require both types to be non-binary
+                if not (current_compatible and new_compatible):
+                    continue
             else:
                 current_compatible = any(self._types_compatible(current_type, src) for src in source_types)
                 new_compatible = any(self._types_compatible(new_type, src) for src in source_types)
@@ -1166,8 +1171,8 @@ class Schema(dict):
                         for field_id, existing_field in self.field_ids_to_fields.items():
                             if existing_field.arrow.name == field.arrow.name:
                                 self.field_ids_to_fields[field_id] = updated_field
+                                schema_modified = True
                                 break
-                        schema_modified = True
                     else:
                         new_schema_fields.append(field.arrow)
             else:
@@ -1225,6 +1230,207 @@ class Schema(dict):
             self["arrow"] = pa.schema(new_schema_fields)
         
         return pa.table(new_columns, schema=pa.schema(new_schema_fields)), schema_modified
+
+    def coerce(self, dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any]) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
+        """Coerce a dataset to match this schema using field type promotion.
+        
+        This method processes different dataset types and applies type promotion
+        using the field's promote_type_if_needed method. It handles:
+        - PyArrow Tables
+        - Pandas DataFrames
+        - NumPy arrays (1D and 2D)
+        - Polars DataFrames (if available)
+        - Daft DataFrames (if available)
+        - Other types with to_arrow() method
+        
+        For each column, it:
+        - Fields that exist in both dataset and schema: applies type promotion
+        - Fields in dataset but not in schema: preserves as-is  
+        - Fields in schema but not in dataset: adds with null values
+        - Reorders columns to match schema order
+        
+        Args:
+            dataset: Dataset to coerce to this schema
+            
+        Returns:
+            Dataset of the same type, coerced to match this schema
+            
+        Raises:
+            ValueError: If coercion fails
+        """
+        if not self.field_ids_to_fields:
+            # No fields defined in schema, return original dataset
+            return dataset
+        
+        # Convert dataset to PyArrow table for processing
+        pa_table, original_type = self._convert_dataset_to_pyarrow(dataset)
+        if pa_table is None:
+            # Unsupported type, return as-is
+            return dataset
+        
+        # Process columns using field coercion
+        coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)
+        
+        # Reorder columns to match schema order
+        reordered_columns, reordered_fields = self._reorder_columns_to_schema(
+            coerced_columns, coerced_fields, pa_table
+        )
+        
+        # Create new table with processed columns
+        coerced_table = pa.table(reordered_columns, schema=pa.schema(reordered_fields))
+        
+        # Convert back to original dataset type
+        return self._convert_pyarrow_to_dataset(coerced_table, original_type)
+
+    def _convert_dataset_to_pyarrow(self, dataset: Any) -> Tuple[Optional[pa.Table], str]:
+        """Convert various dataset types to PyArrow table and track original type.
+        
+        Args:
+            dataset: Input dataset of various types
+            
+        Returns:
+            Tuple of (PyArrow table, original type string) or (None, '') if unsupported
+        """
+        if isinstance(dataset, pa.Table):
+            return dataset, 'pyarrow'
+        elif isinstance(dataset, pd.DataFrame):
+            return pa.Table.from_pandas(dataset), 'pandas'
+        elif hasattr(dataset, 'to_arrow'):  # Polars, Daft
+            pa_table = dataset.to_arrow()
+            # Better type detection for datasets with to_arrow method
+            dataset_module = type(dataset).__module__
+            if 'polars' in dataset_module:
+                return pa_table, 'polars'
+            elif 'daft' in dataset_module:
+                return pa_table, 'daft'
+            else:
+                return pa_table, type(dataset).__name__.lower()
+        elif isinstance(dataset, np.ndarray):
+            if dataset.ndim == 1:
+                pa_table = pa.table([dataset], names=[f"column_0"])
+            elif dataset.ndim == 2:
+                column_names = [f"column_{i}" for i in range(dataset.shape[1])]
+                pa_table = pa.table([dataset[:, i] for i in range(dataset.shape[1])], names=column_names)
+            else:
+                raise ValueError(f"NumPy arrays with {dataset.ndim} dimensions are not supported")
+            return pa_table, 'numpy'
+        else:
+            return None, ''
+
+    def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
+        """Process table columns using field coercion and add missing fields.
+        
+        Args:
+            pa_table: PyArrow table to process
+            
+        Returns:
+            Tuple of (list of coerced columns, list of corresponding fields)
+        """
+        # Create mapping from field names to Field objects
+        field_name_to_field = {}
+        for field in self.field_ids_to_fields.values():
+            field_name_to_field[field.arrow.name] = field
+        
+        # Process each column using field methods
+        new_columns = []
+        new_schema_fields = []
+        
+        for column_name in pa_table.column_names:
+            column_data = pa_table.column(column_name)
+            
+            if column_name in field_name_to_field:
+                # Field exists in target schema - use promote_type_if_needed for coercion
+                field = field_name_to_field[column_name]
+                promoted_data, _ = field.promote_type_if_needed(column_data)
+                new_columns.append(promoted_data)
+                new_schema_fields.append(field.arrow)
+            else:
+                # Field not in target schema - preserve as-is
+                new_columns.append(column_data)
+                new_schema_fields.append(pa.field(column_name, column_data.type))
+        
+        # Add any missing fields from target schema with null values
+        target_field_names = {field.arrow.name for field in self.field_ids_to_fields.values()}
+        table_field_names = set(pa_table.column_names)
+        for field_name in target_field_names - table_field_names:
+            field = field_name_to_field[field_name]
+            null_column = pa.nulls(len(pa_table), type=field.arrow.type)
+            new_columns.append(null_column)
+            new_schema_fields.append(field.arrow)
+        
+        return new_columns, new_schema_fields
+
+    def _reorder_columns_to_schema(
+        self, 
+        columns: List[pa.Array], 
+        fields: List[pa.Field], 
+        original_table: pa.Table
+    ) -> Tuple[List[pa.Array], List[pa.Field]]:
+        """Reorder columns to match schema order, preserving extra fields.
+        
+        Args:
+            columns: List of processed columns
+            fields: List of corresponding field schemas
+            original_table: Original table for field name ordering
+            
+        Returns:
+            Tuple of (reordered columns, reordered fields)
+        """
+        # Reorder columns to match schema order
+        reordered_columns = []
+        reordered_fields = []
+        schema_field_names = [field.arrow.name for field in self.field_ids_to_fields.values()]
+        
+        # Add schema fields in schema order
+        for field_name in schema_field_names:
+            for i, field in enumerate(fields):
+                if field.name == field_name:
+                    reordered_columns.append(columns[i])
+                    reordered_fields.append(field)
+                    break
+        
+        # Add any extra fields that aren't in schema (preserve original order)
+        target_field_names = set(schema_field_names)
+        table_field_names = set(original_table.column_names)
+        extra_field_names = table_field_names - target_field_names
+        
+        for field_name in original_table.column_names:
+            if field_name in extra_field_names:
+                for i, field in enumerate(fields):
+                    if field.name == field_name:
+                        reordered_columns.append(columns[i])
+                        reordered_fields.append(field)
+                        break
+        
+        return reordered_columns, reordered_fields
+
+    def _convert_pyarrow_to_dataset(self, pa_table: pa.Table, original_type: str) -> Any:
+        """Convert PyArrow table back to the original dataset type.
+        
+        Args:
+            pa_table: Processed PyArrow table
+            original_type: Original dataset type identifier
+            
+        Returns:
+            Dataset converted back to original type
+        """
+        if original_type == 'pyarrow':
+            return pa_table
+        elif original_type == 'pandas':
+            return pa_table.to_pandas()
+        elif original_type == 'polars':
+            import polars as pl
+            return pl.from_arrow(pa_table)
+        elif original_type == 'daft':
+            import daft
+            return daft.from_arrow(pa_table)
+        elif original_type == 'numpy':
+            if pa_table.num_columns == 1:
+                return pa_table.column(0).to_numpy()
+            else:
+                return pa_table.to_pandas().values
+        else:
+            return pa_table
 
     @staticmethod
     def _del_subschema(
