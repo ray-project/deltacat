@@ -172,12 +172,14 @@ def _resolve_latest_active_table_version_id(
     table_name: str,
     *args,
     fail_if_no_active_table_version: bool = True,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[str]:
     table = get_table(
         *args,
         namespace=namespace,
         table_name=table_name,
+        transaction=transaction,
         **kwargs,
     )
     if not table:
@@ -1288,6 +1290,7 @@ def update_table_version(
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
     *args,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
     """
@@ -1303,13 +1306,24 @@ def update_table_version(
     partition_scheme must be explicitly set to UNPARTITIONED_SCHEME. Similarly
     to transition a table version from sorted to unsorted, sort_keys must be
     explicitly set to UNSORTED_SCHEME.
+    
+    Args:
+        transaction: Optional transaction to append operations to instead of 
+                    creating and committing a new transaction.
     """
-    # TODO(pdames): Wrap get & update within a single txn.
+    commit_transaction = transaction is None
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of(
+            txn_type=TransactionType.ALTER,
+            txn_operations=[],
+        ).start(catalog_properties.root, catalog_properties.filesystem)
     old_table_version = get_table_version(
         *args,
         namespace=namespace,
         table_name=table_name,
         table_version=table_version,
+        transaction=transaction,
         **kwargs,
     )
     if not old_table_version:
@@ -1392,9 +1406,9 @@ def update_table_version(
         *args,
         namespace=namespace,
         table_name=table_name,
+        transaction=transaction,
         **kwargs,
     )
-    txn_operations = []
     if (
         lifecycle_state == LifecycleState.ACTIVE
         and old_table_version.state != LifecycleState.ACTIVE
@@ -1411,14 +1425,14 @@ def update_table_version(
             # update the table's latest table version
             new_table: Table = Metafile.update_for(old_table)
             new_table.latest_active_table_version = table_version
-            txn_operations.append(
+            transaction.step(
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.UPDATE,
                     dest_metafile=new_table,
                     src_metafile=old_table,
-                )
+                ),
             )
-    txn_operations.append(
+    transaction.step(
         TransactionOperation.of(
             operation_type=TransactionOperationType.UPDATE,
             dest_metafile=new_table_version,
@@ -1433,26 +1447,21 @@ def update_table_version(
             namespace=namespace,
             table_name=table_name,
             table_version=table_version,
+            transaction=transaction,
             **kwargs,
         )
         new_stream: Stream = Metafile.update_for(old_stream)
         new_stream.partition_scheme = partition_scheme
-        txn_operations.append(
+        transaction.step(
             TransactionOperation.of(
                 operation_type=TransactionOperationType.UPDATE,
                 dest_metafile=new_stream,
                 src_metafile=old_stream,
-            )
+            ),
         )
-    transaction = Transaction.of(
-        txn_type=TransactionType.ALTER,
-        txn_operations=txn_operations,
-    )
-    catalog_properties = get_catalog_properties(**kwargs)
-    transaction.commit(
-        catalog_root_dir=catalog_properties.root,
-        filesystem=catalog_properties.filesystem,
-    )
+    if commit_transaction:
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction.seal()
 
 
 def stage_stream(
@@ -1808,6 +1817,7 @@ def get_stream(
             namespace=namespace,
             table_name=table_name,
             fail_if_no_active_table_version=False,
+            transaction=transaction,
             **kwargs,
         )
     locator = StreamLocator.at(
@@ -2483,7 +2493,13 @@ def namespace_exists(namespace: str, *args, **kwargs) -> bool:
     )
 
 
-def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Table]:
+def get_table(
+    namespace: str, 
+    table_name: str, 
+    *args, 
+    transaction: Optional[Transaction] = None, 
+    **kwargs,
+) -> Optional[Table]:
     """
     Gets table metadata for the specified table. Returns None if the given
     table does not exist.
@@ -2492,6 +2508,7 @@ def get_table(namespace: str, table_name: str, *args, **kwargs) -> Optional[Tabl
     return _latest(
         *args,
         metafile=Table.of(locator=locator),
+        transaction=transaction,
         **kwargs,
     )
 
@@ -2512,6 +2529,7 @@ def get_table_version(
     namespace: str,
     table_name: str,
     table_version: str,
+    transaction: Optional[Transaction] = None,
     *args,
     **kwargs,
 ) -> Optional[TableVersion]:
@@ -2531,6 +2549,7 @@ def get_table_version(
     return _latest(
         *args,
         metafile=table_version,
+        transaction=transaction,
         **kwargs,
     )
 

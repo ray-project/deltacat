@@ -439,14 +439,12 @@ def write_to_table(
     # Update table version if schema was modified during evolution
     if schema_modified:
         # Extract catalog properties and filter kwargs
-        catalog_kwargs = {}
-        if 'catalog' in kwargs:
-            catalog_kwargs['catalog'] = kwargs['catalog']
-        elif 'inner' in kwargs:
-            catalog_kwargs['inner'] = kwargs['inner']
+        catalog_kwargs = {
+            'catalog': kwargs.get('catalog'),
+            'inner': kwargs.get('inner'),
+        }
         
-        storage = _get_storage(**catalog_kwargs)
-        storage.update_table_version(
+        _get_storage(**catalog_kwargs).update_table_version(
             namespace=namespace,
             table_name=table,
             table_version=table_version_obj.table_version,
