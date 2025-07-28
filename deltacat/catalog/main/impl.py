@@ -1132,6 +1132,7 @@ def _get_qualified_deltas_for_read(
     return qualified_deltas
 
 
+
 def _download_and_process_table_data(
     qualified_deltas: List[Delta],
     table_type: Optional[DatasetType],
@@ -1139,6 +1140,7 @@ def _download_and_process_table_data(
     max_parallelism: Optional[int],
     columns: Optional[List[str]],
     file_path_column: Optional[str],
+    table_schema: Optional[Schema],
     **kwargs
 ) -> Dataset:
     """Download delta data and process result based on storage type."""
@@ -1156,18 +1158,34 @@ def _download_and_process_table_data(
         **kwargs,
     )
     
-    # Process result for local storage
-    return _process_local_table_result(result, table_type, distributed_dataset_type)
+    # Process result based on storage type and schema
+    return _process_table_result(result, table_type, distributed_dataset_type, table_schema)
 
 
-def _process_local_table_result(
+def _process_table_result(
     result: Dataset, 
     table_type: Optional[DatasetType], 
-    distributed_dataset_type: Optional[DatasetType]
+    distributed_dataset_type: Optional[DatasetType],
+    table_schema: Optional[Schema]
 ) -> Dataset:
-    """Process and concatenate local table results if needed."""
+    """Process table results based on storage type and schema."""
+    
+    # For schemaless tables with distributed datasets, we may need special handling
+    if table_schema is None and distributed_dataset_type:
+        logger.debug(f"Schemaless table detected with distributed dataset type: {distributed_dataset_type}")
+        # For now, return the result as-is for distributed datasets
+        # The underlying distributed system should handle schema evolution
+        # TODO: Add specific handling if needed based on testing results
+        return result
+    
     # For LOCAL storage, concatenate the list of tables into a single table
     if not distributed_dataset_type and table_type and isinstance(result, list):
+        # For schemaless tables (table_schema is None), return the raw list
+        # instead of trying to concatenate, since different files may have different schemas
+        if table_schema is None:
+            logger.debug(f"Returning raw list of {len(result)} tables for schemaless table")
+            return result
+        
         try:
             logger.debug(f"Concatenating {len(result)} LOCAL tables of type {table_type}")
             result = concat_tables(result, table_type)
@@ -1223,6 +1241,14 @@ def read_table(
         table, namespace, table_version_obj.table_version, partition_filter, **kwargs
     )
     
+    # For schemaless tables, distributed datasets are not yet supported
+    if table_version_obj.schema is None and distributed_dataset_type:
+        raise NotImplementedError(
+            f"Distributed dataset reading is not yet supported for schemaless tables. "
+            f"Table '{namespace}.{table}' has no schema, but distributed_dataset_type={distributed_dataset_type} was specified. "
+            f"Please use local storage by setting distributed_dataset_type=None or omitting it."
+        )
+    
     # Download and process the data
     result = _download_and_process_table_data(
         qualified_deltas, 
@@ -1231,6 +1257,7 @@ def read_table(
         max_parallelism,
         columns,
         file_path_column,
+        table_version_obj.schema,
         **kwargs
     )
     

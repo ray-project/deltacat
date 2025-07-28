@@ -1948,3 +1948,508 @@ def test_missing_field_backfill_behavior():
             catalog=catalog_name,
             schema=schema
         )
+
+
+def test_schemaless_table_append_mode():
+    """Test write_to_table with schema=None in APPEND mode."""
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    import deltacat as dc
+    import pyarrow as pa
+    import pandas as pd
+    import uuid
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-schemaless-append-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"schemaless-append-test-{uuid.uuid4()}"
+    table_name = "schemaless_append_table"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+    
+    # Test 1: Create schemaless table with initial data
+    initial_data = pd.DataFrame({
+        "id": [1, 2],
+        "name": ["Alice", "Bob"],
+        "value": [10.1, 20.2]
+    })
+    
+    dc.write_to_table(
+        data=initial_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.CREATE
+    )
+    
+    # Verify initial data can be read back
+    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    
+    # For schemaless tables, we now get a list of tables
+    if isinstance(result1, list):
+        # Combine the list of tables into a single DataFrame
+        all_tables = []
+        for table in result1:
+            if hasattr(table, 'to_pandas'):
+                table = table.to_pandas()
+            all_tables.append(table)
+        result1 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
+    elif hasattr(result1, 'to_pandas'):
+        result1 = result1.to_pandas()
+    elif hasattr(result1, 'collect'):
+        result1 = result1.collect().to_pandas()
+    
+    assert len(result1) == 2
+    assert set(result1.columns) == {"id", "name", "value"}
+    assert list(result1["id"]) == [1, 2]
+    assert list(result1["name"]) == ["Alice", "Bob"]
+    
+    # Test 2: Append more data to schemaless table
+    append_data = pd.DataFrame({
+        "id": [3, 4],
+        "name": ["Charlie", "Diana"],
+        "value": [30.3, 40.4]
+    })
+    
+    dc.write_to_table(
+        data=append_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify all data is present
+    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    
+    # For schemaless tables, we now get a list of tables
+    if isinstance(result2, list):
+        # Combine the list of tables into a single DataFrame
+        all_tables = []
+        for table in result2:
+            if hasattr(table, 'to_pandas'):
+                table = table.to_pandas()
+            all_tables.append(table)
+        result2 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
+    elif hasattr(result2, 'to_pandas'):
+        result2 = result2.to_pandas()
+    elif hasattr(result2, 'collect'):
+        result2 = result2.collect().to_pandas()
+    
+    assert len(result2) == 4
+    assert set(result2.columns) == {"id", "name", "value"}
+    assert sorted(result2["id"]) == [1, 2, 3, 4]
+    assert sorted(result2["name"]) == ["Alice", "Bob", "Charlie", "Diana"]
+    
+    # Test 3: Append data with same structure (should work for schemaless)
+    more_data = pd.DataFrame({
+        "id": [5, 6],
+        "name": ["Eve", "Frank"],
+        "value": [50.5, 60.6]
+    })
+    
+    dc.write_to_table(
+        data=more_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify all data is present
+    result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    
+    # For schemaless tables, we now get a list of tables
+    if isinstance(result3, list):
+        # Combine the list of tables into a single DataFrame
+        all_tables = []
+        for table in result3:
+            if hasattr(table, 'to_pandas'):
+                table = table.to_pandas()
+            all_tables.append(table)
+        result3 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
+    elif hasattr(result3, 'to_pandas'):
+        result3 = result3.to_pandas()
+    elif hasattr(result3, 'collect'):
+        result3 = result3.collect().to_pandas()
+    
+    assert len(result3) == 6
+    # Should have original columns
+    expected_columns = {"id", "name", "value"}
+    assert set(result3.columns) == expected_columns
+    
+    # Verify all data is correctly written
+    assert sorted(result3["id"]) == [1, 2, 3, 4, 5, 6]
+    expected_names = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"]
+    assert sorted(result3["name"]) == sorted(expected_names)
+    
+    print("✅ Schemaless APPEND mode test passed!")
+
+
+def test_schemaless_table_merge_delete_mode():
+    """Test write_to_table with schema=None - MERGE and DELETE modes should fail."""
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    import deltacat as dc
+    import pandas as pd
+    import uuid
+    import pytest
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-schemaless-merge-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"schemaless-merge-test-{uuid.uuid4()}"
+    table_name = "schemaless_merge_table"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+    
+    # Test 1: Create schemaless table (schema=None)
+    initial_data = pd.DataFrame({
+        "id": [1, 2, 3],
+        "name": ["Alice", "Bob", "Charlie"],
+        "value": [10.1, 20.2, 30.3],
+        "status": ["active", "active", "inactive"]
+    })
+    
+    # Create table without schema - note: merge_keys are ignored for schemaless tables
+    dc.write_to_table(
+        data=initial_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.CREATE
+    )
+    
+    # Verify initial data
+    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    
+    # For schemaless tables, we now get a list of tables
+    if isinstance(result1, list):
+        # Combine the list of tables into a single DataFrame
+        all_tables = []
+        for table in result1:
+            if hasattr(table, 'to_pandas'):
+                table = table.to_pandas()
+            all_tables.append(table)
+        result1 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
+    elif hasattr(result1, 'to_pandas'):
+        result1 = result1.to_pandas()
+    elif hasattr(result1, 'collect'):
+        result1 = result1.collect().to_pandas()
+    
+    assert len(result1) == 3
+    assert set(result1.columns) == {"id", "name", "value", "status"}
+    
+    # Test 2: MERGE operation should fail for schemaless tables
+    merge_data = pd.DataFrame({
+        "id": [2, 3, 4],
+        "name": ["Bob_Updated", "Charlie_Updated", "Diana"],
+        "value": [25.5, 35.5, 40.4],
+        "status": ["updated", "updated", "new"]
+    })
+    
+    # MERGE mode should raise ValueError for schemaless tables
+    with pytest.raises(ValueError, match="MERGE mode requires tables to have at least one merge key"):
+        dc.write_to_table(
+            data=merge_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.MERGE
+        )
+    
+    # Test 3: DELETE operation should also fail for schemaless tables
+    delete_data = pd.DataFrame({
+        "id": [1, 3],
+        "name": ["Alice", "Charlie"],
+        "value": [10.1, 30.3],
+        "status": ["active", "inactive"]
+    })
+    
+    # DELETE mode should raise ValueError for schemaless tables
+    with pytest.raises(ValueError, match="DELETE mode requires tables to have at least one merge key"):
+        dc.write_to_table(
+            data=delete_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.DELETE
+        )
+    
+    # Test 4: APPEND mode should still work for schemaless tables
+    append_data = pd.DataFrame({
+        "id": [4, 5],
+        "name": ["Diana", "Eve"],
+        "value": [40.4, 50.5],
+        "status": ["new", "active"]
+    })
+    
+    dc.write_to_table(
+        data=append_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Verify append results
+    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+    
+    # For schemaless tables, we now get a list of tables
+    if isinstance(result2, list):
+        # Combine the list of tables into a single DataFrame
+        all_tables = []
+        for table in result2:
+            if hasattr(table, 'to_pandas'):
+                table = table.to_pandas()
+            all_tables.append(table)
+        result2 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
+    elif hasattr(result2, 'to_pandas'):
+        result2 = result2.to_pandas()
+    elif hasattr(result2, 'collect'):
+        result2 = result2.collect().to_pandas()
+    
+    # Should have 5 records total (3 original + 2 appended)
+    assert len(result2) == 5
+    assert set(result2.columns) == {"id", "name", "value", "status"}
+
+
+def test_schemaless_table_with_evolving_schema():
+    """Test write_to_table with schema=None when new columns are added over time."""
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    from deltacat.types.media import DatasetType
+    import deltacat as dc
+    import pandas as pd
+    import uuid
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-schemaless-evolving-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"schemaless-evolving-test-{uuid.uuid4()}"
+    table_name = "schemaless_evolving_table"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+    
+    # Test 1: Create schemaless table with initial columns
+    initial_data = pd.DataFrame({
+        "id": [1, 2],
+        "name": ["Alice", "Bob"],
+        "value": [10.1, 20.2]
+    })
+    
+    dc.write_to_table(
+        data=initial_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.CREATE
+    )
+    
+    # Test 2: Append data with additional columns
+    extended_data = pd.DataFrame({
+        "id": [3, 4],
+        "name": ["Charlie", "Diana"],
+        "value": [30.3, 40.4],
+        "status": ["active", "inactive"],  # New column
+        "category": ["A", "B"]  # Another new column
+    })
+    
+    dc.write_to_table(
+        data=extended_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Test 3: Read back the data - this might fail due to schema mismatches
+    try:
+        # Force local storage to test our schemaless table fix
+        result = dc.read_table(
+            table=table_name, 
+            namespace=namespace, 
+            catalog=catalog_name,
+            table_type=DatasetType.PYARROW,
+            distributed_dataset_type=None  # Force local storage
+        )
+        
+        # Check if result is a list (which it should be for schemaless tables)
+        print(f"Result type: {type(result)}")
+        print(f"Result is list: {isinstance(result, list)}")
+        
+        if isinstance(result, list):
+            print(f"Got list of {len(result)} tables")
+            for i, table in enumerate(result):
+                print(f"Table {i}: type={type(table)}, shape={table.shape if hasattr(table, 'shape') else 'N/A'}")
+                if hasattr(table, 'columns'):
+                    print(f"Table {i} columns: {list(table.columns)}")
+            
+            # For a list of tables, we should manually combine them
+            # This is what the user would need to do for schemaless tables
+            all_tables = []
+            for table in result:
+                if hasattr(table, 'to_pandas'):
+                    table = table.to_pandas()
+                all_tables.append(table)
+            
+            # Combine with pandas concat to handle different schemas
+            result = pd.concat(all_tables, ignore_index=True, sort=False)
+        else:
+            if hasattr(result, 'to_pandas'):
+                result = result.to_pandas()
+            elif hasattr(result, 'collect'):
+                result = result.collect().to_pandas()
+        
+        # If we get here, the read succeeded
+        print(f"Read successful! Result shape: {result.shape}")
+        print(f"Columns: {sorted(result.columns)}")
+        
+        # For schemaless tables with evolving schema, we should expect all columns
+        # but some records will have NaN/None for missing columns
+        expected_columns = {"id", "name", "value", "status", "category"}
+        assert set(result.columns) == expected_columns
+        assert len(result) == 4
+        
+        # Check that early records have NaN for new columns
+        early_records = result[result['id'].isin([1, 2])]
+        assert early_records['status'].isna().all()
+        assert early_records['category'].isna().all()
+        
+        # Check that later records have values for all columns
+        later_records = result[result['id'].isin([3, 4])]
+        assert not later_records['status'].isna().any()
+        assert not later_records['category'].isna().any()
+        
+        print("✅ Schemaless evolving schema test passed!")
+        
+    except Exception as e:
+        print(f"❌ Read failed with error: {e}")
+        print(f"Error type: {type(e).__name__}")
+        
+        # This might be expected for current implementation
+        # The read might fail due to schema concatenation issues
+        # In that case, we need to modify read_table to handle schemaless tables differently
+        raise
+
+
+def test_schemaless_table_with_distributed_datasets():
+    """Test schemaless tables with distributed dataset types (RAY_DATASET, DAFT)."""
+    from deltacat.catalog.model.properties import CatalogProperties
+    from deltacat.catalog.model.catalog import Catalog
+    from deltacat.types.tables import TableWriteMode
+    from deltacat.types.media import DatasetType
+    import deltacat as dc
+    import pandas as pd
+    import uuid
+    import pytest
+    
+    # Setup catalog for testing
+    local_catalog_root = f"/tmp/deltacat-schemaless-distributed-test-{uuid.uuid4()}"
+    namespace = "test_namespace"
+    catalog_name = f"schemaless-distributed-test-{uuid.uuid4()}"
+    table_name = "schemaless_distributed_table"
+    catalog_properties = CatalogProperties(root=local_catalog_root)
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+    
+    # Create schemaless table with initial columns
+    initial_data = pd.DataFrame({
+        "id": [1, 2],
+        "name": ["Alice", "Bob"],
+        "value": [10.1, 20.2]
+    })
+    
+    dc.write_to_table(
+        data=initial_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.CREATE
+    )
+    
+    # Append data with additional columns
+    extended_data = pd.DataFrame({
+        "id": [3, 4],
+        "name": ["Charlie", "Diana"],
+        "value": [30.3, 40.4],
+        "status": ["active", "inactive"],  # New column
+        "category": ["A", "B"]  # Another new column
+    })
+    
+    dc.write_to_table(
+        data=extended_data,
+        table=table_name,
+        namespace=namespace,
+        catalog=catalog_name,
+        schema=None,  # Explicitly set to None
+        mode=TableWriteMode.APPEND
+    )
+    
+    # Test 1: DAFT should raise NotImplementedError for schemaless tables
+    print("=== Testing DAFT ===")
+    with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
+        dc.read_table(
+            table=table_name, 
+            namespace=namespace, 
+            catalog=catalog_name,
+            distributed_dataset_type=DatasetType.DAFT
+        )
+    print("✅ DAFT correctly raised NotImplementedError for schemaless tables")
+    
+    # Test 2: RAY_DATASET should also raise NotImplementedError for schemaless tables
+    print("\n=== Testing RAY_DATASET ===")
+    with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
+        dc.read_table(
+            table=table_name, 
+            namespace=namespace, 
+            catalog=catalog_name,
+            distributed_dataset_type=DatasetType.RAY_DATASET
+        )
+    print("✅ RAY_DATASET correctly raised NotImplementedError for schemaless tables")
+    
+    # Test 3: Local storage should still work (explicit None)
+    print("\n=== Testing Local Storage (explicit None) ===")
+    result_local = dc.read_table(
+        table=table_name, 
+        namespace=namespace, 
+        catalog=catalog_name,
+        distributed_dataset_type=None  # Explicitly use local storage
+    )
+    print(f"Local storage result type: {type(result_local)}")
+    
+    # For schemaless tables with local storage, we expect a list of tables
+    assert isinstance(result_local, list), "Local storage should return list for schemaless tables"
+    print(f"Local storage returned list of {len(result_local)} tables (as expected)")
+    
+    # Manually combine the tables to check all columns are preserved
+    all_tables = []
+    for table in result_local:
+        if hasattr(table, 'to_pandas'):
+            table = table.to_pandas()
+        all_tables.append(table)
+    
+    # Use pandas concat to handle different schemas
+    df_local = pd.concat(all_tables, ignore_index=True, sort=False)
+    print(f"Local storage combined result shape: {df_local.shape}")
+    print(f"Local storage combined columns: {sorted(df_local.columns)}")
+    
+    # Check if we got all columns
+    expected_columns = {"id", "name", "value", "status", "category"}
+    assert set(df_local.columns) == expected_columns, f"Local storage missing columns: {expected_columns - set(df_local.columns)}"
+    assert len(df_local) == 4, f"Local storage should have 4 rows, got {len(df_local)}"
+    print("✅ Local storage correctly preserved all columns")
+    
+    print("\n=== Test completed ===")
