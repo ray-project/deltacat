@@ -367,6 +367,10 @@ class Field(dict):
         future_default: Optional[Any],
         consistency_type: Optional[SchemaConsistencyType],
     ) -> pa.Field:
+        # Auto-set future_default to past_default if past_default exists but future_default doesn't
+        if past_default is not None and future_default is None:
+            future_default = past_default
+        
         meta = {}
         if is_merge_key:
             Field._validate_merge_key(field)
@@ -1443,13 +1447,22 @@ class Schema(dict):
                 new_columns.append(column_data)
                 new_schema_fields.append(pa.field(column_name, column_data.type))
         
-        # Add any missing fields from target schema with null values
+        # Add any missing fields from target schema with null values or past_default values
         target_field_names = {field.arrow.name for field in self.field_ids_to_fields.values()}
         table_field_names = set(pa_table.column_names)
         for field_name in target_field_names - table_field_names:
             field = field_name_to_field[field_name]
-            null_column = pa.nulls(len(pa_table), type=field.arrow.type)
-            new_columns.append(null_column)
+            
+            # Check if field has past_default value and use it instead of nulls
+            if field.past_default is not None:
+                # Create array filled with past_default value
+                default_column = pa.array([field.past_default] * len(pa_table), type=field.arrow.type)
+                new_columns.append(default_column)
+            else:
+                # Use null values as before
+                null_column = pa.nulls(len(pa_table), type=field.arrow.type)
+                new_columns.append(null_column)
+            
             new_schema_fields.append(field.arrow)
         
         return new_columns, new_schema_fields

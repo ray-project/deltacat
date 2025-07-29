@@ -2236,6 +2236,358 @@ class TestTableVersionWriteModes:
                 assert keyword.lower() in error_message.lower(), \
                     f"Error message for {case['description']} should contain '{keyword}'. Got: {error_message}"
 
+    def test_past_default_enforcement_basic(self):
+        """Test that past_default values are enforced when fields are missing from file schema."""
+        table_name = 'past_default_basic_test'
+        namespace = 'test_ns'
+        
+        # Create schema with past_default fields
+        fields = [
+            Field.of(
+                field=pa.field("id", pa.int64(), nullable=False),
+                field_id=1
+            ),
+            Field.of(
+                field=pa.field("name", pa.string(), nullable=True),
+                field_id=2
+            ),
+            Field.of(
+                field=pa.field("status", pa.string(), nullable=True),
+                field_id=3,
+                past_default="active"  # This field has past_default
+            ),
+            Field.of(
+                field=pa.field("score", pa.float64(), nullable=True),
+                field_id=4,
+                past_default=0.0  # This field has past_default
+            )
+        ]
+        schema = Schema.of(fields)
+        
+        # Create table with schema containing past_default
+        dc.create_table(
+            table_name,
+            namespace=namespace,
+            catalog=self.catalog_name,
+            schema=schema,
+            content_types=[ContentType.PARQUET]
+        )
+        
+        # Write data that's missing the 'status' and 'score' columns
+        incomplete_data = pd.DataFrame({
+            'id': [1, 2, 3],
+            'name': ['Alice', 'Bob', 'Charlie']
+        })
+        
+        dc.write_to_table(
+            incomplete_data,
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Read back the data and verify past_default enforcement
+        result = dc.read_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_type=DatasetType.PANDAS
+        )
+        
+        # Convert result to pandas if needed
+        if hasattr(result, 'to_pandas'):
+            result = result.to_pandas()
+        elif hasattr(result, 'to_arrow'):
+            result = result.to_arrow().to_pandas()
+        
+        # Verify the missing fields were filled with past_default values
+        assert 'status' in result.columns, "status column should be present"
+        assert 'score' in result.columns, "score column should be present"
+        
+        # All status values should be "active" (past_default)
+        assert all(result['status'] == 'active'), f"All status values should be 'active', got {result['status'].tolist()}"
+        
+        # All score values should be 0.0 (past_default)  
+        assert all(result['score'] == 0.0), f"All score values should be 0.0, got {result['score'].tolist()}"
+
+    def test_past_default_not_applied_when_column_exists(self):
+        """Test that past_default is NOT applied when the file contains the column (even with null values)."""
+        table_name = 'past_default_column_exists_test'
+        namespace = 'test_ns'
+        
+        # Create schema with past_default field
+        fields = [
+            Field.of(
+                field=pa.field("id", pa.int64(), nullable=False),
+                field_id=1
+            ),
+            Field.of(
+                field=pa.field("status", pa.string(), nullable=True),
+                field_id=2,
+                past_default="active"  # This field has past_default
+            )
+        ]
+        schema = Schema.of(fields)
+        
+        # Create table with schema
+        dc.create_table(
+            table_name,
+            namespace=namespace,
+            catalog=self.catalog_name,
+            schema=schema,
+            content_types=[ContentType.PARQUET]
+        )
+        
+        # Write data that contains the 'status' column but with null values
+        data_with_nulls = pd.DataFrame({
+            'id': [1, 2, 3],
+            'status': [None, None, None]  # Column exists but all values are null
+        })
+        
+        dc.write_to_table(
+            data_with_nulls,
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Read back the data
+        result = dc.read_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_type=DatasetType.PANDAS
+        )
+        
+        # Convert result to pandas if needed
+        if hasattr(result, 'to_pandas'):
+            result = result.to_pandas()
+        elif hasattr(result, 'to_arrow'):
+            result = result.to_arrow().to_pandas()
+        
+        # Verify that past_default was NOT applied - values should remain null
+        assert 'status' in result.columns, "status column should be present"
+        assert all(pd.isna(result['status'])), f"All status values should be null since column existed in file, got {result['status'].tolist()}"
+
+    def test_future_default_auto_set_from_past_default(self):
+        """Test that future_default is automatically set to past_default when not explicitly set."""
+        table_name = 'future_default_auto_test'
+        namespace = 'test_ns'
+        
+        # Create field with only past_default (no future_default)
+        field = Field.of(
+            field=pa.field("category", pa.string(), nullable=True),
+            field_id=1,
+            past_default="uncategorized"
+            # Note: future_default is intentionally not set
+        )
+        
+        # Verify that future_default was automatically set to past_default
+        assert field.past_default == "uncategorized", "past_default should be set"
+        assert field.future_default == "uncategorized", "future_default should be auto-set to past_default"
+
+    def test_future_default_not_overridden_when_explicitly_set(self):
+        """Test that future_default is NOT overridden when explicitly set, even if past_default exists."""
+        table_name = 'future_default_explicit_test'
+        namespace = 'test_ns'
+        
+        # Create field with both past_default and explicit future_default
+        field = Field.of(
+            field=pa.field("priority", pa.string(), nullable=True),
+            field_id=1,
+            past_default="low",
+            future_default="medium"  # Explicitly set to different value
+        )
+        
+        # Verify that future_default kept its explicit value
+        assert field.past_default == "low", "past_default should be set"
+        assert field.future_default == "medium", "future_default should keep its explicit value"
+
+    def test_past_default_enforcement_all_dataset_types(self):
+        """Test that past_default enforcement works for all supported dataset types.
+        
+        Tests PANDAS, PYARROW, POLARS, and PYARROW_PARQUET dataset types to ensure
+        that missing fields are filled with past_default values regardless of the
+        output format requested by the user.
+        """
+        table_name = 'past_default_all_types_test'
+        namespace = 'test_ns'
+        
+        # Create schema with past_default field
+        fields = [
+            Field.of(
+                field=pa.field("id", pa.int64(), nullable=False),
+                field_id=1
+            ),
+            Field.of(
+                field=pa.field("default_field", pa.string(), nullable=True),
+                field_id=2,
+                past_default="default_value"
+            )
+        ]
+        schema = Schema.of(fields)
+        
+        # Create table with schema
+        dc.create_table(
+            table_name,
+            namespace=namespace,
+            catalog=self.catalog_name,
+            schema=schema,
+            content_types=[ContentType.PARQUET]
+        )
+        
+        # Write incomplete data (missing default_field)
+        incomplete_data = pd.DataFrame({
+            'id': [1, 2]
+        })
+        
+        dc.write_to_table(
+            incomplete_data,
+            table_name,
+            catalog=self.catalog_name, 
+            namespace=namespace,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Test all supported dataset types
+        dataset_types_to_test = [
+            DatasetType.PANDAS,
+            DatasetType.PYARROW,
+            DatasetType.POLARS,
+            DatasetType.PYARROW_PARQUET,
+            # Note: NUMPY would require special handling since it doesn't naturally support string columns
+        ]
+        
+        for dataset_type in dataset_types_to_test:
+            result = dc.read_table(
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_type=dataset_type
+            )
+            
+            if dataset_type == DatasetType.PANDAS:
+                # Convert result to pandas if needed
+                if hasattr(result, 'to_pandas'):
+                    result = result.to_pandas()
+                elif hasattr(result, 'to_arrow'):
+                    result = result.to_arrow().to_pandas()
+                
+                assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
+                assert all(result['default_field'] == 'default_value'), \
+                    f"All default_field values should be 'default_value' for {dataset_type}, got {result['default_field'].tolist()}"
+            
+            elif dataset_type == DatasetType.PYARROW:
+                # Convert result to pyarrow if needed
+                if hasattr(result, 'to_arrow'):
+                    result = result.to_arrow()
+                
+                assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
+                default_column = result.column('default_field').to_pylist()
+                assert all(val == 'default_value' for val in default_column), \
+                    f"All default_field values should be 'default_value' for {dataset_type}, got {default_column}"
+            
+            elif dataset_type == DatasetType.POLARS:
+                # Convert result to polars if needed
+                if hasattr(result, 'to_arrow'):
+                    # If it's not already polars, convert via arrow
+                    import polars as pl
+                    result = pl.from_arrow(result.to_arrow())
+                elif not str(type(result).__module__).startswith('polars'):
+                    # If it's not polars and doesn't have to_arrow, try pandas conversion
+                    import polars as pl
+                    if hasattr(result, 'to_pandas'):
+                        result = pl.from_pandas(result.to_pandas())
+                    else:
+                        # Direct conversion for pandas DataFrames
+                        result = pl.from_pandas(result)
+                
+                assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
+                default_values = result['default_field'].to_list()
+                assert all(val == 'default_value' for val in default_values), \
+                    f"All default_field values should be 'default_value' for {dataset_type}, got {default_values}"
+            
+            elif dataset_type == DatasetType.PYARROW_PARQUET:
+                # PYARROW_PARQUET should return a PyArrow table with parquet-specific optimizations
+                # Convert result to pyarrow if needed
+                if hasattr(result, 'to_arrow'):
+                    result = result.to_arrow()
+                
+                assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
+                default_column = result.column('default_field').to_pylist()
+                assert all(val == 'default_value' for val in default_column), \
+                    f"All default_field values should be 'default_value' for {dataset_type}, got {default_column}"
+
+    def test_past_default_with_complex_data_types(self):
+        """Test past_default enforcement with complex data types like timestamps and nested structures."""
+        table_name = 'past_default_complex_types_test'  
+        namespace = 'test_ns'
+        
+        # Create schema with complex past_default types
+        fields = [
+            Field.of(
+                field=pa.field("id", pa.int64(), nullable=False),
+                field_id=1
+            ),
+            Field.of(
+                field=pa.field("created_at", pa.timestamp('us'), nullable=True),
+                field_id=2,
+                past_default=1640995200000000  # 2022-01-01 00:00:00 UTC as microseconds
+            ),
+            Field.of(
+                field=pa.field("is_active", pa.bool_(), nullable=True),
+                field_id=3,
+                past_default=True
+            )
+        ]
+        schema = Schema.of(fields)
+        
+        # Create table with schema
+        dc.create_table(
+            table_name,
+            namespace=namespace,
+            catalog=self.catalog_name,
+            schema=schema,
+            content_types=[ContentType.PARQUET]
+        )
+        
+        # Write incomplete data (missing created_at and is_active)
+        incomplete_data = pd.DataFrame({
+            'id': [1, 2]
+        })
+        
+        dc.write_to_table(
+            incomplete_data,
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace, 
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Read back and verify complex defaults
+        result = dc.read_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_type=DatasetType.PANDAS
+        )
+        
+        # Convert result to pandas if needed
+        if hasattr(result, 'to_pandas'):
+            result = result.to_pandas()
+        elif hasattr(result, 'to_arrow'):
+            result = result.to_arrow().to_pandas()
+        
+        # Verify timestamp default
+        assert 'created_at' in result.columns, "created_at column should be present"
+        assert all(pd.notna(result['created_at'])), "All created_at values should not be null"
+        
+        # Verify boolean default
+        assert 'is_active' in result.columns, "is_active column should be present"
+        assert all(result['is_active'] == True), f"All is_active values should be True, got {result['is_active'].tolist()}"
+
 
 def test_missing_field_backfill_behavior():
     """Test missing field handling and backfill behavior based on SchemaConsistencyType."""
