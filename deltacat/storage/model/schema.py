@@ -1527,7 +1527,14 @@ class Schema(dict):
             return pa_table.to_pandas()
         elif original_type == 'polars':
             import polars as pl
-            return pl.from_arrow(pa_table)
+            # PyArrow metadata can contain invalid UTF-8 sequences that cause Polars to raise an error
+            # Create a new table without metadata that might contain invalid UTF-8
+            clean_schema = pa.schema([
+                pa.field(field.name, field.type, nullable=field.nullable)
+                for field in pa_table.schema
+            ])
+            clean_table = pa.Table.from_arrays(pa_table.columns, schema=clean_schema)
+            return pl.from_arrow(clean_table)
         elif original_type == 'daft':
             import daft
             return daft.from_arrow(pa_table)
