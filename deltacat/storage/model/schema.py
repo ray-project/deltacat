@@ -227,6 +227,10 @@ class Field(dict):
         return Field._merge_order(self.arrow)
 
     @property
+    def is_event_time(self) -> Optional[bool]:
+        return Field._is_event_time(self.arrow)
+
+    @property
     def doc(self) -> Optional[str]:
         return Field._doc(self.arrow)
 
@@ -825,48 +829,71 @@ class Schema(dict):
         return self.get("mergeKeys")
 
     def merge_order_sort_keys(self) -> Optional[List]:
-        """Extract sort keys from fields with merge_order defined.
+        """Extract sort keys from fields with merge_order defined, or use event_time as fallback.
+        
+        If explicit merge_order fields are defined, they take precedence.
+        If no merge_order fields are defined but an event_time field exists, use event_time
+        with DESCENDING merge_order (keep latest events by default).
         
         Note: The sort order is inverted because deduplication keeps the "last" record
         after sorting. To keep the record with the smallest merge_order value, we need
         to sort in DESCENDING order so that record appears last.
         
         Returns:
-            List of SortKey objects constructed from fields with merge_order,
-            or None if no fields have merge_order defined.
+            List of SortKey objects constructed from fields with merge_order or event_time,
+            or None if neither are defined.
         """
         from deltacat.storage.model.sort_key import SortKey
-        from deltacat.storage.model.types import SortOrder
+        from deltacat.storage.model.types import SortOrder, NullOrder
         
+        # First priority: explicit merge_order fields
         fields_with_merge_order = [
             field for field in self.fields 
             if field.merge_order is not None
         ]
         
-        if not fields_with_merge_order:
-            return None
-            
-        sort_keys = []
-        for field in fields_with_merge_order:
-            merge_order = field.merge_order
-            desired_sort_order = merge_order[0]
-            
-            # Invert the sort order because deduplication keeps the "last" record
-            # ASCENDING merge_order (keep smallest) → DESCENDING sort (smallest appears last)
-            # DESCENDING merge_order (keep largest) → ASCENDING sort (largest appears last)
-            if desired_sort_order == SortOrder.ASCENDING:
-                actual_sort_order = SortOrder.DESCENDING
-            else:
-                actual_sort_order = SortOrder.ASCENDING
+        if fields_with_merge_order:
+            sort_keys = []
+            for field in fields_with_merge_order:
+                merge_order = field.merge_order
+                desired_sort_order = merge_order[0]
                 
-            sort_key = SortKey.of(
-                key=[field.arrow.name],
-                sort_order=actual_sort_order,
-                null_order=merge_order[1],  # NullOrder (AT_START/AT_END)
-            )
-            sort_keys.append(sort_key)
+                # Invert the sort order because deduplication keeps the "last" record
+                # ASCENDING merge_order (keep smallest) → DESCENDING sort (smallest appears last)
+                # DESCENDING merge_order (keep largest) → ASCENDING sort (largest appears last)
+                if desired_sort_order == SortOrder.ASCENDING:
+                    actual_sort_order = SortOrder.DESCENDING
+                else:
+                    actual_sort_order = SortOrder.ASCENDING
+                    
+                sort_key = SortKey.of(
+                    key=[field.arrow.name],
+                    sort_order=actual_sort_order,
+                    null_order=merge_order[1],  # NullOrder (AT_START/AT_END)
+                )
+                sort_keys.append(sort_key)
+            return sort_keys
+        
+        # Second priority: event_time field as default merge_order key
+        event_time_fields = [
+            field for field in self.fields 
+            if field.is_event_time
+        ]
+        
+        if event_time_fields:
+            # Use DESCENDING merge_order by default for event_time (keep latest events)
+            # This gets inverted to ASCENDING sort order for compaction
+            sort_keys = []
+            for field in event_time_fields:
+                sort_key = SortKey.of(
+                    key=[field.arrow.name],
+                    sort_order=SortOrder.ASCENDING,  # Inverted: DESCENDING merge_order → ASCENDING sort
+                    null_order=NullOrder.AT_END,
+                )
+                sort_keys.append(sort_key)
+            return sort_keys
             
-        return sort_keys
+        return None
 
     @property
     def field_ids_to_fields(self) -> Dict[FieldId, Field]:

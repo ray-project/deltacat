@@ -1234,6 +1234,154 @@ class TestCopyOnWrite:
             assert row['timestamp'] == expected['timestamp'], f"Wrong timestamp for ID {record_id}: expected {expected['timestamp']}, got {row['timestamp']}"
             assert row['value'] == expected['value'], f"Wrong value for ID {record_id}: expected {expected['value']}, got {row['value']}"
 
+    def test_event_time_as_default_merge_order(self):
+        """
+        Test that event_time field is used as default merge_order when no explicit merge_order is defined.
+        Event_time should default to DESCENDING merge_order (keep latest events).
+        """
+        table_name = "test_event_time_default_merge_order"
+        
+        # Create table with event_time field but no explicit merge_order
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # Merge key
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("event_time", pa.int64()), is_event_time=True),  # Event time field
+            Field.of(pa.field("value", pa.string())),
+        ])
+        
+        # Create table with automatic compaction
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger compaction immediately
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+        }
+        
+        dc.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+            properties=table_properties,
+            catalog=self.catalog_name,
+        )
+        
+        # Test data with duplicate merge keys - different event_times and values
+        test_data = pd.DataFrame({
+            'id': [1, 1, 2, 2],  # Duplicate merge keys
+            'name': ['Alice_early', 'Alice_late', 'Bob_early', 'Bob_late'],
+            'event_time': [1000, 2000, 1500, 2500],  # Event times - should keep latest (largest) by default
+            'value': ['old_alice', 'new_alice', 'old_bob', 'new_bob']
+        })
+        
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 2 records (one per unique merge key)
+        assert result.count_rows() == 2, "Expected 2 records after deduplication"
+        
+        df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # With event_time as default DESCENDING merge_order, should keep records with latest event_times
+        expected_event_time_default = {
+            1: {'name': 'Alice_late', 'event_time': 2000, 'value': 'new_alice'},   # Latest event_time wins
+            2: {'name': 'Bob_late', 'event_time': 2500, 'value': 'new_bob'}        # Latest event_time wins
+        }
+        
+        for _, row in df.iterrows():
+            record_id = row['id']
+            expected = expected_event_time_default[record_id]
+            assert row['name'] == expected['name'], f"Wrong name for ID {record_id}: expected {expected['name']}, got {row['name']}"  
+            assert row['event_time'] == expected['event_time'], f"Wrong event_time for ID {record_id}: expected {expected['event_time']}, got {row['event_time']}"
+            assert row['value'] == expected['value'], f"Wrong value for ID {record_id}: expected {expected['value']}, got {row['value']}"
+
+    def test_merge_order_takes_precedence_over_event_time(self):
+        """
+        Test that explicit merge_order fields take precedence over event_time fields.
+        """
+        table_name = "test_merge_order_precedence"
+        
+        # Create table with both merge_order and event_time fields
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # Merge key
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("timestamp", pa.int64()), merge_order=MergeOrder.of(SortOrder.ASCENDING, NullOrder.AT_END)),  # Explicit merge_order
+            Field.of(pa.field("event_time", pa.int64()), is_event_time=True),  # Event time field (should be ignored)
+            Field.of(pa.field("value", pa.string())),
+        ])
+        
+        # Create table with automatic compaction
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger compaction immediately
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+        }
+        
+        dc.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+            properties=table_properties,
+            catalog=self.catalog_name,
+        )
+        
+        # Test data with duplicate merge keys - different timestamps and event_times
+        test_data = pd.DataFrame({
+            'id': [1, 1, 2, 2],  # Duplicate merge keys
+            'name': ['Alice_first', 'Alice_last', 'Bob_first', 'Bob_last'],
+            'timestamp': [100, 200, 150, 250],  # Merge_order field (ASCENDING - should keep smallest)
+            'event_time': [2000, 1000, 2500, 1500],  # Event_time field (should be ignored)
+            'value': ['old_alice', 'new_alice', 'old_bob', 'new_bob']
+        })
+        
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 2 records (one per unique merge key)
+        assert result.count_rows() == 2, "Expected 2 records after deduplication"
+        
+        df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # merge_order should take precedence over event_time - ASCENDING timestamp should keep smallest timestamps
+        expected_merge_order_precedence = {
+            1: {'name': 'Alice_first', 'timestamp': 100, 'event_time': 2000, 'value': 'old_alice'},   # Smallest timestamp wins
+            2: {'name': 'Bob_first', 'timestamp': 150, 'event_time': 2500, 'value': 'old_bob'}        # Smallest timestamp wins
+        }
+        
+        for _, row in df.iterrows():
+            record_id = row['id']
+            expected = expected_merge_order_precedence[record_id]
+            assert row['name'] == expected['name'], f"Wrong name for ID {record_id}: expected {expected['name']}, got {row['name']}"  
+            assert row['timestamp'] == expected['timestamp'], f"Wrong timestamp for ID {record_id}: expected {expected['timestamp']}, got {row['timestamp']}"
+            assert row['event_time'] == expected['event_time'], f"Wrong event_time for ID {record_id}: expected {expected['event_time']}, got {row['event_time']}"
+            assert row['value'] == expected['value'], f"Wrong value for ID {record_id}: expected {expected['value']}, got {row['value']}"
+
 
 class TestDatasetTypes:
     """
