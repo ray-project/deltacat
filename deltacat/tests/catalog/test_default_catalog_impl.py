@@ -37,8 +37,6 @@ from unittest.mock import patch
 import subprocess
 import socket
 import threading
-from minio import Minio
-from minio.error import S3Error
 
 
 class TestReadTableMain:
