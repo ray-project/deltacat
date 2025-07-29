@@ -97,6 +97,14 @@ class TransactionOperationType(str, Enum):
         return self in TransactionOperationType.read_operatins()
 
 
+class TransactionState(str, Enum):
+    FAILED = "CLEANING"
+    PURGED = "CLEANED"
+    TIMEOUT = "TIMEOUT"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+
+
 class LifecycleState(str, Enum):
     CREATED = "created"
     UNRELEASED = "unreleased"
