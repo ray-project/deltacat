@@ -152,7 +152,6 @@ def compact_partition(
     object_store: Optional[IObjectStore] = RayPlasmaObjectStore(),
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
-    expected_previous_partition_id: Optional[str] = "Unspecified",
     **kwargs,
 ) -> None:
     if deltacat_storage_kwargs is None:
@@ -208,7 +207,6 @@ def compact_partition(
             partition.compaction_round_completion_info = new_rci
             partition = deltacat_storage.commit_partition(
                 partition, 
-                expected_previous_partition_id=expected_previous_partition_id, 
                 **deltacat_storage_kwargs,
             )
             logger.info(f"Committed compacted partition: {partition}")

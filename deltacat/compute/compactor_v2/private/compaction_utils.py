@@ -796,7 +796,6 @@ def _commit_compaction_result(
         committed_partition: Partition = params.deltacat_storage.commit_partition(
             execute_compaction_result.new_compacted_partition,
             previous_partition,
-            expected_previous_partition_id=params.expected_previous_partition_id,
             **params.deltacat_storage_kwargs,
         )
         logger.info(f"Committed compacted partition: {committed_partition}")

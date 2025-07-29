@@ -2024,7 +2024,6 @@ def stage_partition(
 def commit_partition(
     partition: Partition,
     previous_partition: Optional[Partition] = None,
-    expected_previous_partition_id: Optional[str] = UNKNOWN_PARTITION_ID,
     *args,
     transaction: Optional[Transaction] = None,
     **kwargs,
@@ -2040,15 +2039,6 @@ def commit_partition(
     prepended to the new partition being committed. Otherwise the latest
     committed partition with the same keys and partition scheme ID will be
     retrieved.
-
-    Unless an expected previous partition ID is explicitly specified, the 
-    commit will be rejected if the partition to commit's previous partition ID 
-    does not match the actual partition ID of the previously committed 
-    partition being replaced. If expected previous partition ID is provided,
-    then it will override the input partition's previous partition ID. Note
-    that expected previous partition ID can be explicitly set to 
-    UNSPECIFIED_PARTITION_ID to disable this check (unsafe - clobbers any
-    concurrent writes to the same partition).
 
     Returns the registered partition. If the partition's
     previous delta stream position is specified, then the commit will
@@ -2098,10 +2088,9 @@ def commit_partition(
             f"but found a `{prev_staged_partition.state}` partition."
         )
     
-    # Step 2: Check for existing committed partition using transaction
-    expected_previous_partition_id = partition.previous_partition_id if expected_previous_partition_id == UNKNOWN_PARTITION_ID else expected_previous_partition_id
+    # Step 2: Check for existing committed partition
     prev_committed_partition = None
-    if expected_previous_partition_id is not None:
+    if partition.previous_partition_id is not None:
         prev_committed_partition = get_partition(
             stream_locator=partition.stream_locator,
             partition_values=partition.partition_values,
@@ -2111,17 +2100,16 @@ def commit_partition(
         )
      
     # Validate expected previous partition ID for race condition detection
-    if prev_committed_partition and expected_previous_partition_id != UNSPECIFIED_PARTITION_ID:
+    if prev_committed_partition:
         logger.info(f"Checking previous committed partition for conflicts: {prev_committed_partition}")
-        if prev_committed_partition.partition_id != expected_previous_partition_id:
+        if prev_committed_partition.partition_id != partition.previous_partition_id:
             raise ValueError(
                 f"Concurrent modification detected: Expected committed partition "
-                f"{expected_previous_partition_id} but found "
+                f"{partition.previous_partition_id} but found "
                 f"{prev_committed_partition.partition_id}."
             )
     
     if prev_committed_partition:
-        # TODO(pdames): Add previous partition stream position validation.
         # Update transaction type based on what we found
         txn_op_type = TransactionOperationType.REPLACE
         if prev_committed_partition.partition_id == partition.partition_id:

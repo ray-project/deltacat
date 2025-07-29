@@ -854,6 +854,152 @@ class TestCopyOnWrite:
         assert conflict_rate > 0.01, f"Too few conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
         assert conflict_rate < 0.99, f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working" 
     
+    def test_replace_mode_with_duplicates_existing_table(self):
+        """
+        Test REPLACE mode with merge keys and duplicate values on an existing table.
+        Compaction should deduplicate the merge key values.
+        """
+        table_name = "test_replace_duplicates_existing"
+        
+        # Step 1: Create table with some initial data
+        schema = self._create_table_with_merge_keys(table_name)
+        initial_data = pd.DataFrame({
+            'id': [1, 2, 3],
+            'name': ['Alice', 'Bob', 'Charlie'],
+            'age': [25, 30, 35],
+            'city': ['NYC', 'LA', 'Chicago']
+        })
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,  # Use AUTO mode since table was already created
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        
+        # Step 2: REPLACE with data containing duplicates
+        replace_data_with_duplicates = pd.DataFrame({
+            'id': [4, 5, 4, 6, 5],  # IDs 4 and 5 are duplicated
+            'name': ['Dave', 'Eve', 'Dave_Updated', 'Frank', 'Eve_Updated'],
+            'age': [40, 45, 41, 50, 46],
+            'city': ['Houston', 'Phoenix', 'Houston_New', 'Boston', 'Phoenix_New']
+        })
+        
+        dc.write_to_table(
+            data=replace_data_with_duplicates,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.REPLACE,  # This should create UPSERT delta and trigger compaction
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        
+        # Step 3: Read and verify deduplication occurred
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 3 unique records (4, 5, 6) with latest values for duplicates
+        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        assert result_count == 3, f"Expected 3 unique records after deduplication, got {result_count}"
+        
+        # Convert to pandas for easier verification
+        result_df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # Verify the deduplicated values (should keep the last occurrence)
+        expected_data = {
+            4: {'name': 'Dave_Updated', 'age': 41, 'city': 'Houston_New'},
+            5: {'name': 'Eve_Updated', 'age': 46, 'city': 'Phoenix_New'},
+            6: {'name': 'Frank', 'age': 50, 'city': 'Boston'}
+        }
+        
+        for _, row in result_df.iterrows():
+            record_id = row['id']
+            assert record_id in expected_data, f"Unexpected ID {record_id} in results"
+            expected = expected_data[record_id]
+            assert row['name'] == expected['name'], f"Wrong name for ID {record_id}"
+            assert row['age'] == expected['age'], f"Wrong age for ID {record_id}"
+            assert row['city'] == expected['city'], f"Wrong city for ID {record_id}"
+    
+    def test_replace_mode_with_duplicates_existing_table_v2(self):
+        """
+        Test REPLACE mode with merge keys and duplicate values on an existing table.
+        First write some data, then REPLACE with data containing duplicates.
+        Compaction should deduplicate the merge key values.
+        """
+        table_name = "test_replace_duplicates_existing_v2"
+        
+        # Step 1: Create table and write initial data
+        schema = self._create_table_with_merge_keys(table_name)
+        initial_data = pd.DataFrame({
+            'id': [1, 2, 3],
+            'name': ['Alice', 'Bob', 'Charlie'],
+            'age': [25, 30, 35],
+            'city': ['NYC', 'LA', 'Chicago']
+        })
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,  # Write initial data
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        
+        # Step 2: REPLACE with data containing duplicates (this should trigger compaction)
+        replace_data_with_duplicates = pd.DataFrame({
+            'id': [4, 5, 4, 6, 5],  # IDs 4 and 5 are duplicated
+            'name': ['Dave', 'Eve', 'Dave_Updated', 'Frank', 'Eve_Updated'],
+            'age': [40, 45, 41, 50, 46],
+            'city': ['Houston', 'Phoenix', 'Houston_New', 'Boston', 'Phoenix_New']
+        })
+        
+        dc.write_to_table(
+            data=replace_data_with_duplicates,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.REPLACE,  # This should create UPSERT delta and trigger compaction
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        
+        # Step 3: Read and verify deduplication occurred (should only see the REPLACE data, deduplicated)
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 3 unique records (4, 5, 6) with latest values for duplicates
+        # The initial data (1, 2, 3) should be gone due to REPLACE mode
+        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        assert result_count == 3, f"Expected 3 unique records after REPLACE and deduplication, got {result_count}"
+        
+        # Convert to pandas for easier verification
+        result_df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # Verify the deduplicated values (should keep the last occurrence from the REPLACE data)
+        expected_data = {
+            4: {'name': 'Dave_Updated', 'age': 41, 'city': 'Houston_New'},
+            5: {'name': 'Eve_Updated', 'age': 46, 'city': 'Phoenix_New'},
+            6: {'name': 'Frank', 'age': 50, 'city': 'Boston'}
+        }
+        
+        for _, row in result_df.iterrows():
+            record_id = row['id']
+            assert record_id in expected_data, f"Unexpected ID {record_id} in results"
+            expected = expected_data[record_id]
+            assert row['name'] == expected['name'], f"Wrong name for ID {record_id}"
+            assert row['age'] == expected['age'], f"Wrong age for ID {record_id}"
+            assert row['city'] == expected['city'], f"Wrong city for ID {record_id}"
+
 
 class TestDatasetTypes:
     """

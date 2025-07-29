@@ -312,7 +312,12 @@ def _get_or_create_table_and_version(
     elif table_version is not None:
         if table_version_exists_flag:
             # Table version exists - get it
-            return get_table(table, namespace=namespace, table_version=table_version, **kwargs)
+            return get_table(
+                table, 
+                namespace=namespace, 
+                table_version=table_version, 
+                **kwargs,
+            )
         else:
             # Table exists but version doesn't - create new version if allowed
             if mode == TableWriteMode.CREATE:
@@ -354,7 +359,11 @@ def _get_or_create_table_and_version(
                 )
     else:
         # No specific version requested - get latest
-        return get_table(table, namespace=namespace, **kwargs)
+        return get_table(
+            table, 
+            namespace=namespace, 
+            **kwargs,
+        )
 
 
 def write_to_table(
@@ -475,7 +484,7 @@ def write_to_table(
         )
 
         # Handle partition creation/retrieval
-        partition, staged_partition_for_compaction, commit_staged_partition = _handle_partition_creation(
+        partition, commit_staged_partition = _handle_partition_creation(
             mode, 
             table_exists_flag, 
             delta_type, 
@@ -515,14 +524,6 @@ def write_to_table(
                 **catalog_kwargs
             )
 
-        # Copy existing deltas if needed for compaction
-        if staged_partition_for_compaction:
-            _copy_existing_deltas_for_compaction(
-                stream, 
-                staged_partition_for_compaction, 
-                **kwargs,
-            )
-
         # Stage and commit delta, handle compaction
         _stage_commit_and_compact(
             validated_data, 
@@ -531,7 +532,6 @@ def write_to_table(
             content_type, 
             commit_staged_partition,
             table_version_obj, 
-            staged_partition_for_compaction, 
             namespace, 
             table, 
             **kwargs,
@@ -725,15 +725,29 @@ def _handle_partition_creation(
     delta_type: DeltaType,
     stream,
     **kwargs,
-) -> Tuple[Any, Any, bool]:  # partition, staged_partition_for_compaction, commit_staged_partition
+) -> Tuple[Any, bool]:  # partition, commit_staged_partition
     """Handle partition creation/retrieval based on write mode."""
-    if (mode == TableWriteMode.REPLACE or not table_exists_flag or 
-        delta_type in (DeltaType.UPSERT, DeltaType.DELETE)):
-        # REPLACE mode, new table, or UPSERT/DELETE operations: Stage a new partition
+    if mode == TableWriteMode.REPLACE or not table_exists_flag:
+        # REPLACE mode or new table: Stage a new partition
         partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
+        # If we're doing UPSERT/DELETE operations, let compaction handle the commit
         commit_staged_partition = (delta_type not in (DeltaType.UPSERT, DeltaType.DELETE))
-        staged_partition_for_compaction = partition if not commit_staged_partition else None
-        return partition, staged_partition_for_compaction, commit_staged_partition
+        return partition, commit_staged_partition
+    elif delta_type in (DeltaType.UPSERT, DeltaType.DELETE):
+        # UPSERT/DELETE operations: Try to use existing committed partition first
+        partition = _get_storage(**kwargs).get_partition(
+            stream_locator=stream.locator,
+            partition_values=None,
+            **kwargs,
+        )
+        commit_staged_partition = False
+        
+        if not partition:
+            # No existing committed partition found, stage a new one
+            partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
+            commit_staged_partition = False  # Let compaction handle the commit
+        
+        return partition, commit_staged_partition
     else:
         # APPEND mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
@@ -748,7 +762,7 @@ def _handle_partition_creation(
             partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
             commit_staged_partition = True
         
-        return partition, None, commit_staged_partition
+        return partition, commit_staged_partition
 
 
 def _convert_data_if_needed(data: Dataset) -> Dataset:
@@ -848,48 +862,6 @@ def _validate_and_coerce_data_against_schema(
         return validated_table, schema_modified, updated_schema
 
 
-def _copy_existing_deltas_for_compaction(
-    stream, 
-    staged_partition_for_compaction, 
-    **kwargs,
-) -> None:
-    """Copy existing deltas from current partition to staged partition for compaction."""
-    # Get the current committed partition
-    current_partition = _get_storage(**kwargs).get_partition(
-        stream_locator=stream.locator,
-        partition_values=None,  # Assuming unpartitioned tables for now
-        **kwargs,
-    )
-    
-    if current_partition:
-        logger.info(
-            f"Copying existing deltas from committed partition {current_partition.locator} "
-            f"to staged partition {staged_partition_for_compaction.locator}"
-        )
-        
-        existing_deltas = _get_storage(**kwargs).list_partition_deltas(
-            partition_like=current_partition,
-            ascending_order=True,
-            include_manifest=True,
-            **kwargs,
-        ).all_items()
-        
-        # Copy each existing delta to the staged partition
-        for existing_delta in existing_deltas:
-            logger.debug(f"Copying delta {existing_delta.locator} to staged partition")
-            
-            # Create a copy of the existing delta with a new ID
-            copied_delta = Delta.based_on(existing_delta, str(existing_delta.stream_position))
-            # Update the copied delta's partition locator to point to the staged partition
-            copied_delta.locator.partition_locator = staged_partition_for_compaction.locator
-             
-            _get_storage(**kwargs).commit_delta(copied_delta, **kwargs)
-        
-        logger.info(f"Copied {len(existing_deltas)} existing deltas to staged partition")
-    else:
-        logger.info("No existing committed partition found - this is the first write for this partition")
-
-
 def _stage_commit_and_compact(
     converted_data: Dataset,
     partition,
@@ -897,7 +869,6 @@ def _stage_commit_and_compact(
     content_type: ContentType,
     commit_staged_partition: bool,
     table_version_obj: TableVersion,
-    staged_partition_for_compaction,
     namespace: str,
     table: str,
     **kwargs,
@@ -931,7 +902,6 @@ def _stage_commit_and_compact(
         _run_compaction_session(
             table_version_obj=table_version_obj,
             partition=partition,
-            staged_partition_for_compaction=staged_partition_for_compaction,
             latest_delta_stream_position=delta.stream_position,
             namespace=namespace,
             table=table,
@@ -1053,7 +1023,6 @@ def _get_compaction_hash_bucket_count(partition: Partition) -> int:
 def _create_compaction_params(
     table_version_obj: TableVersion,
     partition: Partition,
-    staged_partition_for_compaction: Optional[Partition],
     latest_stream_position: int,
     primary_keys: set,
     hash_bucket_count: int,
@@ -1064,11 +1033,7 @@ def _create_compaction_params(
     
     return CompactPartitionParams.of({
         "catalog": kwargs.get("inner", kwargs.get("catalog")),
-        "source_partition_locator": (
-            staged_partition_for_compaction.locator 
-            if staged_partition_for_compaction 
-            else partition.locator
-        ),
+        "source_partition_locator": partition.locator,
         "destination_partition_locator": partition.locator,  # In-place compaction
         "primary_keys": primary_keys,
         "last_stream_position_to_compact": latest_stream_position,
@@ -1082,18 +1047,12 @@ def _create_compaction_params(
         "compacted_file_content_type": ContentType.PARQUET,
         "drop_duplicates": True,
         "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
-        "expected_previous_partition_id": (
-            staged_partition_for_compaction.previous_partition_id 
-            if staged_partition_for_compaction 
-            else None
-        ),
     })
 
 
 def _run_compaction_session(
     table_version_obj: TableVersion,
     partition: Partition,
-    staged_partition_for_compaction: Optional[Partition],
     latest_delta_stream_position: int,
     namespace: str,
     table: str,
@@ -1105,7 +1064,6 @@ def _run_compaction_session(
     Args:
         table_version_obj: The table version object
         partition: The partition to compact
-        staged_partition_for_compaction: Optional staged partition for compaction
         latest_delta_stream_position: Stream position of the latest delta
         namespace: The table namespace
         table: The table name
@@ -1123,7 +1081,6 @@ def _run_compaction_session(
         compact_partition_params = _create_compaction_params(
             table_version_obj,
             partition,
-            staged_partition_for_compaction,
             latest_delta_stream_position,
             primary_keys,
             hash_bucket_count,
