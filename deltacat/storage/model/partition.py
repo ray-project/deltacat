@@ -723,8 +723,8 @@ class PartitionLocatorAlias(Locator, dict):
                     ),
                 }
             )
-            if parent_partition.state == CommitState.COMMITTED
-            else None  # only committed partitions can be resolved by alias
+            if parent_partition.state != CommitState.STAGED
+            else None  # staged partitions cannot be resolved by alias
         )
 
     @property

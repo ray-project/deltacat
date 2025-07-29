@@ -89,7 +89,6 @@ from deltacat.storage.model.types import (
     SchemaConsistencyType,
     StreamFormat,
     SortOrder,
-    TransactionType,
     TransactionOperationType,
 )
 from deltacat.storage.model.sort_key import (
@@ -167,7 +166,6 @@ __all__ = [
     "Transaction",
     "TransactionOperation",
     "TransactionOperationType",
-    "TransactionType",
     "Transform",
     "TransformName",
     "TransformParameters",

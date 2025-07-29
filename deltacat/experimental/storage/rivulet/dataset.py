@@ -52,7 +52,6 @@ from deltacat.storage import (
     TableVersion,
     TableVersionLocator,
     Transaction,
-    TransactionType,
     TransactionOperation,
     TransactionOperationType,
 )
@@ -312,7 +311,6 @@ class Dataset:
         ]
 
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=TransactionOperationList.of(txn_operations),
         )
 

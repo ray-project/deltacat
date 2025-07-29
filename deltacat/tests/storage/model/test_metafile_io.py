@@ -47,7 +47,6 @@ from deltacat.storage import (
     TableVersion,
     Transaction,
     TransactionOperation,
-    TransactionType,
     TransactionOperationType,
     TruncateTransform,
     TruncateTransformParameters,
@@ -92,7 +91,6 @@ def _commit_single_delta_table(temp_dir: str) -> List[Tuple[Metafile, Metafile, 
         for meta in meta_to_create
     ]
     transaction = Transaction.of(
-        txn_type=TransactionType.APPEND,
         txn_operations=txn_operations,
     )
     write_paths, txn_log_path = transaction.commit(temp_dir)
@@ -133,7 +131,6 @@ class TestMetafileIO:
             description="test table description",
         )
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -174,7 +171,6 @@ class TestMetafileIO:
         namespace = Namespace.of(locator=namespace_locator)
         # given a transaction that creates a single namespace
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -213,7 +209,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=txn_operations,
         )
         # expect the bad timestamp to be detected and its commit to fail
@@ -274,7 +269,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=txn_operations,
         )
         # expect the commit to fail due to a concurrent modification error
@@ -304,7 +298,6 @@ class TestMetafileIO:
         original_delta = Delta.read(orig_delta_write_path)
         new_delta = Delta.update_for(original_delta)
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.UPDATE,
@@ -342,7 +335,6 @@ class TestMetafileIO:
                 )
             )
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -387,7 +379,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -415,7 +406,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -429,7 +419,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -452,13 +441,12 @@ class TestMetafileIO:
 
         txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_delta,
                 src_metafile=original_delta,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -483,13 +471,12 @@ class TestMetafileIO:
         # expect a subsequent replace of the original delta to fail
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_delta,
                 src_metafile=original_delta,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -503,7 +490,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -522,7 +508,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -562,13 +547,12 @@ class TestMetafileIO:
         )
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_partition,
                 src_metafile=original_partition,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -582,7 +566,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -597,7 +580,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -620,13 +602,12 @@ class TestMetafileIO:
 
         txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_partition,
                 src_metafile=original_partition,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -679,13 +660,12 @@ class TestMetafileIO:
         # expect a subsequent replace of the original partition to fail
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_partition,
                 src_metafile=original_partition,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -699,7 +679,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -714,7 +693,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -733,7 +711,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -776,13 +753,12 @@ class TestMetafileIO:
         )
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_stream,
                 src_metafile=original_stream,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -796,7 +772,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -811,7 +786,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -834,13 +808,12 @@ class TestMetafileIO:
 
         txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_stream,
                 src_metafile=original_stream,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -896,13 +869,12 @@ class TestMetafileIO:
         # expect a subsequent replace of the original stream to fail
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_stream,
                 src_metafile=original_stream,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -916,7 +888,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -931,7 +902,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -950,7 +920,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -996,13 +965,12 @@ class TestMetafileIO:
         )
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_table_version,
                 src_metafile=original_table_version,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1016,7 +984,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1031,7 +998,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -1054,13 +1020,12 @@ class TestMetafileIO:
 
         txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_table_version,
                 src_metafile=original_table_version,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -1120,13 +1085,12 @@ class TestMetafileIO:
         # expect a subsequent replace of the original table version to fail
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_table_version,
                 src_metafile=original_table_version,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1140,7 +1104,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1155,7 +1118,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -1174,7 +1136,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -1220,13 +1181,12 @@ class TestMetafileIO:
         replacement_table: Table = Table.based_on(original_table)
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_table,
                 src_metafile=original_table,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1240,7 +1200,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1255,7 +1214,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -1277,13 +1235,12 @@ class TestMetafileIO:
 
         txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_table,
                 src_metafile=original_table,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -1345,13 +1302,12 @@ class TestMetafileIO:
         # expect a subsequent table replace of the original table to fail
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_table,
                 src_metafile=original_table,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1365,7 +1321,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1380,7 +1335,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -1399,7 +1353,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -1448,13 +1401,12 @@ class TestMetafileIO:
         replacement_namespace: Namespace = Namespace.based_on(original_namespace)
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_namespace,
                 src_metafile=original_namespace,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1468,7 +1420,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1483,7 +1434,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -1505,13 +1455,12 @@ class TestMetafileIO:
 
         txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_namespace,
                 src_metafile=original_namespace,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -1576,13 +1525,12 @@ class TestMetafileIO:
         # expect a subsequent namespace replace of the original namespace to fail
         bad_txn_operations = [
             TransactionOperation.of(
-                operation_type=TransactionOperationType.UPDATE,
+                operation_type=TransactionOperationType.REPLACE,
                 dest_metafile=replacement_namespace,
                 src_metafile=original_namespace,
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.OVERWRITE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1596,7 +1544,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -1611,7 +1558,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -1650,7 +1596,6 @@ class TestMetafileIO:
             ),
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=txn_operations,
         )
         # when the transaction is committed,
@@ -1659,7 +1604,6 @@ class TestMetafileIO:
             transaction.commit(temp_dir)
         # when a transaction with the operations reversed is committed,
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=list(reversed(txn_operations)),
         )
         # expect table version and stream creation to succeed
@@ -1699,7 +1643,6 @@ class TestMetafileIO:
             ),
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=txn_operations,
         )
         # when the transaction is committed,
@@ -1708,7 +1651,6 @@ class TestMetafileIO:
             transaction.commit(temp_dir)
         # when a transaction with the operations reversed is committed,
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=list(reversed(txn_operations)),
         )
         # expect table and table version creation to succeed
@@ -1721,7 +1663,6 @@ class TestMetafileIO:
         # given serial transaction that try to create two namespaces with
         # the same name
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     TransactionOperationType.CREATE,
@@ -1742,7 +1683,6 @@ class TestMetafileIO:
         namespace = Namespace.of(locator=namespace_locator)
         # given a transaction that tries to create the same namespace twice
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     TransactionOperationType.CREATE,
@@ -1772,7 +1712,6 @@ class TestMetafileIO:
         )
         new_stream.table_version_locator.table_version = "missing_table_version.0"
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     TransactionOperationType.CREATE,
@@ -1798,7 +1737,6 @@ class TestMetafileIO:
         )
         new_table_version.namespace_locator.namespace = "missing_namespace"
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     TransactionOperationType.CREATE,
@@ -1824,7 +1762,6 @@ class TestMetafileIO:
         )
         new_table_version.table_locator.table_name = "missing_table"
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     TransactionOperationType.CREATE,
@@ -1849,7 +1786,6 @@ class TestMetafileIO:
         # given a transaction that tries to create a single table in a
         # namespace that doesn't exist
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     TransactionOperationType.CREATE,
@@ -1932,7 +1868,6 @@ class TestMetafileIO:
             ),
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -1986,7 +1921,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -2038,7 +1972,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -2052,7 +1985,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -2067,7 +1999,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -2091,7 +2022,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=txn_operations,
         )
         # when the transaction is committed
@@ -2146,7 +2076,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.ALTER,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -2160,7 +2089,6 @@ class TestMetafileIO:
             )
         ]
         transaction = Transaction.of(
-            txn_type=TransactionType.DELETE,
             txn_operations=bad_txn_operations,
         )
         with pytest.raises(ValueError):
@@ -2175,7 +2103,6 @@ class TestMetafileIO:
                 )
             ]
             transaction = Transaction.of(
-                txn_type=TransactionType.APPEND,
                 txn_operations=bad_txn_operations,
             )
             with pytest.raises(ValueError):
@@ -2195,7 +2122,6 @@ class TestMetafileIO:
         namespace = Namespace.of(locator=namespace_locator)
         # given a transaction that creates a single namespace
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -2219,7 +2145,6 @@ class TestMetafileIO:
         )
         # given a transaction that creates a single table
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -2307,7 +2232,6 @@ class TestMetafileIO:
         )
         # given a transaction that creates a single table version
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -2356,7 +2280,6 @@ class TestMetafileIO:
         )
         # given a transaction that creates a single stream
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -2410,7 +2333,6 @@ class TestMetafileIO:
         )
         # given a transaction that creates a single partition
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -2472,7 +2394,6 @@ class TestMetafileIO:
         )
         # given a transaction that creates a single delta
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,
@@ -2511,7 +2432,6 @@ class TestMetafileIO:
         )
         # when a transaction commits this table
         write_paths, txn_log_path = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=[
                 TransactionOperation.of(
                     operation_type=TransactionOperationType.CREATE,

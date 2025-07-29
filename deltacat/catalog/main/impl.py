@@ -48,7 +48,7 @@ from deltacat.storage.model.table_version import TableVersion
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import Delta
 from deltacat.storage.model.types import CommitState
-from deltacat.storage.model.transaction import Transaction, TransactionType
+from deltacat.storage.model.transaction import Transaction
 from deltacat.types.media import (
     ContentType, 
     DatasetType,
@@ -401,7 +401,6 @@ def write_to_table(
     if commit_transaction:
         # Create and start an interactive transaction for atomic writes
         write_transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,  # Default transaction type
             txn_operations=[],  # Start with empty operations to enable interactive mode
         )
         
@@ -1150,7 +1149,7 @@ def _get_merge_key_field_names_from_schema(schema) -> List[str]:
     Returns:
         List of field names that are marked as merge keys
     """
-    if not schema or not hasattr(schema, 'merge_keys') or not schema.merge_keys:
+    if not schema or not schema.merge_keys:
         return []
     
     merge_key_field_names = []
@@ -1185,7 +1184,7 @@ def _set_entry_params_if_needed(
         return
     
     # Get schema from table version
-    if not table_version_obj or not hasattr(table_version_obj, 'schema') or not table_version_obj.schema:
+    if not table_version_obj or not table_version_obj.schema:
         return
     
     # Extract merge key field names

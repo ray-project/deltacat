@@ -28,7 +28,6 @@ from deltacat.constants import (
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.types import (
     TransactionOperationType,
-    TransactionType,
     TransactionState,
 )
 from deltacat.storage.model.metafile import (
@@ -178,10 +177,10 @@ class TransactionOperation(dict):
     ) -> TransactionOperation:
         if not dest_metafile:
             raise ValueError("Transaction operations must have a destination metafile.")
-        if operation_type == TransactionOperationType.UPDATE:
+        if operation_type in [TransactionOperationType.UPDATE, TransactionOperationType.REPLACE]:
             if not src_metafile:
                 raise ValueError(
-                    "UPDATE transaction operations must have a source metafile."
+                    f"{operation_type.value} transaction operations must have a source metafile."
                 )
             elif type(dest_metafile) is not type(src_metafile):
                 raise ValueError(
@@ -190,10 +189,10 @@ class TransactionOperation(dict):
                 )
         elif src_metafile:
             raise ValueError(
-                "Only UPDATE transaction operations may have a source metafile."
+                f"Only {TransactionOperationType.UPDATE.value} and {TransactionOperationType.REPLACE.value} transaction operations may have a source metafile."
             )
         if operation_type.is_write_operation() and read_limit:
-            raise ValueError("Only READ transaction operations may have a read limit.")
+            raise ValueError(f"Only {TransactionOperationType.READ.value} transaction operations may have a read limit.")
         txn_op = TransactionOperation()
         txn_op.type = operation_type
         txn_op.dest_metafile = dest_metafile
@@ -298,48 +297,14 @@ class Transaction(dict):
 
     @staticmethod
     def of(
-        txn_type: TransactionType,
-        txn_operations: Optional[TransactionOperationList],
+        txn_operations: Optional[TransactionOperationList] = None,
     ) -> Transaction:
         if txn_operations is None:
             txn_operations = []
         operation_types = set([op.type for op in txn_operations])
-        if txn_type == TransactionType.READ:
-            if operation_types - TransactionOperationType.read_operations():
-                raise ValueError(
-                    "Only READ transaction operation types may be specified as "
-                    "part of a READ transaction."
-                )
-        elif (
-            len(operation_types) == 1
-            and TransactionOperationType.CREATE in operation_types
-        ):
-            if txn_type != TransactionType.APPEND:
-                raise ValueError(
-                    "Transactions with only CREATE operations must be "
-                    "specified as part of an APPEND transaction."
-                )
-        elif TransactionOperationType.DELETE in operation_types:
-            if txn_type != TransactionType.DELETE:
-                raise ValueError(
-                    "DELETE transaction operations must be specified as part "
-                    "of a DELETE transaction."
-                )
-        elif TransactionOperationType.UPDATE in operation_types and txn_type not in {
-            TransactionType.ALTER,
-            TransactionType.RESTATE,
-            TransactionType.OVERWRITE,
-        }:
-            raise ValueError(
-                "Transactions with UPDATE operations must be specified "
-                "as part of an ALTER, RESTATE, or OVERWRITE transaction."
-            )
         transaction = Transaction()
-        transaction.type = txn_type
         transaction.operations = txn_operations
-        transaction.interactive = False  # set to default setting
-        if len(txn_operations) == 0:
-            transaction.interactive = True  # enable interactive run when empty
+        transaction.interactive = (len(txn_operations) == 0)
         return transaction
 
     @staticmethod
@@ -460,17 +425,6 @@ class Transaction(dict):
             return TransactionState.SUCCESS
         elif in_running:
             return TransactionState.RUNNING
-
-    @property
-    def type(self) -> TransactionType:
-        """
-        Returns the type of the transaction.
-        """
-        return TransactionType(self["type"])
-
-    @type.setter
-    def type(self, txn_type: TransactionType):
-        self["type"] = txn_type
 
     @property
     def operations(self) -> TransactionOperationList:
@@ -728,7 +682,7 @@ class Transaction(dict):
         - For mixed READ/WRITE transactions: Tuple[List["ListResult[Metafile]"], List[str], str]
         """
 
-        if self.interactive:
+        if hasattr(self, "interactive") and self.interactive:
             raise RuntimeError("Cannot commit an interactive transaction. Use transaction.start(),transaction.step(), and transaction.seal() instead.")
         
         if self.operations and len(self.operations) > 0:
@@ -777,7 +731,6 @@ class Transaction(dict):
     def step(
         self,
         operation: "TransactionOperation",
-        txn_type: Optional[TransactionType] = None,
     ) -> Union[ListResult[Metafile], Tuple[List[str], List[str]]]:
         """
         Executes a single transaction operation.
@@ -786,9 +739,6 @@ class Transaction(dict):
         ----------
         operation: TransactionOperation
             The transaction operation to execute.
-        txn_type: Optional[TransactionType]
-            Optional transaction type to override the transaction type set 
-            on the transaction object for this step.
 
         Returns
         -------
@@ -808,10 +758,6 @@ class Transaction(dict):
         # Add new operation to the transaction's list of operations
         if self.interactive:
             self.operations = self.operations + [operation]
-
-        if txn_type:
-            old_type = self.type
-            self.type = txn_type
 
         # (a) READ txn op
         if operation.type.is_read_operation():
@@ -839,7 +785,6 @@ class Transaction(dict):
                 current_txn_op=operation,
                 current_txn_start_time=self.start_time,
                 current_txn_id=self.id,
-                current_txn_type=self.type,
                 filesystem=filesystem,
             )
             # Check for concurrent txn conflicts on the metafile and locator write paths just written
@@ -861,9 +806,6 @@ class Transaction(dict):
                 running_log_path=running_txn_log_file_path,
             )
             raise  # surface original error
-        finally:
-            if txn_type:
-                self.type = old_type
 
     def pause(self) -> None:
         fs = self._filesystem

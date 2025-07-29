@@ -7,7 +7,6 @@ import posixpath
 from deltacat.storage import (
     Transaction,
     TransactionOperation,
-    TransactionType,
     TransactionOperationType,
     Namespace,
     NamespaceLocator,
@@ -103,9 +102,7 @@ class TestAbsToRelative:
         # use replace method as setter
         transaction_operation.metafile_write_paths = absolute_paths
         # Create a transaction and relativize paths
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
-        )
+        transaction = Transaction.of([transaction_operation])
         transaction.relativize_operation_paths(transaction_operation, catalog_root)
         # Verify the paths have been correctly relativized
         assert transaction_operation.metafile_write_paths == expected_relative_paths
@@ -137,9 +134,7 @@ class TestAbsToRelative:
         # use replace as setter
         transaction_operation.locator_write_paths = absolute_paths
         # Create a transaction and relativize paths
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
-        )
+        transaction = Transaction.of(txn_operations=[transaction_operation])
         transaction.relativize_operation_paths(transaction_operation, catalog_root)
         # Verify the paths have been correctly relativized
         assert transaction_operation.locator_write_paths == expected_relative_paths
@@ -176,9 +171,7 @@ class TestAbsToRelative:
         transaction_operation.metafile_write_paths = meta_absolute_paths
         transaction_operation.locator_write_paths = loc_absolute_paths
         # Create a transaction and relativize paths
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
-        )
+        transaction = Transaction.of([transaction_operation])
         transaction.relativize_operation_paths(transaction_operation, catalog_root)
         # Verify the paths have been correctly relativized
         assert (
@@ -234,9 +227,7 @@ class TestAbsToRelative:
             transaction_operation.locator_write_paths = loc_absolute_paths
             transaction_operations.append(transaction_operation)
         # Create a transaction and relativize paths
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND, txn_operations=transaction_operations
-        )
+        transaction = Transaction.of(transaction_operations)
         for operation in transaction_operations:
             transaction.relativize_operation_paths(operation, catalog_root)
         # Verify the paths have been correctly relativized
@@ -253,9 +244,7 @@ class TestAbsToRelative:
         # Empty paths
         transaction_operation.metafile_write_paths = []
         transaction_operation.locator_write_paths = []
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
-        )
+        transaction = Transaction.of([transaction_operation])
         transaction.relativize_operation_paths(transaction_operation, catalog_root)
         assert transaction_operation.metafile_write_paths == []
         assert transaction_operation.locator_write_paths == []
@@ -269,9 +258,7 @@ class TestAbsToRelative:
             dest_metafile=Metafile({"id": "dummy_metafile_id"}),
         )
         transaction_operation.metafile_write_paths = absolute_paths
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND, txn_operations=[transaction_operation]
-        )
+        transaction = Transaction.of([transaction_operation])
         transaction.relativize_operation_paths(transaction_operation, catalog_root)
         assert transaction_operation.metafile_write_paths == expected_paths
 
@@ -291,33 +278,20 @@ class TestAbsToRelative:
             TransactionOperationType.READ_SIBLINGS,
         ]
 
-        # Different transaction types to test
-        txn_types = [
-            TransactionType.APPEND,
-            TransactionType.ALTER,
-            TransactionType.DELETE,
-            TransactionType.OVERWRITE,
-            TransactionType.READ,
-            TransactionType.RESTATE,
-        ]
-
-        for txn_type in txn_types:
-            transaction_ops = []
-            for op_type in operation_types:
-                transaction_operation = TransactionOperation.of(
-                    operation_type=op_type,
-                    dest_metafile=Metafile({"id": "dummy_metafile_id"}),
-                )
-                transaction_operation.metafile_write_paths = absolute_paths
-                transaction_ops.append(transaction_operation)
-            transaction = Transaction.of(
-                txn_type=txn_type, txn_operations=[transaction_operation]
+        transaction_ops = []
+        for op_type in operation_types:
+            transaction_operation = TransactionOperation.of(
+                operation_type=op_type,
+                dest_metafile=Metafile({"id": "dummy_metafile_id"}),
             )
-            transaction.relativize_operation_paths(transaction_operation, catalog_root)
-            # Assert paths are relativized correctly
-            assert (
-                transaction_operation.metafile_write_paths == expected_paths
-            ), f"Failed for transaction type {txn_type} and operation type {op_type}"
+            transaction_operation.metafile_write_paths = absolute_paths
+            transaction_ops.append(transaction_operation)
+        transaction = Transaction.of([transaction_operation])
+        transaction.relativize_operation_paths(transaction_operation, catalog_root)
+        # Assert paths are relativized correctly
+        assert (
+            transaction_operation.metafile_write_paths == expected_paths
+        ), f"Failed for operation type {op_type}"
 
 
 class TestTransactionPersistence:
@@ -325,13 +299,13 @@ class TestTransactionPersistence:
     # Verifies that transactions initialized with empty or None operations are marked interactive,
     # while valid operations are not
     def test_create_iterative_transaction(self):
-        txn_1 = Transaction.of(txn_type=TransactionType.READ, txn_operations=[])
-        txn_2 = Transaction.of(txn_type=TransactionType.READ, txn_operations=None)
+        txn_1 = Transaction.of(txn_operations=[])
+        txn_2 = Transaction.of(txn_operations=None)
         op = TransactionOperation.of(
             operation_type=TransactionOperationType.CREATE,
             dest_metafile=Metafile({"id": "dummy_metafile_id"}),
         )
-        txn_3 = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[op, op])
+        txn_3 = Transaction.of(txn_operations=[op, op])
         assert (
             txn_1.interactive
         )  # check if constructor detect empty list --> interactive transaction
@@ -350,10 +324,7 @@ class TestTransactionPersistence:
         ns1 = Namespace.of(locator=namespace_locator1)
         ns2 = Namespace.of(locator=namespace_locator2)
         # Start with an empty transaction (interactive)
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
-            txn_operations=[],
-        )
+        transaction = Transaction.of()
         txn = transaction.start(temp_dir)  # operate on deep-copy
         # Build operations manually and step them in
         op1 = TransactionOperation.of(
@@ -385,9 +356,7 @@ class TestTransactionPersistence:
     # Ensures that stepping and committing a transaction writes non-empty output files and a valid success log
     def test_commit_iterative_file_creation(self, temp_dir):
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="check_writes"))
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
         txn.step(op)
         write_paths, success_log_path = txn.seal()
@@ -408,9 +377,7 @@ class TestTransactionPersistence:
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="paused_resume_ns"))
 
         # Start interactive transaction
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
 
         txn.step(op)
@@ -434,9 +401,7 @@ class TestTransactionPersistence:
     def test_resume_preserves_state_after_pause(self, temp_dir):
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
 
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
 
         txn.step(op)
@@ -459,9 +424,7 @@ class TestTransactionPersistence:
     def test_resume_preserves_state_after_pause_deep(self, temp_dir):
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
 
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
 
         txn.step(op)
@@ -490,9 +453,6 @@ class TestTransactionPersistence:
         assert (
             isinstance(txn.operations, list) and len(txn.operations) == 1
         ), "Operations must be restored"
-        assert (
-            txn.type == TransactionType.APPEND
-        ), "Transaction type should be preserved"
         assert txn.pause_time is not None, "Pause time should be restored"
 
         # Final commit still works
@@ -504,7 +464,7 @@ class TestTransactionPersistence:
         # Set up a transaction and a single operation
         locator = NamespaceLocator.of(namespace="pause_test")
         ns = Namespace.of(locator=locator)
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+        txn = Transaction.of().start(
             temp_dir
         )
 
@@ -537,13 +497,12 @@ class TestTransactionPersistence:
             txn_loaded = msgpack.loads(data)
             print(txn_loaded.keys())
             print(txn_loaded)
-            assert "type" in txn_loaded
             assert "operations" in txn_loaded
 
     # Simulates a full multi-step transaction with multiple pause/resume cycles and verifies correctness of all outputs
     def test_transaction_pause_and_resume_roundtrip_complex(self, temp_dir):
         # Step 0: Create an empty interactive transaction
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+        txn = Transaction.of().start(
             temp_dir
         )
 
@@ -592,7 +551,7 @@ class TestTransactionPersistence:
     # Repeats a complex pause/resume flow with additional assertions on namespace equality and time consistency
     def test_transaction_pause_and_resume_roundtrip_complex_2(self, temp_dir):
         # Step 0: Create an empty interactive transaction
-        txn = Transaction.of(txn_type=TransactionType.APPEND, txn_operations=[]).start(
+        txn = Transaction.of().start(
             temp_dir
         )
 

@@ -609,7 +609,6 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
-        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Tuple[List[str], List[str]]:
         """
@@ -621,7 +620,6 @@ class Metafile(dict):
         :param current_txn_op: Transaction operation for this write.
         :param current_txn_start_time: Transaction start time for this write.
         :param current_txn_id: Transaction ID for this write.
-        :param current_txn_type: Transaction type for this write.
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
@@ -639,7 +637,6 @@ class Metafile(dict):
             current_txn_op=current_txn_op,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
-            current_txn_type=current_txn_type,
             filesystem=filesystem,
         )
 
@@ -1182,7 +1179,6 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
-        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: pyarrow.fs.FileSystem,
     ) -> Tuple[List[str], List[str]]:
         """
@@ -1219,13 +1215,8 @@ class Metafile(dict):
         if mutable_dest_locator:
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
-            is_alter_update_txn_op = (
-                current_txn_type
-                == deltacat.storage.model.transaction.TransactionType.ALTER
-                and current_txn_op.type == TransactionOperationType.UPDATE
-            )
-            if is_alter_update_txn_op:
-                # mutable locator alter updates are used to either transition
+            if current_txn_op.type == TransactionOperationType.UPDATE:
+                # mutable locator updates are used to either transition
                 # staged streams/partitions (which have no locator alias) to
                 # committed (and create the locator alias) or to rename an
                 # existing mutable locator
@@ -1258,8 +1249,8 @@ class Metafile(dict):
                     locator_write_paths.append(locator_write_path)
                 # else this is a mutable locator no-op update - do nothing
             else:
-                # this is either a create/delete operation or an
-                # update operation that is part of an overwrite/restate
+                # this is either a create/delete operation or a
+                # replace operation that is part of an overwrite/restate
                 # transaction (e.g. committing a staged replacement for a
                 # previously committed stream/partition).
                 locator_write_path = self._write_locator_to_id_map_file(
@@ -1279,7 +1270,7 @@ class Metafile(dict):
             REVISION_DIR_NAME,
         )
         if (
-            current_txn_op.type == TransactionOperationType.UPDATE
+            current_txn_op.type in [TransactionOperationType.UPDATE, TransactionOperationType.REPLACE]
             and current_txn_op.src_metafile.id != current_txn_op.dest_metafile.id
         ):
             # TODO(pdames): block operations including both a rename & replace?
