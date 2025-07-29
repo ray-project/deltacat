@@ -1020,6 +1020,20 @@ def _get_compaction_hash_bucket_count(partition: Partition) -> int:
     return hash_bucket_count
 
 
+def _get_merge_order_sort_keys(table_version_obj: TableVersion):
+    """Extract sort keys from merge_order fields in schema for compaction.
+    
+    Args:
+        table_version_obj: The table version containing schema
+        
+    Returns:
+        List of SortKey objects from merge_order fields, or None if no merge_order fields are defined
+    """
+    if table_version_obj.schema:
+        return table_version_obj.schema.merge_order_sort_keys()
+    return None
+
+
 def _create_compaction_params(
     table_version_obj: TableVersion,
     partition: Partition,
@@ -1046,7 +1060,7 @@ def _create_compaction_params(
         ),
         "compacted_file_content_type": ContentType.PARQUET,
         "drop_duplicates": True,
-        "sort_keys": table_version_obj.sort_scheme.keys if table_version_obj.sort_scheme else None,
+        "sort_keys": _get_merge_order_sort_keys(table_version_obj),
     })
 
 

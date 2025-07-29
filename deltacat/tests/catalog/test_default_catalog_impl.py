@@ -22,8 +22,8 @@ from deltacat.tests.test_utils.pyarrow import (
 from deltacat.types.media import DatasetType, ContentType, DistributedDatasetType
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import metastore
-from deltacat.storage.model.schema import Schema, Field
-from deltacat.storage.model.types import SchemaConsistencyType
+from deltacat.storage.model.schema import Schema, Field, MergeOrder
+from deltacat.storage.model.types import SchemaConsistencyType, SortOrder, NullOrder
 from deltacat.storage.model.table import TableProperties
 from deltacat.types.tables import TableWriteMode, TableProperty, TableReadOptimizationLevel, TablePropertyDefaultValues
 from deltacat.exceptions import DeltaCatError, ValidationError
@@ -999,6 +999,240 @@ class TestCopyOnWrite:
             assert row['name'] == expected['name'], f"Wrong name for ID {record_id}"
             assert row['age'] == expected['age'], f"Wrong age for ID {record_id}"
             assert row['city'] == expected['city'], f"Wrong city for ID {record_id}"
+
+    def test_merge_order_current_behavior_documentation(self):
+        """
+        Document the current behavior of duplicate merge key handling during compaction.
+        
+        Currently, merge_order keys are defined in the schema but not yet implemented 
+        in the compaction logic. This test documents the current "last record wins" 
+        behavior and can be updated when merge_order is implemented.
+        
+        When merge_order is properly implemented, this test should be replaced with
+        a test that verifies different merge_order configurations produce different
+        results for the same dataset.
+        """
+        table_name = "test_merge_order_current_behavior"
+        
+        # Create table with merge_order defined (though not yet implemented in compaction)
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # Merge key
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("timestamp", pa.int64()), merge_order=MergeOrder.of(SortOrder.ASCENDING, NullOrder.AT_END)),
+            Field.of(pa.field("value", pa.string())),
+        ])
+        
+        # Create table with automatic compaction
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger compaction immediately
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+        }
+        
+        dc.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+            properties=table_properties,
+            catalog=self.catalog_name,
+        )
+        
+        # Test data with duplicate merge keys - different timestamps and values
+        test_data = pd.DataFrame({
+            'id': [1, 1, 2, 2],  # Duplicate merge keys
+            'name': ['Alice_first', 'Alice_last', 'Bob_first', 'Bob_last'],
+            'timestamp': [100, 200, 150, 250],  # Would prefer first if ASCENDING was implemented
+            'value': ['old_alice', 'new_alice', 'old_bob', 'new_bob']
+        })
+        
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 2 records (one per unique merge key)
+        assert result.count_rows() == 2, "Expected 2 records after deduplication"
+        
+        df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # Document current behavior: last record wins (position-based, not merge_order-based)
+        # When merge_order is implemented, this assertion should change
+        current_behavior_expected = {
+            1: {'name': 'Alice_last', 'timestamp': 200, 'value': 'new_alice'},   # Last record wins
+            2: {'name': 'Bob_last', 'timestamp': 250, 'value': 'new_bob'}        # Last record wins
+        }
+        
+        for _, row in df.iterrows():
+            record_id = row['id']
+            expected = current_behavior_expected[record_id]
+            assert row['name'] == expected['name'], f"Current behavior: Wrong name for ID {record_id}"  
+            assert row['timestamp'] == expected['timestamp'], f"Current behavior: Wrong timestamp for ID {record_id}"
+            assert row['value'] == expected['value'], f"Current behavior: Wrong value for ID {record_id}"
+        
+        # TODO: When merge_order is implemented, update this test to verify that:
+        # 1. ASCENDING merge_order on timestamp keeps records with smallest timestamps
+        # 2. DESCENDING merge_order on timestamp keeps records with largest timestamps  
+        # 3. The same dataset produces different results with different merge_order configs
+        
+        print("Note: merge_order is defined in schema but not yet implemented in compaction logic")
+        print("Current behavior: last record wins for duplicate merge keys")
+
+    def test_merge_order_ascending_functionality(self):
+        """
+        Test that merge_order with ASCENDING sort order keeps records with smallest values.
+        """
+        table_name = "test_merge_order_ascending"
+        
+        # Create table with ASCENDING merge_order on timestamp
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # Merge key
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("timestamp", pa.int64()), merge_order=MergeOrder.of(SortOrder.ASCENDING, NullOrder.AT_END)),
+            Field.of(pa.field("value", pa.string())),
+        ])
+        
+        # Create table with automatic compaction
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger compaction immediately
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+        }
+        
+        dc.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+            properties=table_properties,
+            catalog=self.catalog_name,
+        )
+        
+        # Test data with duplicate merge keys - different timestamps and values
+        test_data = pd.DataFrame({
+            'id': [1, 1, 2, 2],  # Duplicate merge keys
+            'name': ['Alice_first', 'Alice_last', 'Bob_first', 'Bob_last'],
+            'timestamp': [100, 200, 150, 250],  # With ASCENDING merge_order, should keep first (smallest) timestamps
+            'value': ['old_alice', 'new_alice', 'old_bob', 'new_bob']
+        })
+        
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 2 records (one per unique merge key)
+        assert result.count_rows() == 2, "Expected 2 records after deduplication"
+        
+        df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # With ASCENDING merge_order, should keep records with smallest timestamps
+        expected_ascending = {
+            1: {'name': 'Alice_first', 'timestamp': 100, 'value': 'old_alice'},   # Smallest timestamp wins
+            2: {'name': 'Bob_first', 'timestamp': 150, 'value': 'old_bob'}        # Smallest timestamp wins
+        }
+        
+        for _, row in df.iterrows():
+            record_id = row['id']
+            expected = expected_ascending[record_id]
+            assert row['name'] == expected['name'], f"Wrong name for ID {record_id}: expected {expected['name']}, got {row['name']}"  
+            assert row['timestamp'] == expected['timestamp'], f"Wrong timestamp for ID {record_id}: expected {expected['timestamp']}, got {row['timestamp']}"
+            assert row['value'] == expected['value'], f"Wrong value for ID {record_id}: expected {expected['value']}, got {row['value']}"
+
+    def test_merge_order_descending_functionality(self):
+        """
+        Test that merge_order with DESCENDING sort order keeps records with largest values.
+        """
+        table_name = "test_merge_order_descending"
+        
+        # Create table with DESCENDING merge_order on timestamp
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # Merge key
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("timestamp", pa.int64()), merge_order=MergeOrder.of(SortOrder.DESCENDING, NullOrder.AT_END)),
+            Field.of(pa.field("value", pa.string())),
+        ])
+        
+        # Create table with automatic compaction
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger compaction immediately
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+        }
+        
+        dc.create_table(
+            name=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=[ContentType.PARQUET],
+            properties=table_properties,
+            catalog=self.catalog_name,
+        )
+        
+        # Same test data as ascending test
+        test_data = pd.DataFrame({
+            'id': [1, 1, 2, 2],  # Duplicate merge keys
+            'name': ['Alice_first', 'Alice_last', 'Bob_first', 'Bob_last'],
+            'timestamp': [100, 200, 150, 250],  # With DESCENDING merge_order, should keep last (largest) timestamps
+            'value': ['old_alice', 'new_alice', 'old_bob', 'new_bob']
+        })
+        
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Should have 2 records (one per unique merge key)
+        assert result.count_rows() == 2, "Expected 2 records after deduplication"
+        
+        df = result.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        
+        # With DESCENDING merge_order, should keep records with largest timestamps
+        expected_descending = {
+            1: {'name': 'Alice_last', 'timestamp': 200, 'value': 'new_alice'},   # Largest timestamp wins
+            2: {'name': 'Bob_last', 'timestamp': 250, 'value': 'new_bob'}        # Largest timestamp wins
+        }
+        
+        for _, row in df.iterrows():
+            record_id = row['id']
+            expected = expected_descending[record_id]
+            assert row['name'] == expected['name'], f"Wrong name for ID {record_id}: expected {expected['name']}, got {row['name']}"  
+            assert row['timestamp'] == expected['timestamp'], f"Wrong timestamp for ID {record_id}: expected {expected['timestamp']}, got {row['timestamp']}"
+            assert row['value'] == expected['value'], f"Wrong value for ID {record_id}: expected {expected['value']}, got {row['value']}"
 
 
 class TestDatasetTypes:
