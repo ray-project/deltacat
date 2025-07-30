@@ -18,7 +18,9 @@ from deltacat.storage.model.types import (
     SortOrder,
     NullOrder,
 )
+from deltacat.types.tables import get_table_length
 from deltacat import logs
+
 
 # PyArrow Field Metadata Key used to set the Field ID when writing to Parquet.
 # See: https://arrow.apache.org/docs/cpp/parquet.html#parquet-field-id
@@ -598,9 +600,9 @@ class Field(dict):
     
     def _types_compatible(self, type1: pa.DataType, type2: pa.DataType) -> bool:
         """Check if two types are compatible (ignoring nullability)."""
-        # Strip nullability for comparison
-        base_type1 = type1.value_type if hasattr(type1, 'value_type') else type1
-        base_type2 = type2.value_type if hasattr(type2, 'value_type') else type2
+        # For complex types like list and dictionary, compare their value types
+        base_type1 = type1.value_type if isinstance(type1, (pa.ListType, pa.DictionaryType)) else type1
+        base_type2 = type2.value_type if isinstance(type2, (pa.ListType, pa.DictionaryType)) else type2
         return base_type1.equals(base_type2)
     
     def _can_cast_to(self, from_type: pa.DataType, to_type: pa.DataType) -> bool:
@@ -637,7 +639,7 @@ class Field(dict):
     
     def _create_sample_array(self, data_type: pa.DataType) -> Optional[pa.Array]:
         """Create a minimal sample array for testing type casting."""
-        if hasattr(data_type, 'value_type'):  # nullable type
+        if isinstance(data_type, (pa.ListType, pa.DictionaryType)):  # complex types
             return pa.array([None], type=data_type)
         
         # Create appropriate test value based on type
@@ -654,17 +656,10 @@ class Field(dict):
     
     def _maybe_make_nullable(self, base_type: pa.DataType, type1: pa.DataType, type2: pa.DataType) -> pa.DataType:
         """Make the base type nullable if either input type is nullable."""
-        type1_nullable = hasattr(type1, 'value_type') or type1 == pa.null()
-        type2_nullable = hasattr(type2, 'value_type') or type2 == pa.null()
-        
-        if type1_nullable or type2_nullable:
-            # Make nullable if not already
-            if hasattr(base_type, 'value_type'):
-                return base_type  # Already nullable
-            else:
-                return pa.field("", base_type, nullable=True).type
-        else:
-            return base_type
+        # PyArrow doesn't have a direct way to check nullability at the type level
+        # This method assumes the caller will handle nullability at the field level
+        # For now, return the base type as-is since nullability is handled by pa.field()
+        return base_type
 
 
 SingleSchema = Union[List[Field], pa.Schema]
@@ -1303,11 +1298,11 @@ class Schema(dict):
                     # Use future_default if available, otherwise check if nullable
                     if field.future_default is not None:
                         # Create column with future_default value
-                        default_array = pa.array([field.future_default] * len(table), type=field.arrow.type)
+                        default_array = pa.array([field.future_default] * get_table_length(table), type=field.arrow.type)
                         new_columns.append(default_array)
                     elif field.arrow.nullable:
                         # Backfill with nulls if field is nullable
-                        null_column = pa.nulls(len(table), type=field.arrow.type)
+                        null_column = pa.nulls(get_table_length(table), type=field.arrow.type)
                         new_columns.append(null_column)
                     else:
                         # Field is not nullable and no future_default - error
@@ -1316,10 +1311,10 @@ class Schema(dict):
                 else:
                     # NONE or no consistency type - backfill with future_default or nulls
                     if field.future_default is not None:
-                        default_array = pa.array([field.future_default] * len(table), type=field.arrow.type)
+                        default_array = pa.array([field.future_default] * get_table_length(table), type=field.arrow.type)
                         new_columns.append(default_array)
                     else:
-                        null_column = pa.nulls(len(table), type=field.arrow.type)
+                        null_column = pa.nulls(get_table_length(table), type=field.arrow.type)
                         new_columns.append(null_column)
                     new_schema_fields.append(field.arrow)
         
@@ -1393,16 +1388,6 @@ class Schema(dict):
             return dataset, 'pyarrow'
         elif isinstance(dataset, pd.DataFrame):
             return pa.Table.from_pandas(dataset), 'pandas'
-        elif hasattr(dataset, 'to_arrow'):  # Polars, Daft
-            pa_table = dataset.to_arrow()
-            # Better type detection for datasets with to_arrow method
-            dataset_module = type(dataset).__module__
-            if 'polars' in dataset_module:
-                return pa_table, 'polars'
-            elif 'daft' in dataset_module:
-                return pa_table, 'daft'
-            else:
-                return pa_table, type(dataset).__name__.lower()
         elif isinstance(dataset, np.ndarray):
             if dataset.ndim == 1:
                 pa_table = pa.table([dataset], names=[f"column_0"])
@@ -1413,6 +1398,22 @@ class Schema(dict):
                 raise ValueError(f"NumPy arrays with {dataset.ndim} dimensions are not supported")
             return pa_table, 'numpy'
         else:
+            # Try to import and check for specific types that have to_arrow method
+            try:
+                import polars as pl
+                if isinstance(dataset, pl.DataFrame):
+                    return dataset.to_arrow(), 'polars'
+            except ImportError:
+                pass
+            
+            try:
+                import daft
+                if isinstance(dataset, daft.DataFrame):
+                    return dataset.to_arrow(), 'daft'
+            except ImportError:
+                pass
+            
+            # If we get here, it's an unsupported type
             return None, ''
 
     def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
@@ -1456,11 +1457,11 @@ class Schema(dict):
             # Check if field has past_default value and use it instead of nulls
             if field.past_default is not None:
                 # Create array filled with past_default value
-                default_column = pa.array([field.past_default] * len(pa_table), type=field.arrow.type)
+                default_column = pa.array([field.past_default] * get_table_length(pa_table), type=field.arrow.type)
                 new_columns.append(default_column)
             else:
                 # Use null values as before
-                null_column = pa.nulls(len(pa_table), type=field.arrow.type)
+                null_column = pa.nulls(get_table_length(pa_table), type=field.arrow.type)
                 new_columns.append(null_column)
             
             new_schema_fields.append(field.arrow)

@@ -6,6 +6,7 @@ from functools import partial
 from typing import Callable, Dict, Type, Union, Optional, Any, List, Tuple
 from uuid import uuid4
 
+import daft
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -130,6 +131,14 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     MaterializedDataset: ds_utils.dataset_size,
 }
 
+def _ray_dataset_to_pyarrow(table, **kwargs):
+    """Convert Ray Dataset to PyArrow tables and concatenate."""
+    arrow_refs = table.to_arrow_refs(**kwargs)
+    arrow_tables = ray.get(arrow_refs)
+    if len(arrow_tables) == 1:
+        return arrow_tables[0]
+    return pa.concat_tables(arrow_tables)
+
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
@@ -140,6 +149,22 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     np.ndarray: lambda table, **kwargs: pa.Table.from_arrays(
         [pa.array(table[:, i]) for i in range(table.shape[1])]
     ),
+    RayDataset: _ray_dataset_to_pyarrow,
+    MaterializedDataset: _ray_dataset_to_pyarrow,
+    daft.DataFrame: lambda table, **kwargs: table.to_arrow(**kwargs),
+}
+
+TABLE_CLASS_TO_PANDAS_FUNC: Dict[
+    Type[Union[LocalTable, DistributedDataset]], Callable
+] = {
+    pa.Table: lambda table, **kwargs: table.to_pandas(**kwargs),
+    papq.ParquetFile: lambda table, **kwargs: table.read(**kwargs).to_pandas(**kwargs),
+    pd.DataFrame: lambda table, **kwargs: table,
+    pl.DataFrame: lambda table, **kwargs: table.to_pandas(**kwargs),
+    np.ndarray: lambda table, **kwargs: pd.DataFrame(table, **kwargs),
+    RayDataset: lambda table, **kwargs: table.to_pandas(**kwargs),
+    MaterializedDataset: lambda table, **kwargs: table.to_pandas(**kwargs),
+    daft.DataFrame: lambda table, **kwargs: table.to_pandas(**kwargs),
 }
 
 TABLE_CLASS_TO_APPEND_COLUMN_FUNC: Dict[
@@ -351,7 +376,13 @@ def _get_table_type_function(
 def get_table_length(
     table: Union[LocalTable, DistributedDataset, BlockAccessor]
 ) -> int:
-    return len(table) if not isinstance(table, RayDataset) else table.count()
+    # Handle DAFT DataFrames dynamically
+    if hasattr(table, 'count_rows') and str(type(table).__module__).startswith('daft'):
+        return table.count_rows()
+    elif isinstance(table, RayDataset):
+        return table.count()
+    else:
+        return len(table)
 
 
 def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
@@ -365,6 +396,18 @@ def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:
 
 def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     return _get_table_function(table, TABLE_CLASS_TO_SLICER_FUNC, "slicer")
+
+
+def to_pyarrow(table: Union[LocalTable, DistributedDataset], **kwargs) -> pa.Table:
+    """Convert any supported table type to PyArrow Table format."""
+    to_pyarrow_func = _get_table_function(table, TABLE_CLASS_TO_PYARROW_FUNC, "PyArrow conversion")
+    return to_pyarrow_func(table, **kwargs)
+
+
+def to_pandas(table: Union[LocalTable, DistributedDataset], **kwargs) -> pd.DataFrame:
+    """Convert any supported table type to pandas DataFrame format."""
+    to_pandas_func = _get_table_function(table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion")
+    return to_pandas_func(table, **kwargs)
 
 
 def append_column_to_table(

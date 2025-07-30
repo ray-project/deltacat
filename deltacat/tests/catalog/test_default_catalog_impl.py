@@ -12,8 +12,12 @@ import os
 from unittest.mock import patch, MagicMock
 
 import ray
+from ray.data.dataset import MaterializedDataset
+import polars as pl
+import pyarrow.parquet as papq
 from deltacat import Catalog
 from deltacat.catalog import CatalogProperties
+from deltacat.types.tables import get_table_length, to_pandas
 from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     commit_delta_to_partition,
@@ -37,6 +41,64 @@ from unittest.mock import patch
 import subprocess
 import socket
 import threading
+
+
+def convert_to_pandas(result) -> pd.DataFrame:
+    """
+    Convert result to pandas with strict type checking.
+    Fails the test if we get an unexpected type.
+    """
+    if isinstance(result, pd.DataFrame):
+        return result
+    elif isinstance(result, pa.Table):
+        return result.to_pandas()
+    elif isinstance(result, pl.DataFrame):
+        return result.to_pandas()
+    elif isinstance(result, MaterializedDataset):
+        return result.to_pandas()
+    elif isinstance(result, list):
+        # Handle list of tables
+        all_tables = []
+        for table in result:
+            all_tables.append(convert_to_pandas(table))
+        return pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
+    else:
+        # Import daft dynamically to avoid circular imports
+        try:
+            import daft
+            if isinstance(result, daft.DataFrame):
+                return result.collect().to_pandas()
+        except ImportError:
+            pass
+        
+        pytest.fail(f"Unexpected result type: {type(result)}. Expected pandas, pyarrow, polars, ray MaterializedDataset, or daft DataFrame.")
+
+
+def convert_to_arrow(result) -> pa.Table:
+    """
+    Convert result to PyArrow with strict type checking.
+    Fails the test if we get an unexpected type.
+    """
+    if isinstance(result, pa.Table):
+        return result
+    elif isinstance(result, pd.DataFrame):
+        return pa.Table.from_pandas(result)
+    elif isinstance(result, pl.DataFrame):
+        return result.to_arrow()
+    elif isinstance(result, MaterializedDataset):
+        return pa.Table.from_pandas(result.to_pandas())
+    elif isinstance(result, papq.ParquetFile):
+        return result.read()
+    else:
+        # Import daft dynamically to avoid circular imports
+        try:
+            import daft
+            if isinstance(result, daft.DataFrame):
+                return result.to_arrow()
+        except ImportError:
+            pass
+        
+        pytest.fail(f"Unexpected result type: {type(result)}. Expected pandas, pyarrow, polars, ParquetFile, ray MaterializedDataset, or daft DataFrame.")
 
 
 class TestReadTableMain:
@@ -234,15 +296,8 @@ class TestCopyOnWrite:
     
     def _verify_dataframe_contents(self, result_df, expected_data: Dict[int, Dict[str, Any]]):
         """Verify that the result DataFrame contains expected data after compaction."""
-        # Handle both Daft DataFrames and Pandas DataFrames
-        if hasattr(result_df, 'collect'):
-            # Daft DataFrame - materialize it first
-            materialized_df = result_df.collect()
-            # Convert Daft DataFrame to pandas for easier comparison
-            pandas_df = materialized_df.to_pandas()
-        else:
-            # Already a pandas DataFrame
-            pandas_df = result_df
+        # Convert to pandas for easy comparison
+        pandas_df = to_pandas(result_df)
         
         # Convert to dict keyed by id for easy comparison
         result_dict = {}
@@ -263,6 +318,8 @@ class TestCopyOnWrite:
             assert actual_record == expected_record, \
                 f"Record {record_id}: expected {expected_record}, got {actual_record}"
     
+
+
     def test_simple_append_no_compaction_needed(self):
         """Test that simple append operations work without requiring compaction."""
         table_name = "test_simple_append"
@@ -287,7 +344,7 @@ class TestCopyOnWrite:
         )
         
         # Should get all original records
-        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        result_count = get_table_length(result)
         assert result_count == 5
         self._verify_dataframe_contents(result, {
             1: {'name': 'Alice', 'age': 25, 'city': 'NYC'},
@@ -345,7 +402,7 @@ class TestCopyOnWrite:
         
         # Step 5: Verify the results show proper merge behavior
         # Expected: 7 total records (5 original + 2 new, with 2 updated)
-        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        result_count = get_table_length(result)
         assert result_count == 7, f"Expected 7 records after merge, got {result_count}"
         
         # Verify the merged data contains expected updates and additions
@@ -415,7 +472,7 @@ class TestCopyOnWrite:
         
         
         # Expected: 9 total unique records after all merges
-        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        result_count = get_table_length(result)
         assert result_count == 9, f"Expected 9 records after all merges, got {result_count}"
         
         # Verify merge behavior:
@@ -561,14 +618,14 @@ class TestCopyOnWrite:
             """Use latch mechanism to ensure Writer B completes before Writer A"""
             current_thread = threading.current_thread()
             
-            if hasattr(current_thread, 'name') and 'writer_a' in current_thread.name.lower():
+            if isinstance(current_thread.name, str) and 'writer_a' in current_thread.name.lower():
                 # Writer A waits for Writer B to complete first
                 writer_b_completed.wait(timeout=10)  # Wait up to 10 seconds
                 
             # Call the original function
             result = original_commit_partition(*args, **kwargs)
             
-            if hasattr(current_thread, 'name') and 'writer_b' in current_thread.name.lower():
+            if isinstance(current_thread.name, str) and 'writer_b' in current_thread.name.lower():
                 # Writer B signals completion after successful commit
                 writer_b_completed.set()
                 
@@ -641,7 +698,7 @@ class TestCopyOnWrite:
         # Verify this is a legitimate concurrent write conflict error
         # Check both the main exception message and any underlying cause
         error_message = str(failed_exception)
-        cause_message = str(failed_exception.__cause__) if hasattr(failed_exception, '__cause__') and failed_exception.__cause__ else ""
+        cause_message = str(failed_exception.__cause__) if failed_exception.__cause__ is not None else ""
         full_error_context = error_message + " " + cause_message
         
         # Look specifically for our conflict detection message
@@ -905,7 +962,7 @@ class TestCopyOnWrite:
         )
         
         # Should have 3 unique records (4, 5, 6) with latest values for duplicates
-        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        result_count = get_table_length(result)
         assert result_count == 3, f"Expected 3 unique records after deduplication, got {result_count}"
         
         # Convert to pandas for easier verification
@@ -979,7 +1036,7 @@ class TestCopyOnWrite:
         
         # Should have 3 unique records (4, 5, 6) with latest values for duplicates
         # The initial data (1, 2, 3) should be gone due to REPLACE mode
-        result_count = result.count_rows() if hasattr(result, 'count_rows') else len(result)
+        result_count = get_table_length(result)
         assert result_count == 3, f"Expected 3 unique records after REPLACE and deduplication, got {result_count}"
         
         # Convert to pandas for easier verification
@@ -1523,8 +1580,8 @@ class TestDatasetTypes:
             
             # Additional validation based on type
             if test_case["distributed_dataset_type"] == DatasetType.RAY_DATASET:
-                # Ray dataset should be materialized
-                assert hasattr(result_table, 'num_rows') or hasattr(result_table, 'count')
+                # Ray dataset should be materialized as MaterializedDataset
+                assert isinstance(result_table, MaterializedDataset), f"Expected MaterializedDataset, got {type(result_table)}"
                 
                 # Special validation for file_path_column if it was specified
                 if test_case["custom_kwargs"].get("file_path_column"):
@@ -1540,8 +1597,12 @@ class TestDatasetTypes:
                     assert all(path is not None and len(str(path)) > 0 for path in paths), "Ray paths should not be empty"
                     assert any("/" in str(path) for path in paths), "Ray paths should contain valid file system paths"
             elif test_case["distributed_dataset_type"] == DatasetType.DAFT:
-                # Daft dataframe should have proper methods
-                assert hasattr(result_table, 'collect') or hasattr(result_table, 'show')
+                # Daft dataframe should be a proper daft DataFrame
+                try:
+                    import daft
+                    assert isinstance(result_table, daft.DataFrame), f"Expected daft.DataFrame, got {type(result_table)}"
+                except ImportError:
+                    pytest.fail("DAFT is required for DAFT dataset type tests")
                 
                 # Special validation for file_path_column if it was specified
                 if "file_path_column" in test_case["custom_kwargs"]:
@@ -2236,6 +2297,8 @@ class TestTableVersionWriteModes:
                 assert keyword.lower() in error_message.lower(), \
                     f"Error message for {case['description']} should contain '{keyword}'. Got: {error_message}"
 
+
+
     def test_past_default_enforcement_basic(self):
         """Test that past_default values are enforced when fields are missing from file schema."""
         table_name = 'past_default_basic_test'
@@ -2296,10 +2359,7 @@ class TestTableVersionWriteModes:
         )
         
         # Convert result to pandas if needed
-        if hasattr(result, 'to_pandas'):
-            result = result.to_pandas()
-        elif hasattr(result, 'to_arrow'):
-            result = result.to_arrow().to_pandas()
+        result = to_pandas(result)
         
         # Verify the missing fields were filled with past_default values
         assert 'status' in result.columns, "status column should be present"
@@ -2362,10 +2422,7 @@ class TestTableVersionWriteModes:
         )
         
         # Convert result to pandas if needed
-        if hasattr(result, 'to_pandas'):
-            result = result.to_pandas()
-        elif hasattr(result, 'to_arrow'):
-            result = result.to_arrow().to_pandas()
+        result = to_pandas(result)
         
         # Verify that past_default was NOT applied - values should remain null
         assert 'status' in result.columns, "status column should be present"
@@ -2469,20 +2526,16 @@ class TestTableVersionWriteModes:
             )
             
             if dataset_type == DatasetType.PANDAS:
-                # Convert result to pandas if needed
-                if hasattr(result, 'to_pandas'):
-                    result = result.to_pandas()
-                elif hasattr(result, 'to_arrow'):
-                    result = result.to_arrow().to_pandas()
+                # Convert result to pandas using strict type checking
+                result = convert_to_pandas(result)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
                 assert all(result['default_field'] == 'default_value'), \
                     f"All default_field values should be 'default_value' for {dataset_type}, got {result['default_field'].tolist()}"
             
             elif dataset_type == DatasetType.PYARROW:
-                # Convert result to pyarrow if needed
-                if hasattr(result, 'to_arrow'):
-                    result = result.to_arrow()
+                # Convert result to pyarrow using strict type checking
+                result = convert_to_arrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2490,19 +2543,9 @@ class TestTableVersionWriteModes:
                     f"All default_field values should be 'default_value' for {dataset_type}, got {default_column}"
             
             elif dataset_type == DatasetType.POLARS:
-                # Convert result to polars if needed
-                if hasattr(result, 'to_arrow'):
-                    # If it's not already polars, convert via arrow
-                    import polars as pl
-                    result = pl.from_arrow(result.to_arrow())
-                elif not str(type(result).__module__).startswith('polars'):
-                    # If it's not polars and doesn't have to_arrow, try pandas conversion
-                    import polars as pl
-                    if hasattr(result, 'to_pandas'):
-                        result = pl.from_pandas(result.to_pandas())
-                    else:
-                        # Direct conversion for pandas DataFrames
-                        result = pl.from_pandas(result)
+                # Convert result to polars via pandas to avoid metadata issues
+                pandas_df = convert_to_pandas(result)
+                result = pl.from_pandas(pandas_df)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
                 default_values = result['default_field'].to_list()
@@ -2511,9 +2554,8 @@ class TestTableVersionWriteModes:
             
             elif dataset_type == DatasetType.PYARROW_PARQUET:
                 # PYARROW_PARQUET should return a PyArrow table with parquet-specific optimizations
-                # Convert result to pyarrow if needed
-                if hasattr(result, 'to_arrow'):
-                    result = result.to_arrow()
+                # Convert result to pyarrow using strict type checking
+                result = convert_to_arrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2584,18 +2626,14 @@ class TestTableVersionWriteModes:
             
             if dataset_type == DatasetType.PANDAS:
                 # Should be a pandas DataFrame
-                if hasattr(result, 'to_pandas'):
-                    result = result.to_pandas()
-                elif hasattr(result, 'to_arrow'):
-                    result = result.to_arrow().to_pandas()
+                result = convert_to_pandas(result)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
                 assert all(result['default_field'] == 'local_default_value'), \
                     f"All default_field values should be 'local_default_value' for {dataset_type}, got {result['default_field'].tolist()}"
             
             elif dataset_type == DatasetType.PYARROW:
-                if hasattr(result, 'to_arrow'):
-                    result = result.to_arrow()
+                result = convert_to_arrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2603,17 +2641,8 @@ class TestTableVersionWriteModes:
                     f"All default_field values should be 'local_default_value' for {dataset_type}, got {default_column}"
             
             elif dataset_type == DatasetType.POLARS:
-                import polars as pl
-                if hasattr(result, 'to_arrow'):
-                    # Convert via pandas to avoid PyArrow metadata issues with Polars
-                    arrow_table = result.to_arrow()
-                    pandas_df = arrow_table.to_pandas()
-                    result = pl.from_pandas(pandas_df)
-                elif not str(type(result).__module__).startswith('polars'):
-                    if hasattr(result, 'to_pandas'):
-                        result = pl.from_pandas(result.to_pandas())
-                    else:
-                        result = pl.from_pandas(result)
+                pandas_df = convert_to_pandas(result)
+                result = pl.from_pandas(pandas_df)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
                 default_values = result['default_field'].to_list()
@@ -2622,11 +2651,7 @@ class TestTableVersionWriteModes:
             
             elif dataset_type == DatasetType.PYARROW_PARQUET:
                 # Handle ParquetFile objects
-                if hasattr(result, 'read'):
-                    # It's a ParquetFile, read it to get a Table
-                    result = result.read()
-                elif hasattr(result, 'to_arrow'):
-                    result = result.to_arrow()
+                result = convert_to_arrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2687,10 +2712,7 @@ class TestTableVersionWriteModes:
         )
         
         # Handle Ray MaterializedDataset objects
-        if hasattr(result, 'to_pandas'):
-            result = result.to_pandas()
-        elif hasattr(result, 'to_arrow'):
-            result = result.to_arrow().to_pandas()
+        result = convert_to_pandas(result)
         
         assert 'default_field' in result.columns
         assert all(result['default_field'] == 'ray_default_value'), \
@@ -2712,12 +2734,7 @@ class TestTableVersionWriteModes:
         )
         
         # Handle Ray MaterializedDataset objects
-        if hasattr(result, 'to_pandas'):
-            # Ray MaterializedDataset - convert via pandas then to arrow
-            pandas_df = result.to_pandas()
-            result = pa.Table.from_pandas(pandas_df)
-        elif hasattr(result, 'to_arrow'):
-            result = result.to_arrow()
+        result = convert_to_arrow(result)
         
         assert 'default_field' in result.column_names
         default_column = result.column('default_field').to_pylist()
@@ -2740,21 +2757,9 @@ class TestTableVersionWriteModes:
         )
         
         import polars as pl
-        # Handle Ray MaterializedDataset objects 
-        if hasattr(result, 'to_pandas'):
-            # Ray MaterializedDataset - convert directly to pandas then polars
-            pandas_df = result.to_pandas()
-            result = pl.from_pandas(pandas_df)
-        elif hasattr(result, 'to_arrow'):
-            # Convert via pandas to avoid PyArrow metadata issues with Polars
-            arrow_table = result.to_arrow()
-            pandas_df = arrow_table.to_pandas()
-            result = pl.from_pandas(pandas_df)
-        elif not str(type(result).__module__).startswith('polars'):
-            if hasattr(result, 'to_pandas'):
-                result = pl.from_pandas(result.to_pandas())
-            else:
-                result = pl.from_pandas(result)
+        # Handle Ray MaterializedDataset objects
+        pandas_df = convert_to_pandas(result)
+        result = pl.from_pandas(pandas_df)
         
         assert 'default_field' in result.columns
         default_values = result['default_field'].to_list()
@@ -2782,15 +2787,7 @@ class TestTableVersionWriteModes:
         )
         
         # Handle ParquetFile objects and Ray MaterializedDataset objects
-        if hasattr(result, 'to_pandas'):
-            # Ray MaterializedDataset - convert via pandas then to arrow
-            pandas_df = result.to_pandas()
-            result = pa.Table.from_pandas(pandas_df)
-        elif hasattr(result, 'read'):
-            # It's a ParquetFile, read it to get a Table
-            result = result.read()
-        elif hasattr(result, 'to_arrow'):
-            result = result.to_arrow()
+        result = convert_to_arrow(result)
         
         assert 'default_field' in result.column_names
         default_column = result.column('default_field').to_pylist()
@@ -2852,10 +2849,7 @@ class TestTableVersionWriteModes:
         )
         
         # Convert result to pandas if needed
-        if hasattr(result, 'to_pandas'):
-            result = result.to_pandas()
-        elif hasattr(result, 'to_arrow'):
-            result = result.to_arrow().to_pandas()
+        result = to_pandas(result)
         
         # Verify timestamp default
         assert 'created_at' in result.columns, "created_at column should be present"
@@ -2977,10 +2971,7 @@ def test_missing_field_backfill_behavior():
     result_df = dc.read_table(table=table_name_base + "_test3", namespace=namespace, catalog=catalog_name)
     
     # Convert to pandas for easier testing
-    if hasattr(result_df, 'to_pandas'):
-        result_df = result_df.to_pandas()
-    elif hasattr(result_df, 'collect'):
-        result_df = result_df.collect().to_pandas()
+    result_df = convert_to_pandas(result_df)
     
     assert len(result_df) == 2
     assert list(result_df["required_field"]) == ["val1", "val2"]
@@ -3056,16 +3047,7 @@ def test_schemaless_table_append_mode():
     # For schemaless tables, we now get a list of tables
     if isinstance(result1, list):
         # Combine the list of tables into a single DataFrame
-        all_tables = []
-        for table in result1:
-            if hasattr(table, 'to_pandas'):
-                table = table.to_pandas()
-            all_tables.append(table)
-        result1 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
-    elif hasattr(result1, 'to_pandas'):
-        result1 = result1.to_pandas()
-    elif hasattr(result1, 'collect'):
-        result1 = result1.collect().to_pandas()
+        result1 = convert_to_pandas(result1)
     
     assert len(result1) == 2
     assert set(result1.columns) == {"id", "name", "value"}
@@ -3094,16 +3076,7 @@ def test_schemaless_table_append_mode():
     # For schemaless tables, we now get a list of tables
     if isinstance(result2, list):
         # Combine the list of tables into a single DataFrame
-        all_tables = []
-        for table in result2:
-            if hasattr(table, 'to_pandas'):
-                table = table.to_pandas()
-            all_tables.append(table)
-        result2 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
-    elif hasattr(result2, 'to_pandas'):
-        result2 = result2.to_pandas()
-    elif hasattr(result2, 'collect'):
-        result2 = result2.collect().to_pandas()
+        result2 = convert_to_pandas(result2)
     
     assert len(result2) == 4
     assert set(result2.columns) == {"id", "name", "value"}
@@ -3132,16 +3105,7 @@ def test_schemaless_table_append_mode():
     # For schemaless tables, we now get a list of tables
     if isinstance(result3, list):
         # Combine the list of tables into a single DataFrame
-        all_tables = []
-        for table in result3:
-            if hasattr(table, 'to_pandas'):
-                table = table.to_pandas()
-            all_tables.append(table)
-        result3 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
-    elif hasattr(result3, 'to_pandas'):
-        result3 = result3.to_pandas()
-    elif hasattr(result3, 'collect'):
-        result3 = result3.collect().to_pandas()
+        result3 = convert_to_pandas(result3)
     
     assert len(result3) == 6
     # Should have original columns
@@ -3198,16 +3162,7 @@ def test_schemaless_table_merge_delete_mode():
     # For schemaless tables, we now get a list of tables
     if isinstance(result1, list):
         # Combine the list of tables into a single DataFrame
-        all_tables = []
-        for table in result1:
-            if hasattr(table, 'to_pandas'):
-                table = table.to_pandas()
-            all_tables.append(table)
-        result1 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
-    elif hasattr(result1, 'to_pandas'):
-        result1 = result1.to_pandas()
-    elif hasattr(result1, 'collect'):
-        result1 = result1.collect().to_pandas()
+        result1 = convert_to_pandas(result1)
     
     assert len(result1) == 3
     assert set(result1.columns) == {"id", "name", "value", "status"}
@@ -3273,16 +3228,7 @@ def test_schemaless_table_merge_delete_mode():
     # For schemaless tables, we now get a list of tables
     if isinstance(result2, list):
         # Combine the list of tables into a single DataFrame
-        all_tables = []
-        for table in result2:
-            if hasattr(table, 'to_pandas'):
-                table = table.to_pandas()
-            all_tables.append(table)
-        result2 = pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
-    elif hasattr(result2, 'to_pandas'):
-        result2 = result2.to_pandas()
-    elif hasattr(result2, 'collect'):
-        result2 = result2.collect().to_pandas()
+        result2 = convert_to_pandas(result2)
     
     # Should have 5 records total (3 original + 2 appended)
     assert len(result2) == 5
@@ -3356,28 +3302,18 @@ def test_schemaless_table_with_evolving_schema():
         print(f"Result type: {type(result)}")
         print(f"Result is list: {isinstance(result, list)}")
         
-        if isinstance(result, list):
-            print(f"Got list of {len(result)} tables")
-            for i, table in enumerate(result):
-                print(f"Table {i}: type={type(table)}, shape={table.shape if hasattr(table, 'shape') else 'N/A'}")
-                if hasattr(table, 'columns'):
-                    print(f"Table {i} columns: {list(table.columns)}")
-            
+        if isinstance(result, list): 
             # For a list of tables, we should manually combine them
             # This is what the user would need to do for schemaless tables
             all_tables = []
             for table in result:
-                if hasattr(table, 'to_pandas'):
-                    table = table.to_pandas()
+                table = convert_to_pandas(table)
                 all_tables.append(table)
             
             # Combine with pandas concat to handle different schemas
             result = pd.concat(all_tables, ignore_index=True, sort=False)
         else:
-            if hasattr(result, 'to_pandas'):
-                result = result.to_pandas()
-            elif hasattr(result, 'collect'):
-                result = result.collect().to_pandas()
+            result = convert_to_pandas(result)
         
         # If we get here, the read succeeded
         print(f"Read successful! Result shape: {result.shape}")
@@ -3503,8 +3439,7 @@ def test_schemaless_table_with_distributed_datasets():
     # Manually combine the tables to check all columns are preserved
     all_tables = []
     for table in result_local:
-        if hasattr(table, 'to_pandas'):
-            table = table.to_pandas()
+        table = convert_to_pandas(table)
         all_tables.append(table)
     
     # Use pandas concat to handle different schemas
@@ -3570,7 +3505,7 @@ def test_schema_type_promotion_with_none_consistency():
     if isinstance(result1, list):
         combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
     else:
-        combined_result1 = result1.to_pandas() if hasattr(result1, 'to_pandas') else result1
+        combined_result1 = convert_to_pandas(result1)
     
     print(f"Initial data types: {combined_result1.dtypes}")
     assert len(combined_result1) == 3
@@ -3596,7 +3531,7 @@ def test_schema_type_promotion_with_none_consistency():
     if isinstance(result2, list):
         combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
     else:
-        combined_result2 = result2.to_pandas() if hasattr(result2, 'to_pandas') else result2
+        combined_result2 = convert_to_pandas(result2)
     
     print(f"After int64 data types: {combined_result2.dtypes}")
     assert len(combined_result2) == 5
@@ -3624,7 +3559,7 @@ def test_schema_type_promotion_with_none_consistency():
     if isinstance(result3, list):
         combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
     else:
-        combined_result3 = result3.to_pandas() if hasattr(result3, 'to_pandas') else result3
+        combined_result3 = convert_to_pandas(result3)
     
     print(f"After float data types: {combined_result3.dtypes}")
     assert len(combined_result3) == 6
@@ -3652,7 +3587,7 @@ def test_schema_type_promotion_with_none_consistency():
     if isinstance(result4, list):
         combined_result4 = pd.concat([t.to_pandas() for t in result4], ignore_index=True, sort=False)
     else:
-        combined_result4 = result4.to_pandas() if hasattr(result4, 'to_pandas') else result4
+        combined_result4 = convert_to_pandas(result4)
     
     print(f"After string data types: {combined_result4.dtypes}")
     assert len(combined_result4) == 7
@@ -3748,7 +3683,7 @@ def test_binary_type_promotion_and_stability():
     if isinstance(result1, list):
         combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
     else:
-        combined_result1 = result1.to_pandas() if hasattr(result1, 'to_pandas') else result1
+        combined_result1 = convert_to_pandas(result1)
     
     print(f"Initial data types: {combined_result1.dtypes}")
     assert len(combined_result1) == 3
@@ -3774,7 +3709,7 @@ def test_binary_type_promotion_and_stability():
     if isinstance(result2, list):
         combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
     else:
-        combined_result2 = result2.to_pandas() if hasattr(result2, 'to_pandas') else result2
+        combined_result2 = convert_to_pandas(result2)
     
     print(f"After binary data types: {combined_result2.dtypes}")
     assert len(combined_result2) == 5
@@ -3807,7 +3742,7 @@ def test_binary_type_promotion_and_stability():
     if isinstance(result3, list):
         combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
     else:
-        combined_result3 = result3.to_pandas() if hasattr(result3, 'to_pandas') else result3
+        combined_result3 = convert_to_pandas(result3)
     
     print(f"After string-again data types: {combined_result3.dtypes}")
     assert len(combined_result3) == 7

@@ -9,7 +9,6 @@ from uuid import uuid4
 
 from deltacat import logs
 
-from deltacat.storage.model.schema import FieldLocator
 from deltacat.types.media import (
     ContentType,
     ContentEncoding,
@@ -74,7 +73,7 @@ class EntryParams(dict):
 
     @staticmethod
     def of(
-        equality_field_locators: Optional[List[FieldLocator]] = None,
+        equality_field_locators: Optional[List["FieldLocator"]] = None,
     ) -> EntryParams:
         params = EntryParams()
         if equality_field_locators is not None:
@@ -82,7 +81,7 @@ class EntryParams(dict):
         return params
 
     @property
-    def equality_field_locators(self) -> Optional[List[FieldLocator]]:
+    def equality_field_locators(self) -> Optional[List["FieldLocator"]]:
         return self.get("equality_field_locators")
 
 
