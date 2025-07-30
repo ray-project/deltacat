@@ -40,6 +40,7 @@ from deltacat.constants import (
     DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY,
 )
 from deltacat.storage.model.types import (
+    Dataset,
     LocalTable,
     DistributedDataset,
     LocalDataset,
@@ -373,6 +374,28 @@ def _get_table_type_function(
     return table_func
 
 
+def _convert_all(tables: List[LocalTable], conversion_fn: Callable):
+    if not tables:  # Empty list
+        return pd.DataFrame()
+    
+    # Convert list elements
+    all_tables = []
+    for i, table in enumerate(tables):
+        try:
+            converted_table = conversion_fn(table)
+            all_tables.append(converted_table)
+        except Exception as e:
+            raise ValueError(f"Failed to convert list element {i}: {e}") from e
+    
+    if not all_tables:
+        return pd.DataFrame()
+    # Concatenate with error handling
+    try:
+        return pd.concat(all_tables, ignore_index=True, sort=False)
+    except Exception as e:
+        raise ValueError(f"Failed to concatenate {len(all_tables)} DataFrames: {e}") from e
+
+
 def get_table_length(
     table: Union[LocalTable, DistributedDataset, BlockAccessor]
 ) -> int:
@@ -398,16 +421,28 @@ def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     return _get_table_function(table, TABLE_CLASS_TO_SLICER_FUNC, "slicer")
 
 
-def to_pyarrow(table: Union[LocalTable, DistributedDataset], **kwargs) -> pa.Table:
-    """Convert any supported table type to PyArrow Table format."""
-    to_pyarrow_func = _get_table_function(table, TABLE_CLASS_TO_PYARROW_FUNC, "PyArrow conversion")
+def table_to_pyarrow(table: Union[LocalTable, DistributedDataset], **kwargs) -> pa.Table:
+    to_pyarrow_func = _get_table_function(table, TABLE_CLASS_TO_PYARROW_FUNC, "pyarrow conversion")
     return to_pyarrow_func(table, **kwargs)
 
 
-def to_pandas(table: Union[LocalTable, DistributedDataset], **kwargs) -> pd.DataFrame:
-    """Convert any supported table type to pandas DataFrame format."""
+def table_to_pandas(table: Union[LocalTable, DistributedDataset], **kwargs) -> pd.DataFrame:
     to_pandas_func = _get_table_function(table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion")
     return to_pandas_func(table, **kwargs)
+
+
+def to_pyarrow(table: Dataset, **kwargs) -> pa.Table:
+    """Convert any supported dataset type to PyArrow Table format."""
+    if isinstance(table, list):
+        return _convert_all(table, table_to_pyarrow)
+    return table_to_pyarrow(table, **kwargs)
+
+
+def to_pandas(table: Dataset, **kwargs) -> pd.DataFrame:
+    """Convert any supported dataset type to pandas DataFrame format."""
+    if isinstance(table, list):
+        return _convert_all(table, table_to_pandas)
+    return table_to_pandas(table, **kwargs)
 
 
 def append_column_to_table(

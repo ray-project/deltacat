@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 
 from deltacat.constants import BYTES_PER_KIBIBYTE
+from deltacat.exceptions import SchemaCompatibilityError
 from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
@@ -1591,3 +1592,375 @@ class SchemaList(List[Schema]):
         if val is not None and not isinstance(val, Schema):
             self[item] = val = Schema(val)
         return val
+
+
+class SchemaUpdate:
+    """
+    Provides safe schema evolution capabilities for DeltaCAT schemas.
+    
+    SchemaUpdate allows users to:
+    1. Add new fields to a schema
+    2. Remove existing fields from a schema  
+    3. Update existing fields with compatible changes
+    4. Validate schema compatibility to prevent breaking existing dataset consumers
+    
+    The class enforces backward compatibility by default to ensure that PyArrow,
+    Pandas, Polars, Ray Data, Daft, and other dataset types continue to work
+    after schema changes.
+    
+    Example:
+        >>> schema = Schema.of([Field.of(pa.field("id", pa.int64()))])
+        >>> update = SchemaUpdate(schema)
+        >>> new_field = Field.of(pa.field("name", pa.string()))
+        >>> updated_schema = update.add_field("name", new_field).build()
+    """
+    
+    def __init__(
+        self, 
+        base_schema: Schema, 
+        allow_incompatible_changes: bool = False
+    ):
+        """
+        Initialize a SchemaUpdate for the given base schema.
+        
+        Args:
+            base_schema: The original schema to update
+            allow_incompatible_changes: If True, allows changes that may break
+                backward compatibility. If False (default), raises SchemaCompatibilityError
+                for incompatible changes.
+        """
+        self.base_schema = base_schema
+        self.allow_incompatible_changes = allow_incompatible_changes
+        self._operations: List[Tuple[str, FieldLocator, Optional[Field]]] = []
+        
+    def add_field(self, field_locator: FieldLocator, new_field: Field) -> 'SchemaUpdate':
+        """
+        Add a new field to the schema.
+        
+        Args:
+            field_locator: Location identifier for the new field (name, nested path, or ID)
+            new_field: The Field object to add
+            
+        Returns:
+            Self for method chaining
+            
+        Raises:
+            SchemaCompatibilityError: If field already exists or addition would break compatibility
+        """
+        self._operations.append(("add", field_locator, new_field))
+        return self
+        
+    def remove_field(self, field_locator: FieldLocator) -> 'SchemaUpdate':
+        """
+        Remove an existing field from the schema.
+        
+        Args:
+            field_locator: Location identifier for the field to remove
+            
+        Returns:
+            Self for method chaining
+            
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist or removal would break compatibility
+        """
+        self._operations.append(("remove", field_locator, None))
+        return self
+        
+    def update_field(self, field_locator: FieldLocator, updated_field: Field) -> 'SchemaUpdate':
+        """
+        Update an existing field with compatible changes.
+        
+        Args:
+            field_locator: Location identifier for the field to update
+            updated_field: The new Field object to replace the existing field
+            
+        Returns:
+            Self for method chaining
+            
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist or update would break compatibility
+        """
+        self._operations.append(("update", field_locator, updated_field))
+        return self
+        
+    def build(self) -> Schema:
+        """
+        Apply all pending operations and return the updated schema.
+        
+        Returns:
+            New Schema object with all updates applied
+            
+        Raises:
+            SchemaCompatibilityError: If any operation would break backward compatibility
+                and allow_incompatible_changes is False
+        """
+        # Start with a copy of the base schema
+        updated_fields = list(self.base_schema.fields)
+        field_name_to_index = {field.path[0] if field.path else f"field_{field.id}": i 
+                              for i, field in enumerate(updated_fields)}
+        
+        # Apply operations in order
+        for operation, field_locator, field_data in self._operations:
+            if operation == "add":
+                self._apply_add_field(updated_fields, field_name_to_index, field_locator, field_data)
+            elif operation == "remove":
+                self._apply_remove_field(updated_fields, field_name_to_index, field_locator)
+            elif operation == "update":
+                self._apply_update_field(updated_fields, field_name_to_index, field_locator, field_data)
+        
+        # Create new schema from updated fields
+        return Schema.of(updated_fields)
+    
+    def _apply_add_field(
+        self, 
+        fields: List[Field], 
+        field_name_to_index: Dict[str, int],
+        field_locator: FieldLocator, 
+        new_field: Field
+    ) -> None:
+        """Apply add field operation with compatibility validation."""
+        field_name = self._get_field_name(field_locator)
+        
+        # Check if field already exists
+        if field_name in field_name_to_index:
+            raise SchemaCompatibilityError(
+                f"Field '{field_name}' already exists in schema",
+                field_locator
+            )
+            
+        # Validate compatibility for new field
+        if not self.allow_incompatible_changes:
+            self._validate_add_field_compatibility(new_field, field_locator)
+            
+        # Create a copy of the field with the correct path
+        field_with_path = Field.of(
+            new_field.arrow,
+            field_id=new_field.id,
+            is_merge_key=new_field.is_merge_key,
+            merge_order=new_field.merge_order,
+            is_event_time=new_field.is_event_time,
+            doc=new_field.doc,
+            past_default=new_field.past_default,
+            future_default=new_field.future_default,
+            consistency_type=new_field.consistency_type,
+            path=[field_name],
+            native_object=new_field.native_object
+        )
+        
+        # Add the field
+        fields.append(field_with_path)
+        field_name_to_index[field_name] = len(fields) - 1
+    
+    def _apply_remove_field(
+        self,
+        fields: List[Field],
+        field_name_to_index: Dict[str, int],
+        field_locator: FieldLocator
+    ) -> None:
+        """Apply remove field operation with compatibility validation."""
+        field_name = self._get_field_name(field_locator)
+        
+        # Check if field exists
+        if field_name not in field_name_to_index:
+            raise SchemaCompatibilityError(
+                f"Field '{field_name}' does not exist in schema",
+                field_locator
+            )
+            
+        # Validate compatibility for field removal
+        if not self.allow_incompatible_changes:
+            field_index = field_name_to_index[field_name]
+            self._validate_remove_field_compatibility(fields[field_index], field_locator)
+            
+        # Remove the field
+        field_index = field_name_to_index[field_name]
+        fields.pop(field_index)
+        
+        # Update indices
+        del field_name_to_index[field_name]
+        for name, index in field_name_to_index.items():
+            if index > field_index:
+                field_name_to_index[name] = index - 1
+    
+    def _apply_update_field(
+        self,
+        fields: List[Field],
+        field_name_to_index: Dict[str, int],
+        field_locator: FieldLocator,
+        updated_field: Field
+    ) -> None:
+        """Apply update field operation with compatibility validation."""
+        field_name = self._get_field_name(field_locator)
+        
+        # Check if field exists
+        if field_name not in field_name_to_index:
+            raise SchemaCompatibilityError(
+                f"Field '{field_name}' does not exist in schema",
+                field_locator
+            )
+            
+        field_index = field_name_to_index[field_name]
+        old_field = fields[field_index]
+        
+        # Validate compatibility for field update
+        if not self.allow_incompatible_changes:
+            self._validate_update_field_compatibility(old_field, updated_field, field_locator)
+            
+        # Create a copy of the updated field with the correct path  
+        field_with_path = Field.of(
+            updated_field.arrow,
+            field_id=updated_field.id,
+            is_merge_key=updated_field.is_merge_key,
+            merge_order=updated_field.merge_order,
+            is_event_time=updated_field.is_event_time,
+            doc=updated_field.doc,
+            past_default=updated_field.past_default,
+            future_default=updated_field.future_default,
+            consistency_type=updated_field.consistency_type,
+            path=[field_name],
+            native_object=updated_field.native_object
+        )
+        
+        # Update the field
+        fields[field_index] = field_with_path
+    
+    def _get_field_name(self, field_locator: FieldLocator) -> str:
+        """Extract field name from various field locator types."""
+        if isinstance(field_locator, str):
+            return field_locator
+        elif isinstance(field_locator, list):
+            return field_locator[0] if field_locator else ""
+        elif isinstance(field_locator, int):
+            # For field ID, try to find the corresponding field
+            try:
+                field = self.base_schema.field(field_locator)
+                return field.path[0] if field.path else f"field_{field_locator}"
+            except:
+                return f"field_{field_locator}"
+        else:
+            raise ValueError(f"Invalid field locator type: {type(field_locator)}")
+    
+    def _validate_add_field_compatibility(self, new_field: Field, field_locator: FieldLocator) -> None:
+        """Validate that adding a new field won't break compatibility."""
+        # New fields are generally safe if they're nullable or have default values
+        arrow_field = new_field.arrow
+        
+        # Check if field is nullable or has default values
+        is_nullable = arrow_field.nullable
+        has_past_default = new_field.past_default is not None
+        has_future_default = new_field.future_default is not None
+        
+        if not (is_nullable or has_past_default or has_future_default):
+            raise SchemaCompatibilityError(
+                f"Adding non-nullable field '{self._get_field_name(field_locator)}' without "
+                f"default values would break compatibility with existing data",
+                field_locator
+            )
+    
+    def _validate_remove_field_compatibility(self, field: Field, field_locator: FieldLocator) -> None:
+        """Validate that removing a field won't break compatibility."""
+        field_name = self._get_field_name(field_locator)
+        
+        # Removing fields generally breaks compatibility for consumers expecting them
+        raise SchemaCompatibilityError(
+            f"Removing field '{field_name}' would break compatibility with existing consumers. "
+            f"Set allow_incompatible_changes=True to force removal.",
+            field_locator
+        )
+    
+    def _validate_update_field_compatibility(
+        self, 
+        old_field: Field, 
+        new_field: Field, 
+        field_locator: FieldLocator
+    ) -> None:
+        """Validate that updating a field won't break compatibility."""
+        old_arrow = old_field.arrow
+        new_arrow = new_field.arrow
+        field_name = self._get_field_name(field_locator)
+        
+        # Check data type compatibility
+        if not self._is_type_compatible(old_arrow.type, new_arrow.type):
+            raise SchemaCompatibilityError(
+                f"Cannot change field '{field_name}' from {old_arrow.type} to {new_arrow.type}. "
+                f"This change would break compatibility with PyArrow, Pandas, Polars, Ray Data, and Daft.",
+                field_locator
+            )
+        
+        # Check nullability - making a field non-nullable is incompatible
+        if old_arrow.nullable and not new_arrow.nullable:
+            # Only allow if we have past/future defaults to fill null values
+            has_past_default = new_field.past_default is not None
+            has_future_default = new_field.future_default is not None
+            
+            if not (has_past_default and has_future_default):
+                raise SchemaCompatibilityError(
+                    f"Cannot make nullable field '{field_name}' non-nullable without "
+                    f"providing both past_default and future_default values",
+                    field_locator
+                )
+    
+    def _is_type_compatible(self, old_type: pa.DataType, new_type: pa.DataType) -> bool:
+        """
+        Check if changing from old_type to new_type is backward compatible.
+        
+        Compatible changes include:
+        - Same type
+        - Widening numeric types (int32 -> int64, float32 -> float64)
+        - Making string/binary types longer
+        - Adding fields to struct types
+        - Making list/map value types more permissive
+        """
+        # Same type is always compatible
+        if old_type.equals(new_type):
+            return True
+            
+        # Numeric type widening
+        if pa.types.is_integer(old_type) and pa.types.is_integer(new_type):
+            # Check bit width and signedness using string representation
+            old_signed = 'int' in str(old_type) and 'uint' not in str(old_type)
+            new_signed = 'int' in str(new_type) and 'uint' not in str(new_type)
+            return new_type.bit_width >= old_type.bit_width and old_signed == new_signed
+            
+        if pa.types.is_floating(old_type) and pa.types.is_floating(new_type):
+            return new_type.bit_width >= old_type.bit_width
+            
+        # Integer to float promotion
+        if pa.types.is_integer(old_type) and pa.types.is_floating(new_type):
+            return True
+            
+        # String/binary type compatibility
+        if pa.types.is_string(old_type) and pa.types.is_string(new_type):
+            return True
+        if pa.types.is_binary(old_type) and pa.types.is_binary(new_type):
+            return True
+            
+        # Struct type compatibility (new fields can be added)
+        if pa.types.is_struct(old_type) and pa.types.is_struct(new_type):
+            old_names = {field.name for field in old_type}
+            new_names = {field.name for field in new_type}
+            
+            # All old fields must exist in new type
+            if not old_names.issubset(new_names):
+                return False
+                
+            # Check compatibility of common fields
+            for old_field in old_type:
+                new_field = new_type.field(old_field.name)
+                if not self._is_type_compatible(old_field.type, new_field.type):
+                    return False
+                    
+            return True
+            
+        # List type compatibility
+        if pa.types.is_list(old_type) and pa.types.is_list(new_type):
+            return self._is_type_compatible(old_type.value_type, new_type.value_type)
+            
+        # Map type compatibility  
+        if pa.types.is_map(old_type) and pa.types.is_map(new_type):
+            return (self._is_type_compatible(old_type.key_type, new_type.key_type) and
+                    self._is_type_compatible(old_type.item_type, new_type.item_type))
+        
+        # Default: types are incompatible
+        return False
+

@@ -21,5 +21,5 @@ def keep_temp_dir():
 
 
 @pytest.fixture
-def temp_catalog(temp_dir):
+def temp_catalog_properties(temp_dir):
     return CatalogProperties(root=temp_dir)

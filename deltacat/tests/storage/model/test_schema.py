@@ -5,6 +5,9 @@ from deltacat.storage.model.schema import (
     Schema,
     Field,
     BASE_SCHEMA_NAME,
+    SchemaConsistencyType,
+    SchemaUpdate,
+    SchemaCompatibilityError,
 )
 
 
@@ -306,3 +309,33 @@ def test_empty_schema_fails():
         Schema.of({})
     with pytest.raises(ValueError):
         Schema.of([])
+
+
+
+def test_schema_type_promotion_edge_cases():
+    """Test edge cases for type promotion with SchemaConsistencyType.NONE.""" 
+    # Test 1: Same type - no promotion
+    field_int32 = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
+    data_int32 = pa.array([1, 2, 3], type=pa.int32())
+    promoted_data, was_promoted = field_int32.promote_type_if_needed(data_int32)
+    assert not was_promoted, "Same type should not trigger promotion"
+    assert promoted_data.type == pa.int32(), "Data type should remain int32"
+    
+    # Test 2: int32 to int64 promotion
+    data_int64 = pa.array([2147483648], type=pa.int64())  # Value requiring int64
+    promoted_data, was_promoted = field_int32.promote_type_if_needed(data_int64)
+    assert was_promoted, "int32 field should promote to int64"
+    assert promoted_data.type == pa.int64(), "Promoted data should be int64"
+    
+    # Test 3: Nullability preservation
+    field_nullable = Field.of(pa.field("test", pa.int32(), nullable=True), consistency_type=SchemaConsistencyType.NONE)
+    data_with_null = pa.array([1, None, 3], type=pa.int32())
+    promoted_data, was_promoted = field_nullable.promote_type_if_needed(data_with_null)
+    assert not was_promoted, "Same nullable type should not promote"
+    
+    # Test 4: Cross-type promotion (int to float)
+    field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
+    data_float = pa.array([1.5, 2.7], type=pa.float64())
+    promoted_data, was_promoted = field_int.promote_type_if_needed(data_float)
+    assert was_promoted, "int32 should promote to accommodate float64"
+    assert pa.types.is_floating(promoted_data.type), f"Should promote to float type, got {promoted_data.type}"

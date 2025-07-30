@@ -28,7 +28,10 @@ from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
-from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.schema import (
+    Schema, 
+    SchemaUpdate,
+)
 from deltacat.storage.model.table import TableProperties, Table
 from deltacat.storage.model.types import (
     Dataset,
@@ -1471,7 +1474,7 @@ def alter_table(
     *args,
     namespace: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema_updates: Optional[Dict[str, Any]] = None,
+    schema_updates: Optional[SchemaUpdate] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
@@ -1487,7 +1490,7 @@ def alter_table(
         table: Name of the table to alter.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         lifecycle_state: New lifecycle state for the table.
-        schema_updates: Map of schema updates to apply.
+        schema_updates: Schema updates to apply.
         partition_updates: Map of partition scheme updates to apply.
         sort_keys: New sort keys scheme.
         description: New description for the table.

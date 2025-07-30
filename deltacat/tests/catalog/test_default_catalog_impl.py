@@ -1,19 +1,25 @@
-# Standard library imports
+"""
+DeltaCAT Default Catalog Implementation Tests
+
+Cross-platform compatibility notes:
+- Tests are designed for Unix-like systems (macOS/Linux)
+- Multiprocessing tests use fork-based process isolation
+- Some stress tests are skipped on systems with <2 CPUs
+"""
+
 import multiprocessing
 import os
 import shutil
-import socket
-import subprocess
-import tempfile
+import sys
 import threading
 import time
 import uuid
-from typing import Dict, Any
+from typing import Dict, Any, Union
 from unittest.mock import patch, MagicMock
 
-# Third-party imports
 import boto3
 import daft
+import numpy as np
 import pandas as pd
 import polars as pl
 import pyarrow as pa
@@ -23,15 +29,14 @@ import ray
 from moto import mock_s3
 from ray.data.dataset import MaterializedDataset
 
-# DeltaCat imports
 import deltacat as dc
-from deltacat import Catalog
-from deltacat.catalog import CatalogProperties
+from deltacat import Catalog, CatalogProperties
 from deltacat.exceptions import DeltaCatError, ValidationError
 from deltacat.storage import metastore
-from deltacat.storage.model.schema import Schema, Field, MergeOrder
+from deltacat.storage.model.schema import Schema, Field, MergeOrder, SchemaConsistencyType
 from deltacat.storage.model.table import TableProperties
 from deltacat.storage.model.types import (
+    Dataset,
     DeltaType,
     SchemaConsistencyType,
     SortOrder,
@@ -46,189 +51,492 @@ from deltacat.types.media import DatasetType, ContentType, DistributedDatasetTyp
 from deltacat.types.tables import (
     get_table_length,
     to_pandas,
+    to_pyarrow,
     TableWriteMode,
     TableProperty,
     TableReadOptimizationLevel,
     TablePropertyDefaultValues,
 )
 
-# ===================== CONSTANTS AND HELPERS =====================
-
-# Common table property configurations
-BASIC_TABLE_PROPERTIES = {
+COPY_ON_WRITE_TABLE_PROPERTIES = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
 }
 
-COMPACTION_TABLE_PROPERTIES = {
-    TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
-    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 2,
-    TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
-    TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
-}
-
-AGGRESSIVE_COMPACTION_PROPERTIES = {
-    TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
-    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,
-    TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1,
-    TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1,
-}
-
-# Common content types
 DEFAULT_CONTENT_TYPES = [ContentType.PARQUET]
+
+PLATFORM_HAS_FORK = hasattr(os, 'fork')
 
 
 def create_basic_schema() -> Schema:
-    """Create a basic schema with id, name, age, city fields."""
-    return Schema.of([
-        Field.of(pa.field("id", pa.int64())),
-        Field.of(pa.field("name", pa.string())),
-        Field.of(pa.field("age", pa.int32())),
-        Field.of(pa.field("city", pa.string())),
-    ])
+    """
+    Create a basic DeltaCAT schema for testing table operations.
+    
+    This is the standard test schema used across multiple test cases for testing
+    basic table operations without merge functionality. Contains 4 fields with
+    common data types used in business applications.
+    
+    Schema Structure:
+        - id (int64): Primary identifier, typically used for joins
+        - name (string): Text field for names/labels
+        - age (int32): Numeric field for testing data type handling
+        - city (string): Additional text field for multi-column operations
+    
+    Returns:
+        Schema: A DeltaCAT schema with 4 fields, no merge keys configured
+        
+    Example:
+        >>> schema = create_basic_schema() 
+        >>> len(schema.fields)
+        4
+        >>> schema.fields[0].name
+        'id'
+    """
+    try:
+        return Schema.of([
+            Field.of(pa.field("id", pa.int64())),
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("age", pa.int32())),
+            Field.of(pa.field("city", pa.string())),
+        ])
+    except Exception as e:
+        raise RuntimeError(f"Failed to create basic schema: {e}") from e
 
 
 def create_schema_with_merge_keys() -> Schema:
-    """Create a schema with merge keys for testing merge operations."""
-    return Schema.of([
-        Field.of(pa.field("id", pa.int64()), is_merge_key=True),
-        Field.of(pa.field("name", pa.string())),
-        Field.of(pa.field("age", pa.int32())),
-        Field.of(pa.field("city", pa.string())),
-    ])
+    """
+    Create a DeltaCAT schema with merge keys for testing UPSERT operations.
+    
+    This schema is identical to create_basic_schema() but with the 'id' field
+    configured as a merge key, enabling MERGE/UPSERT/DELETE operations.
+    For testing DeltaCAT's copy-on-write and compaction features.
+    
+    Schema Structure:
+        - id (int64, MERGE KEY): Primary identifier for merge operations
+        - name (string): Text field for names/labels  
+        - age (int32): Numeric field for testing updates
+        - city (string): Additional text field for multi-column updates
+    
+    Returns:
+        Schema: A DeltaCAT schema with 4 fields, 'id' configured as merge key
+        
+    Raises:
+        RuntimeError: If schema creation fails due to invalid field configuration
+        
+    Example:
+        >>> schema = create_schema_with_merge_keys()
+        >>> any(field.is_merge_key for field in schema.fields)
+        True
+        >>> schema.fields[0].is_merge_key
+        True
+    """
+    try:
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+            Field.of(pa.field("name", pa.string())),
+            Field.of(pa.field("age", pa.int32())),
+            Field.of(pa.field("city", pa.string())),
+        ])
+        
+        # Validate that merge key was properly configured
+        merge_key_count = sum(1 for field in schema.fields if field.is_merge_key)
+        if merge_key_count == 0:
+            raise ValueError("Schema creation failed: no merge keys configured")
+            
+        return schema
+    except Exception as e:
+        raise RuntimeError(f"Failed to create schema with merge keys: {e}") from e
 
 
 def create_test_data() -> pd.DataFrame:
-    """Create standard test data."""
-    return pd.DataFrame({
-        'id': [1, 2, 3, 4, 5],
-        'name': ['Alice', 'Bob', 'Charlie', 'Dave', 'Eve'],
-        'age': [25, 30, 35, 40, 45],
-        'city': ['NYC', 'LA', 'Chicago', 'Houston', 'Phoenix']
-    })
+    """
+    Create standard test dataset compatible with create_basic_schema().
+    
+    Generates a 5-record dataset for testing of table operations, data type 
+    handling, and query functionality. Compatible with both basic and 
+    merge-enabled schemas.
+    
+    Data Characteristics:
+        - 5 records with sequential IDs (1-5) 
+        - Diverse names for string handling tests
+        - Age range 25-45 for numeric operations
+        - Major US cities for geographic/categorical testing
+        - No null values for deterministic testing
+    
+    Returns:
+        pd.DataFrame: 5x4 DataFrame with columns [id, name, age, city]
+        
+    Raises:
+        RuntimeError: If DataFrame creation fails (e.g., memory issues)
+        
+    Example:
+        >>> data = create_test_data()
+        >>> get_table_length(data)
+        5
+        >>> list(data.columns)
+        ['id', 'name', 'age', 'city']
+        >>> data['id'].is_unique
+        True
+    """
+    try:
+        data = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5],
+            'name': ['Alice', 'Bob', 'Charlie', 'Dave', 'Eve'],
+            'age': [25, 30, 35, 40, 45],
+            'city': ['NYC', 'LA', 'Chicago', 'Houston', 'Phoenix']
+        })
+        
+        if not data['id'].is_unique:
+            raise ValueError("ID column must contain unique values")
+        if data.isnull().any().any():
+            raise ValueError("Test data should not contain null values")
+            
+        return data
+    except Exception as e:
+        raise RuntimeError(f"Failed to create test data: {e}") from e
 
 
 def create_overlapping_upsert_data() -> pd.DataFrame:
-    """Create overlapping data that will trigger merge/upsert behavior."""
-    return pd.DataFrame({
-        'id': [3, 4, 6, 7],  # IDs 3,4 overlap with initial data, 6,7 are new
-        'name': ['Charlie_Updated', 'Dave_Updated', 'Frank', 'Grace'],
-        'age': [36, 41, 50, 55],  # Updated ages for existing records
-        'city': ['Chicago_New', 'Houston_New', 'Boston', 'Seattle']
-    })
+    """
+    Create test data for UPSERT operations with intentional ID overlaps.
+    
+    Designed to test merge/upsert behavior when combined with create_test_data().
+    Contains both updates to existing records (IDs 3,4) and new records (IDs 6,7).
+    For testing DeltaCAT's merge logic and conflict resolution.
+    
+    Data Design:
+        - IDs 3,4: Overlap with create_test_data() for UPDATE testing
+        - IDs 6,7: New records for INSERT testing  
+        - Updated values: Names with "_Updated" suffix, modified ages/cities
+        - Maintains same schema structure as create_test_data()
+    
+    Returns:
+        pd.DataFrame: 4x4 DataFrame with overlapping and new records
+        
+    Raises:
+        RuntimeError: If DataFrame creation fails
+        ValueError: If data validation fails
+        
+    Example:
+        >>> base_data = create_test_data()  # IDs 1-5
+        >>> upsert_data = create_overlapping_upsert_data()  # IDs 3,4,6,7
+        >>> overlapping_ids = set(base_data['id']) & set(upsert_data['id'])
+        >>> overlapping_ids
+        {3, 4}
+    """
+    try:
+        data = pd.DataFrame({
+            'id': [3, 4, 6, 7],  # IDs 3,4 overlap with initial data, 6,7 are new
+            'name': ['Charlie_Updated', 'Dave_Updated', 'Frank', 'Grace'],
+            'age': [36, 41, 50, 55],  # Updated ages for existing records
+            'city': ['Chicago_New', 'Houston_New', 'Boston', 'Seattle']
+        })
+        
+        # Validate upsert data characteristics
+        if not data['id'].is_unique:
+            raise ValueError("Upsert data ID column must contain unique values")
+        
+        # Verify expected overlap with standard test data
+        standard_ids = set(create_test_data()['id'])
+        upsert_ids = set(data['id'])
+        expected_overlap = {3, 4}
+        actual_overlap = standard_ids & upsert_ids
+        
+        if actual_overlap != expected_overlap:
+            raise ValueError(f"Expected ID overlap {expected_overlap}, got {actual_overlap}")
+            
+        return data
+    except Exception as e:
+        raise RuntimeError(f"Failed to create overlapping upsert data: {e}") from e
 
 
 def create_simple_merge_schema() -> Schema:
-    """Create a simple schema with just id (merge key) and name."""
-    return Schema.of([
-        Field.of(pa.field("id", pa.int64()), is_merge_key=True),
-        Field.of(pa.field("name", pa.string())),
-    ])
+    """
+    Create a minimal DeltaCAT schema for basic merge testing.
+    
+    A lightweight schema with only essential fields for testing merge operations
+    without the overhead of additional columns. Useful for focused testing of
+    merge logic, primary key conflicts, and basic UPSERT scenarios.
+    
+    Schema Structure:
+        - id (int64, MERGE KEY): Primary identifier for merge operations
+        - name (string): Single data field for testing updates
+    
+    Returns:
+        Schema: A minimal DeltaCAT schema with 2 fields, 'id' as merge key
+        
+    Raises:
+        RuntimeError: If schema creation fails
+        ValueError: If merge key configuration is invalid
+        
+    Example:
+        >>> schema = create_simple_merge_schema()
+        >>> get_table_length(schema.fields)
+        2
+        >>> schema.fields[0].is_merge_key
+        True
+    """
+    try:
+        schema = Schema.of([
+            Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+            Field.of(pa.field("name", pa.string())),
+        ])
+        
+        # Validate schema integrity
+        if not schema.fields[0].is_merge_key:
+            raise ValueError("First field must be configured as merge key")
+            
+        return schema
+    except Exception as e:
+        raise RuntimeError(f"Failed to create simple merge schema: {e}") from e
 
 
 def create_simple_test_data() -> pd.DataFrame:
-    """Create simple test data with just id and name (2 records)."""
-    return pd.DataFrame({'id': [1, 2], 'name': ['Alice', 'Bob']})
+    """
+    Create minimal test dataset compatible with create_simple_merge_schema().
+    
+    A lightweight 2-record dataset for focused testing of basic operations
+    without the complexity of additional columns. Ideal for testing merge
+    logic, primary key handling, and schema validation.
+    
+    Data Characteristics:
+        - 2 records with sequential IDs (1-2)
+        - Simple, recognizable names
+        - No null values
+        - Compatible with simple merge schema
+    
+    Returns:
+        pd.DataFrame: 2x2 DataFrame with columns [id, name]
+        
+    Raises:
+        RuntimeError: If DataFrame creation fails
+        ValueError: If data validation fails
+        
+    Example:
+        >>> data = create_simple_test_data()
+        >>> get_table_length(data)
+        2
+        >>> list(data.columns)
+        ['id', 'name']
+    """
+    try:
+        data = pd.DataFrame({'id': [1, 2], 'name': ['Alice', 'Bob']})
+        
+        # Validate data integrity
+        if not data['id'].is_unique:
+            raise ValueError("ID column must contain unique values")
+            
+        return data
+    except Exception as e:
+        raise RuntimeError(f"Failed to create simple test data: {e}") from e
 
 
 def create_additional_test_data() -> pd.DataFrame:
-    """Create additional test data for append operations (2 records)."""
-    return pd.DataFrame({'id': [3, 4], 'name': ['Charlie', 'David']})
+    """
+    Create additional test data for APPEND operations.
+    
+    Designed to be used with create_simple_test_data() for testing APPEND
+    operations. Uses non-overlapping IDs to ensure clean append behavior
+    without merge conflicts.
+    
+    Data Characteristics:
+        - 2 records with sequential IDs (3-4) 
+        - No overlap with create_simple_test_data() IDs (1-2)
+        - Compatible with simple merge schema structure
+        - Suitable for testing table growth scenarios
+    
+    Returns:
+        pd.DataFrame: 2x2 DataFrame with columns [id, name]
+        
+    Raises:
+        RuntimeError: If DataFrame creation fails
+        ValueError: If data validation fails or IDs overlap unexpectedly
+        
+    Example:
+        >>> base_data = create_simple_test_data()  # IDs 1-2
+        >>> additional_data = create_additional_test_data()  # IDs 3-4
+        >>> overlapping_ids = set(base_data['id']) & set(additional_data['id'])
+        >>> len(overlapping_ids)
+        0
+    """
+    try:
+        data = pd.DataFrame({'id': [3, 4], 'name': ['Charlie', 'David']})
+        
+        # Validate data integrity
+        if not data['id'].is_unique:
+            raise ValueError("ID column must contain unique values")
+            
+        # Verify no overlap with simple test data
+        simple_ids = set(create_simple_test_data()['id'])
+        additional_ids = set(data['id'])
+        overlap = simple_ids & additional_ids
+        
+        if overlap:
+            raise ValueError(f"Additional data should not overlap with simple test data. Found overlap: {overlap}")
+            
+        return data
+    except Exception as e:
+        raise RuntimeError(f"Failed to create additional test data: {e}") from e
 
 
 def create_merge_test_data() -> pd.DataFrame:
-    """Create data for merge operations (updated Alice, new Charlie)."""
-    return pd.DataFrame({'id': [1, 3], 'name': ['Alice_Updated', 'Charlie_New']})
-
-
-def convert_to_pandas(result) -> pd.DataFrame:
     """
-    Convert result to pandas with strict type checking.
-    Fails the test if we get an unexpected type.
-    """
-    if isinstance(result, pd.DataFrame):
-        return result
-    elif isinstance(result, pa.Table):
-        return result.to_pandas()
-    elif isinstance(result, pl.DataFrame):
-        return result.to_pandas()
-    elif isinstance(result, MaterializedDataset):
-        return result.to_pandas()
-    elif isinstance(result, list):
-        # Handle list of tables
-        all_tables = []
-        for table in result:
-            all_tables.append(convert_to_pandas(table))
-        return pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
-    else:
-        # Import daft dynamically to avoid circular imports
-        if isinstance(result, daft.DataFrame):
-            return result.collect().to_pandas()
+    Create test data for MERGE/UPSERT operations with mixed UPDATE/INSERT.
+    
+    Designed for testing merge operations that combine both updates to existing
+    records and insertion of new records. ID 1 updates existing Alice record,
+    ID 3 inserts new Charlie record (relative to simple test data).
+    
+    Data Characteristics:
+        - ID 1: Updates existing record in create_simple_test_data()
+        - ID 3: Inserts new record (extends beyond simple test data range)
+        - Names with semantic suffixes indicating operation type
+        - Compatible with simple merge schema
+    
+    Returns:
+        pd.DataFrame: 2x2 DataFrame with columns [id, name]
         
-        pytest.fail(f"Unexpected result type: {type(result)}. Expected pandas, pyarrow, polars, ray MaterializedDataset, or daft DataFrame.")
-
-
-def convert_to_arrow(result) -> pa.Table:
-    """
-    Convert result to PyArrow with strict type checking.
-    Fails the test if we get an unexpected type.
-    """
-    if isinstance(result, pa.Table):
-        return result
-    elif isinstance(result, pd.DataFrame):
-        return pa.Table.from_pandas(result)
-    elif isinstance(result, pl.DataFrame):
-        return result.to_arrow()
-    elif isinstance(result, MaterializedDataset):
-        return pa.Table.from_pandas(result.to_pandas())
-    elif isinstance(result, papq.ParquetFile):
-        return result.read()
-    else:
-        # Import daft dynamically to avoid circular imports
-        if isinstance(result, daft.DataFrame):
-            return result.to_arrow()
+    Raises:
+        RuntimeError: If DataFrame creation fails
+        ValueError: If data validation fails
         
-        pytest.fail(f"Unexpected result type: {type(result)}. Expected pandas, pyarrow, polars, ParquetFile, ray MaterializedDataset, or daft DataFrame.")
+    Example:
+        >>> simple_data = create_simple_test_data()  # Alice(1), Bob(2)
+        >>> merge_data = create_merge_test_data()    # Alice_Updated(1), Charlie_New(3)
+        >>> # After merge: Alice_Updated(1), Bob(2), Charlie_New(3)
+    """
+    try:
+        data = pd.DataFrame({'id': [1, 3], 'name': ['Alice_Updated', 'Charlie_New']})
+        
+        # Validate data integrity
+        if not data['id'].is_unique:
+            raise ValueError("ID column must contain unique values")
+            
+        # Validate expected merge behavior setup
+        expected_ids = {1, 3}
+        actual_ids = set(data['id'])
+        if actual_ids != expected_ids:
+            raise ValueError(f"Expected IDs {expected_ids}, got {actual_ids}")
+            
+        return data
+    except Exception as e:
+        raise RuntimeError(f"Failed to create merge test data: {e}") from e
 
 
+class TestHelperFunctionErrorCases:
+    """
+    Test error handling and edge cases for our test helper functions.
+    
+    These tests ensure that helper functions fail gracefully with meaningful
+    error messages when used incorrectly, providing better developer experience
+    for global contributors.
+    """
+     
+    def test_helper_function_consistency(self):
+        """Test that helper functions produce consistent, valid outputs."""
+        # Test schema consistency
+        basic_schema = create_basic_schema()
+        merge_schema = create_schema_with_merge_keys()
+        simple_schema = create_simple_merge_schema()
+        
+        # Verify field counts
+        assert len(basic_schema.fields) == 4, "Basic schema should have 4 fields"
+        assert len(merge_schema.fields) == 4, "Merge schema should have 4 fields"
+        assert len(simple_schema.fields) == 2, "Simple schema should have 2 fields"
+        
+        # Verify merge key configuration
+        basic_merge_keys = sum(1 for f in basic_schema.fields if f.is_merge_key)
+        merge_merge_keys = sum(1 for f in merge_schema.fields if f.is_merge_key)
+        simple_merge_keys = sum(1 for f in simple_schema.fields if f.is_merge_key)
+        
+        assert basic_merge_keys == 0, "Basic schema should have no merge keys"
+        assert merge_merge_keys >= 1, "Merge schema should have at least one merge key"
+        assert simple_merge_keys >= 1, "Simple schema should have at least one merge key"
+    
+    def test_helper_function_data_creation(self):
+        """Test that data creation helpers produce valid outputs."""
+        # Test overlapping upsert data
+        data = create_overlapping_upsert_data()
+        assert isinstance(data, pd.DataFrame), "Should return pandas DataFrame"
+        assert get_table_length(data) > 0, "Should have at least one row"
+        
+        # Test that created data has expected columns for merge operations
+        column_names = data.columns.tolist()
+        assert "id" in column_names, "Should have 'id' column for primary key operations"
+    
+    def test_helper_function_robustness(self):
+        """Test helper functions handle edge cases gracefully."""
+        # Test empty data handling
+        basic_schema = create_basic_schema()
+        assert basic_schema is not None, "Schema creation should not return None"
+        
+        # Test schema field types are valid PyArrow fields
+        for field in basic_schema.fields:
+            assert hasattr(field, 'arrow'), "Field should have arrow attribute"
+            assert field.arrow is not None, "Field arrow should not be None"
+            assert hasattr(field.arrow, 'type'), "Arrow field should have type attribute"
+     
+    def test_data_helper_consistency(self):
+        """Test that data helper functions produce consistent, valid data."""
+        # Test data integrity
+        test_data = create_test_data()
+        overlap_data = create_overlapping_upsert_data()
+        simple_data = create_simple_test_data()
+        additional_data = create_additional_test_data()
+        merge_data = create_merge_test_data()
+        
+        # Verify row counts
+        assert get_table_length(test_data) == 5, "Test data should have 5 rows"
+        assert get_table_length(overlap_data) == 4, "Overlap data should have 4 rows"
+        assert get_table_length(simple_data) == 2, "Simple data should have 2 rows"
+        assert get_table_length(additional_data) == 2, "Additional data should have 2 rows"
+        assert get_table_length(merge_data) == 2, "Merge data should have 2 rows"
+        
+        # Verify column consistency
+        expected_full_cols = ['id', 'name', 'age', 'city']
+        expected_simple_cols = ['id', 'name']
+        
+        assert list(test_data.columns) == expected_full_cols
+        assert list(overlap_data.columns) == expected_full_cols
+        assert list(simple_data.columns) == expected_simple_cols
+        assert list(additional_data.columns) == expected_simple_cols
+        assert list(merge_data.columns) == expected_simple_cols
+        
+        # Verify ID uniqueness within each dataset
+        assert test_data['id'].is_unique, "Test data IDs should be unique"
+        assert overlap_data['id'].is_unique, "Overlap data IDs should be unique"
+        assert simple_data['id'].is_unique, "Simple data IDs should be unique"
+        assert additional_data['id'].is_unique, "Additional data IDs should be unique"
+        assert merge_data['id'].is_unique, "Merge data IDs should be unique"
+        
+        # Verify expected overlaps between datasets
+        test_ids = set(test_data['id'])
+        overlap_ids = set(overlap_data['id'])
+        simple_ids = set(simple_data['id'])
+        additional_ids = set(additional_data['id'])
+        merge_ids = set(merge_data['id'])
+        
+        # Test expected overlaps
+        expected_test_overlap = {3, 4}
+        actual_test_overlap = test_ids & overlap_ids
+        assert actual_test_overlap == expected_test_overlap, f"Expected overlap {expected_test_overlap}, got {actual_test_overlap}"
+        
+        # Test expected non-overlaps
+        simple_additional_overlap = simple_ids & additional_ids
+        assert len(simple_additional_overlap) == 0, f"Simple and additional data should not overlap, but found {simple_additional_overlap}"
+    
 
 class TestReadTableMain:
     READ_TABLE_NAMESPACE = "catalog_read_table_namespace"
     SAMPLE_FILE_PATH = "deltacat/tests/catalog/data/sample_table.csv"
 
-    @classmethod
-    def setup_class(cls):
-        """Setup Ray and catalog for the test class."""
+    def test_daft_distributed_read_sanity(self, temp_catalog_properties):
+        """Test Daft distributed read functionality with temporary catalog."""
         dc.init()
-        
-        # Use the default catalog storage location instead of a temp directory
-        # This ensures both catalog and direct storage operations use the same backend
-        cls.temp_dir = tempfile.mkdtemp()
-        cls.catalog_properties = CatalogProperties(root=cls.temp_dir)
-        
-        cls.catalog_name = str(uuid.uuid4())
-        
-        # Use the default catalog configuration
-        cls.catalog = dc.put_catalog(
-            cls.catalog_name,
-            catalog=Catalog(config=cls.catalog_properties),
+        catalog_name = str(uuid.uuid4())
+        catalog = dc.put_catalog(
+            catalog_name,
+            catalog=Catalog(config=temp_catalog_properties),
         )
-        
-        # Create the env dictionary
-        cls.env = {
-            "temp_dir": cls.temp_dir,
-            "catalog_properties": cls.catalog_properties,
-            "catalog_name": cls.catalog_name,
-            "catalog": cls.catalog,
-        }
-        
-    @classmethod
-    def teardown_class(cls):
-        """Clean up test environment."""
-        dc.clear_catalogs()
-        shutil.rmtree(cls.catalog_properties.root, ignore_errors=True)
-
-    def test_daft_distributed_read_sanity(self):
-        env = self.env
         
         # setup
         READ_TABLE_TABLE_NAME = "test_read_table"
@@ -237,7 +545,7 @@ class TestReadTableMain:
             [self.SAMPLE_FILE_PATH],
             table_name=READ_TABLE_TABLE_NAME,
             content_type=ContentType.PARQUET,
-            inner=env["catalog_properties"],
+            inner=temp_catalog_properties,
             supported_content_types=[ContentType.PARQUET],
             delta_type=DeltaType.APPEND,
         )
@@ -245,7 +553,7 @@ class TestReadTableMain:
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
-            catalog=env["catalog_name"],
+            catalog=catalog_name,
             distributed_dataset_type=DatasetType.DAFT,
         )
 
@@ -253,8 +561,14 @@ class TestReadTableMain:
         assert df.count_rows() == 6
         assert df.column_names == ["pk", "value"]
 
-    def test_daft_distributed_read_multiple_deltas(self):
-        env = self.env
+    def test_daft_distributed_read_multiple_deltas(self, temp_catalog_properties):
+        """Test Daft distributed read functionality with multiple deltas."""
+        dc.init()
+        catalog_name = str(uuid.uuid4())
+        catalog = dc.put_catalog(
+            catalog_name,
+            catalog=Catalog(config=temp_catalog_properties),
+        )
         
         # setup
         READ_TABLE_TABLE_NAME = "test_read_table_2"
@@ -263,7 +577,7 @@ class TestReadTableMain:
             [self.SAMPLE_FILE_PATH],
             table_name=READ_TABLE_TABLE_NAME,
             content_type=ContentType.PARQUET,
-            inner=env["catalog_properties"],
+            inner=temp_catalog_properties,
             supported_content_types=[ContentType.PARQUET],
             delta_type=DeltaType.APPEND,
         )
@@ -271,13 +585,13 @@ class TestReadTableMain:
         partition = metastore.get_partition(
             delta.stream_locator,
             delta.partition_values,
-            inner=env["catalog_properties"],
+            inner=temp_catalog_properties,
         )
 
         commit_delta_to_partition(
             partition=partition,
             pa_table=create_table_from_csv_file_paths([self.SAMPLE_FILE_PATH]),
-            inner=env["catalog_properties"],
+            inner=temp_catalog_properties,
             content_type=ContentType.PARQUET,
             delta_type=DeltaType.APPEND,
         )
@@ -286,7 +600,7 @@ class TestReadTableMain:
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
-            catalog=env["catalog_name"],
+            catalog=catalog_name,
             distributed_dataset_type=DatasetType.DAFT,
         )
 
@@ -295,46 +609,54 @@ class TestReadTableMain:
         assert df.column_names == ["pk", "value"]
 
 
+@pytest.fixture
+def copy_on_write_catalog(temp_catalog_properties):
+    """Fixture to set up catalog and namespace for TestCopyOnWrite class."""
+    dc.init()
+    
+    catalog_name = "test_compaction_catalog"
+    catalog = dc.put_catalog(
+        catalog_name,
+        catalog=Catalog(config=temp_catalog_properties),
+    )
+    
+    # Set up test namespace
+    test_namespace = "test_e2e_compaction"
+    dc.create_namespace(
+        namespace=test_namespace,
+        catalog=catalog_name,
+    )
+    
+    yield {
+        "catalog_properties": temp_catalog_properties,
+        "catalog_name": catalog_name,
+        "catalog": catalog,
+        "test_namespace": test_namespace,
+    }
+    
+    # Cleanup
+    dc.clear_catalogs()
+
+
 class TestCopyOnWrite:
     """
     End-to-end copy-on-wrte tests using the default catalogs write and read APIs.
     """
     
-    @classmethod
-    def setup_class(cls):
-        """Set up test environment with Ray and catalog."""
-        dc.init()
-        
-        cls.temp_dir = tempfile.mkdtemp()
-        cls.catalog_properties = CatalogProperties(root=cls.temp_dir)
-        
-        # Initialize deltacat catalog with a unique name
-        catalog_name = "test_compaction_catalog"
-        cls.catalog_name = catalog_name
-        cls.catalog = dc.put_catalog(
-            catalog_name,
-            catalog=Catalog(config=cls.catalog_properties),
-        )
-        
-        # Set up test namespace
-        cls.test_namespace = "test_e2e_compaction"
-        dc.create_namespace(
-            namespace=cls.test_namespace,
-            catalog=catalog_name,
-        )
-        
-    @classmethod
-    def teardown_class(cls):
-        """Clean up test environment."""
-        dc.clear_catalogs()
-        shutil.rmtree(cls.temp_dir, ignore_errors=True)
+    @pytest.fixture(autouse=True)
+    def setup_class_attributes(self, copy_on_write_catalog):
+        """Set up class attributes from the fixture."""
+        self.catalog_properties = copy_on_write_catalog["catalog_properties"]
+        self.catalog_name = copy_on_write_catalog["catalog_name"]
+        self.catalog = copy_on_write_catalog["catalog"]
+        self.test_namespace = copy_on_write_catalog["test_namespace"]
     
     def _create_table_with_merge_keys(self, table_name: str) -> Schema:
         """Create a table with merge keys using the standard test schema."""
         schema = create_schema_with_merge_keys()
         
         # Create table properties with automatic compaction enabled
-        table_properties = COMPACTION_TABLE_PROPERTIES
+        table_properties = COPY_ON_WRITE_TABLE_PROPERTIES
         
         dc.create_table(
             name=table_name,
@@ -386,9 +708,7 @@ class TestCopyOnWrite:
         for record_id, expected_record in expected_data.items():
             actual_record = result_dict[record_id]
             assert actual_record == expected_record, \
-                f"Record {record_id}: expected {expected_record}, got {actual_record}"
-    
-
+                f"Record {record_id}: expected {expected_record}, got {actual_record}" 
 
     def test_simple_append_no_compaction_needed(self):
         """Test that simple append operations work without requiring compaction."""
@@ -424,7 +744,6 @@ class TestCopyOnWrite:
             5: {'name': 'Eve', 'age': 45, 'city': 'Phoenix'},
         })
         
-    
     def test_two_upsert_deltas_with_compaction(self):
         """
         End-to-end test: write two upsert deltas with overlapping merge keys,
@@ -484,7 +803,6 @@ class TestCopyOnWrite:
         }
         
         self._verify_dataframe_contents(result, expected_final_data)
-        
     
     def test_three_upsert_deltas_comprehensive_merge(self):
         """
@@ -565,7 +883,6 @@ class TestCopyOnWrite:
         }
         
         self._verify_dataframe_contents(result, expected_final_data)
-        
     
     def test_verify_delta_types_created(self):
         """
@@ -606,8 +923,7 @@ class TestCopyOnWrite:
             if field.arrow.name == 'id'
         )
         assert id_field_is_merge_key, "Expected 'id' field to be marked as merge key"
-        
-    
+            
     def test_concurrent_write_conflict(self):
         """
         Test that concurrent writes to the same table properly handle conflicts.
@@ -625,7 +941,7 @@ class TestCopyOnWrite:
         ])
         
         # Ensure compaction happens on every write
-        table_properties = AGGRESSIVE_COMPACTION_PROPERTIES
+        table_properties = COPY_ON_WRITE_TABLE_PROPERTIES
         
         dc.create_table(
             name=table_name,
@@ -782,12 +1098,15 @@ class TestCopyOnWrite:
         multiprocessing.cpu_count() < 2,
         reason="Stress test requires at least 2 CPUs for meaningful concurrent testing"
     )
+    @pytest.mark.skipif(not PLATFORM_HAS_FORK, reason="Test requires fork-based multiprocessing for reliable process isolation")
     def test_concurrent_write_stress(self):
         """
         Stress test for concurrent write conflicts with data integrity validation.
         This test runs multiple rounds of parallel writes and verifies that successful
         writes never lose data. Failed writes due to conflicts are acceptable, but
         successful writes must preserve all their data in the final table state.
+        
+        Note: This test requires fork-based multiprocessing for reliable process isolation.
         """
         import multiprocessing
         
@@ -951,7 +1270,7 @@ class TestCopyOnWrite:
         # Summary statistics and validation
         total_successful_writes = len(successful_writes)
         total_expected_records = total_successful_writes * 3  # Each write has 3 records
-        total_actual_records = len(final_df)
+        total_actual_records = get_table_length(final_df)
         
         # With unique IDs per writer, we should have exactly the expected number of records
         assert total_actual_records == total_expected_records, f"Expected {total_expected_records} records, got {total_actual_records}"
@@ -1426,9 +1745,8 @@ class TestDatasetTypes:
         """Initialize test environment."""
         dc.init()
         
-    def test_comprehensive_storage_types_local_catalog(self):
+    def test_comprehensive_storage_types_local_catalog(self, temp_catalog_properties):
         """Test all LOCAL and DISTRIBUTED storage types with local filesystem catalog."""
-        local_catalog_root = f"/tmp/deltacat-comprehensive-test-{uuid.uuid4()}"
         namespace = "test_namespace"
         catalog_name = f"comprehensive-test-{uuid.uuid4()}"
         table_name = "comprehensive_test_table"
@@ -1441,8 +1759,7 @@ class TestDatasetTypes:
             'category': ['A', 'B', 'A', 'C', 'B']
         })
 
-        catalog_properties = CatalogProperties(root=local_catalog_root)
-        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
         
         dc.write_to_table(
             data=test_data, table=table_name, namespace=namespace,
@@ -1465,23 +1782,19 @@ class TestDatasetTypes:
             )
             
             # Verify the data was read correctly
+            assert get_table_length(result_table) == 5
             if storage_type == DatasetType.PYARROW:
                 assert isinstance(result_table, pa.Table)
-                assert result_table.num_rows == 5
                 assert len(result_table.column_names) == 4
             elif storage_type == DatasetType.PANDAS:
-                import pandas as pd
                 assert isinstance(result_table, pd.DataFrame)
-                assert len(result_table) == 5
                 assert len(result_table.columns) == 4
             elif storage_type == DatasetType.POLARS:
-                import polars as pl
                 assert isinstance(result_table, pl.DataFrame)
                 assert result_table.shape == (5, 4)
             elif storage_type == DatasetType.NUMPY:
-                import numpy as np
                 assert isinstance(result_table, np.ndarray)
-                assert result_table.shape[0] == 5
+                assert result_table.shape[1] == 4
             local_successes += 1
 
         # Test all DISTRIBUTED storage types
@@ -1502,16 +1815,10 @@ class TestDatasetTypes:
             distributed_successes += 1
             
         # Clean up
-        try:
-            dc.clear_catalogs()
-            import shutil
-            shutil.rmtree(local_catalog_root, ignore_errors=True)
-        except Exception:
-            pass
+        dc.clear_catalogs()
 
-    def test_custom_kwargs_comprehensive_local_storage(self):
+    def test_custom_kwargs_comprehensive_local_storage(self, temp_catalog_properties):
         """Test custom kwargs propagation with all storage types using local filesystem."""
-        local_catalog_root = f"/tmp/deltacat-kwargs-comprehensive-test-{uuid.uuid4()}"
         namespace = "test_namespace"
         catalog_name = f"kwargs-comprehensive-test-{uuid.uuid4()}"
         table_name = "kwargs_comprehensive_test_table"
@@ -1524,8 +1831,7 @@ class TestDatasetTypes:
             'category': ['A', 'B', 'A', 'C', 'B']
         })
 
-        catalog_properties = CatalogProperties(root=local_catalog_root)
-        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
         
         dc.write_to_table(
             data=test_data, table=table_name, namespace=namespace,
@@ -1579,37 +1885,33 @@ class TestDatasetTypes:
             
             # Verify the data was read correctly
             file_path_column = test_case["custom_kwargs"].get("file_path_column")
-            
+
+            assert get_table_length(result_table) == 5
             if test_case["table_type"] == DatasetType.PYARROW:
                 assert isinstance(result_table, pa.Table)
-                assert result_table.num_rows == 5
                 expected_cols = 5 if file_path_column else 4
                 assert len(result_table.column_names) == expected_cols
                 if file_path_column:
                     assert file_path_column in result_table.column_names
                     
             elif test_case["table_type"] == DatasetType.PANDAS:
-                import pandas as pd
                 assert isinstance(result_table, pd.DataFrame)
-                assert len(result_table) == 5
                 expected_cols = 5 if file_path_column else 4
                 assert len(result_table.columns) == expected_cols
                 if file_path_column:
                     assert file_path_column in result_table.columns
                     
             elif test_case["table_type"] == DatasetType.POLARS:
-                import polars as pl
                 assert isinstance(result_table, pl.DataFrame)
                 expected_cols = 5 if file_path_column else 4
-                assert result_table.shape == (5, expected_cols)
+                assert result_table.shape[1] == expected_cols
                 if file_path_column:
                     assert file_path_column in result_table.columns
                     
             elif test_case["table_type"] == DatasetType.NUMPY:
-                import numpy as np
                 assert isinstance(result_table, np.ndarray)
                 expected_cols = 5 if file_path_column else 4
-                assert result_table.shape[0] == expected_cols
+                assert result_table.shape[1] == expected_cols
                 # NumPy doesn't support named columns, so we just validate column count
             
         # Test DISTRIBUTED storage types with custom kwargs
@@ -1681,14 +1983,9 @@ class TestDatasetTypes:
                     assert any("/" in str(path) for path in file_paths), "File paths should contain valid file system paths"
             
         # Clean up
-        try:
-            dc.clear_catalogs()
-            import shutil
-            shutil.rmtree(local_catalog_root, ignore_errors=True)
-        except Exception:
-            pass
+        dc.clear_catalogs()
 
-    def test_file_path_column_with_column_selection(self):
+    def test_file_path_column_with_column_selection(self, temp_catalog_properties):
         """
         Test that file_path_column is always included when used with column selection.
         
@@ -1696,7 +1993,6 @@ class TestDatasetTypes:
         the file path column is always present in the result, even if it wasn't explicitly
         included in the include_columns list.
         """
-        local_catalog_root = f"/tmp/deltacat-file-path-col-test-{uuid.uuid4()}"
         namespace = "test_namespace"
         catalog_name = f"file-path-col-test-{uuid.uuid4()}"
         table_name = "file_path_column_test_table"
@@ -1710,8 +2006,7 @@ class TestDatasetTypes:
             'extra_col': ['x', 'y', 'z']
         })
 
-        catalog_properties = CatalogProperties(root=local_catalog_root)
-        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
         
         dc.write_to_table(
             data=test_data, table=table_name, namespace=namespace,
@@ -1802,12 +2097,31 @@ class TestDatasetTypes:
                 f"File path column '{test_case['file_path_column']}' missing from result"
 
         # Clean up
-        try:
-            dc.clear_catalogs()
-            import shutil
-            shutil.rmtree(local_catalog_root, ignore_errors=True)
-        except Exception:
-            pass
+        dc.clear_catalogs()
+
+
+@pytest.fixture
+def table_version_catalog(temp_catalog_properties):
+    """Fixture to set up catalog for TestTableVersionWriteModes class."""
+    # Create temporary directory for class scope
+    catalog_name = "test_table_version_catalog"
+    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+    
+    # Test data
+    test_data = {
+        'initial': create_simple_test_data(),
+        'additional': create_additional_test_data(),
+        'merge_data': create_merge_test_data(),
+    }
+    
+    yield {
+        "catalog_name": catalog_name,
+        "catalog": catalog,
+        "test_data": test_data,
+    }
+    
+    # Cleanup
+    dc.clear_catalogs()
 
 
 class TestTableVersionWriteModes:
@@ -1820,29 +2134,12 @@ class TestTableVersionWriteModes:
     - Table version existence: exists vs doesn't exist
     """
     
-    @classmethod
-    def setup_class(cls):
-        """Set up catalog for all tests in this class."""
-        cls.local_catalog_root = tempfile.mkdtemp()
-        cls.catalog_name = "test_table_version_catalog"
-        catalog_properties = CatalogProperties(root=cls.local_catalog_root)
-        cls.catalog = dc.put_catalog(cls.catalog_name, catalog=Catalog(config=catalog_properties))
-        
-        # Test data
-        cls.test_data = {
-            'initial': create_simple_test_data(),
-            'additional': create_additional_test_data(),
-            'merge_data': create_merge_test_data(),
-        }
-    
-    @classmethod
-    def teardown_class(cls):
-        """Clean up after all tests."""
-        try:
-            dc.clear_catalogs()
-            shutil.rmtree(cls.local_catalog_root, ignore_errors=True)
-        except Exception:
-            pass
+    @pytest.fixture(autouse=True)
+    def setup_class_attributes(self, table_version_catalog):
+        """Set up class attributes from the fixture."""
+        self.catalog_name = table_version_catalog["catalog_name"]
+        self.catalog = table_version_catalog["catalog"]
+        self.test_data = table_version_catalog["test_data"]
     
     @pytest.mark.parametrize("table_suffix,setup_versions,test_version,should_succeed,description", [
         ('new', [], '1', True, 'Create new table with version 1'),
@@ -2188,7 +2485,7 @@ class TestTableVersionWriteModes:
         )
         
         # Test 4: COERCE should fail when types cannot be coerced
-        try:
+        with pytest.raises(Exception):
             dc.write_to_table(
                 test_data_incompatible,
                 'coerce_fail_table',
@@ -2198,8 +2495,6 @@ class TestTableVersionWriteModes:
                 schema=coerce_schema
             )
             assert False, "Expected coercion to fail with incompatible data"
-        except Exception as e:
-            pass  # Expected failure
         
         # Test 5: VALIDATE should fail when types don't match exactly
         mismatch_schema = Schema.of([
@@ -2208,7 +2503,7 @@ class TestTableVersionWriteModes:
             Field.of(pa.field("score", pa.float32()), consistency_type=SchemaConsistencyType.VALIDATE),  # Expects float32 but gets float64
         ])
         
-        try:
+        with pytest.raises(Exception):
             dc.write_to_table(
                 test_data_coercible,  # This has int64 and float64, but schema expects int32 and float32
                 'validate_fail_table',
@@ -2218,8 +2513,6 @@ class TestTableVersionWriteModes:
                 schema=mismatch_schema
             )
             assert False, "Expected validation to fail with type mismatch"
-        except Exception as e:
-            pass  # Expected failure
  
     def test_backward_compatibility(self):
         """Test that existing behavior is preserved when table_version is not specified."""
@@ -2555,7 +2848,7 @@ class TestTableVersionWriteModes:
             
             if dataset_type == DatasetType.PANDAS:
                 # Convert result to pandas using strict type checking
-                result = convert_to_pandas(result)
+                result = to_pandas(result)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
                 assert all(result['default_field'] == 'default_value'), \
@@ -2563,7 +2856,7 @@ class TestTableVersionWriteModes:
             
             elif dataset_type == DatasetType.PYARROW:
                 # Convert result to pyarrow using strict type checking
-                result = convert_to_arrow(result)
+                result = to_pyarrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2572,7 +2865,7 @@ class TestTableVersionWriteModes:
             
             elif dataset_type == DatasetType.POLARS:
                 # Convert result to polars via pandas to avoid metadata issues
-                pandas_df = convert_to_pandas(result)
+                pandas_df = to_pandas(result)
                 result = pl.from_pandas(pandas_df)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
@@ -2583,7 +2876,7 @@ class TestTableVersionWriteModes:
             elif dataset_type == DatasetType.PYARROW_PARQUET:
                 # PYARROW_PARQUET should return a PyArrow table with parquet-specific optimizations
                 # Convert result to pyarrow using strict type checking
-                result = convert_to_arrow(result)
+                result = to_pyarrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2654,14 +2947,14 @@ class TestTableVersionWriteModes:
             
             if dataset_type == DatasetType.PANDAS:
                 # Should be a pandas DataFrame
-                result = convert_to_pandas(result)
+                result = to_pandas(result)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
                 assert all(result['default_field'] == 'local_default_value'), \
                     f"All default_field values should be 'local_default_value' for {dataset_type}, got {result['default_field'].tolist()}"
             
             elif dataset_type == DatasetType.PYARROW:
-                result = convert_to_arrow(result)
+                result = to_pyarrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2669,7 +2962,7 @@ class TestTableVersionWriteModes:
                     f"All default_field values should be 'local_default_value' for {dataset_type}, got {default_column}"
             
             elif dataset_type == DatasetType.POLARS:
-                pandas_df = convert_to_pandas(result)
+                pandas_df = to_pandas(result)
                 result = pl.from_pandas(pandas_df)
                 
                 assert 'default_field' in result.columns, f"default_field should be present in {dataset_type}"
@@ -2679,7 +2972,7 @@ class TestTableVersionWriteModes:
             
             elif dataset_type == DatasetType.PYARROW_PARQUET:
                 # Handle ParquetFile objects
-                result = convert_to_arrow(result)
+                result = to_pyarrow(result)
                 
                 assert 'default_field' in result.column_names, f"default_field should be present in {dataset_type}"
                 default_column = result.column('default_field').to_pylist()
@@ -2740,7 +3033,7 @@ class TestTableVersionWriteModes:
         )
         
         # Handle Ray MaterializedDataset objects
-        result = convert_to_pandas(result)
+        result = to_pandas(result)
         
         assert 'default_field' in result.columns
         assert all(result['default_field'] == 'ray_default_value'), \
@@ -2762,7 +3055,7 @@ class TestTableVersionWriteModes:
         )
         
         # Handle Ray MaterializedDataset objects
-        result = convert_to_arrow(result)
+        result = to_pyarrow(result)
         
         assert 'default_field' in result.column_names
         default_column = result.column('default_field').to_pylist()
@@ -2784,9 +3077,8 @@ class TestTableVersionWriteModes:
             distributed_dataset_type=DatasetType.RAY_DATASET
         )
         
-        import polars as pl
         # Handle Ray MaterializedDataset objects
-        pandas_df = convert_to_pandas(result)
+        pandas_df = to_pandas(result)
         result = pl.from_pandas(pandas_df)
         
         assert 'default_field' in result.columns
@@ -2815,7 +3107,7 @@ class TestTableVersionWriteModes:
         )
         
         # Handle ParquetFile objects and Ray MaterializedDataset objects
-        result = convert_to_arrow(result)
+        result = to_pyarrow(result)
         
         assert 'default_field' in result.column_names
         default_column = result.column('default_field').to_pylist()
@@ -2887,435 +3179,394 @@ class TestTableVersionWriteModes:
         assert 'is_active' in result.columns, "is_active column should be present"
         assert all(result['is_active'] == True), f"All is_active values should be True, got {result['is_active'].tolist()}"
 
-
-def test_missing_field_backfill_behavior():
-    """Test missing field handling and backfill behavior based on SchemaConsistencyType."""
-    # Import deltacat API functions instead of internal implementation
-    from deltacat.storage.model.schema import Schema, Field, SchemaConsistencyType
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    import deltacat as dc
-    import pyarrow as pa
-    import pandas as pd
-    import uuid
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"test-{uuid.uuid4()}"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Create a schema with different consistency types and field configurations
-    fields = [
-        # VALIDATE type - should error when missing
-        Field.of(pa.field("required_field", pa.string(), nullable=False), 
-                 consistency_type=SchemaConsistencyType.VALIDATE),
+class TestSchemaConsistency:
+    def test_missing_field_backfill_behavior(self, temp_catalog_properties):
+        """Test missing field handling and backfill behavior based on SchemaConsistencyType.""" 
+        namespace = "test_namespace"
+        catalog_name = f"test-{uuid.uuid4()}"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
         
-        # COERCE type with future_default - should use default when missing
-        Field.of(pa.field("default_field", pa.int64(), nullable=False), 
-                 consistency_type=SchemaConsistencyType.COERCE,
-                 future_default=42),
+        # Create a schema with different consistency types and field configurations
+        fields = [
+            # VALIDATE type - should error when missing
+            Field.of(pa.field("required_field", pa.string(), nullable=False), 
+                    consistency_type=SchemaConsistencyType.VALIDATE),
+            
+            # COERCE type with future_default - should use default when missing
+            Field.of(pa.field("default_field", pa.int64(), nullable=False), 
+                    consistency_type=SchemaConsistencyType.COERCE,
+                    future_default=42),
+            
+            # COERCE type nullable without default - should backfill with nulls
+            Field.of(pa.field("nullable_field", pa.string(), nullable=True), 
+                    consistency_type=SchemaConsistencyType.COERCE),
+            
+            # COERCE type non-nullable without default - should error when missing
+            Field.of(pa.field("non_nullable_no_default", pa.float64(), nullable=False), 
+                    consistency_type=SchemaConsistencyType.COERCE),
+            
+            # NONE type with future_default - should use default
+            Field.of(pa.field("none_with_default", pa.string(), nullable=False), 
+                    consistency_type=SchemaConsistencyType.NONE,
+                    future_default="default_value"),
+            
+            # NONE type without default - should backfill with nulls
+            Field.of(pa.field("none_nullable", pa.int32(), nullable=True), 
+                    consistency_type=SchemaConsistencyType.NONE),
+        ]
         
-        # COERCE type nullable without default - should backfill with nulls
-        Field.of(pa.field("nullable_field", pa.string(), nullable=True), 
-                 consistency_type=SchemaConsistencyType.COERCE),
+        schema = Schema.of(fields)
+        table_name_base = "test_missing_fields_table"
         
-        # COERCE type non-nullable without default - should error when missing
-        Field.of(pa.field("non_nullable_no_default", pa.float64(), nullable=False), 
-                 consistency_type=SchemaConsistencyType.COERCE),
+        # Test 1: Missing required field (VALIDATE) should fail
+        incomplete_data = pd.DataFrame({
+            "default_field": [1, 2],
+            "nullable_field": ["a", "b"],
+            "non_nullable_no_default": [1.1, 2.2],
+            "none_with_default": ["x", "y"], 
+            "none_nullable": [10, 20]
+            # Missing required_field - should cause VALIDATE error
+        })
         
-        # NONE type with future_default - should use default
-        Field.of(pa.field("none_with_default", pa.string(), nullable=False), 
-                 consistency_type=SchemaConsistencyType.NONE,
-                 future_default="default_value"),
+        with pytest.raises(ValueError, match="required but not present"):
+            dc.write_to_table(
+                data=incomplete_data,
+                table=table_name_base + "_test1",
+                namespace=namespace,
+                catalog=catalog_name,
+                schema=schema
+            )
         
-        # NONE type without default - should backfill with nulls
-        Field.of(pa.field("none_nullable", pa.int32(), nullable=True), 
-                 consistency_type=SchemaConsistencyType.NONE),
-    ]
-    
-    schema = Schema.of(fields)
-    table_name_base = "test_missing_fields_table"
-    
-    # Test 1: Missing required field (VALIDATE) should fail
-    incomplete_data = pd.DataFrame({
-        "default_field": [1, 2],
-        "nullable_field": ["a", "b"],
-        "non_nullable_no_default": [1.1, 2.2],
-        "none_with_default": ["x", "y"], 
-        "none_nullable": [10, 20]
-        # Missing required_field - should cause VALIDATE error
-    })
-    
-    with pytest.raises(ValueError, match="required but not present"):
+        # Test 2: Missing non-nullable field without default (COERCE) should fail
+        incomplete_data2 = pd.DataFrame({
+            "required_field": ["val1", "val2"],
+            "default_field": [1, 2], 
+            "nullable_field": ["a", "b"],
+            "none_with_default": ["x", "y"],
+            "none_nullable": [10, 20]
+            # Missing non_nullable_no_default - should cause COERCE error
+        })
+        
+        with pytest.raises(ValueError, match="not nullable.*not present.*no future_default"):
+            dc.write_to_table(
+                data=incomplete_data2,
+                table=table_name_base + "_test2",
+                namespace=namespace,
+                catalog=catalog_name,
+                schema=schema
+            )
+        
+        # Test 3: Success case - provide only some fields, let others backfill appropriately
+        partial_data = pd.DataFrame({
+            "required_field": ["val1", "val2"],
+            "non_nullable_no_default": [1.1, 2.2]
+            # Missing: default_field, nullable_field, none_with_default, none_nullable
+            # These should be backfilled based on their consistency types and defaults
+        })
+        
+        # This should succeed with appropriate backfilling
         dc.write_to_table(
-            data=incomplete_data,
-            table=table_name_base + "_test1",
+            data=partial_data,
+            table=table_name_base + "_test3",
             namespace=namespace,
             catalog=catalog_name,
-            schema=schema
+            schema=schema,
+            mode=TableWriteMode.CREATE
         )
-    
-    # Test 2: Missing non-nullable field without default (COERCE) should fail
-    incomplete_data2 = pd.DataFrame({
-        "required_field": ["val1", "val2"],
-        "default_field": [1, 2], 
-        "nullable_field": ["a", "b"],
-        "none_with_default": ["x", "y"],
-        "none_nullable": [10, 20]
-        # Missing non_nullable_no_default - should cause COERCE error
-    })
-    
-    with pytest.raises(ValueError, match="not nullable.*not present.*no future_default"):
+        
+        # Read back and verify backfill behavior
+        result_df = dc.read_table(table=table_name_base + "_test3", namespace=namespace, catalog=catalog_name)
+        
+        # Convert to pandas for easier testing
+        result_df = to_pandas(result_df)
+        
+        assert get_table_length(result_df) == 2
+        assert list(result_df["required_field"]) == ["val1", "val2"]
+        assert list(result_df["non_nullable_no_default"]) == [1.1, 2.2]
+        
+        # Verify backfilled values
+        assert list(result_df["default_field"]) == [42, 42]  # future_default used
+        assert list(result_df["nullable_field"]) == [None, None]  # nulls for nullable COERCE
+        assert list(result_df["none_with_default"]) == ["default_value", "default_value"]  # future_default used
+        
+        # For integer columns, pandas represents nulls as NaN
+        import numpy as np
+        assert all(np.isnan(x) for x in result_df["none_nullable"])  # nulls for NONE type
+        
+        # Test 4: Verify extra field rejection
+        data_with_extra = pd.DataFrame({
+            "required_field": ["val1", "val2"],
+            "default_field": [1, 2],
+            "nullable_field": ["a", "b"], 
+            "non_nullable_no_default": [1.1, 2.2],
+            "none_with_default": ["x", "y"],
+            "none_nullable": [10, 20],
+            "extra_field": ["should", "fail"]  # This field is not in schema
+        })
+        
+        with pytest.raises(ValueError, match="not present in the schema"):
+            dc.write_to_table(
+                data=data_with_extra,
+                table=table_name_base + "_test4",
+                namespace=namespace,
+                catalog=catalog_name,
+                schema=schema
+            )
+
+
+    def test_schemaless_table_append_mode(self, temp_catalog_properties):
+        """Test write_to_table with schema=None in APPEND mode."""
+        
+        # Setup catalog for testing
+        namespace = "test_namespace"
+        catalog_name = f"schemaless-append-test-{uuid.uuid4()}"
+        table_name = "schemaless_append_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Test 1: Create schemaless table with initial data
+        initial_data = pd.DataFrame({
+            "id": [1, 2],
+            "name": ["Alice", "Bob"],
+            "value": [10.1, 20.2]
+        })
+        
         dc.write_to_table(
-            data=incomplete_data2,
-            table=table_name_base + "_test2",
-            namespace=namespace,
-            catalog=catalog_name,
-            schema=schema
-        )
-    
-    # Test 3: Success case - provide only some fields, let others backfill appropriately
-    partial_data = pd.DataFrame({
-        "required_field": ["val1", "val2"],
-        "non_nullable_no_default": [1.1, 2.2]
-        # Missing: default_field, nullable_field, none_with_default, none_nullable
-        # These should be backfilled based on their consistency types and defaults
-    })
-    
-    # This should succeed with appropriate backfilling
-    dc.write_to_table(
-        data=partial_data,
-        table=table_name_base + "_test3",
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=schema,
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Read back and verify backfill behavior
-    result_df = dc.read_table(table=table_name_base + "_test3", namespace=namespace, catalog=catalog_name)
-    
-    # Convert to pandas for easier testing
-    result_df = convert_to_pandas(result_df)
-    
-    assert len(result_df) == 2
-    assert list(result_df["required_field"]) == ["val1", "val2"]
-    assert list(result_df["non_nullable_no_default"]) == [1.1, 2.2]
-    
-    # Verify backfilled values
-    assert list(result_df["default_field"]) == [42, 42]  # future_default used
-    assert list(result_df["nullable_field"]) == [None, None]  # nulls for nullable COERCE
-    assert list(result_df["none_with_default"]) == ["default_value", "default_value"]  # future_default used
-    
-    # For integer columns, pandas represents nulls as NaN
-    import numpy as np
-    assert all(np.isnan(x) for x in result_df["none_nullable"])  # nulls for NONE type
-    
-    # Test 4: Verify extra field rejection
-    data_with_extra = pd.DataFrame({
-        "required_field": ["val1", "val2"],
-        "default_field": [1, 2],
-        "nullable_field": ["a", "b"], 
-        "non_nullable_no_default": [1.1, 2.2],
-        "none_with_default": ["x", "y"],
-        "none_nullable": [10, 20],
-        "extra_field": ["should", "fail"]  # This field is not in schema
-    })
-    
-    with pytest.raises(ValueError, match="not present in the schema"):
-        dc.write_to_table(
-            data=data_with_extra,
-            table=table_name_base + "_test4",
-            namespace=namespace,
-            catalog=catalog_name,
-            schema=schema
-        )
-
-
-def test_schemaless_table_append_mode():
-    """Test write_to_table with schema=None in APPEND mode."""
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    import deltacat as dc
-    import pyarrow as pa
-    import pandas as pd
-    import uuid
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-schemaless-append-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"schemaless-append-test-{uuid.uuid4()}"
-    table_name = "schemaless_append_table"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Test 1: Create schemaless table with initial data
-    initial_data = pd.DataFrame({
-        "id": [1, 2],
-        "name": ["Alice", "Bob"],
-        "value": [10.1, 20.2]
-    })
-    
-    dc.write_to_table(
-        data=initial_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Verify initial data can be read back
-    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    
-    # For schemaless tables, we now get a list of tables
-    if isinstance(result1, list):
-        # Combine the list of tables into a single DataFrame
-        result1 = convert_to_pandas(result1)
-    
-    assert len(result1) == 2
-    assert set(result1.columns) == {"id", "name", "value"}
-    assert list(result1["id"]) == [1, 2]
-    assert list(result1["name"]) == ["Alice", "Bob"]
-    
-    # Test 2: Append more data to schemaless table
-    append_data = pd.DataFrame({
-        "id": [3, 4],
-        "name": ["Charlie", "Diana"],
-        "value": [30.3, 40.4]
-    })
-    
-    dc.write_to_table(
-        data=append_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify all data is present
-    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    
-    # For schemaless tables, we now get a list of tables
-    if isinstance(result2, list):
-        # Combine the list of tables into a single DataFrame
-        result2 = convert_to_pandas(result2)
-    
-    assert len(result2) == 4
-    assert set(result2.columns) == {"id", "name", "value"}
-    assert sorted(result2["id"]) == [1, 2, 3, 4]
-    assert sorted(result2["name"]) == ["Alice", "Bob", "Charlie", "Diana"]
-    
-    # Test 3: Append data with same structure (should work for schemaless)
-    more_data = pd.DataFrame({
-        "id": [5, 6],
-        "name": ["Eve", "Frank"],
-        "value": [50.5, 60.6]
-    })
-    
-    dc.write_to_table(
-        data=more_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify all data is present
-    result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    
-    # For schemaless tables, we now get a list of tables
-    if isinstance(result3, list):
-        # Combine the list of tables into a single DataFrame
-        result3 = convert_to_pandas(result3)
-    
-    assert len(result3) == 6
-    # Should have original columns
-    expected_columns = {"id", "name", "value"}
-    assert set(result3.columns) == expected_columns
-    
-    # Verify all data is correctly written
-    assert sorted(result3["id"]) == [1, 2, 3, 4, 5, 6]
-    expected_names = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"]
-    assert sorted(result3["name"]) == sorted(expected_names)
-    
-
-
-def test_schemaless_table_merge_delete_mode():
-    """Test write_to_table with schema=None - MERGE and DELETE modes should fail."""
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    import deltacat as dc
-    import pandas as pd
-    import uuid
-    import pytest
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-schemaless-merge-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"schemaless-merge-test-{uuid.uuid4()}"
-    table_name = "schemaless_merge_table"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Test 1: Create schemaless table (schema=None)
-    initial_data = pd.DataFrame({
-        "id": [1, 2, 3],
-        "name": ["Alice", "Bob", "Charlie"],
-        "value": [10.1, 20.2, 30.3],
-        "status": ["active", "active", "inactive"]
-    })
-    
-    # Create table without schema - note: merge_keys are ignored for schemaless tables
-    dc.write_to_table(
-        data=initial_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Verify initial data
-    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    
-    # For schemaless tables, we now get a list of tables
-    if isinstance(result1, list):
-        # Combine the list of tables into a single DataFrame
-        result1 = convert_to_pandas(result1)
-    
-    assert len(result1) == 3
-    assert set(result1.columns) == {"id", "name", "value", "status"}
-    
-    # Test 2: MERGE operation should fail for schemaless tables
-    merge_data = pd.DataFrame({
-        "id": [2, 3, 4],
-        "name": ["Bob_Updated", "Charlie_Updated", "Diana"],
-        "value": [25.5, 35.5, 40.4],
-        "status": ["updated", "updated", "new"]
-    })
-    
-    # MERGE mode should raise ValueError for schemaless tables
-    with pytest.raises(ValueError, match="MERGE mode requires tables to have at least one merge key"):
-        dc.write_to_table(
-            data=merge_data,
+            data=initial_data,
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
-            mode=TableWriteMode.MERGE
+            mode=TableWriteMode.CREATE
         )
-    
-    # Test 3: DELETE operation should also fail for schemaless tables
-    delete_data = pd.DataFrame({
-        "id": [1, 3],
-        "name": ["Alice", "Charlie"],
-        "value": [10.1, 30.3],
-        "status": ["active", "inactive"]
-    })
-    
-    # DELETE mode should raise ValueError for schemaless tables
-    with pytest.raises(ValueError, match="DELETE mode requires tables to have at least one merge key"):
+        
+        # Verify initial data can be read back
+        result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        
+        # For schemaless tables, we now get a list of tables
+        if isinstance(result1, list):
+            # Combine the list of tables into a single DataFrame
+            result1 = to_pandas(result1)
+        
+        assert get_table_length(result1) == 2
+        assert set(result1.columns) == {"id", "name", "value"}
+        assert list(result1["id"]) == [1, 2]
+        assert list(result1["name"]) == ["Alice", "Bob"]
+        
+        # Test 2: Append more data to schemaless table
+        append_data = pd.DataFrame({
+            "id": [3, 4],
+            "name": ["Charlie", "Diana"],
+            "value": [30.3, 40.4]
+        })
+        
         dc.write_to_table(
-            data=delete_data,
+            data=append_data,
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
-            mode=TableWriteMode.DELETE
+            mode=TableWriteMode.APPEND
         )
-    
-    # Test 4: APPEND mode should still work for schemaless tables
-    append_data = pd.DataFrame({
-        "id": [4, 5],
-        "name": ["Diana", "Eve"],
-        "value": [40.4, 50.5],
-        "status": ["new", "active"]
-    })
-    
-    dc.write_to_table(
-        data=append_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify append results
-    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    
-    # For schemaless tables, we now get a list of tables
-    if isinstance(result2, list):
-        # Combine the list of tables into a single DataFrame
-        result2 = convert_to_pandas(result2)
-    
-    # Should have 5 records total (3 original + 2 appended)
-    assert len(result2) == 5
-    assert set(result2.columns) == {"id", "name", "value", "status"}
+        
+        # Verify all data is present
+        result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        
+        # For schemaless tables, we now get a list of tables
+        if isinstance(result2, list):
+            # Combine the list of tables into a single DataFrame
+            result2 = to_pandas(result2)
+        
+        assert get_table_length(result2) == 4
+        assert set(result2.columns) == {"id", "name", "value"}
+        assert sorted(result2["id"]) == [1, 2, 3, 4]
+        assert sorted(result2["name"]) == ["Alice", "Bob", "Charlie", "Diana"]
+        
+        # Test 3: Append data with same structure (should work for schemaless)
+        more_data = pd.DataFrame({
+            "id": [5, 6],
+            "name": ["Eve", "Frank"],
+            "value": [50.5, 60.6]
+        })
+        
+        dc.write_to_table(
+            data=more_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify all data is present
+        result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        
+        # For schemaless tables, we now get a list of tables
+        if isinstance(result3, list):
+            # Combine the list of tables into a single DataFrame
+            result3 = to_pandas(result3)
+        
+        assert get_table_length(result3) == 6
+        # Should have original columns
+        expected_columns = {"id", "name", "value"}
+        assert set(result3.columns) == expected_columns
+        
+        # Verify all data is correctly written
+        assert sorted(result3["id"]) == [1, 2, 3, 4, 5, 6]
+        expected_names = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"]
+        assert sorted(result3["name"]) == sorted(expected_names)
+        
 
 
-def test_schemaless_table_with_evolving_schema():
-    """Test write_to_table with schema=None when new columns are added over time."""
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    from deltacat.types.media import DatasetType
-    import deltacat as dc
-    import pandas as pd
-    import uuid
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-schemaless-evolving-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"schemaless-evolving-test-{uuid.uuid4()}"
-    table_name = "schemaless_evolving_table"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Test 1: Create schemaless table with initial columns
-    initial_data = pd.DataFrame({
-        "id": [1, 2],
-        "name": ["Alice", "Bob"],
-        "value": [10.1, 20.2]
-    })
-    
-    dc.write_to_table(
-        data=initial_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Test 2: Append data with additional columns
-    extended_data = pd.DataFrame({
-        "id": [3, 4],
-        "name": ["Charlie", "Diana"],
-        "value": [30.3, 40.4],
-        "status": ["active", "inactive"],  # New column
-        "category": ["A", "B"]  # Another new column
-    })
-    
-    dc.write_to_table(
-        data=extended_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Test 3: Read back the data - this might fail due to schema mismatches
-    try:
+    def test_schemaless_table_merge_delete_mode(self, temp_catalog_properties):
+        """Test write_to_table with schema=None - MERGE and DELETE modes should fail."""
+        
+        # Setup catalog for testing
+        namespace = "test_namespace"
+        catalog_name = f"schemaless-merge-test-{uuid.uuid4()}"
+        table_name = "schemaless_merge_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Test 1: Create schemaless table (schema=None)
+        initial_data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "value": [10.1, 20.2, 30.3],
+            "status": ["active", "active", "inactive"]
+        })
+        
+        # Create table without schema - note: merge_keys are ignored for schemaless tables
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.CREATE
+        )
+        
+        # Verify initial data
+        result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        
+        # For schemaless tables, we now get a list of tables
+        if isinstance(result1, list):
+            # Combine the list of tables into a single DataFrame
+            result1 = to_pandas(result1)
+        
+        assert get_table_length(result1) == 3
+        assert set(result1.columns) == {"id", "name", "value", "status"}
+        
+        # Test 2: MERGE operation should fail for schemaless tables
+        merge_data = pd.DataFrame({
+            "id": [2, 3, 4],
+            "name": ["Bob_Updated", "Charlie_Updated", "Diana"],
+            "value": [25.5, 35.5, 40.4],
+            "status": ["updated", "updated", "new"]
+        })
+        
+        # MERGE mode should raise ValueError for schemaless tables
+        with pytest.raises(ValueError, match="MERGE mode requires tables to have at least one merge key"):
+            dc.write_to_table(
+                data=merge_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                schema=None,  # Explicitly set to None
+                mode=TableWriteMode.MERGE
+            )
+        
+        # Test 3: DELETE operation should also fail for schemaless tables
+        delete_data = pd.DataFrame({
+            "id": [1, 3],
+            "name": ["Alice", "Charlie"],
+            "value": [10.1, 30.3],
+            "status": ["active", "inactive"]
+        })
+        
+        # DELETE mode should raise ValueError for schemaless tables
+        with pytest.raises(ValueError, match="DELETE mode requires tables to have at least one merge key"):
+            dc.write_to_table(
+                data=delete_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                schema=None,  # Explicitly set to None
+                mode=TableWriteMode.DELETE
+            )
+        
+        # Test 4: APPEND mode should still work for schemaless tables
+        append_data = pd.DataFrame({
+            "id": [4, 5],
+            "name": ["Diana", "Eve"],
+            "value": [40.4, 50.5],
+            "status": ["new", "active"]
+        })
+        
+        dc.write_to_table(
+            data=append_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify append results
+        result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        
+        # For schemaless tables, we now get a list of tables
+        if isinstance(result2, list):
+            # Combine the list of tables into a single DataFrame
+            result2 = to_pandas(result2)
+        
+        # Should have 5 records total (3 original + 2 appended)
+        assert get_table_length(result2) == 5
+        assert set(result2.columns) == {"id", "name", "value", "status"}
+
+
+    def test_schemaless_table_with_evolving_schema(self, temp_catalog_properties):
+        """Test write_to_table with schema=None when new columns are added over time."""
+        
+        # Setup catalog for testing
+        namespace = "test_namespace"
+        catalog_name = f"schemaless-evolving-test-{uuid.uuid4()}"
+        table_name = "schemaless_evolving_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Test 1: Create schemaless table with initial columns
+        initial_data = pd.DataFrame({
+            "id": [1, 2],
+            "name": ["Alice", "Bob"],
+            "value": [10.1, 20.2]
+        })
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.CREATE
+        )
+        
+        # Test 2: Append data with additional columns
+        extended_data = pd.DataFrame({
+            "id": [3, 4],
+            "name": ["Charlie", "Diana"],
+            "value": [30.3, 40.4],
+            "status": ["active", "inactive"],  # New column
+            "category": ["A", "B"]  # Another new column
+        })
+        
+        dc.write_to_table(
+            data=extended_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Test 3: Read back the data - this might fail due to schema mismatches
         # Force local storage to test our schemaless table fix
         result = dc.read_table(
             table=table_name, 
@@ -3331,19 +3582,19 @@ def test_schemaless_table_with_evolving_schema():
             # This is what the user would need to do for schemaless tables
             all_tables = []
             for table in result:
-                table = convert_to_pandas(table)
+                table = to_pandas(table)
                 all_tables.append(table)
             
             # Combine with pandas concat to handle different schemas
             result = pd.concat(all_tables, ignore_index=True, sort=False)
         else:
-            result = convert_to_pandas(result)
+            result = to_pandas(result)
         
         # For schemaless tables with evolving schema, we should expect all columns
         # but some records will have NaN/None for missing columns
         expected_columns = {"id", "name", "value", "status", "category"}
         assert set(result.columns) == expected_columns
-        assert len(result) == 4
+        assert get_table_length(result) == 4
         
         # Check that early records have NaN for new columns
         early_records = result[result['id'].isin([1, 2])]
@@ -3354,425 +3605,347 @@ def test_schemaless_table_with_evolving_schema():
         later_records = result[result['id'].isin([3, 4])]
         assert not later_records['status'].isna().any()
         assert not later_records['category'].isna().any()
-        
-        
-    except Exception as e:
-        
-        # This might be expected for current implementation
-        # The read might fail due to schema concatenation issues
-        # In that case, we need to modify read_table to handle schemaless tables differently
-        raise
 
 
-def test_schemaless_table_with_distributed_datasets():
-    """Test schemaless tables with distributed dataset types (RAY_DATASET, DAFT)."""
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    from deltacat.types.media import DatasetType
-    import deltacat as dc
-    import pandas as pd
-    import uuid
-    import pytest
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-schemaless-distributed-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"schemaless-distributed-test-{uuid.uuid4()}"
-    table_name = "schemaless_distributed_table"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Create schemaless table with initial columns
-    initial_data = pd.DataFrame({
-        "id": [1, 2],
-        "name": ["Alice", "Bob"],
-        "value": [10.1, 20.2]
-    })
-    
-    dc.write_to_table(
-        data=initial_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Append data with additional columns
-    extended_data = pd.DataFrame({
-        "id": [3, 4],
-        "name": ["Charlie", "Diana"],
-        "value": [30.3, 40.4],
-        "status": ["active", "inactive"],  # New column
-        "category": ["A", "B"]  # Another new column
-    })
-    
-    dc.write_to_table(
-        data=extended_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=None,  # Explicitly set to None
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Test 1: DAFT should raise NotImplementedError for schemaless tables
-    with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
-        dc.read_table(
+    def test_schemaless_table_with_distributed_datasets(self, temp_catalog_properties):
+        """Test schemaless tables with distributed dataset types (RAY_DATASET, DAFT)."""
+        # Setup catalog for testing
+        namespace = "test_namespace"
+        catalog_name = f"schemaless-distributed-test-{uuid.uuid4()}"
+        table_name = "schemaless_distributed_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Create schemaless table with initial columns
+        initial_data = pd.DataFrame({
+            "id": [1, 2],
+            "name": ["Alice", "Bob"],
+            "value": [10.1, 20.2]
+        })
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.CREATE
+        )
+        
+        # Append data with additional columns
+        extended_data = pd.DataFrame({
+            "id": [3, 4],
+            "name": ["Charlie", "Diana"],
+            "value": [30.3, 40.4],
+            "status": ["active", "inactive"],  # New column
+            "category": ["A", "B"]  # Another new column
+        })
+        
+        dc.write_to_table(
+            data=extended_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly set to None
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Test 1: DAFT should raise NotImplementedError for schemaless tables
+        with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
+            dc.read_table(
+                table=table_name, 
+                namespace=namespace, 
+                catalog=catalog_name,
+                distributed_dataset_type=DatasetType.DAFT
+            )
+        
+        # Test 2: RAY_DATASET should also raise NotImplementedError for schemaless tables
+        with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
+            dc.read_table(
+                table=table_name, 
+                namespace=namespace, 
+                catalog=catalog_name,
+                distributed_dataset_type=DatasetType.RAY_DATASET
+            )
+        
+        # Test 3: Local storage should still work (explicit None)
+        result_local = dc.read_table(
             table=table_name, 
             namespace=namespace, 
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT
+            distributed_dataset_type=None  # Explicitly use local storage
         )
-    
-    # Test 2: RAY_DATASET should also raise NotImplementedError for schemaless tables
-    with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
-        dc.read_table(
-            table=table_name, 
-            namespace=namespace, 
+        
+        # For schemaless tables with local storage, we expect a list of tables
+        assert isinstance(result_local, list), "Local storage should return list for schemaless tables"
+        
+        # Manually combine the tables to check all columns are preserved
+        all_tables = []
+        for table in result_local:
+            table = to_pandas(table)
+            all_tables.append(table)
+        
+        # Use pandas concat to handle different schemas
+        df_local = pd.concat(all_tables, ignore_index=True, sort=False)
+        
+        # Check if we got all columns
+        expected_columns = {"id", "name", "value", "status", "category"}
+        assert set(df_local.columns) == expected_columns, f"Local storage missing columns: {expected_columns - set(df_local.columns)}"
+        assert get_table_length(df_local) == 4, f"Local storage should have 4 rows, got {get_table_length(df_local)}"
+
+
+    def test_schema_type_promotion_with_none_consistency(self, temp_catalog_properties):
+        """Test automatic type promotion for fields with SchemaConsistencyType.NONE."""
+        
+        # Setup catalog for testing
+        namespace = "test_namespace"
+        catalog_name = f"type-promotion-test-{uuid.uuid4()}"
+        table_name = "type_promotion_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Test 1: Create table with int32 field with NONE consistency type
+        initial_data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "count": pd.array([10, 20, 30], dtype="int32"),  # Explicitly int32
+            "name": ["Alice", "Bob", "Charlie"]
+        })
+        
+        # Create schema with NONE consistency type for the count field
+        schema_fields = [
+            Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
+            Field.of(pa.field("count", pa.int32()), consistency_type=SchemaConsistencyType.NONE),  # This should allow promotion
+            Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE)
+        ]
+        initial_schema = Schema.of(schema_fields)
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.RAY_DATASET
+            schema=initial_schema,
+            mode=TableWriteMode.CREATE
         )
-    
-    # Test 3: Local storage should still work (explicit None)
-    result_local = dc.read_table(
-        table=table_name, 
-        namespace=namespace, 
-        catalog=catalog_name,
-        distributed_dataset_type=None  # Explicitly use local storage
-    )
-    
-    # For schemaless tables with local storage, we expect a list of tables
-    assert isinstance(result_local, list), "Local storage should return list for schemaless tables"
-    
-    # Manually combine the tables to check all columns are preserved
-    all_tables = []
-    for table in result_local:
-        table = convert_to_pandas(table)
-        all_tables.append(table)
-    
-    # Use pandas concat to handle different schemas
-    df_local = pd.concat(all_tables, ignore_index=True, sort=False)
-    
-    # Check if we got all columns
-    expected_columns = {"id", "name", "value", "status", "category"}
-    assert set(df_local.columns) == expected_columns, f"Local storage missing columns: {expected_columns - set(df_local.columns)}"
-    assert len(df_local) == 4, f"Local storage should have 4 rows, got {len(df_local)}"
-
-
-def test_schema_type_promotion_with_none_consistency():
-    """Test automatic type promotion for fields with SchemaConsistencyType.NONE."""
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    from deltacat.storage.model.schema import Field, Schema
-    from deltacat.storage.model.types import SchemaConsistencyType
-    import deltacat as dc
-    import pandas as pd
-    import pyarrow as pa
-    import uuid
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-type-promotion-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"type-promotion-test-{uuid.uuid4()}"
-    table_name = "type_promotion_table"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Test 1: Create table with int32 field with NONE consistency type
-    initial_data = pd.DataFrame({
-        "id": [1, 2, 3],
-        "count": pd.array([10, 20, 30], dtype="int32"),  # Explicitly int32
-        "name": ["Alice", "Bob", "Charlie"]
-    })
-    
-    # Create schema with NONE consistency type for the count field
-    schema_fields = [
-        Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
-        Field.of(pa.field("count", pa.int32()), consistency_type=SchemaConsistencyType.NONE),  # This should allow promotion
-        Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE)
-    ]
-    initial_schema = Schema.of(schema_fields)
-    
-    dc.write_to_table(
-        data=initial_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=initial_schema,
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Verify initial data
-    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result1, list):
-        combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
-    else:
-        combined_result1 = convert_to_pandas(result1)
-    
-    assert len(combined_result1) == 3
-    assert combined_result1["count"].dtype.name.startswith("int32")  # Should still be int32
-    
-    # Test 2: Write data with int64 values - should promote int32 -> int64
-    extended_data = pd.DataFrame({
-        "id": [4, 5],
-        "count": pd.array([2147483648, 2147483649], dtype="int64"),  # Values that require int64
-        "name": ["Diana", "Eve"]
-    })
-    
-    dc.write_to_table(
-        data=extended_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify type promotion occurred
-    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result2, list):
-        combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
-    else:
-        combined_result2 = convert_to_pandas(result2)
-    
-    assert len(combined_result2) == 5
-    # The count column should now be int64 (promoted)
-    assert combined_result2["count"].dtype.name.startswith("int64")
-    assert combined_result2["count"].iloc[-1] == 2147483649  # Verify large value preserved
-    
-    # Test 3: Write data with float values - should promote int64 -> float64  
-    float_data = pd.DataFrame({
-        "id": [6],
-        "count": [3.14159],  # Float value
-        "name": ["Frank"]
-    })
-    
-    dc.write_to_table(
-        data=float_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify type promotion to float
-    result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result3, list):
-        combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
-    else:
-        combined_result3 = convert_to_pandas(result3)
-    
-    assert len(combined_result3) == 6
-    # The count column should now be float64 (promoted from int64)
-    assert combined_result3["count"].dtype.name in ["float64", "double"]
-    assert abs(combined_result3["count"].iloc[-1] - 3.14159) < 0.00001  # Verify float value preserved
-    
-    # Test 4: Write data with string values - should promote float64 -> string
-    string_data = pd.DataFrame({
-        "id": [7],
-        "count": ["not_a_number"],  # String value
-        "name": ["Grace"]
-    })
-    
-    dc.write_to_table(
-        data=string_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify type promotion to string
-    result4 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result4, list):
-        combined_result4 = pd.concat([t.to_pandas() for t in result4], ignore_index=True, sort=False)
-    else:
-        combined_result4 = convert_to_pandas(result4)
-    
-    assert len(combined_result4) == 7
-    # The count column should now be string (promoted from float64)
-    assert combined_result4["count"].dtype.name in ["object", "string"]
-    assert combined_result4["count"].iloc[-1] == "not_a_number"  # Verify string value preserved
-    
-
-
-def test_schema_type_promotion_edge_cases():
-    """Test edge cases for type promotion with SchemaConsistencyType.NONE."""
-    from deltacat.storage.model.schema import Field
-    from deltacat.storage.model.types import SchemaConsistencyType  
-    import pyarrow as pa
-    
-    # Test 1: Same type - no promotion
-    field_int32 = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
-    data_int32 = pa.array([1, 2, 3], type=pa.int32())
-    promoted_data, was_promoted = field_int32.promote_type_if_needed(data_int32)
-    assert not was_promoted, "Same type should not trigger promotion"
-    assert promoted_data.type == pa.int32(), "Data type should remain int32"
-    
-    # Test 2: int32 to int64 promotion
-    data_int64 = pa.array([2147483648], type=pa.int64())  # Value requiring int64
-    promoted_data, was_promoted = field_int32.promote_type_if_needed(data_int64)
-    assert was_promoted, "int32 field should promote to int64"
-    assert promoted_data.type == pa.int64(), "Promoted data should be int64"
-    
-    # Test 3: Nullability preservation
-    field_nullable = Field.of(pa.field("test", pa.int32(), nullable=True), consistency_type=SchemaConsistencyType.NONE)
-    data_with_null = pa.array([1, None, 3], type=pa.int32())
-    promoted_data, was_promoted = field_nullable.promote_type_if_needed(data_with_null)
-    assert not was_promoted, "Same nullable type should not promote"
-    
-    # Test 4: Cross-type promotion (int to float)
-    field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
-    data_float = pa.array([1.5, 2.7], type=pa.float64())
-    promoted_data, was_promoted = field_int.promote_type_if_needed(data_float)
-    assert was_promoted, "int32 should promote to accommodate float64"
-    assert pa.types.is_floating(promoted_data.type), f"Should promote to float type, got {promoted_data.type}"
-    
-
-
-def test_binary_type_promotion_and_stability():
-    """Test binary type promotion and ensure binary types are never down-promoted."""
-    from deltacat.catalog.model.properties import CatalogProperties
-    from deltacat.catalog.model.catalog import Catalog
-    from deltacat.types.tables import TableWriteMode
-    from deltacat.storage.model.schema import Field, Schema
-    from deltacat.storage.model.types import SchemaConsistencyType
-    import deltacat as dc
-    import pandas as pd
-    import pyarrow as pa
-    import uuid
-    
-    # Setup catalog for testing
-    local_catalog_root = f"/tmp/deltacat-binary-promotion-test-{uuid.uuid4()}"
-    namespace = "test_namespace"
-    catalog_name = f"binary-promotion-test-{uuid.uuid4()}"
-    table_name = "binary_promotion_table"
-    catalog_properties = CatalogProperties(root=local_catalog_root)
-    catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_properties))
-    
-    # Test 1: Start with string field that has NONE consistency type
-    initial_data = pd.DataFrame({
-        "id": [1, 2, 3],
-        "data": ["hello", "world", "test"],  # String data
-        "category": ["A", "B", "C"]
-    })
-    
-    # Create schema with NONE consistency type for the data field
-    schema_fields = [
-        Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
-        Field.of(pa.field("data", pa.string()), consistency_type=SchemaConsistencyType.NONE),  # Should allow promotion
-        Field.of(pa.field("category", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE)
-    ]
-    initial_schema = Schema.of(schema_fields)
-    
-    dc.write_to_table(
-        data=initial_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        schema=initial_schema,
-        mode=TableWriteMode.CREATE
-    )
-    
-    # Verify initial data
-    result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result1, list):
-        combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
-    else:
-        combined_result1 = convert_to_pandas(result1)
-    
-    assert len(combined_result1) == 3
-    assert combined_result1["data"].dtype.name in ["object", "string"]  # Should be string type
-    
-    # Test 2: Write binary data - should promote string → binary
-    binary_data = pd.DataFrame({
-        "id": [4, 5],
-        "data": [b"binary_data_1", b"binary_data_2"],  # Binary data
-        "category": ["D", "E"]
-    })
-    
-    dc.write_to_table(
-        data=binary_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify promotion to binary occurred
-    result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result2, list):
-        combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
-    else:
-        combined_result2 = convert_to_pandas(result2)
-    
-    assert len(combined_result2) == 5
-    # The data column should now be binary (promoted from string)
-    # Note: pandas might represent this as object dtype containing bytes
-    assert combined_result2["data"].dtype.name == "object"  # Binary data in pandas shows as object
-    
-    # Verify we can read back the binary data correctly
-    assert isinstance(combined_result2["data"].iloc[-1], bytes), "Should be able to read binary data"
-    assert combined_result2["data"].iloc[-1] == b"binary_data_2"
-    
-    # Test 3: CRITICAL - Write string data again - should NOT down-promote binary → string
-    # Binary should remain binary and accept the string data (converted to bytes)
-    string_again_data = pd.DataFrame({
-        "id": [6, 7],
-        "data": ["back_to_string_1", "back_to_string_2"],  # String data again
-        "category": ["F", "G"]
-    })
-    
-    dc.write_to_table(
-        data=string_again_data,
-        table=table_name,
-        namespace=namespace,
-        catalog=catalog_name,
-        mode=TableWriteMode.APPEND
-    )
-    
-    # Verify binary type was preserved (no down-promotion)
-    result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
-    if isinstance(result3, list):
-        combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
-    else:
-        combined_result3 = convert_to_pandas(result3)
-    
-    assert len(combined_result3) == 7
-    # The data column should STILL be binary (no down-promotion)
-    assert combined_result3["data"].dtype.name == "object"  # Still binary
-    
-    # The new string data should have been converted to binary
-    # Check that we have a mix of original strings (converted to binary), binary data, and new strings (converted to binary)
-    last_item = combined_result3["data"].iloc[-1]
-    
-    # Test 4: Test direct unit-level binary promotion
-    
-    # Test int → binary
-    field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
-    binary_data_array = pa.array([b"test1", b"test2"], type=pa.binary())
-    promoted_data, was_promoted = field_int.promote_type_if_needed(binary_data_array)
-    assert was_promoted, "int32 should promote to binary"
-    assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
-    
-    # Test float → binary  
-    field_float = Field.of(pa.field("test", pa.float64()), consistency_type=SchemaConsistencyType.NONE)
-    promoted_data, was_promoted = field_float.promote_type_if_needed(binary_data_array)
-    assert was_promoted, "float64 should promote to binary"
-    assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
-    
-    # Test string → binary
-    field_string = Field.of(pa.field("test", pa.string()), consistency_type=SchemaConsistencyType.NONE)
-    promoted_data, was_promoted = field_string.promote_type_if_needed(binary_data_array)
-    assert was_promoted, "string should promote to binary"
-    assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
-    
-    # Test binary → string should NOT happen (binary should stay binary)
-    field_binary = Field.of(pa.field("test", pa.binary()), consistency_type=SchemaConsistencyType.NONE)
-    string_data_array = pa.array(["string1", "string2"], type=pa.string())
-    promoted_data, was_promoted = field_binary.promote_type_if_needed(string_data_array)
-    assert not was_promoted, "binary should NOT down-promote to string"
-    assert pa.types.is_binary(promoted_data.type), f"Should remain binary type, got {promoted_data.type}"
-    
+        
+        # Verify initial data
+        result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result1, list):
+            combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
+        else:
+            combined_result1 = to_pandas(result1)
+        
+        assert get_table_length(combined_result1) == 3
+        assert combined_result1["count"].dtype.name.startswith("int32")  # Should still be int32
+        
+        # Test 2: Write data with int64 values - should promote int32 -> int64
+        extended_data = pd.DataFrame({
+            "id": [4, 5],
+            "count": pd.array([2147483648, 2147483649], dtype="int64"),  # Values that require int64
+            "name": ["Diana", "Eve"]
+        })
+        
+        dc.write_to_table(
+            data=extended_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify type promotion occurred
+        result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result2, list):
+            combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
+        else:
+            combined_result2 = to_pandas(result2)
+        
+        assert get_table_length(combined_result2) == 5
+        # The count column should now be int64 (promoted)
+        assert combined_result2["count"].dtype.name.startswith("int64")
+        assert combined_result2["count"].iloc[-1] == 2147483649  # Verify large value preserved
+        
+        # Test 3: Write data with float values - should promote int64 -> float64  
+        float_data = pd.DataFrame({
+            "id": [6],
+            "count": [3.14159],  # Float value
+            "name": ["Frank"]
+        })
+        
+        dc.write_to_table(
+            data=float_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify type promotion to float
+        result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result3, list):
+            combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
+        else:
+            combined_result3 = to_pandas(result3)
+        
+        assert get_table_length(combined_result3) == 6
+        # The count column should now be float64 (promoted from int64)
+        assert combined_result3["count"].dtype.name in ["float64", "double"]
+        assert abs(combined_result3["count"].iloc[-1] - 3.14159) < 0.00001  # Verify float value preserved
+        
+        # Test 4: Write data with string values - should promote float64 -> string
+        string_data = pd.DataFrame({
+            "id": [7],
+            "count": ["not_a_number"],  # String value
+            "name": ["Grace"]
+        })
+        
+        dc.write_to_table(
+            data=string_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify type promotion to string
+        result4 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result4, list):
+            combined_result4 = pd.concat([t.to_pandas() for t in result4], ignore_index=True, sort=False)
+        else:
+            combined_result4 = to_pandas(result4)
+        
+        assert get_table_length(combined_result4) == 7
+        # The count column should now be string (promoted from float64)
+        assert combined_result4["count"].dtype.name in ["object", "string"]
+        assert combined_result4["count"].iloc[-1] == "not_a_number"  # Verify string value preserved
+         
+    def test_binary_type_promotion_and_stability(self, temp_catalog_properties):
+        """Test binary type promotion and ensure binary types are never down-promoted."""
+        # Setup catalog for testing
+        namespace = "test_namespace"
+        catalog_name = f"binary-promotion-test-{uuid.uuid4()}"
+        table_name = "binary_promotion_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Test 1: Start with string field that has NONE consistency type
+        initial_data = pd.DataFrame({
+            "id": [1, 2, 3],
+            "data": ["hello", "world", "test"],  # String data
+            "category": ["A", "B", "C"]
+        })
+        
+        # Create schema with NONE consistency type for the data field
+        schema_fields = [
+            Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.VALIDATE),
+            Field.of(pa.field("data", pa.string()), consistency_type=SchemaConsistencyType.NONE),  # Should allow promotion
+            Field.of(pa.field("category", pa.string()), consistency_type=SchemaConsistencyType.VALIDATE)
+        ]
+        initial_schema = Schema.of(schema_fields)
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=initial_schema,
+            mode=TableWriteMode.CREATE
+        )
+        
+        # Verify initial data
+        result1 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result1, list):
+            combined_result1 = pd.concat([t.to_pandas() for t in result1], ignore_index=True, sort=False)
+        else:
+            combined_result1 = to_pandas(result1)
+        
+        assert get_table_length(combined_result1) == 3
+        assert combined_result1["data"].dtype.name in ["object", "string"]  # Should be string type
+        
+        # Test 2: Write binary data - should promote string → binary
+        binary_data = pd.DataFrame({
+            "id": [4, 5],
+            "data": [b"binary_data_1", b"binary_data_2"],  # Binary data
+            "category": ["D", "E"]
+        })
+        
+        dc.write_to_table(
+            data=binary_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify promotion to binary occurred
+        result2 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result2, list):
+            combined_result2 = pd.concat([t.to_pandas() for t in result2], ignore_index=True, sort=False)
+        else:
+            combined_result2 = to_pandas(result2)
+        
+        assert get_table_length(combined_result2) == 5
+        # The data column should now be binary (promoted from string)
+        # Note: pandas might represent this as object dtype containing bytes
+        assert combined_result2["data"].dtype.name == "object"  # Binary data in pandas shows as object
+        
+        # Verify we can read back the binary data correctly
+        assert isinstance(combined_result2["data"].iloc[-1], bytes), "Should be able to read binary data"
+        assert combined_result2["data"].iloc[-1] == b"binary_data_2"
+        
+        # Test 3: CRITICAL - Write string data again - should NOT down-promote binary → string
+        # Binary should remain binary and accept the string data (converted to bytes)
+        string_again_data = pd.DataFrame({
+            "id": [6, 7],
+            "data": ["back_to_string_1", "back_to_string_2"],  # String data again
+            "category": ["F", "G"]
+        })
+        
+        dc.write_to_table(
+            data=string_again_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND
+        )
+        
+        # Verify binary type was preserved (no down-promotion)
+        result3 = dc.read_table(table=table_name, namespace=namespace, catalog=catalog_name, distributed_dataset_type=None)
+        if isinstance(result3, list):
+            combined_result3 = pd.concat([t.to_pandas() for t in result3], ignore_index=True, sort=False)
+        else:
+            combined_result3 = to_pandas(result3)
+        
+        assert get_table_length(combined_result3) == 7
+        # The data column should STILL be binary (no down-promotion)
+        assert combined_result3["data"].dtype.name == "object"  # Still binary
+        
+        # The new string data should have been converted to binary
+        # Check that we have a mix of original strings (converted to binary), binary data, and new strings (converted to binary)
+        last_item = combined_result3["data"].iloc[-1]
+        
+        # Test 4: Test direct unit-level binary promotion
+        
+        # Test int → binary
+        field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
+        binary_data_array = pa.array([b"test1", b"test2"], type=pa.binary())
+        promoted_data, was_promoted = field_int.promote_type_if_needed(binary_data_array)
+        assert was_promoted, "int32 should promote to binary"
+        assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
+        
+        # Test float → binary  
+        field_float = Field.of(pa.field("test", pa.float64()), consistency_type=SchemaConsistencyType.NONE)
+        promoted_data, was_promoted = field_float.promote_type_if_needed(binary_data_array)
+        assert was_promoted, "float64 should promote to binary"
+        assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
+        
+        # Test string → binary
+        field_string = Field.of(pa.field("test", pa.string()), consistency_type=SchemaConsistencyType.NONE)
+        promoted_data, was_promoted = field_string.promote_type_if_needed(binary_data_array)
+        assert was_promoted, "string should promote to binary"
+        assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
+        
+        # Test binary → string should NOT happen (binary should stay binary)
+        field_binary = Field.of(pa.field("test", pa.binary()), consistency_type=SchemaConsistencyType.NONE)
+        string_data_array = pa.array(["string1", "string2"], type=pa.string())
+        promoted_data, was_promoted = field_binary.promote_type_if_needed(string_data_array)
+        assert not was_promoted, "binary should NOT down-promote to string"
+        assert pa.types.is_binary(promoted_data.type), f"Should remain binary type, got {promoted_data.type}"
+        

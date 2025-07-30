@@ -77,6 +77,7 @@ class DeltaCatErrorNames(str, Enum):
     DELTA_NOT_FOUND_ERROR = "DeltaNotFoundError"
     TABLE_ALREADY_EXISTS_ERROR = "TableAlreadyExistsError"
     NAMESPACE_ALREADY_EXISTS_ERROR = "NamespaceAlreadyExistsError"
+    SCHEMA_COMPATIBILITY_ERROR = "SchemaCompatibilityError"
 
 
 class DeltaCatError(Exception):
@@ -249,6 +250,15 @@ class TableAlreadyExistsError(NonRetryableError):
 
 class NamespaceAlreadyExistsError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
+
+
+class SchemaCompatibilityError(NonRetryableError):
+    error_name = DeltaCatErrorNames.SCHEMA_COMPATIBILITY_ERROR.value
+    """Raised when a schema update would break backward compatibility."""
+    
+    def __init__(self, message: str, field_locator: Optional[FieldLocator] = None, *args, **kwargs):
+        super().__init__(message, *args, **kwargs)
+        self.field_locator = field_locator
 
 
 def categorize_errors(func: Callable):
