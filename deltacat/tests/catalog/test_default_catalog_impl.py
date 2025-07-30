@@ -1,46 +1,143 @@
-import pytest
-import uuid
-import tempfile
-import shutil
-import pandas as pd
-import pyarrow as pa
-from typing import Dict, Any
-import threading
-import time
+# Standard library imports
 import multiprocessing
 import os
+import shutil
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+from typing import Dict, Any
 from unittest.mock import patch, MagicMock
 
-import ray
-from ray.data.dataset import MaterializedDataset
+# Third-party imports
+import boto3
+import daft
+import pandas as pd
 import polars as pl
+import pyarrow as pa
 import pyarrow.parquet as papq
+import pytest
+import ray
+from moto import mock_s3
+from ray.data.dataset import MaterializedDataset
+
+# DeltaCat imports
+import deltacat as dc
 from deltacat import Catalog
 from deltacat.catalog import CatalogProperties
-from deltacat.types.tables import get_table_length, to_pandas
+from deltacat.exceptions import DeltaCatError, ValidationError
+from deltacat.storage import metastore
+from deltacat.storage.model.schema import Schema, Field, MergeOrder
+from deltacat.storage.model.table import TableProperties
+from deltacat.storage.model.types import (
+    DeltaType,
+    SchemaConsistencyType,
+    SortOrder,
+    NullOrder,
+)
 from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     commit_delta_to_partition,
     create_table_from_csv_file_paths,
 )
 from deltacat.types.media import DatasetType, ContentType, DistributedDatasetType
-from deltacat.storage.model.types import DeltaType
-from deltacat.storage import metastore
-from deltacat.storage.model.schema import Schema, Field, MergeOrder
-from deltacat.storage.model.types import SchemaConsistencyType, SortOrder, NullOrder
-from deltacat.storage.model.table import TableProperties
-from deltacat.types.tables import TableWriteMode, TableProperty, TableReadOptimizationLevel, TablePropertyDefaultValues
-from deltacat.exceptions import DeltaCatError, ValidationError
-import deltacat as dc
-import boto3
-from moto import mock_s3
-import pytest
-import os
-import pyarrow as pa
-from unittest.mock import patch
-import subprocess
-import socket
-import threading
+from deltacat.types.tables import (
+    get_table_length,
+    to_pandas,
+    TableWriteMode,
+    TableProperty,
+    TableReadOptimizationLevel,
+    TablePropertyDefaultValues,
+)
+
+# ===================== CONSTANTS AND HELPERS =====================
+
+# Common table property configurations
+BASIC_TABLE_PROPERTIES = {
+    TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+}
+
+COMPACTION_TABLE_PROPERTIES = {
+    TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 2,
+    TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+    TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+}
+
+AGGRESSIVE_COMPACTION_PROPERTIES = {
+    TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,
+    TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1,
+    TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1,
+}
+
+# Common content types
+DEFAULT_CONTENT_TYPES = [ContentType.PARQUET]
+
+
+def create_basic_schema() -> Schema:
+    """Create a basic schema with id, name, age, city fields."""
+    return Schema.of([
+        Field.of(pa.field("id", pa.int64())),
+        Field.of(pa.field("name", pa.string())),
+        Field.of(pa.field("age", pa.int32())),
+        Field.of(pa.field("city", pa.string())),
+    ])
+
+
+def create_schema_with_merge_keys() -> Schema:
+    """Create a schema with merge keys for testing merge operations."""
+    return Schema.of([
+        Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+        Field.of(pa.field("name", pa.string())),
+        Field.of(pa.field("age", pa.int32())),
+        Field.of(pa.field("city", pa.string())),
+    ])
+
+
+def create_test_data() -> pd.DataFrame:
+    """Create standard test data."""
+    return pd.DataFrame({
+        'id': [1, 2, 3, 4, 5],
+        'name': ['Alice', 'Bob', 'Charlie', 'Dave', 'Eve'],
+        'age': [25, 30, 35, 40, 45],
+        'city': ['NYC', 'LA', 'Chicago', 'Houston', 'Phoenix']
+    })
+
+
+def create_overlapping_upsert_data() -> pd.DataFrame:
+    """Create overlapping data that will trigger merge/upsert behavior."""
+    return pd.DataFrame({
+        'id': [3, 4, 6, 7],  # IDs 3,4 overlap with initial data, 6,7 are new
+        'name': ['Charlie_Updated', 'Dave_Updated', 'Frank', 'Grace'],
+        'age': [36, 41, 50, 55],  # Updated ages for existing records
+        'city': ['Chicago_New', 'Houston_New', 'Boston', 'Seattle']
+    })
+
+
+def create_simple_merge_schema() -> Schema:
+    """Create a simple schema with just id (merge key) and name."""
+    return Schema.of([
+        Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+        Field.of(pa.field("name", pa.string())),
+    ])
+
+
+def create_simple_test_data() -> pd.DataFrame:
+    """Create simple test data with just id and name (2 records)."""
+    return pd.DataFrame({'id': [1, 2], 'name': ['Alice', 'Bob']})
+
+
+def create_additional_test_data() -> pd.DataFrame:
+    """Create additional test data for append operations (2 records)."""
+    return pd.DataFrame({'id': [3, 4], 'name': ['Charlie', 'David']})
+
+
+def create_merge_test_data() -> pd.DataFrame:
+    """Create data for merge operations (updated Alice, new Charlie)."""
+    return pd.DataFrame({'id': [1, 3], 'name': ['Alice_Updated', 'Charlie_New']})
 
 
 def convert_to_pandas(result) -> pd.DataFrame:
@@ -64,12 +161,8 @@ def convert_to_pandas(result) -> pd.DataFrame:
         return pd.concat(all_tables, ignore_index=True, sort=False) if all_tables else pd.DataFrame()
     else:
         # Import daft dynamically to avoid circular imports
-        try:
-            import daft
-            if isinstance(result, daft.DataFrame):
-                return result.collect().to_pandas()
-        except ImportError:
-            pass
+        if isinstance(result, daft.DataFrame):
+            return result.collect().to_pandas()
         
         pytest.fail(f"Unexpected result type: {type(result)}. Expected pandas, pyarrow, polars, ray MaterializedDataset, or daft DataFrame.")
 
@@ -91,14 +184,11 @@ def convert_to_arrow(result) -> pa.Table:
         return result.read()
     else:
         # Import daft dynamically to avoid circular imports
-        try:
-            import daft
-            if isinstance(result, daft.DataFrame):
-                return result.to_arrow()
-        except ImportError:
-            pass
+        if isinstance(result, daft.DataFrame):
+            return result.to_arrow()
         
         pytest.fail(f"Unexpected result type: {type(result)}. Expected pandas, pyarrow, polars, ParquetFile, ray MaterializedDataset, or daft DataFrame.")
+
 
 
 class TestReadTableMain:
@@ -241,26 +331,16 @@ class TestCopyOnWrite:
     
     def _create_table_with_merge_keys(self, table_name: str) -> Schema:
         """Create a table with merge keys using the standard test schema."""
-        schema = Schema.of([
-            Field.of(pa.field("id", pa.int64()), is_merge_key=True),  # Primary merge key
-            Field.of(pa.field("name", pa.string())),
-            Field.of(pa.field("age", pa.int32())),
-            Field.of(pa.field("city", pa.string())),
-        ])
+        schema = create_schema_with_merge_keys()
         
         # Create table properties with automatic compaction enabled
-        table_properties: TableProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
-            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 2,  # Trigger compaction after 2 records for testing
-            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
-            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
-        }
+        table_properties = COMPACTION_TABLE_PROPERTIES
         
         dc.create_table(
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],  # Specify content types
+            content_types=DEFAULT_CONTENT_TYPES,  # Specify content types
             properties=table_properties,  # Enable automatic compaction
             catalog=self.catalog_name,
         )
@@ -269,21 +349,11 @@ class TestCopyOnWrite:
     
     def _create_initial_data(self) -> pd.DataFrame:
         """Create initial test data matching standard test patterns."""
-        return pd.DataFrame({
-            'id': [1, 2, 3, 4, 5],
-            'name': ['Alice', 'Bob', 'Charlie', 'Dave', 'Eve'],
-            'age': [25, 30, 35, 40, 45],
-            'city': ['NYC', 'LA', 'Chicago', 'Houston', 'Phoenix']
-        })
+        return create_test_data()
     
     def _create_overlapping_upsert_data(self) -> pd.DataFrame:
         """Create overlapping data that will trigger merge/upsert behavior."""
-        return pd.DataFrame({
-            'id': [3, 4, 6, 7],  # IDs 3,4 overlap with initial data, 6,7 are new
-            'name': ['Charlie_Updated', 'Dave_Updated', 'Frank', 'Grace'],
-            'age': [36, 41, 50, 55],  # Updated ages for existing records
-            'city': ['Chicago_New', 'Houston_New', 'Boston', 'Seattle']
-        })
+        return create_overlapping_upsert_data()
     
     def _create_third_batch_upsert_data(self) -> pd.DataFrame:
         """Create third batch with more overlapping data for comprehensive testing."""
@@ -377,7 +447,6 @@ class TestCopyOnWrite:
             catalog=self.catalog_name,
         )
         
-        
         # Step 3: Write overlapping upsert data (should trigger compaction)
         upsert_data = self._create_overlapping_upsert_data()
         
@@ -389,8 +458,7 @@ class TestCopyOnWrite:
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
         )
-        
-        
+                
         # Step 4: Read table back and verify compaction results
         result = dc.read_table(
             table=table_name,
@@ -398,7 +466,6 @@ class TestCopyOnWrite:
             catalog=self.catalog_name,
             distributed_dataset_type=DatasetType.DAFT,
         )
-        
         
         # Step 5: Verify the results show proper merge behavior
         # Expected: 7 total records (5 original + 2 new, with 2 updated)
@@ -558,18 +625,13 @@ class TestCopyOnWrite:
         ])
         
         # Ensure compaction happens on every write
-        table_properties: TableProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX, # copy-on-write
-            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,  # Trigger on every record
-            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1,    # Trigger on every file
-            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1,   # Trigger on every delta
-        }
+        table_properties = AGGRESSIVE_COMPACTION_PROPERTIES
         
         dc.create_table(
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],
+            content_types=DEFAULT_CONTENT_TYPES,
             properties=table_properties,
             catalog=self.catalog_name,
         )
@@ -753,7 +815,7 @@ class TestCopyOnWrite:
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],
+            content_types=DEFAULT_CONTENT_TYPES,
             properties=table_properties,
             catalog=self.catalog_name,
         )
@@ -1083,7 +1145,7 @@ class TestCopyOnWrite:
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],
+            content_types=DEFAULT_CONTENT_TYPES,
             properties=table_properties,
             catalog=self.catalog_name,
         )
@@ -1155,7 +1217,7 @@ class TestCopyOnWrite:
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],
+            content_types=DEFAULT_CONTENT_TYPES,
             properties=table_properties,
             catalog=self.catalog_name,
         )
@@ -1228,7 +1290,7 @@ class TestCopyOnWrite:
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],
+            content_types=DEFAULT_CONTENT_TYPES,
             properties=table_properties,
             catalog=self.catalog_name,
         )
@@ -1301,7 +1363,7 @@ class TestCopyOnWrite:
             name=table_name,
             namespace=self.test_namespace,
             schema=schema,
-            content_types=[ContentType.PARQUET],
+            content_types=DEFAULT_CONTENT_TYPES,
             properties=table_properties,
             catalog=self.catalog_name,
         )
@@ -1598,11 +1660,7 @@ class TestDatasetTypes:
                     assert any("/" in str(path) for path in paths), "Ray paths should contain valid file system paths"
             elif test_case["distributed_dataset_type"] == DatasetType.DAFT:
                 # Daft dataframe should be a proper daft DataFrame
-                try:
-                    import daft
-                    assert isinstance(result_table, daft.DataFrame), f"Expected daft.DataFrame, got {type(result_table)}"
-                except ImportError:
-                    pytest.fail("DAFT is required for DAFT dataset type tests")
+                assert isinstance(result_table, daft.DataFrame), f"Expected daft.DataFrame, got {type(result_table)}"
                 
                 # Special validation for file_path_column if it was specified
                 if "file_path_column" in test_case["custom_kwargs"]:
@@ -1772,9 +1830,9 @@ class TestTableVersionWriteModes:
         
         # Test data
         cls.test_data = {
-            'initial': pd.DataFrame({'id': [1, 2], 'name': ['Alice', 'Bob']}),
-            'additional': pd.DataFrame({'id': [3, 4], 'name': ['Charlie', 'David']}),
-            'merge_data': pd.DataFrame({'id': [1, 3], 'name': ['Alice_Updated', 'Charlie_New']}),
+            'initial': create_simple_test_data(),
+            'additional': create_additional_test_data(),
+            'merge_data': create_merge_test_data(),
         }
     
     @classmethod
@@ -1786,40 +1844,57 @@ class TestTableVersionWriteModes:
         except Exception:
             pass
     
-    def test_create_mode_combinations(self):
+    @pytest.mark.parametrize("table_suffix,setup_versions,test_version,should_succeed,description", [
+        ('new', [], '1', True, 'Create new table with version 1'),
+        ('new2', [], None, True, 'Create new table without specifying version'),
+        ('existing', ['1'], '2', True, 'Create version 2 of existing table'),
+        ('existing2', ['1'], '1', False, 'Try to create existing version 1'),
+        ('existing3', ['1'], None, False, 'Try to create existing table without version'),
+        ('multi', ['1', '2'], '3', True, 'Create version 3 when 1,2 exist'),
+        ('multi2', ['1', '2'], '1', False, 'Try to create existing version 1 when 1,2 exist'),
+        ('multi3', ['1', '2'], '2', False, 'Try to create existing version 2 when 1,2 exist'),
+    ])
+    def test_create_mode_combinations(self, table_suffix, setup_versions, test_version, should_succeed, description):
         """Test CREATE mode with all table/version existence combinations."""
+        table_name = f'create_test_{table_suffix}'
+        namespace = 'test_ns'
         
-        test_cases = [
-            # (table_suffix, setup_versions, test_version, should_succeed, description)
-            ('new', [], '1', True, 'Create new table with version 1'),
-            ('new2', [], None, True, 'Create new table without specifying version'),
-            
-            ('existing', ['1'], '2', True, 'Create version 2 of existing table'),
-            ('existing2', ['1'], '1', False, 'Try to create existing version 1'),
-            ('existing3', ['1'], None, False, 'Try to create existing table without version'),
-            
-            ('multi', ['1', '2'], '3', True, 'Create version 3 when 1,2 exist'),
-            ('multi2', ['1', '2'], '1', False, 'Try to create existing version 1 when 1,2 exist'),
-            ('multi3', ['1', '2'], '2', False, 'Try to create existing version 2 when 1,2 exist'),
-        ]
+        # Set up existing versions if needed
+        for version in setup_versions:
+            dc.write_to_table(
+                self.test_data['initial'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=version,
+                mode=TableWriteMode.CREATE
+            )
         
-        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
-            table_name = f'create_test_{table_suffix}'
-            namespace = 'test_ns'
+        if should_succeed:
+            # Should succeed
+            dc.write_to_table(
+                self.test_data['initial'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=test_version,
+                mode=TableWriteMode.CREATE
+            )
             
-            # Set up existing versions if needed
-            for version in setup_versions:
-                dc.write_to_table(
-                    self.test_data['initial'],
-                    table_name,
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version=version,
-                    mode=TableWriteMode.CREATE
+            # Verify the table/version was created
+            if test_version:
+                table_def = dc.get_table(
+                    table_name, 
+                    catalog=self.catalog_name, 
+                    namespace=namespace, 
+                    table_version=test_version
                 )
+                assert table_def is not None, f"Failed to create version {test_version}"
+                assert table_def.table_version.table_version == test_version
             
-            if should_succeed:
-                # Should succeed
+        else:
+            # Should fail
+            with pytest.raises((ValueError, Exception)):
                 dc.write_to_table(
                     self.test_data['initial'],
                     table_name,
@@ -1828,65 +1903,47 @@ class TestTableVersionWriteModes:
                     table_version=test_version,
                     mode=TableWriteMode.CREATE
                 )
-                
-                # Verify the table/version was created
-                if test_version:
-                    table_def = dc.get_table(
-                        table_name, 
-                        catalog=self.catalog_name, 
-                        namespace=namespace, 
-                        table_version=test_version
-                    )
-                    assert table_def is not None, f"Failed to create version {test_version}"
-                    assert table_def.table_version.table_version == test_version
-                
-            else:
-                # Should fail
-                with pytest.raises((ValueError, Exception)):
-                    dc.write_to_table(
-                        self.test_data['initial'],
-                        table_name,
-                        catalog=self.catalog_name,
-                        namespace=namespace,
-                        table_version=test_version,
-                        mode=TableWriteMode.CREATE
-                    )
     
-    def test_append_mode_combinations(self):
+    @pytest.mark.parametrize("table_suffix,setup_versions,test_version,should_succeed,description", [
+        ('new', [], None, False, 'Try to append to non-existent table'),
+        ('new2', [], '1', False, 'Try to append to non-existent table version'),
+        ('existing', ['1'], None, True, 'Append to existing table (latest version)'),
+        ('existing2', ['1'], '1', True, 'Append to existing version 1'),
+        ('existing3', ['1'], '2', False, 'Try to append to non-existent version 2'),
+        ('multi', ['1', '2'], None, True, 'Append to existing table (latest is 2)'),
+        ('multi2', ['1', '2'], '1', True, 'Append to existing version 1'),
+        ('multi3', ['1', '2'], '2', True, 'Append to existing version 2'),
+        ('multi4', ['1', '2'], '3', False, 'Try to append to non-existent version 3'),
+    ])
+    def test_append_mode_combinations(self, table_suffix, setup_versions, test_version, should_succeed, description):
         """Test APPEND mode with all table/version existence combinations."""
+        table_name = f'append_test_{table_suffix}'
+        namespace = 'test_ns'
         
-        test_cases = [
-            # (table_suffix, setup_versions, test_version, should_succeed, description)
-            ('new', [], None, False, 'Try to append to non-existent table'),
-            ('new2', [], '1', False, 'Try to append to non-existent table version'),
-            
-            ('existing', ['1'], None, True, 'Append to existing table (latest version)'),
-            ('existing2', ['1'], '1', True, 'Append to existing version 1'),
-            ('existing3', ['1'], '2', False, 'Try to append to non-existent version 2'),
-            
-            ('multi', ['1', '2'], None, True, 'Append to existing table (latest is 2)'),
-            ('multi2', ['1', '2'], '1', True, 'Append to existing version 1'),
-            ('multi3', ['1', '2'], '2', True, 'Append to existing version 2'),
-            ('multi4', ['1', '2'], '3', False, 'Try to append to non-existent version 3'),
-        ]
+        # Set up existing versions if needed
+        for version in setup_versions:
+            dc.write_to_table(
+                self.test_data['initial'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=version,
+                mode=TableWriteMode.CREATE
+            )
         
-        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
-            table_name = f'append_test_{table_suffix}'
-            namespace = 'test_ns'
-            
-            # Set up existing versions if needed
-            for version in setup_versions:
-                dc.write_to_table(
-                    self.test_data['initial'],
-                    table_name,
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version=version,
-                    mode=TableWriteMode.CREATE
-                )
-            
-            if should_succeed:
-                # Should succeed
+        if should_succeed:
+            # Should succeed
+            dc.write_to_table(
+                self.test_data['additional'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=test_version,
+                mode=TableWriteMode.APPEND
+            )
+        else:
+            # Should fail
+            with pytest.raises((ValueError, Exception)):
                 dc.write_to_table(
                     self.test_data['additional'],
                     table_name,
@@ -1895,53 +1952,47 @@ class TestTableVersionWriteModes:
                     table_version=test_version,
                     mode=TableWriteMode.APPEND
                 )
-            else:
-                # Should fail
-                with pytest.raises((ValueError, Exception)):
-                    dc.write_to_table(
-                        self.test_data['additional'],
-                        table_name,
-                        catalog=self.catalog_name,
-                        namespace=namespace,
-                        table_version=test_version,
-                        mode=TableWriteMode.APPEND
-                    )
     
-    def test_auto_mode_combinations(self):
+    @pytest.mark.parametrize("table_suffix,setup_versions,test_version,should_succeed,description", [
+        ('new', [], None, True, 'Auto create new table'),
+        ('new2', [], '1', True, 'Auto create new table with version 1'),
+        ('existing', ['1'], None, True, 'Auto use existing table (latest version)'),
+        ('existing2', ['1'], '1', True, 'Auto use existing version 1'),
+        ('existing3', ['1'], '2', False, 'Try auto with non-existent version 2'),
+        ('multi', ['1', '2'], None, True, 'Auto use existing table (latest is 2)'),
+        ('multi2', ['1', '2'], '1', True, 'Auto use existing version 1'),
+        ('multi3', ['1', '2'], '2', True, 'Auto use existing version 2'),
+        ('multi4', ['1', '2'], '3', False, 'Try auto with non-existent version 3'),
+    ])
+    def test_auto_mode_combinations(self, table_suffix, setup_versions, test_version, should_succeed, description):
         """Test AUTO mode with all table/version existence combinations."""
+        table_name = f'auto_test_{table_suffix}'
+        namespace = 'test_ns'
         
-        test_cases = [
-            # (table_suffix, setup_versions, test_version, should_succeed, description)
-            ('new', [], None, True, 'Auto create new table'),
-            ('new2', [], '1', True, 'Auto create new table with version 1'),
-            
-            ('existing', ['1'], None, True, 'Auto use existing table (latest version)'),
-            ('existing2', ['1'], '1', True, 'Auto use existing version 1'),
-            ('existing3', ['1'], '2', False, 'Try auto with non-existent version 2'),
-            
-            ('multi', ['1', '2'], None, True, 'Auto use existing table (latest is 2)'),
-            ('multi2', ['1', '2'], '1', True, 'Auto use existing version 1'),
-            ('multi3', ['1', '2'], '2', True, 'Auto use existing version 2'),
-            ('multi4', ['1', '2'], '3', False, 'Try auto with non-existent version 3'),
-        ]
+        # Set up existing versions if needed
+        for version in setup_versions:
+            dc.write_to_table(
+                self.test_data['initial'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=version,
+                mode=TableWriteMode.CREATE
+            )
         
-        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
-            table_name = f'auto_test_{table_suffix}'
-            namespace = 'test_ns'
-            
-            # Set up existing versions if needed
-            for version in setup_versions:
-                dc.write_to_table(
-                    self.test_data['initial'],
-                    table_name,
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version=version,
-                    mode=TableWriteMode.CREATE
-                )
-            
-            if should_succeed:
-                # Should succeed
+        if should_succeed:
+            # Should succeed
+            dc.write_to_table(
+                self.test_data['additional'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=test_version,
+                mode=TableWriteMode.AUTO
+            )
+        else:
+            # Should fail
+            with pytest.raises((ValueError, Exception)):
                 dc.write_to_table(
                     self.test_data['additional'],
                     table_name,
@@ -1950,53 +2001,47 @@ class TestTableVersionWriteModes:
                     table_version=test_version,
                     mode=TableWriteMode.AUTO
                 )
-            else:
-                # Should fail
-                with pytest.raises((ValueError, Exception)):
-                    dc.write_to_table(
-                        self.test_data['additional'],
-                        table_name,
-                        catalog=self.catalog_name,
-                        namespace=namespace,
-                        table_version=test_version,
-                        mode=TableWriteMode.AUTO
-                    )
     
-    def test_replace_mode_combinations(self):
+    @pytest.mark.parametrize("table_suffix,setup_versions,test_version,should_succeed,description", [
+        ('new', [], None, False, 'Try to replace non-existent table'),
+        ('new2', [], '1', False, 'Try to replace non-existent table version'),
+        ('existing', ['1'], None, True, 'Replace existing table (latest version)'),
+        ('existing2', ['1'], '1', True, 'Replace existing version 1'),
+        ('existing3', ['1'], '2', False, 'Try to replace non-existent version 2'),
+        ('multi', ['1', '2'], None, True, 'Replace existing table (latest is 2)'),
+        ('multi2', ['1', '2'], '1', True, 'Replace existing version 1'),
+        ('multi3', ['1', '2'], '2', True, 'Replace existing version 2'),
+        ('multi4', ['1', '2'], '3', False, 'Try to replace non-existent version 3'),
+    ])
+    def test_replace_mode_combinations(self, table_suffix, setup_versions, test_version, should_succeed, description):
         """Test REPLACE mode with all table/version existence combinations."""
+        table_name = f'replace_test_{table_suffix}'
+        namespace = 'test_ns'
         
-        test_cases = [
-            # (table_suffix, setup_versions, test_version, should_succeed, description)
-            ('new', [], None, False, 'Try to replace non-existent table'),
-            ('new2', [], '1', False, 'Try to replace non-existent table version'),
-            
-            ('existing', ['1'], None, True, 'Replace existing table (latest version)'),
-            ('existing2', ['1'], '1', True, 'Replace existing version 1'),
-            ('existing3', ['1'], '2', False, 'Try to replace non-existent version 2'),
-            
-            ('multi', ['1', '2'], None, True, 'Replace existing table (latest is 2)'),
-            ('multi2', ['1', '2'], '1', True, 'Replace existing version 1'),
-            ('multi3', ['1', '2'], '2', True, 'Replace existing version 2'),
-            ('multi4', ['1', '2'], '3', False, 'Try to replace non-existent version 3'),
-        ]
+        # Set up existing versions if needed
+        for version in setup_versions:
+            dc.write_to_table(
+                self.test_data['initial'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=version,
+                mode=TableWriteMode.CREATE
+            )
         
-        for table_suffix, setup_versions, test_version, should_succeed, description in test_cases:
-            table_name = f'replace_test_{table_suffix}'
-            namespace = 'test_ns'
-            
-            # Set up existing versions if needed
-            for version in setup_versions:
-                dc.write_to_table(
-                    self.test_data['initial'],
-                    table_name,
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version=version,
-                    mode=TableWriteMode.CREATE
-                )
-            
-            if should_succeed:
-                # Should succeed
+        if should_succeed:
+            # Should succeed
+            dc.write_to_table(
+                self.test_data['merge_data'],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=test_version,
+                mode=TableWriteMode.REPLACE
+            )
+        else:
+            # Should fail
+            with pytest.raises((ValueError, Exception)):
                 dc.write_to_table(
                     self.test_data['merge_data'],
                     table_name,
@@ -2005,26 +2050,12 @@ class TestTableVersionWriteModes:
                     table_version=test_version,
                     mode=TableWriteMode.REPLACE
                 )
-            else:
-                # Should fail
-                with pytest.raises((ValueError, Exception)):
-                    dc.write_to_table(
-                        self.test_data['merge_data'],
-                        table_name,
-                        catalog=self.catalog_name,
-                        namespace=namespace,
-                        table_version=test_version,
-                        mode=TableWriteMode.REPLACE
-                    )
     
     def test_merge_delete_modes_with_schema(self):
         """Test MERGE and DELETE modes with schema requirements."""
         
         # Create table with merge keys using the same pattern as existing tests
-        merge_schema = Schema.of([
-            Field.of(pa.field("id", pa.int64()), is_merge_key=True),
-            Field.of(pa.field("name", pa.string())),
-        ])
+        merge_schema = create_simple_merge_schema()
         
         table_name = 'merge_test_table'
         namespace = 'test_ns'
@@ -2121,7 +2152,6 @@ class TestTableVersionWriteModes:
             mode=TableWriteMode.CREATE,
             schema=coerce_schema
         )
-        print("✅ COERCE mode with compatible data types")
         
         # Test 2: Schema with VALIDATE consistency type
         validate_schema = Schema.of([
@@ -2139,7 +2169,6 @@ class TestTableVersionWriteModes:
             mode=TableWriteMode.CREATE,
             schema=validate_schema
         )
-        print("✅ VALIDATE mode with exact type match")
         
         # Test 3: Schema with NONE consistency type (should always work)
         none_schema = Schema.of([
@@ -2157,7 +2186,6 @@ class TestTableVersionWriteModes:
             mode=TableWriteMode.CREATE,
             schema=none_schema
         )
-        print("✅ NONE consistency type (no validation)")
         
         # Test 4: COERCE should fail when types cannot be coerced
         try:
@@ -2171,7 +2199,7 @@ class TestTableVersionWriteModes:
             )
             assert False, "Expected coercion to fail with incompatible data"
         except Exception as e:
-            print(f"✅ COERCE mode correctly failed with incompatible data: {type(e).__name__}")
+            pass  # Expected failure
         
         # Test 5: VALIDATE should fail when types don't match exactly
         mismatch_schema = Schema.of([
@@ -2191,7 +2219,7 @@ class TestTableVersionWriteModes:
             )
             assert False, "Expected validation to fail with type mismatch"
         except Exception as e:
-            print(f"✅ VALIDATE mode correctly failed with type mismatch: {type(e).__name__}")
+            pass  # Expected failure
  
     def test_backward_compatibility(self):
         """Test that existing behavior is preserved when table_version is not specified."""
@@ -3117,7 +3145,6 @@ def test_schemaless_table_append_mode():
     expected_names = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"]
     assert sorted(result3["name"]) == sorted(expected_names)
     
-    print("✅ Schemaless APPEND mode test passed!")
 
 
 def test_schemaless_table_merge_delete_mode():
@@ -3299,9 +3326,6 @@ def test_schemaless_table_with_evolving_schema():
         )
         
         # Check if result is a list (which it should be for schemaless tables)
-        print(f"Result type: {type(result)}")
-        print(f"Result is list: {isinstance(result, list)}")
-        
         if isinstance(result, list): 
             # For a list of tables, we should manually combine them
             # This is what the user would need to do for schemaless tables
@@ -3314,10 +3338,6 @@ def test_schemaless_table_with_evolving_schema():
             result = pd.concat(all_tables, ignore_index=True, sort=False)
         else:
             result = convert_to_pandas(result)
-        
-        # If we get here, the read succeeded
-        print(f"Read successful! Result shape: {result.shape}")
-        print(f"Columns: {sorted(result.columns)}")
         
         # For schemaless tables with evolving schema, we should expect all columns
         # but some records will have NaN/None for missing columns
@@ -3335,11 +3355,8 @@ def test_schemaless_table_with_evolving_schema():
         assert not later_records['status'].isna().any()
         assert not later_records['category'].isna().any()
         
-        print("✅ Schemaless evolving schema test passed!")
         
     except Exception as e:
-        print(f"❌ Read failed with error: {e}")
-        print(f"Error type: {type(e).__name__}")
         
         # This might be expected for current implementation
         # The read might fail due to schema concatenation issues
@@ -3401,7 +3418,6 @@ def test_schemaless_table_with_distributed_datasets():
     )
     
     # Test 1: DAFT should raise NotImplementedError for schemaless tables
-    print("=== Testing DAFT ===")
     with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
         dc.read_table(
             table=table_name, 
@@ -3409,10 +3425,8 @@ def test_schemaless_table_with_distributed_datasets():
             catalog=catalog_name,
             distributed_dataset_type=DatasetType.DAFT
         )
-    print("✅ DAFT correctly raised NotImplementedError for schemaless tables")
     
     # Test 2: RAY_DATASET should also raise NotImplementedError for schemaless tables
-    print("\n=== Testing RAY_DATASET ===")
     with pytest.raises(NotImplementedError, match="Distributed dataset reading is not yet supported for schemaless tables"):
         dc.read_table(
             table=table_name, 
@@ -3420,21 +3434,17 @@ def test_schemaless_table_with_distributed_datasets():
             catalog=catalog_name,
             distributed_dataset_type=DatasetType.RAY_DATASET
         )
-    print("✅ RAY_DATASET correctly raised NotImplementedError for schemaless tables")
     
     # Test 3: Local storage should still work (explicit None)
-    print("\n=== Testing Local Storage (explicit None) ===")
     result_local = dc.read_table(
         table=table_name, 
         namespace=namespace, 
         catalog=catalog_name,
         distributed_dataset_type=None  # Explicitly use local storage
     )
-    print(f"Local storage result type: {type(result_local)}")
     
     # For schemaless tables with local storage, we expect a list of tables
     assert isinstance(result_local, list), "Local storage should return list for schemaless tables"
-    print(f"Local storage returned list of {len(result_local)} tables (as expected)")
     
     # Manually combine the tables to check all columns are preserved
     all_tables = []
@@ -3444,16 +3454,11 @@ def test_schemaless_table_with_distributed_datasets():
     
     # Use pandas concat to handle different schemas
     df_local = pd.concat(all_tables, ignore_index=True, sort=False)
-    print(f"Local storage combined result shape: {df_local.shape}")
-    print(f"Local storage combined columns: {sorted(df_local.columns)}")
     
     # Check if we got all columns
     expected_columns = {"id", "name", "value", "status", "category"}
     assert set(df_local.columns) == expected_columns, f"Local storage missing columns: {expected_columns - set(df_local.columns)}"
     assert len(df_local) == 4, f"Local storage should have 4 rows, got {len(df_local)}"
-    print("✅ Local storage correctly preserved all columns")
-    
-    print("\n=== Test completed ===")
 
 
 def test_schema_type_promotion_with_none_consistency():
@@ -3507,7 +3512,6 @@ def test_schema_type_promotion_with_none_consistency():
     else:
         combined_result1 = convert_to_pandas(result1)
     
-    print(f"Initial data types: {combined_result1.dtypes}")
     assert len(combined_result1) == 3
     assert combined_result1["count"].dtype.name.startswith("int32")  # Should still be int32
     
@@ -3533,7 +3537,6 @@ def test_schema_type_promotion_with_none_consistency():
     else:
         combined_result2 = convert_to_pandas(result2)
     
-    print(f"After int64 data types: {combined_result2.dtypes}")
     assert len(combined_result2) == 5
     # The count column should now be int64 (promoted)
     assert combined_result2["count"].dtype.name.startswith("int64")
@@ -3561,7 +3564,6 @@ def test_schema_type_promotion_with_none_consistency():
     else:
         combined_result3 = convert_to_pandas(result3)
     
-    print(f"After float data types: {combined_result3.dtypes}")
     assert len(combined_result3) == 6
     # The count column should now be float64 (promoted from int64)
     assert combined_result3["count"].dtype.name in ["float64", "double"]
@@ -3589,14 +3591,11 @@ def test_schema_type_promotion_with_none_consistency():
     else:
         combined_result4 = convert_to_pandas(result4)
     
-    print(f"After string data types: {combined_result4.dtypes}")
     assert len(combined_result4) == 7
     # The count column should now be string (promoted from float64)
     assert combined_result4["count"].dtype.name in ["object", "string"]
     assert combined_result4["count"].iloc[-1] == "not_a_number"  # Verify string value preserved
     
-    print("✅ All type promotions worked correctly!")
-    print("Type evolution: int32 → int64 → float64 → string")
 
 
 def test_schema_type_promotion_edge_cases():
@@ -3631,7 +3630,6 @@ def test_schema_type_promotion_edge_cases():
     assert was_promoted, "int32 should promote to accommodate float64"
     assert pa.types.is_floating(promoted_data.type), f"Should promote to float type, got {promoted_data.type}"
     
-    print("✅ All edge case type promotions work correctly!")
 
 
 def test_binary_type_promotion_and_stability():
@@ -3685,7 +3683,6 @@ def test_binary_type_promotion_and_stability():
     else:
         combined_result1 = convert_to_pandas(result1)
     
-    print(f"Initial data types: {combined_result1.dtypes}")
     assert len(combined_result1) == 3
     assert combined_result1["data"].dtype.name in ["object", "string"]  # Should be string type
     
@@ -3711,7 +3708,6 @@ def test_binary_type_promotion_and_stability():
     else:
         combined_result2 = convert_to_pandas(result2)
     
-    print(f"After binary data types: {combined_result2.dtypes}")
     assert len(combined_result2) == 5
     # The data column should now be binary (promoted from string)
     # Note: pandas might represent this as object dtype containing bytes
@@ -3744,7 +3740,6 @@ def test_binary_type_promotion_and_stability():
     else:
         combined_result3 = convert_to_pandas(result3)
     
-    print(f"After string-again data types: {combined_result3.dtypes}")
     assert len(combined_result3) == 7
     # The data column should STILL be binary (no down-promotion)
     assert combined_result3["data"].dtype.name == "object"  # Still binary
@@ -3752,10 +3747,8 @@ def test_binary_type_promotion_and_stability():
     # The new string data should have been converted to binary
     # Check that we have a mix of original strings (converted to binary), binary data, and new strings (converted to binary)
     last_item = combined_result3["data"].iloc[-1]
-    print(f"Last item type: {type(last_item)}, value: {last_item}")
     
     # Test 4: Test direct unit-level binary promotion
-    print("\n=== Testing direct field-level binary promotion ===")
     
     # Test int → binary
     field_int = Field.of(pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE)
@@ -3763,21 +3756,18 @@ def test_binary_type_promotion_and_stability():
     promoted_data, was_promoted = field_int.promote_type_if_needed(binary_data_array)
     assert was_promoted, "int32 should promote to binary"
     assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
-    print("✅ int32 → binary promotion works")
     
     # Test float → binary  
     field_float = Field.of(pa.field("test", pa.float64()), consistency_type=SchemaConsistencyType.NONE)
     promoted_data, was_promoted = field_float.promote_type_if_needed(binary_data_array)
     assert was_promoted, "float64 should promote to binary"
     assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
-    print("✅ float64 → binary promotion works")
     
     # Test string → binary
     field_string = Field.of(pa.field("test", pa.string()), consistency_type=SchemaConsistencyType.NONE)
     promoted_data, was_promoted = field_string.promote_type_if_needed(binary_data_array)
     assert was_promoted, "string should promote to binary"
     assert pa.types.is_binary(promoted_data.type), f"Should promote to binary type, got {promoted_data.type}"
-    print("✅ string → binary promotion works")
     
     # Test binary → string should NOT happen (binary should stay binary)
     field_binary = Field.of(pa.field("test", pa.binary()), consistency_type=SchemaConsistencyType.NONE)
@@ -3785,10 +3775,4 @@ def test_binary_type_promotion_and_stability():
     promoted_data, was_promoted = field_binary.promote_type_if_needed(string_data_array)
     assert not was_promoted, "binary should NOT down-promote to string"
     assert pa.types.is_binary(promoted_data.type), f"Should remain binary type, got {promoted_data.type}"
-    print("✅ binary field correctly rejects down-promotion to string")
     
-    print("\n✅ All binary type promotion tests passed!")
-    print("Key findings:")
-    print("- Any type can be promoted to binary")  
-    print("- Binary types never down-promote to less permissive types")
-    print("- Binary is the most permissive type in the hierarchy")
