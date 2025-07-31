@@ -19,7 +19,10 @@ from deltacat.storage.model.types import (
     SortOrder,
     NullOrder,
 )
-from deltacat.types.tables import get_table_length
+from deltacat.types.tables import (
+    get_table_length,
+    to_pyarrow,
+)
 from deltacat import logs
 
 
@@ -1659,38 +1662,70 @@ class Schema(dict):
             
         Returns:
             Tuple of (PyArrow table, original type string) or (None, '') if unsupported
+        """  
+        # Determine original type before conversion
+        original_type = self._get_dataset_type_string(dataset)
+        if not original_type:
+            # Unsupported type
+            return None, ''
+        
+        try:
+            # Use tables.py to_pyarrow function for conversion
+            pa_table = to_pyarrow(dataset)
+            return pa_table, original_type
+        except Exception:
+            # If conversion fails, return None
+            return None, ''
+    
+    def _get_dataset_type_string(self, dataset: Any) -> str:
+        """Get a string identifier for the dataset type.
+        
+        Args:
+            dataset: Input dataset
+            
+        Returns:
+            String identifier for the dataset type, or empty string if unsupported
         """
         if isinstance(dataset, pa.Table):
-            return dataset, 'pyarrow'
+            return 'pyarrow'
         elif isinstance(dataset, pd.DataFrame):
-            return pa.Table.from_pandas(dataset), 'pandas'
+            return 'pandas'
         elif isinstance(dataset, np.ndarray):
-            if dataset.ndim == 1:
-                pa_table = pa.table([dataset], names=[f"column_0"])
-            elif dataset.ndim == 2:
-                column_names = [f"column_{i}" for i in range(dataset.shape[1])]
-                pa_table = pa.table([dataset[:, i] for i in range(dataset.shape[1])], names=column_names)
-            else:
-                raise ValueError(f"NumPy arrays with {dataset.ndim} dimensions are not supported")
-            return pa_table, 'numpy'
+            return 'numpy'
         else:
-            # Try to import and check for specific types that have to_arrow method
+            # Check for optional types
             try:
                 import polars as pl
                 if isinstance(dataset, pl.DataFrame):
-                    return dataset.to_arrow(), 'polars'
+                    return 'polars'
             except ImportError:
                 pass
             
             try:
                 import daft
                 if isinstance(dataset, daft.DataFrame):
-                    return dataset.to_arrow(), 'daft'
+                    return 'daft'
+            except ImportError:
+                pass
+                
+            # Check for other types supported by tables.py
+            try:
+                import pyarrow.parquet as papq
+                if isinstance(dataset, papq.ParquetFile):
+                    return 'pyarrow'  # ParquetFile converts to PyArrow table
+            except ImportError:
+                pass
+                
+            # Check for Ray dataset types
+            try:
+                from ray.data.dataset import Dataset as RayDataset
+                from ray.data.dataset import MaterializedDataset
+                if isinstance(dataset, (RayDataset, MaterializedDataset)):
+                    return 'pyarrow'  # Ray datasets convert to PyArrow tables
             except ImportError:
                 pass
             
-            # If we get here, it's an unsupported type
-            return None, ''
+            return ''
 
     def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Process table columns using field coercion and add missing fields.
