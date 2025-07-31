@@ -3961,6 +3961,113 @@ class TestSchemaConsistency:
         assert not was_promoted, "binary should NOT down-promote to string"
         assert pa.types.is_binary(promoted_data.type), f"Should remain binary type, got {promoted_data.type}"
 
+    def test_critical_column_type_promotion_prevention(self, temp_catalog_properties):
+        """Test that merge key, merge order, and event time columns cannot have type promotion."""
+        
+        # Test 1: Merge key fields must have VALIDATE consistency type
+        with pytest.raises(ValueError, match="must have VALIDATE consistency type"):
+            Field.of(
+                pa.field("merge_key_field", pa.int32()),
+                is_merge_key=True,
+                consistency_type=SchemaConsistencyType.NONE  # Should fail
+            )
+        
+        # Test 2: Merge order fields must have VALIDATE consistency type
+        with pytest.raises(ValueError, match="must have VALIDATE consistency type"):
+            Field.of(
+                pa.field("merge_order_field", pa.int32()),
+                merge_order=MergeOrder.of(),
+                consistency_type=SchemaConsistencyType.NONE  # Should fail
+            )
+        
+        # Test 3: Event time fields must have VALIDATE consistency type
+        with pytest.raises(ValueError, match="must have VALIDATE consistency type"):
+            Field.of(
+                pa.field("event_time_field", pa.int64()),
+                is_event_time=True,
+                consistency_type=SchemaConsistencyType.NONE  # Should fail
+            )
+        
+        # Test 4: Critical fields default to VALIDATE when consistency_type is None
+        merge_key_field = Field.of(
+            pa.field("merge_key_field", pa.string()),
+            is_merge_key=True
+            # consistency_type=None (default) should become VALIDATE
+        )
+        assert Field._consistency_type(merge_key_field.arrow) == SchemaConsistencyType.VALIDATE
+        
+        merge_order_field = Field.of(
+            pa.field("merge_order_field", pa.int32()),
+            merge_order=MergeOrder.of()
+            # consistency_type=None (default) should become VALIDATE
+        )
+        assert Field._consistency_type(merge_order_field.arrow) == SchemaConsistencyType.VALIDATE
+        
+        event_time_field = Field.of(
+            pa.field("event_time_field", pa.int64()),
+            is_event_time=True
+            # consistency_type=None (default) should become VALIDATE
+        )
+        assert Field._consistency_type(event_time_field.arrow) == SchemaConsistencyType.VALIDATE
+        
+        # Test 5: Critical fields with explicit VALIDATE consistency type should work
+        valid_merge_key = Field.of(
+            pa.field("valid_merge_key", pa.string()),
+            is_merge_key=True,
+            consistency_type=SchemaConsistencyType.VALIDATE
+        )
+        assert Field._consistency_type(valid_merge_key.arrow) == SchemaConsistencyType.VALIDATE
+        
+        # Test 6: Non-critical fields can still have NONE consistency type
+        regular_field = Field.of(
+            pa.field("regular_field", pa.int32()),
+            consistency_type=SchemaConsistencyType.NONE
+        )
+        assert Field._consistency_type(regular_field.arrow) == SchemaConsistencyType.NONE
+        
+        # Test 7: Type promotion should be prevented for critical columns in table operations
+        namespace = "test_namespace"
+        catalog_name = f"critical-column-test-{uuid.uuid4()}"
+        table_name = "critical_column_table"
+        catalog = dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        
+        # Create initial data with merge key
+        initial_data = pd.DataFrame({
+            "merge_key": [1, 2, 3],  # int64 merge key
+            "data": ["A", "B", "C"]
+        })
+        
+        schema_fields = [
+            Field.of(pa.field("merge_key", pa.int64()), is_merge_key=True),  # Should default to VALIDATE
+            Field.of(pa.field("data", pa.string()), consistency_type=SchemaConsistencyType.NONE)
+        ]
+        initial_schema = Schema.of(schema_fields)
+        
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=initial_schema,
+            mode=TableWriteMode.CREATE
+        )
+        
+        # Try to write data that would promote the merge key type - should fail
+        conflicting_data = pd.DataFrame({
+            "merge_key": ["string_key_1", "string_key_2"],  # String that would promote int64 → string
+            "data": ["D", "E"]
+        })
+        
+        # This should fail because merge key cannot be promoted
+        with pytest.raises(Exception):  # Should fail due to type validation
+            dc.write_to_table(
+                data=conflicting_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                mode=TableWriteMode.APPEND
+            )
+
 
 class TestAlterTable:
     """

@@ -386,7 +386,7 @@ class Field(dict):
         return t
 
     @staticmethod
-    def _validate_merge_key(field: pa.Field):
+    def _validate_merge_key(field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None):
         # Note: large_strings were explicitly allowed for compatibility with PyIceberg Iceberg Schema to PyArrow converter
         if not (
             pa.types.is_string(field.type)
@@ -396,22 +396,44 @@ class Field(dict):
             raise ValueError(
                 f"Merge key {field} must be a primitive type or large string."
             )
+        
+        # Merge key fields must have VALIDATE consistency type to prevent type promotion
+        if consistency_type is not None and consistency_type != SchemaConsistencyType.VALIDATE:
+            raise ValueError(
+                f"Merge key field '{field.name}' must have VALIDATE consistency type, "
+                f"got {consistency_type}. Type promotion is not allowed for merge keys."
+            )
+        
         if pa.types.is_floating(field.type):
             raise ValueError(f"Merge key {field} cannot be floating point.")
 
     @staticmethod
-    def _validate_merge_order(field: pa.Field):
+    def _validate_merge_order(field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None):
         if not pa.types.is_primitive(field.type):
             raise ValueError(f"Merge order {field} must be a primitive type.")
+        
+        # Merge order fields must have VALIDATE consistency type to prevent type promotion
+        if consistency_type is not None and consistency_type != SchemaConsistencyType.VALIDATE:
+            raise ValueError(
+                f"Merge order field '{field.name}' must have VALIDATE consistency type, "
+                f"got {consistency_type}. Type promotion is not allowed for merge order fields."
+            )
 
     @staticmethod
-    def _validate_event_time(field: pa.Field):
+    def _validate_event_time(field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None):
         if (
             not pa.types.is_integer(field.type)
             and not pa.types.is_floating(field.type)
             and not pa.types.is_date(field.type)
         ):
             raise ValueError(f"Event time {field} must be numeric or date type.")
+        
+        # Event time fields must have VALIDATE consistency type to prevent type promotion
+        if consistency_type is not None and consistency_type != SchemaConsistencyType.VALIDATE:
+            raise ValueError(
+                f"Event time field '{field.name}' must have VALIDATE consistency type, "
+                f"got {consistency_type}. Type promotion is not allowed for event time fields."
+            )
 
     @staticmethod
     def _validate_default(
@@ -442,15 +464,20 @@ class Field(dict):
         if past_default is not None and future_default is None:
             future_default = past_default
         
+        # Default critical columns (merge key, merge order, event time) to VALIDATE consistency type
+        # to prevent type promotion which could break merge semantics
+        if consistency_type is None and (is_merge_key or merge_order or is_event_time):
+            consistency_type = SchemaConsistencyType.VALIDATE
+        
         meta = {}
         if is_merge_key:
-            Field._validate_merge_key(field)
+            Field._validate_merge_key(field, consistency_type)
             meta[FIELD_MERGE_KEY_NAME] = str(is_merge_key)
         if merge_order:
-            Field._validate_merge_order(field)
+            Field._validate_merge_order(field, consistency_type)
             meta[FIELD_MERGE_ORDER_KEY_NAME] = msgpack.dumps(merge_order)
         if is_event_time:
-            Field._validate_event_time(field)
+            Field._validate_event_time(field, consistency_type)
             meta[FIELD_EVENT_TIME_KEY_NAME] = str(is_event_time)
         if past_default is not None:
             Field._validate_default(past_default, field)
