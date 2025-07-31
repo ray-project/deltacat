@@ -87,6 +87,37 @@ native `Catalog` implementation (e.g., the root URI for the catalog metastore).
 """
 
 
+# Transaction management helper
+def _setup_transaction(transaction: Optional[Transaction], **kwargs) -> tuple[Transaction, bool]:
+    """
+    Set up transaction handling for catalog operations.
+    
+    Returns a tuple of (transaction, commit_transaction) where:
+    - transaction: The transaction to use (either provided or newly created)
+    - commit_transaction: True if we should commit the transaction on success
+    
+    If a transaction is provided, it will be reused and not committed.
+    If no transaction is provided, a new interactive transaction is created and will be committed.
+    """
+    transaction = transaction
+    commit_transaction = transaction is None
+    
+    if commit_transaction:
+        # Create and start an interactive transaction for atomic operations
+        transaction = Transaction.of(
+            txn_operations=[],  # Start with empty operations to enable interactive mode
+        )
+        
+        # Get catalog properties for transaction management
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = transaction.start(
+            catalog_root_dir=catalog_properties.root,
+            filesystem=catalog_properties.filesystem,
+        )
+    
+    return transaction, commit_transaction
+
+
 # catalog functions
 def initialize(
     config: Optional[CatalogProperties] = None,
@@ -410,25 +441,9 @@ def write_to_table(
     """
     namespace = namespace or default_namespace()
 
-    # Check if a transaction was provided
-    write_transaction = transaction
-    commit_transaction = write_transaction is None
-    
-    if commit_transaction:
-        # Create and start an interactive transaction for atomic writes
-        write_transaction = Transaction.of(
-            txn_operations=[],  # Start with empty operations to enable interactive mode
-        )
-        
-        # Get catalog properties for transaction management
-        catalog_properties = get_catalog_properties(**kwargs)
-        write_transaction = write_transaction.start(
-            catalog_root_dir=catalog_properties.root,
-            filesystem=catalog_properties.filesystem,
-        )
-        
-    # Add transaction to kwargs for all subsequent storage calls
-    kwargs['transaction'] = write_transaction
+    # Set up transaction handling
+    write_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = write_transaction
 
     try:
         # Validate write mode and table/table version existence
@@ -1419,6 +1434,7 @@ def read_table(
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
     file_path_column: Optional[str] = None,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Dataset: 
     """Read a table into a dataset.
@@ -1433,6 +1449,7 @@ def read_table(
         max_parallelism: Optional maximum parallelism for data download.
         columns: Optional list of columns to include in the result.
         file_path_column: Optional column name to add file paths to the result.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
         **kwargs: Additional keyword arguments.
         
     Returns:
@@ -1441,38 +1458,52 @@ def read_table(
     # Validate input parameters
     _validate_read_table_input(table_type, distributed_dataset_type)
     
-    # Resolve namespace and get table metadata
-    namespace = namespace or default_namespace()
-    table_version_obj = _get_and_validate_table_metadata(
-        table, namespace, table_version, **kwargs
-    )
-    
-    # Get partitions and deltas to read
-    qualified_deltas = _get_qualified_deltas_for_read(
-        table, namespace, table_version_obj.table_version, partition_filter, **kwargs
-    )
-    
-    # For schemaless tables, distributed datasets are not yet supported
-    if table_version_obj.schema is None and distributed_dataset_type:
-        raise NotImplementedError(
-            f"Distributed dataset reading is not yet supported for schemaless tables. "
-            f"Table '{namespace}.{table}' has no schema, but distributed_dataset_type={distributed_dataset_type} was specified. "
-            f"Please use local storage by setting distributed_dataset_type=None."
+    # Set up transaction handling
+    read_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = read_transaction
+
+    try:
+        # Resolve namespace and get table metadata
+        namespace = namespace or default_namespace()
+        table_version_obj = _get_and_validate_table_metadata(
+            table, namespace, table_version, **kwargs
         )
-    
-    # Download and process the data
-    result = _download_and_process_table_data(
-        qualified_deltas, 
-        table_type, 
-        distributed_dataset_type,
-        max_parallelism,
-        columns,
-        file_path_column,
-        table_version_obj.schema,
-        **kwargs
-    )
-    
-    return result
+        
+        # Get partitions and deltas to read
+        qualified_deltas = _get_qualified_deltas_for_read(
+            table, namespace, table_version_obj.table_version, partition_filter, **kwargs
+        )
+        
+        # For schemaless tables, distributed datasets are not yet supported
+        if table_version_obj.schema is None and distributed_dataset_type:
+            raise NotImplementedError(
+                f"Distributed dataset reading is not yet supported for schemaless tables. "
+                f"Table '{namespace}.{table}' has no schema, but distributed_dataset_type={distributed_dataset_type} was specified. "
+                f"Please use local storage by setting distributed_dataset_type=None."
+            )
+        
+        # Download and process the data
+        result = _download_and_process_table_data(
+            qualified_deltas, 
+            table_type, 
+            distributed_dataset_type,
+            max_parallelism,
+            columns,
+            file_path_column,
+            table_version_obj.schema,
+            **kwargs
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            read_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during read_table: {e}")
+        raise
 
 
 def alter_table(
@@ -1488,6 +1519,7 @@ def alter_table(
     table_version_description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
     """Alter DeltaCAT table/table_version definition.
@@ -1507,6 +1539,7 @@ def alter_table(
         table_version_description: New table version description.
         properties: New table properties.
         table_version_properties: New table version properties.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
@@ -1517,68 +1550,82 @@ def alter_table(
     """
     namespace = namespace or default_namespace()
 
-    if partition_updates:
-        raise NotImplementedError("Partition updates are not yet supported.")
-    if sort_key_updates:
-        raise NotImplementedError("Sort key updates are not yet supported.")
-    
-    _get_storage(**kwargs).update_table(
-        *args,
-        namespace=namespace,
-        table_name=table,
-        description=description,
-        properties=properties,
-        **kwargs,
-    )
+    # Set up transaction handling
+    alter_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = alter_transaction
 
-    if table_version is None:
-        table_version = _get_storage(**kwargs).get_latest_active_table_version(
-            namespace, table, **kwargs
+    try:
+        if partition_updates:
+            raise NotImplementedError("Partition updates are not yet supported.")
+        if sort_key_updates:
+            raise NotImplementedError("Sort key updates are not yet supported.")
+        
+        _get_storage(**kwargs).update_table(
+            *args,
+            namespace=namespace,
+            table_name=table,
+            description=description,
+            properties=properties,
+            **kwargs,
         )
+
         if table_version is None:
-            raise TableVersionNotFoundError(f"No active table version found for table {namespace}.{table}. "
-                           "Please specify a table_version parameter.")
-    else:
-        table_version = _get_storage(**kwargs).get_table_version(
-            namespace, table, table_version, **kwargs
+            table_version = _get_storage(**kwargs).get_latest_active_table_version(
+                namespace, table, **kwargs
+            )
+            if table_version is None:
+                raise TableVersionNotFoundError(f"No active table version found for table {namespace}.{table}. "
+                               "Please specify a table_version parameter.")
+        else:
+            table_version = _get_storage(**kwargs).get_table_version(
+                namespace, table, table_version, **kwargs
+            )
+            if table_version is None:
+                raise TableVersionNotFoundError(f"Table version '{table_version}' not found for table {namespace}.{table}")
+
+        # Apply schema updates if provided
+        updated_schema = None
+        if schema_updates is not None:
+            # Get the current schema from the table version
+            current_schema = table_version.schema
+            
+            # Create a SchemaUpdate from the current schema
+            schema_update = current_schema.update()
+            
+            # Apply each operation in the list
+            for operation in schema_updates:
+                if operation.operation == "add":
+                    schema_update = schema_update.add_field(operation.field_locator, operation.field)
+                elif operation.operation == "remove":
+                    schema_update = schema_update.remove_field(operation.field_locator)
+                elif operation.operation == "update":
+                    schema_update = schema_update.update_field(operation.field_locator, operation.field)
+                else:
+                    raise ValueError(f"Unknown schema update operation: {operation.operation}")
+            
+            # Apply all the updates to get the final schema
+            updated_schema = schema_update.apply()
+
+        _get_storage(**kwargs).update_table_version(
+            *args,
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version.id,
+            lifecycle_state=lifecycle_state,
+            description=table_version_description or description,
+            schema=updated_schema,
+            properties=table_version_properties,
+            **kwargs,
         )
-        if table_version is None:
-            raise TableVersionNotFoundError(f"Table version '{table_version}' not found for table {namespace}.{table}")
 
-    # Apply schema updates if provided
-    updated_schema = None
-    if schema_updates is not None:
-        # Get the current schema from the table version
-        current_schema = table_version.schema
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            alter_transaction.seal()
         
-        # Create a SchemaUpdate from the current schema
-        schema_update = current_schema.update()
-        
-        # Apply each operation in the list
-        for operation in schema_updates:
-            if operation.operation == "add":
-                schema_update = schema_update.add_field(operation.field_locator, operation.field)
-            elif operation.operation == "remove":
-                schema_update = schema_update.remove_field(operation.field_locator)
-            elif operation.operation == "update":
-                schema_update = schema_update.update_field(operation.field_locator, operation.field)
-            else:
-                raise ValueError(f"Unknown schema update operation: {operation.operation}")
-        
-        # Apply all the updates to get the final schema
-        updated_schema = schema_update.apply()
-
-    _get_storage(**kwargs).update_table_version(
-        *args,
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version.id,
-        lifecycle_state=lifecycle_state,
-        description=table_version_description or description,
-        schema=updated_schema,
-        properties=table_version_properties,
-        **kwargs,
-    )
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during alter_table: {e}")
+        raise
 
 
 def create_table(
@@ -1595,6 +1642,7 @@ def create_table(
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table in the catalog.
@@ -1616,6 +1664,7 @@ def create_table(
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         TableDefinition object for the created or existing table.
@@ -1626,38 +1675,54 @@ def create_table(
     """
     namespace = namespace or default_namespace()
 
-    table = get_table(*args, name, namespace=namespace, table_version=version, **kwargs)
-    if table is not None:
-        if fail_if_exists:
-            raise TableAlreadyExistsError(f"Table {namespace}.{name} already exists")
-        return table
+    # Set up transaction handling
+    create_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = create_transaction
 
-    if not namespace_exists(*args, namespace, **kwargs):
-        create_namespace(
-            *args, namespace=namespace, properties=namespace_properties, **kwargs
+    try:
+        table = get_table(*args, name, namespace=namespace, table_version=version, **kwargs)
+        if table is not None:
+            if fail_if_exists:
+                raise TableAlreadyExistsError(f"Table {namespace}.{name} already exists")
+            return table
+
+        if not namespace_exists(namespace, **kwargs):
+            create_namespace(
+                *args, namespace=namespace, properties=namespace_properties, **kwargs
+            )
+
+        (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
+            *args,
+            namespace=namespace,
+            table_name=name,
+            table_version=version,
+            schema=schema,
+            partition_scheme=partition_scheme,
+            sort_keys=sort_keys,
+            table_version_description=description,
+            table_description=description,
+            table_properties=table_properties,
+            lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
+            supported_content_types=content_types,
+            **kwargs,
         )
 
-    (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
-        *args,
-        namespace=namespace,
-        table_name=name,
-        table_version=version,
-        schema=schema,
-        partition_scheme=partition_scheme,
-        sort_keys=sort_keys,
-        table_version_description=description,
-        table_description=description,
-        table_properties=table_properties,
-        lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
-        supported_content_types=content_types,
-        **kwargs,
-    )
+        result = TableDefinition.of(
+            table=table,
+            table_version=table_version,
+            stream=stream,
+        )
 
-    return TableDefinition.of(
-        table=table,
-        table_version=table_version,
-        stream=stream,
-    )
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            create_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during create_table: {e}")
+        raise
 
 
 def drop_table(
@@ -1666,6 +1731,7 @@ def drop_table(
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
     purge: bool = False,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
     """Drop a table from the catalog and optionally purges underlying data.
@@ -1674,6 +1740,7 @@ def drop_table(
         name: Name of the table to drop.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         purge: If True, permanently delete the table data. If False, only remove from catalog.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
@@ -1688,9 +1755,24 @@ def drop_table(
         raise NotImplementedError("Purge flag is not currently supported.")
 
     namespace = namespace or default_namespace()
-    _get_storage(**kwargs).delete_table(
-        *args, namespace=namespace, name=name, purge=purge, **kwargs
-    )
+    
+    # Set up transaction handling
+    drop_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = drop_transaction
+
+    try:
+        _get_storage(**kwargs).delete_table(
+            *args, namespace=namespace, name=name, purge=purge, **kwargs
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            drop_transaction.seal()
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during drop_table: {e}")
+        raise
 
 
 def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) -> None:
@@ -1707,24 +1789,45 @@ def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) 
 
 
 def list_tables(
-    *args, namespace: Optional[str] = None, **kwargs
+    *args, 
+    namespace: Optional[str] = None, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions.
 
     Args:
         namespace: Optional namespace to list tables from. Uses default namespace if not specified.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
         ListResult containing TableDefinition objects for tables in the namespace.
     """
     namespace = namespace or default_namespace()
-    tables = _get_storage(**kwargs).list_tables(*args, namespace=namespace, **kwargs)
-    table_definitions = [
-        get_table(*args, table.table_name, namespace, **kwargs)
-        for table in tables.all_items()
-    ]
+    
+    # Set up transaction handling
+    list_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = list_transaction
 
-    return ListResult(items=table_definitions)
+    try:
+        tables = _get_storage(**kwargs).list_tables(*args, namespace=namespace, **kwargs)
+        table_definitions = [
+            get_table(*args, table.table_name, namespace=namespace, **kwargs)
+            for table in tables.all_items()
+        ]
+
+        result = ListResult(items=table_definitions)
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            list_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during list_tables: {e}")
+        raise
 
 
 def get_table(
@@ -1733,6 +1836,7 @@ def get_table(
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
     stream_format: StreamFormat = StreamFormat.DELTACAT,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> Optional[TableDefinition]:
     """Get table definition metadata.
@@ -1744,6 +1848,7 @@ def get_table(
             If not specified, the latest version is used.
         stream_format: Optional stream format to retrieve. Uses the default Deltacat stream
             format if not specified.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
         Deltacat TableDefinition if the table exists, None otherwise.
@@ -1753,51 +1858,73 @@ def get_table(
         StreamNotFoundError: If the stream does not exist.
     """
     namespace = namespace or default_namespace()
-    table: Optional[Table] = _get_storage(**kwargs).get_table(
-        *args, table_name=name, namespace=namespace, **kwargs
-    )
+    
+    # Set up transaction handling
+    get_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = get_transaction
 
-    if table is None:
-        return None
-
-    table_version: Optional[TableVersion] = _get_storage(**kwargs).get_table_version(
-        *args, namespace, name, table_version or table.latest_active_table_version, **kwargs
-    )
-
-    if table_version is None:
-        raise TableVersionNotFoundError(
-            f"TableVersion {namespace}.{name}.{table_version} does not exist."
+    try:
+        table: Optional[Table] = _get_storage(**kwargs).get_table(
+            *args, table_name=name, namespace=namespace, **kwargs
         )
 
-    stream = _get_storage(**kwargs).get_stream(
-        *args,
-        namespace=namespace,
-        table_name=name,
-        table_version=table_version.id,
-        stream_format=stream_format,
-        **kwargs,
-    )
+        if table is None:
+            return None
 
-    if stream is None:
-        raise StreamNotFoundError(
-            f"Stream {namespace}.{table}.{table_version}.{stream} does not exist."
+        table_version: Optional[TableVersion] = _get_storage(**kwargs).get_table_version(
+            *args, namespace, name, table_version or table.latest_active_table_version, **kwargs
         )
 
-    return TableDefinition.of(
-        table=table,
-        table_version=table_version,
-        stream=stream,
-    )
+        if table_version is None:
+            raise TableVersionNotFoundError(
+                f"TableVersion {namespace}.{name}.{table_version} does not exist."
+            )
+
+        stream = _get_storage(**kwargs).get_stream(
+            *args,
+            namespace=namespace,
+            table_name=name,
+            table_version=table_version.id,
+            stream_format=stream_format,
+            **kwargs,
+        )
+
+        if stream is None:
+            raise StreamNotFoundError(
+                f"Stream {namespace}.{table}.{table_version}.{stream} does not exist."
+            )
+
+        result = TableDefinition.of(
+            table=table,
+            table_version=table_version,
+            stream=stream,
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            get_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during get_table: {e}")
+        raise
 
 
 def truncate_table(
-    table: str, *args, namespace: Optional[str] = None, **kwargs
+    table: str, 
+    *args, 
+    namespace: Optional[str] = None, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
 ) -> None:
     """Truncate table data.
 
     Args:
         table: Name of the table to truncate.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
@@ -1806,7 +1933,12 @@ def truncate_table(
 
 
 def rename_table(
-    table: str, new_name: str, *args, namespace: Optional[str] = None, **kwargs
+    table: str, 
+    new_name: str, 
+    *args, 
+    namespace: Optional[str] = None, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
 ) -> None:
     """Rename an existing table.
 
@@ -1814,6 +1946,7 @@ def rename_table(
         table: Current name of the table.
         new_name: New name for the table.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
@@ -1822,71 +1955,175 @@ def rename_table(
         TableNotFoundError: If the table does not exist.
     """
     namespace = namespace or default_namespace()
-    _get_storage(**kwargs).update_table(
-        *args, table_name=table, new_table_name=new_name, namespace=namespace, **kwargs
-    )
+    
+    # Set up transaction handling
+    rename_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = rename_transaction
+
+    try:
+        _get_storage(**kwargs).update_table(
+            *args, table_name=table, new_table_name=new_name, namespace=namespace, **kwargs
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            rename_transaction.seal()
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during rename_table: {e}")
+        raise
 
 
-def table_exists(table: str, *args, namespace: Optional[str] = None, **kwargs) -> bool:
+def table_exists(
+    table: str, 
+    *args, 
+    namespace: Optional[str] = None, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
+) -> bool:
     """Check if a table exists in the catalog.
 
     Args:
         table: Name of the table to check.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
         True if the table exists, False otherwise.
     """
     namespace = namespace or default_namespace()
-    return _get_storage(**kwargs).table_exists(
-        *args, table_name=table, namespace=namespace, **kwargs
-    )
+    
+    # Set up transaction handling
+    exists_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = exists_transaction
+
+    try:
+        result = _get_storage(**kwargs).table_exists(
+            *args, table_name=table, namespace=namespace, **kwargs
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            exists_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during table_exists: {e}")
+        raise
 
 
-def list_namespaces(*args, **kwargs) -> ListResult[Namespace]:
+def list_namespaces(*args, transaction: Optional[Transaction] = None, **kwargs) -> ListResult[Namespace]:
     """List a page of table namespaces.
 
     Args:
-        catalog: Catalog properties instance.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
         ListResult containing Namespace objects.
     """
-    return _get_storage(**kwargs).list_namespaces(*args, **kwargs)
+    # Set up transaction handling
+    list_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = list_transaction
+
+    try:
+        result = _get_storage(**kwargs).list_namespaces(*args, **kwargs)
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            list_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during list_namespaces: {e}")
+        raise
 
 
-def get_namespace(namespace: str, *args, **kwargs) -> Optional[Namespace]:
+def get_namespace(
+    namespace: str, 
+    *args, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
+) -> Optional[Namespace]:
     """Get metadata for a specific table namespace.
 
     Args:
         namespace: Name of the namespace to retrieve.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
         Namespace object if the namespace exists, None otherwise.
     """
-    return _get_storage(**kwargs).get_namespace(*args, namespace=namespace, **kwargs)
+    # Set up transaction handling
+    get_ns_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = get_ns_transaction
+
+    try:
+        result = _get_storage(**kwargs).get_namespace(*args, namespace=namespace, **kwargs)
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            get_ns_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during get_namespace: {e}")
+        raise
 
 
-def namespace_exists(namespace: str, *args, **kwargs) -> bool:
+def namespace_exists(
+    namespace: str, 
+    *args, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
+) -> bool:
     """Check if a namespace exists.
 
     Args:
         namespace: Name of the namespace to check.
+        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
         True if the namespace exists, False otherwise.
     """
-    return _get_storage(**kwargs).namespace_exists(*args, namespace=namespace, **kwargs)
+    # Set up transaction handling
+    exists_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = exists_transaction
+
+    try:
+        result = _get_storage(**kwargs).namespace_exists(*args, namespace=namespace, **kwargs)
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            exists_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during namespace_exists: {e}")
+        raise
 
 
 def create_namespace(
-    namespace: str, *args, properties: Optional[NamespaceProperties] = None, **kwargs
+    namespace: str, 
+    *args, 
+    properties: Optional[NamespaceProperties] = None, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
 ) -> Namespace:
     """Create a new namespace.
 
     Args:
         namespace: Name of the namespace to create.
         properties: Optional properties for the namespace.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         Created Namespace object.
@@ -1894,12 +2131,28 @@ def create_namespace(
     Raises:
         NamespaceAlreadyExistsError: If the namespace already exists.
     """
-    if namespace_exists(namespace, **kwargs):
-        raise NamespaceAlreadyExistsError(f"Namespace {namespace} already exists")
+    # Set up transaction handling
+    namespace_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = namespace_transaction
 
-    return _get_storage(**kwargs).create_namespace(
-        *args, namespace=namespace, properties=properties, **kwargs
-    )
+    try:
+        if namespace_exists(namespace, **kwargs):
+            raise NamespaceAlreadyExistsError(f"Namespace {namespace} already exists")
+
+        result = _get_storage(**kwargs).create_namespace(
+            *args, namespace=namespace, properties=properties, **kwargs
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            namespace_transaction.seal()
+        
+        return result
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during create_namespace: {e}")
+        raise
 
 
 def alter_namespace(
@@ -1907,6 +2160,7 @@ def alter_namespace(
     *args,
     properties: Optional[NamespaceProperties] = None,
     new_namespace: Optional[str] = None,
+    transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
     """Alter a namespace definition.
@@ -1915,26 +2169,48 @@ def alter_namespace(
         namespace: Name of the namespace to alter.
         properties: Optional new properties for the namespace.
         new_namespace: Optional new name for the namespace.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
     """
-    _get_storage(**kwargs).update_namespace(
-        namespace=namespace,
-        properties=properties,
-        new_namespace=new_namespace,
-        *args,
-        **kwargs,
-    )
+    # Set up transaction handling
+    alter_ns_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = alter_ns_transaction
+
+    try:
+        _get_storage(**kwargs).update_namespace(
+            namespace=namespace,
+            properties=properties,
+            new_namespace=new_namespace,
+            *args,
+            **kwargs,
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            alter_ns_transaction.seal()
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during alter_namespace: {e}")
+        raise
 
 
-def drop_namespace(namespace: str, *args, purge: bool = False, **kwargs) -> None:
+def drop_namespace(
+    namespace: str, 
+    *args, 
+    purge: bool = False, 
+    transaction: Optional[Transaction] = None,
+    **kwargs
+) -> None:
     """Drop a namespace and all of its tables from the catalog.
 
     Args:
         namespace: Name of the namespace to drop.
         purge: If True, permanently delete all tables in the namespace.
             If False, only remove from catalog.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
@@ -1944,9 +2220,23 @@ def drop_namespace(namespace: str, *args, purge: bool = False, **kwargs) -> None
     if purge:
         raise NotImplementedError("Purge flag is not currently supported.")
 
-    _get_storage(**kwargs).delete_namespace(
-        *args, namespace=namespace, purge=purge, **kwargs
-    )
+    # Set up transaction handling
+    drop_ns_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    kwargs["transaction"] = drop_ns_transaction
+
+    try:
+        _get_storage(**kwargs).delete_namespace(
+            *args, namespace=namespace, purge=purge, **kwargs
+        )
+
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            drop_ns_transaction.seal()
+        
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        logger.error(f"Error during drop_namespace: {e}")
+        raise
 
 
 def default_namespace(*args, **kwargs) -> str:
