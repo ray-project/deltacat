@@ -32,7 +32,7 @@ from tenacity import (
 )
 
 from deltacat.compute.compactor_v2.constants import MAX_RECORDS_PER_COMPACTED_FILE
-from deltacat.storage.model.types import LocalTable, DistributedDataset
+from deltacat.storage.model.types import LocalTable, DistributedDataset, Dataset
 from deltacat import logs
 from deltacat.constants import (
     UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY,
@@ -166,6 +166,32 @@ TABLE_CLASS_TO_PANDAS_FUNC: Dict[
     RayDataset: lambda table, **kwargs: table.to_pandas(**kwargs),
     MaterializedDataset: lambda table, **kwargs: table.to_pandas(**kwargs),
     daft.DataFrame: lambda table, **kwargs: table.to_pandas(**kwargs),
+}
+
+def _pyarrow_to_polars(pa_table: pa.Table, **kwargs) -> pl.DataFrame:
+    """Convert PyArrow table to Polars DataFrame with clean schema."""
+    # PyArrow metadata can contain invalid UTF-8 sequences that cause Polars to raise an error
+    # Create a new table without metadata that might contain invalid UTF-8
+    clean_schema = pa.schema([
+        pa.field(field.name, field.type, nullable=field.nullable)
+        for field in pa_table.schema
+    ])
+    clean_table = pa.Table.from_arrays(pa_table.columns, schema=clean_schema)
+    return pl.from_arrow(clean_table, **kwargs)
+
+def _pyarrow_to_numpy(pa_table: pa.Table, **kwargs) -> np.ndarray:
+    """Convert PyArrow table to numpy array."""
+    if pa_table.num_columns == 1:
+        return pa_table.column(0).to_numpy(**kwargs)
+    else:
+        return pa_table.to_pandas().values
+
+DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]] = {
+    DatasetType.PYARROW: lambda pa_table, **kwargs: pa_table,
+    DatasetType.PANDAS: lambda pa_table, **kwargs: pa_table.to_pandas(**kwargs),
+    DatasetType.POLARS: lambda pa_table, **kwargs: _pyarrow_to_polars(pa_table, **kwargs),
+    DatasetType.DAFT: lambda pa_table, **kwargs: daft.from_arrow(pa_table, **kwargs),
+    DatasetType.NUMPY: lambda pa_table, **kwargs: _pyarrow_to_numpy(pa_table, **kwargs),
 }
 
 TABLE_CLASS_TO_APPEND_COLUMN_FUNC: Dict[
@@ -443,6 +469,27 @@ def to_pandas(table: Dataset, **kwargs) -> pd.DataFrame:
     if isinstance(table, list):
         return _convert_all(table, table_to_pandas)
     return table_to_pandas(table, **kwargs)
+
+
+def from_pyarrow(pa_table: pa.Table, target_type: DatasetType, **kwargs) -> Dataset:
+    """Convert PyArrow Table to the specified dataset type.
+    
+    Args:
+        pa_table: PyArrow Table to convert
+        target_type: Target DatasetType to convert to
+        **kwargs: Additional arguments passed to the conversion function
+        
+    Returns:
+        Dataset converted to the target type
+        
+    Raises:
+        ValueError: If target_type is not supported
+    """
+    if target_type not in DATASET_TYPE_FROM_PYARROW:
+        raise ValueError(f"Unsupported target type: {target_type}")
+    
+    conversion_func = DATASET_TYPE_FROM_PYARROW[target_type]
+    return conversion_func(pa_table, **kwargs)
 
 
 def append_column_to_table(

@@ -1833,29 +1833,24 @@ class Schema(dict):
         Returns:
             Dataset converted back to original type
         """
-        if original_type == 'pyarrow':
-            return pa_table
-        elif original_type == 'pandas':
-            return pa_table.to_pandas()
-        elif original_type == 'polars':
-            import polars as pl
-            # PyArrow metadata can contain invalid UTF-8 sequences that cause Polars to raise an error
-            # Create a new table without metadata that might contain invalid UTF-8
-            clean_schema = pa.schema([
-                pa.field(field.name, field.type, nullable=field.nullable)
-                for field in pa_table.schema
-            ])
-            clean_table = pa.Table.from_arrays(pa_table.columns, schema=clean_schema)
-            return pl.from_arrow(clean_table)
-        elif original_type == 'daft':
-            import daft
-            return daft.from_arrow(pa_table)
-        elif original_type == 'numpy':
-            if pa_table.num_columns == 1:
-                return pa_table.column(0).to_numpy()
-            else:
-                return pa_table.to_pandas().values
+        from deltacat.types.tables import from_pyarrow
+        from deltacat.types.media import DatasetType
+        
+        # Mapping from string identifiers to DatasetType enum values
+        type_mapping = {
+            'pyarrow': DatasetType.PYARROW,
+            'pandas': DatasetType.PANDAS,
+            'polars': DatasetType.POLARS,
+            'daft': DatasetType.DAFT,
+            'numpy': DatasetType.NUMPY,
+        }
+        
+        # Use the centralized from_pyarrow function if type is supported
+        if original_type in type_mapping:
+            target_type = type_mapping[original_type]
+            return from_pyarrow(pa_table, target_type)
         else:
+            # Fall back to returning pyarrow table for unknown types
             return pa_table
 
     @staticmethod
