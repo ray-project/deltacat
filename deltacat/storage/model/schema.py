@@ -1077,16 +1077,7 @@ class Schema(dict):
         )
         return self.field_ids_to_fields[field_id]
 
-    @property
-    def fields(self) -> List[Field]:
-        field_ids_to_fields = self.field_ids_to_fields
-        return list(field_ids_to_fields.values())
-
-    @property
-    def merge_keys(self) -> Optional[List[FieldId]]:
-        return self.get("mergeKeys")
-
-    def merge_order_sort_keys(self) -> Optional[List]:
+    def merge_order_sort_keys(self) -> Optional[List["SortKey"]]:
         """Extract sort keys from fields with merge_order defined, or use event_time as fallback.
         
         If explicit merge_order fields are defined, they take precedence.
@@ -1101,57 +1092,143 @@ class Schema(dict):
             List of SortKey objects constructed from fields with merge_order or event_time,
             or None if neither are defined.
         """
-        from deltacat.storage.model.sort_key import SortKey
-        from deltacat.storage.model.types import SortOrder, NullOrder
-        
         # First priority: explicit merge_order fields
-        fields_with_merge_order = [
-            field for field in self.fields 
-            if field.merge_order is not None
-        ]
-        
+        fields_with_merge_order = self._get_fields_with_merge_order()
         if fields_with_merge_order:
-            sort_keys = []
-            for field in fields_with_merge_order:
-                merge_order = field.merge_order
-                desired_sort_order = merge_order[0]
-                
-                # Invert the sort order because deduplication keeps the "last" record
-                # ASCENDING merge_order (keep smallest) → DESCENDING sort (smallest appears last)
-                # DESCENDING merge_order (keep largest) → ASCENDING sort (largest appears last)
-                if desired_sort_order == SortOrder.ASCENDING:
-                    actual_sort_order = SortOrder.DESCENDING
-                else:
-                    actual_sort_order = SortOrder.ASCENDING
-                    
-                sort_key = SortKey.of(
-                    key=[field.arrow.name],
-                    sort_order=actual_sort_order,
-                    null_order=merge_order[1],  # NullOrder (AT_START/AT_END)
-                )
-                sort_keys.append(sort_key)
-            return sort_keys
+            return self._create_sort_keys_from_merge_order_fields(fields_with_merge_order)
         
         # Second priority: event_time field as default merge_order key
-        event_time_fields = [
-            field for field in self.fields 
-            if field.is_event_time
-        ]
-        
+        event_time_fields = self._get_event_time_fields()
         if event_time_fields:
-            # Use DESCENDING merge_order by default for event_time (keep latest events)
-            # This gets inverted to ASCENDING sort order for compaction
-            sort_keys = []
-            for field in event_time_fields:
-                sort_key = SortKey.of(
-                    key=[field.arrow.name],
-                    sort_order=SortOrder.ASCENDING,  # Inverted: DESCENDING merge_order → ASCENDING sort
-                    null_order=NullOrder.AT_END,
-                )
-                sort_keys.append(sort_key)
-            return sort_keys
+            return self._create_sort_keys_from_event_time_fields(event_time_fields)
             
         return None
+
+    def validate_and_coerce_table(
+        self, 
+        table: pa.Table, 
+        schema_evolution_mode: Optional[str] = None,
+        default_schema_consistency_type: Optional['SchemaConsistencyType'] = None
+    ) -> Tuple[pa.Table, 'Schema']:
+        """Validate and coerce a PyArrow table to match this schema's field types and constraints.
+        
+        This method now uses SchemaUpdate for safe schema evolution, ensuring all field
+        protection rules and validation are applied consistently.
+        
+        Args:
+            table: PyArrow Table to validate and coerce
+            schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
+            default_schema_consistency_type: Default consistency type for new fields in AUTO mode
+            
+        Returns:
+            Tuple[pa.Table, Schema]: Table with data validated/coerced according to schema consistency types,
+                                    and the (potentially updated) schema
+            
+        Raises:
+            ValueError: If validation fails or coercion is not possible
+            SchemaCompatibilityError: If schema evolution would break compatibility
+        """
+        if not self.field_ids_to_fields:
+            # No fields defined in schema, return original table
+            return table, self
+        
+        # Setup
+        field_name_to_field = self._create_field_name_mapping()
+        field_updates = {}  # field_name -> updated_field
+        new_fields = {}     # field_name -> new_field
+        new_columns = []
+        new_schema_fields = []
+        
+        # Process each column in the table
+        for column_name in table.column_names:
+            column_data = table.column(column_name)
+            
+            processed_data, schema_field, field_update, new_field = self._process_existing_table_column(
+                column_name, 
+                column_data, 
+                field_name_to_field, 
+                schema_evolution_mode, 
+                default_schema_consistency_type,
+            )
+            
+            new_columns.append(processed_data)
+            new_schema_fields.append(schema_field)
+            
+            if field_update:
+                field_updates[column_name] = field_update
+            if new_field:
+                new_fields[column_name] = new_field
+        
+        # Add any missing fields from schema
+        table_column_names = set(table.column_names)
+        self._add_missing_schema_fields(table, table_column_names, new_columns, new_schema_fields)
+        
+        # Apply schema updates if any modifications were made
+        updated_schema = self._apply_schema_updates(field_updates, new_fields)
+        
+        return pa.table(new_columns, schema=pa.schema(new_schema_fields)), updated_schema
+
+    def coerce(
+        self, 
+        dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
+    ) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
+        """Coerce a dataset to match this schema using field type promotion.
+        
+        This method processes different dataset types and applies type promotion
+        using the field's promote_type_if_needed method. It handles:
+        - PyArrow Tables
+        - Pandas DataFrames
+        - NumPy arrays (1D and 2D)
+        - Polars DataFrames (if available)
+        - Daft DataFrames (if available)
+        - Other types with to_arrow() method
+        
+        For each column, it:
+        - Fields that exist in both dataset and schema: applies type promotion
+        - Fields in dataset but not in schema: preserves as-is  
+        - Fields in schema but not in dataset: adds with null values
+        - Reorders columns to match schema order
+        
+        Args:
+            dataset: Dataset to coerce to this schema
+            
+        Returns:
+            Dataset of the same type, coerced to match this schema
+            
+        Raises:
+            ValueError: If coercion fails
+        """
+        if not self.field_ids_to_fields:
+            # No fields defined in schema, return original dataset
+            return dataset
+        
+        # Convert dataset to PyArrow table for processing
+        pa_table = to_pyarrow(dataset)
+
+        
+        # Process columns using field coercion
+        coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)
+        
+        # Reorder columns to match schema order
+        reordered_columns, reordered_fields = self._reorder_columns_to_schema(
+            coerced_columns, coerced_fields, pa_table
+        )
+        
+        # Create new table with processed columns
+        coerced_table = pa.table(reordered_columns, schema=pa.schema(reordered_fields))
+        
+        # Convert back to original dataset type
+        return from_pyarrow(coerced_table, get_dataset_type(dataset))
+
+
+    @property
+    def fields(self) -> List[Field]:
+        field_ids_to_fields = self.field_ids_to_fields
+        return list(field_ids_to_fields.values())
+
+    @property
+    def merge_keys(self) -> Optional[List[FieldId]]:
+        return self.get("mergeKeys")
 
     @property
     def field_ids_to_fields(self) -> Dict[FieldId, Field]:
@@ -1427,131 +1504,192 @@ class Schema(dict):
             return pa.unify_schemas(all_schemas), subschema_to_field_names
         return Schema._to_pyarrow_schema(schema), {}  # SingleSchema
 
-    def validate_and_coerce_table(
-        self, 
-        table: pa.Table, 
-        schema_evolution_mode: Optional[str] = None,
-        default_schema_consistency_type: Optional['SchemaConsistencyType'] = None
-    ) -> Tuple[pa.Table, 'Schema']:
-        """Validate and coerce a PyArrow table to match this schema's field types and constraints.
+    def _get_fields_with_merge_order(self) -> List['Field']:
+        """Get all fields that have merge_order defined.
         
-        This method now uses SchemaUpdate for safe schema evolution, ensuring all field
-        protection rules and validation are applied consistently.
+        Returns:
+            List of fields with merge_order defined, or empty list if none
+        """
+        return [
+            field for field in self.fields 
+            if field.merge_order is not None
+        ]
+    
+    def _create_sort_keys_from_merge_order_fields(self, fields_with_merge_order: List["Field"]) -> List["SortKey"]:
+        """Create sort keys from fields with explicit merge_order.
         
         Args:
-            table: PyArrow Table to validate and coerce
-            schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
-            default_schema_consistency_type: Default consistency type for new fields in AUTO mode
+            fields_with_merge_order: List of fields with merge_order defined
             
         Returns:
-            Tuple[pa.Table, Schema]: Table with data validated/coerced according to schema consistency types,
-                                    and the (potentially updated) schema
-            
-        Raises:
-            ValueError: If validation fails or coercion is not possible
-            SchemaCompatibilityError: If schema evolution would break compatibility
+            List of SortKey objects with inverted sort order for deduplication
         """
-        if not self.field_ids_to_fields:
-            # No fields defined in schema, return original table
-            return table, self
+        from deltacat.storage.model.sort_key import SortKey
         
-        # Create a mapping from field names to Field objects
-        # TODO(pdames): Ensure this works properly with subschemas.
+        sort_keys = []
+        for field in fields_with_merge_order:
+            merge_order = field.merge_order
+            desired_sort_order = merge_order[0]
+            
+            # Invert the sort order because deduplication keeps the "last" record
+            # ASCENDING merge_order (keep smallest) → DESCENDING sort (smallest appears last)
+            # DESCENDING merge_order (keep largest) → ASCENDING sort (largest appears last)
+            if desired_sort_order == SortOrder.ASCENDING:
+                actual_sort_order = SortOrder.DESCENDING
+            else:
+                actual_sort_order = SortOrder.ASCENDING
+                
+            sort_key = SortKey.of(
+                key=[field.arrow.name],
+                sort_order=actual_sort_order,
+                null_order=merge_order[1],  # NullOrder (AT_START/AT_END)
+            )
+            sort_keys.append(sort_key)
+        return sort_keys
+    
+    def _get_event_time_fields(self) -> List['Field']:
+        """Get all fields marked as event_time.
+        
+        Returns:
+            List of event_time fields, or empty list if none
+        """
+        return [
+            field for field in self.fields 
+            if field.is_event_time
+        ]
+    
+    def _create_sort_keys_from_event_time_fields(self, event_time_fields: List['Field']) -> List:
+        """Create sort keys from event_time fields with default DESCENDING merge_order.
+        
+        Args:
+            event_time_fields: List of event_time fields
+            
+        Returns:
+            List of SortKey objects with ASCENDING sort order (inverted from DESCENDING merge_order)
+        """ 
+        from deltacat.storage.model.sort_key import SortKey
+        
+        sort_keys = []
+        for field in event_time_fields:
+            sort_key = SortKey.of(
+                key=[field.arrow.name],
+                sort_order=SortOrder.ASCENDING,  # Inverted: DESCENDING merge_order → ASCENDING sort
+                null_order=NullOrder.AT_END,
+            )
+            sort_keys.append(sort_key)
+        return sort_keys
+
+    def _create_field_name_mapping(self) -> Dict[str, 'Field']:
+        """Create a mapping from field names to Field objects."""
         field_name_to_field = {}
         for field in self.field_ids_to_fields.values():
             field_name_to_field[field.arrow.name] = field
+        return field_name_to_field
+    
+    def _process_existing_table_column(
+        self, 
+        column_name: str,
+        column_data: pa.Array,
+        field_name_to_field: Dict[str, 'Field'],
+        schema_evolution_mode: Optional[str],
+        default_schema_consistency_type: Optional['SchemaConsistencyType']
+    ) -> Tuple[pa.Array, pa.Field, Optional['Field'], Optional['Field']]:
+        """Process a column that exists in the table.
         
-        # Track schema modifications and collect update operations
-        schema_modified = False
-        field_updates = {}  # field_name -> updated_field
-        new_fields = {}     # field_name -> new_field
-        
-        # Process each column in the table
-        new_columns = []
-        new_schema_fields = []
-        
-        for column_name in table.column_names:
-            column_data = table.column(column_name)
+        Returns:
+            Tuple of (processed_column_data, schema_field, field_update, new_field)
+        """
+        if column_name in field_name_to_field:
+            # Field exists in schema - validate/coerce according to consistency type
+            field = field_name_to_field[column_name]
             
-            if column_name in field_name_to_field:
-                # Field exists in schema - validate/coerce according to consistency type
-                field = field_name_to_field[column_name]
-                
-                if field.consistency_type == SchemaConsistencyType.VALIDATE:
-                    field.validate(column_data)
-                    new_columns.append(column_data)
-                    new_schema_fields.append(field.arrow)
-                elif field.consistency_type == SchemaConsistencyType.COERCE:
-                    coerced_data = field.coerce(column_data)
-                    new_columns.append(coerced_data)
-                    new_schema_fields.append(field.arrow)
-                else:
-                    # NONE or no consistency type - use type promotion
-                    promoted_data, type_was_promoted = field.promote_type_if_needed(column_data)
-                    new_columns.append(promoted_data)
-                    
-                    if type_was_promoted:
-                        # Cast default values to match the promoted type
-                        promoted_past_default = field._cast_default_to_promoted_type(
-                            field.past_default, promoted_data.type
-                        ) if field.past_default is not None else None
-                        
-                        promoted_future_default = field._cast_default_to_promoted_type(
-                            field.future_default, promoted_data.type
-                        ) if field.future_default is not None else None
-                        
-                        # Create updated field with same properties but new type and cast defaults
-                        promoted_field = pa.field(
-                            field.arrow.name,
-                            promoted_data.type,
-                            nullable=field.arrow.nullable,
-                            metadata=field.arrow.metadata
-                        )
-                        
-                        updated_field = Field.of(
-                            promoted_field,
-                            field_id=field.id,
-                            is_merge_key=field.is_merge_key,
-                            merge_order=field.merge_order,
-                            is_event_time=field.is_event_time,
-                            doc=field.doc,
-                            past_default=promoted_past_default,
-                            future_default=promoted_future_default,
-                            consistency_type=field.consistency_type,
-                            path=field.path,
-                            native_object=field.native_object
-                        )
-                        
-                        # Store update for later application
-                        field_updates[column_name] = updated_field
-                        schema_modified = True
-                        new_schema_fields.append(promoted_field)
-                    else:
-                        new_schema_fields.append(field.arrow)
+            if field.consistency_type == SchemaConsistencyType.VALIDATE:
+                field.validate(column_data)
+                return column_data, field.arrow, None, None
+            elif field.consistency_type == SchemaConsistencyType.COERCE:
+                coerced_data = field.coerce(column_data)
+                return coerced_data, field.arrow, None, None
             else:
-                # Field not in schema - handle based on evolution mode
-                if schema_evolution_mode == "AUTO":
-                    # Create new field with default consistency type
-                    next_field_id = self.max_field_id + 1
-                    new_field = Field.of(
-                        pa.field(column_name, column_data.type, nullable=True),
-                        field_id=next_field_id,
-                        consistency_type=default_schema_consistency_type or SchemaConsistencyType.NONE
-                    )
-                    
-                    # Store new field for later application
-                    new_fields[column_name] = new_field
-                    schema_modified = True
-                    
-                    # Process the column with the new field
-                    new_columns.append(column_data)
-                    new_schema_fields.append(new_field.arrow)
-                else:
-                    # MANUAL mode or not specified - raise error
-                    raise ValueError(f"Field '{column_name}' is not present in the schema")
+                # NONE or no consistency type - use type promotion
+                return self._handle_type_promotion(column_name, column_data, field)
+        else:
+            # Field not in schema - handle based on evolution mode
+            return self._handle_new_field(column_name, column_data, schema_evolution_mode, default_schema_consistency_type)
+    
+    def _handle_type_promotion(
+        self, 
+        column_name: str,
+        column_data: pa.Array,
+        field: 'Field'
+    ) -> Tuple[pa.Array, pa.Field, Optional['Field'], Optional['Field']]:
+        """Handle type promotion for a field with NONE consistency type."""
+        promoted_data, type_was_promoted = field.promote_type_if_needed(column_data)
         
-        # Add any missing fields from schema with appropriate handling
-        table_column_names = set(table.column_names)
+        if type_was_promoted:
+            # Cast default values to match the promoted type
+            promoted_past_default = field._cast_default_to_promoted_type(
+                field.past_default, promoted_data.type
+            ) if field.past_default is not None else None
+            
+            promoted_future_default = field._cast_default_to_promoted_type(
+                field.future_default, promoted_data.type
+            ) if field.future_default is not None else None
+            
+            # Create updated field with same properties but new type and cast defaults
+            promoted_field = pa.field(
+                field.arrow.name,
+                promoted_data.type,
+                nullable=field.arrow.nullable,
+                metadata=field.arrow.metadata
+            )
+            
+            updated_field = Field.of(
+                promoted_field,
+                field_id=field.id,
+                is_merge_key=field.is_merge_key,
+                merge_order=field.merge_order,
+                is_event_time=field.is_event_time,
+                doc=field.doc,
+                past_default=promoted_past_default,
+                future_default=promoted_future_default,
+                consistency_type=field.consistency_type,
+                path=field.path,
+                native_object=field.native_object
+            )
+            
+            return promoted_data, promoted_field, updated_field, None
+        else:
+            return promoted_data, field.arrow, None, None
+    
+    def _handle_new_field(
+        self,
+        column_name: str,
+        column_data: pa.Array,
+        schema_evolution_mode: Optional[str],
+        default_schema_consistency_type: Optional['SchemaConsistencyType']
+    ) -> Tuple[pa.Array, pa.Field, Optional['Field'], Optional['Field']]:
+        """Handle a field that's not in the schema."""
+        if schema_evolution_mode == "AUTO":
+            # Create new field with default consistency type
+            next_field_id = self.max_field_id + 1
+            new_field = Field.of(
+                pa.field(column_name, column_data.type, nullable=True),
+                field_id=next_field_id,
+                consistency_type=default_schema_consistency_type or SchemaConsistencyType.NONE
+            )
+            return column_data, new_field.arrow, None, new_field
+        else:
+            # MANUAL mode or not specified - raise error
+            raise ValueError(f"Field '{column_name}' is not present in the schema")
+    
+    def _add_missing_schema_fields(
+        self,
+        table: pa.Table,
+        table_column_names: set,
+        new_columns: List[pa.Array],
+        new_schema_fields: List[pa.Field]
+    ) -> None:
+        """Add columns for fields that exist in schema but not in table."""
         for field in self.field_ids_to_fields.values():
             if field.arrow.name not in table_column_names:
                 consistency_type = field.consistency_type
@@ -1581,93 +1719,44 @@ class Schema(dict):
                         null_column = pa.nulls(get_table_length(table), type=field.arrow.type)
                         new_columns.append(null_column)
                     new_schema_fields.append(field.arrow)
+    
+    def _apply_schema_updates(
+        self,
+        field_updates: Dict[str, 'Field'],
+        new_fields: Dict[str, 'Field']
+    ) -> 'Schema':
+        """Apply collected schema updates and return the updated schema."""
+        if not field_updates and not new_fields:
+            return self
         
-        # Apply schema updates if any modifications were made
-        updated_schema = self
-        if schema_modified:
-            # Initialize schema update with allow_incompatible_changes=True for type promotion
-            schema_update = self.update(allow_incompatible_changes=True)
-            
-            # Apply field updates
-            for field_name, updated_field in field_updates.items():
-                schema_update = schema_update.update_field(field_name, updated_field)
-            
-            # Apply new fields
-            for field_name, new_field in new_fields.items():
-                schema_update = schema_update.add_field(field_name, new_field)
-            
-            # Apply all updates
-            updated_schema = schema_update.apply()
+        # Initialize schema update with allow_incompatible_changes=True for type promotion
+        schema_update = self.update(allow_incompatible_changes=True)
         
-        return pa.table(new_columns, schema=pa.schema(new_schema_fields)), updated_schema
+        # Apply field updates
+        for field_name, updated_field in field_updates.items():
+            schema_update = schema_update.update_field(field_name, updated_field)
+        
+        # Apply new fields
+        for field_name, new_field in new_fields.items():
+            schema_update = schema_update.add_field(field_name, new_field)
+        
+        # Apply all updates
+        return schema_update.apply()
 
-    def coerce(
-        self, 
-        dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
-    ) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
-        """Coerce a dataset to match this schema using field type promotion.
-        
-        This method processes different dataset types and applies type promotion
-        using the field's promote_type_if_needed method. It handles:
-        - PyArrow Tables
-        - Pandas DataFrames
-        - NumPy arrays (1D and 2D)
-        - Polars DataFrames (if available)
-        - Daft DataFrames (if available)
-        - Other types with to_arrow() method
-        
-        For each column, it:
-        - Fields that exist in both dataset and schema: applies type promotion
-        - Fields in dataset but not in schema: preserves as-is  
-        - Fields in schema but not in dataset: adds with null values
-        - Reorders columns to match schema order
-        
-        Args:
-            dataset: Dataset to coerce to this schema
-            
-        Returns:
-            Dataset of the same type, coerced to match this schema
-            
-        Raises:
-            ValueError: If coercion fails
-        """
-        if not self.field_ids_to_fields:
-            # No fields defined in schema, return original dataset
-            return dataset
-        
-        # Convert dataset to PyArrow table for processing
-        pa_table = to_pyarrow(dataset)
-
-        
-        # Process columns using field coercion
-        coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)
-        
-        # Reorder columns to match schema order
-        reordered_columns, reordered_fields = self._reorder_columns_to_schema(
-            coerced_columns, coerced_fields, pa_table
-        )
-        
-        # Create new table with processed columns
-        coerced_table = pa.table(reordered_columns, schema=pa.schema(reordered_fields))
-        
-        # Convert back to original dataset type
-        return from_pyarrow(coerced_table, get_dataset_type(dataset))
-
-    def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
-        """Process table columns using field coercion and add missing fields.
+    def _process_existing_columns_for_coercion(
+        self,
+        pa_table: pa.Table,
+        field_name_to_field: Dict[str, 'Field']
+    ) -> Tuple[List[pa.Array], List[pa.Field]]:
+        """Process columns that exist in the table for coercion.
         
         Args:
             pa_table: PyArrow table to process
+            field_name_to_field: Mapping from field names to Field objects
             
         Returns:
-            Tuple of (list of coerced columns, list of corresponding fields)
+            Tuple of (processed columns, corresponding fields)
         """
-        # Create mapping from field names to Field objects
-        field_name_to_field = {}
-        for field in self.field_ids_to_fields.values():
-            field_name_to_field[field.arrow.name] = field
-        
-        # Process each column using field methods
         new_columns = []
         new_schema_fields = []
         
@@ -1685,9 +1774,33 @@ class Schema(dict):
                 new_columns.append(column_data)
                 new_schema_fields.append(pa.field(column_name, column_data.type))
         
+        return new_columns, new_schema_fields
+    
+    def _add_missing_fields_for_coercion(
+        self,
+        pa_table: pa.Table,
+        field_name_to_field: Dict[str, 'Field'],
+        existing_columns: List[pa.Array],
+        existing_fields: List[pa.Field]
+    ) -> Tuple[List[pa.Array], List[pa.Field]]:
+        """Add columns for fields that exist in schema but not in table.
+        
+        Args:
+            pa_table: Original PyArrow table
+            field_name_to_field: Mapping from field names to Field objects
+            existing_columns: Columns already processed
+            existing_fields: Fields already processed
+            
+        Returns:
+            Tuple of (all columns including added ones, all corresponding fields)
+        """
+        all_columns = existing_columns.copy()
+        all_fields = existing_fields.copy()
+        
         # Add any missing fields from target schema with null values or past_default values
         target_field_names = {field.arrow.name for field in self.field_ids_to_fields.values()}
         table_field_names = set(pa_table.column_names)
+        
         for field_name in target_field_names - table_field_names:
             field = field_name_to_field[field_name]
             
@@ -1695,15 +1808,39 @@ class Schema(dict):
             if field.past_default is not None:
                 # Create array filled with past_default value
                 default_column = pa.array([field.past_default] * get_table_length(pa_table), type=field.arrow.type)
-                new_columns.append(default_column)
+                all_columns.append(default_column)
             else:
                 # Use null values as before
                 null_column = pa.nulls(get_table_length(pa_table), type=field.arrow.type)
-                new_columns.append(null_column)
+                all_columns.append(null_column)
             
-            new_schema_fields.append(field.arrow)
+            all_fields.append(field.arrow)
         
-        return new_columns, new_schema_fields
+        return all_columns, all_fields
+
+    def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
+        """Process table columns using field coercion and add missing fields.
+        
+        Args:
+            pa_table: PyArrow table to process
+            
+        Returns:
+            Tuple of (list of coerced columns, list of corresponding fields)
+        """
+        # Create mapping from field names to Field objects
+        field_name_to_field = self._create_field_name_mapping()
+        
+        # Process existing columns in the table
+        processed_columns, processed_fields = self._process_existing_columns_for_coercion(
+            pa_table, field_name_to_field
+        )
+        
+        # Add any missing fields from target schema
+        all_columns, all_fields = self._add_missing_fields_for_coercion(
+            pa_table, field_name_to_field, processed_columns, processed_fields
+        )
+        
+        return all_columns, all_fields
 
     def _reorder_columns_to_schema(
         self, 
@@ -2250,9 +2387,7 @@ class SchemaUpdate(dict):
         Forbidden transitions:
         - NONE -> COERCE
         - NONE -> VALIDATE
-        """
-        from deltacat.storage.model.types import SchemaConsistencyType
-        
+        """ 
         old_type = old_field.consistency_type
         new_type = new_field.consistency_type
         field_name = self._get_field_name(field_locator)
