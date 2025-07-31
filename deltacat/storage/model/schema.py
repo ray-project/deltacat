@@ -498,7 +498,10 @@ class Field(dict):
             metadata=meta,
         )
 
-    def validate(self, column_data: pa.Array) -> None:
+    def validate(
+        self, 
+        column_data: pa.Array,
+    ) -> None:
         """Validate that data in a column matches this field's type and constraints.
         
         Args:
@@ -514,7 +517,10 @@ class Field(dict):
                 f"expected {self.arrow.type}, got {column_data.type}"
             )
     
-    def coerce(self, column_data: pa.Array) -> pa.Array:
+    def coerce(
+        self, 
+        column_data: pa.Array,
+    ) -> pa.Array:
         """Coerce data in a column to match this field's type.
         
         Args:
@@ -534,7 +540,10 @@ class Field(dict):
                 f"from {column_data.type} to {self.arrow.type}: {e}"
             )
 
-    def promote_type_if_needed(self, column_data: pa.Array) -> Tuple[pa.Array, bool]:
+    def promote_type_if_needed(
+        self, 
+        column_data: pa.Array,
+    ) -> Tuple[pa.Array, bool]:
         """Promote field type to accommodate new data when consistency type is NONE.
         
         This method implements intelligent type widening for fields with SchemaConsistencyType.NONE:
@@ -569,7 +578,11 @@ class Field(dict):
         else:
             return self._promote_to_new_type(column_data, promoted_type)
     
-    def _coerce_to_current_type(self, column_data: pa.Array, current_type: pa.DataType) -> Tuple[pa.Array, bool]:
+    def _coerce_to_current_type(
+        self, 
+        column_data: pa.Array, 
+        current_type: pa.DataType,
+    ) -> Tuple[pa.Array, bool]:
         """Try to coerce data to current type without promoting the field type."""
         try:
             coerced_data = pa.compute.cast(column_data, current_type)
@@ -577,7 +590,11 @@ class Field(dict):
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
             return column_data, False
     
-    def _promote_to_new_type(self, column_data: pa.Array, promoted_type: pa.DataType) -> Tuple[pa.Array, bool]:
+    def _promote_to_new_type(
+        self, 
+        column_data: pa.Array, 
+        promoted_type: pa.DataType,
+    ) -> Tuple[pa.Array, bool]:
         """Try to cast data to the promoted type."""
         try:
             promoted_data = pa.compute.cast(column_data, promoted_type)
@@ -588,7 +605,11 @@ class Field(dict):
                 return self._convert_to_binary_via_string(column_data, promoted_type)
             return column_data, False
     
-    def _convert_to_binary_via_string(self, column_data: pa.Array, binary_type: pa.DataType) -> Tuple[pa.Array, bool]:
+    def _convert_to_binary_via_string(
+        self, 
+        column_data: pa.Array, 
+        binary_type: pa.DataType,
+    ) -> Tuple[pa.Array, bool]:
         """Try converting to binary via string intermediate step."""
         try:
             string_data = pa.compute.cast(column_data, pa.string())
@@ -597,7 +618,49 @@ class Field(dict):
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
             return column_data, False
     
-    def _find_promoted_type(self, current_type: pa.DataType, new_type: pa.DataType) -> Optional[pa.DataType]:
+    def _cast_default_to_promoted_type(
+        self, 
+        default_value: Any, 
+        promoted_type: pa.DataType,
+    ) -> Optional[Any]:
+        """Cast a default value to match a promoted type.
+        
+        Args:
+            default_value: The original default value
+            promoted_type: The new promoted type
+            
+        Returns:
+            The default value cast to the promoted type, or None if casting fails
+        """
+        if default_value is None:
+            return None
+            
+        try:
+            # Create a scalar with the original default value
+            original_scalar = pa.scalar(default_value)
+            # Cast to the promoted type
+            promoted_scalar = pa.compute.cast(original_scalar, promoted_type)
+            # Return the Python value
+            return promoted_scalar.as_py()
+        except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError, ValueError):
+            # If direct casting fails, try via string for binary promotion
+            if pa.types.is_binary(promoted_type):
+                try:
+                    # Convert to string first, then to binary
+                    string_scalar = pa.compute.cast(pa.scalar(default_value), pa.string())
+                    binary_scalar = pa.compute.cast(string_scalar, promoted_type)
+                    return binary_scalar.as_py()
+                except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError, ValueError):
+                    pass
+            
+            # If all casting attempts fail, return None to remove the default
+            return None
+    
+    def _find_promoted_type(
+        self, 
+        current_type: pa.DataType, 
+        new_type: pa.DataType,
+    ) -> Optional[pa.DataType]:
         """Find the most specific type that can accommodate both current and new types.
         
         Returns the promoted type or None if no promotion is possible.
@@ -610,7 +673,11 @@ class Field(dict):
         # Try cross-type promotions (more permissive)
         return self._try_cross_type_promotion(current_type, new_type)
     
-    def _try_within_hierarchy_promotion(self, current_type: pa.DataType, new_type: pa.DataType) -> Optional[pa.DataType]:
+    def _try_within_hierarchy_promotion(
+        self, 
+        current_type: pa.DataType, 
+        new_type: pa.DataType,
+    ) -> Optional[pa.DataType]:
         """Try to promote types within the same type hierarchy."""
         type_hierarchies = self._get_type_hierarchies()
         
@@ -626,7 +693,11 @@ class Field(dict):
         
         return None
     
-    def _try_cross_type_promotion(self, current_type: pa.DataType, new_type: pa.DataType) -> Optional[pa.DataType]:
+    def _try_cross_type_promotion(
+        self, 
+        current_type: pa.DataType, 
+        new_type: pa.DataType,
+    ) -> Optional[pa.DataType]:
         """Try cross-type promotions in order of specificity."""
         promotions = self._get_cross_type_promotions()
         
@@ -640,7 +711,9 @@ class Field(dict):
         
         return None
     
-    def _get_type_hierarchies(self) -> List[List[pa.DataType]]:
+    def _get_type_hierarchies(
+        self,
+    ) -> List[List[pa.DataType]]:
         """Get ordered type hierarchies for within-hierarchy promotions."""
         return [
             # Integer types (in order of promotion)
@@ -656,7 +729,9 @@ class Field(dict):
             [pa.binary(), pa.large_binary()],
         ]
     
-    def _get_cross_type_promotions(self) -> List[Tuple]:
+    def _get_cross_type_promotions(
+        self,
+    ) -> List[Tuple]:
         """Get cross-type promotions ordered by specificity (most specific first)."""
         return [
             # Any integer can promote to float (most specific numeric promotion)
@@ -672,8 +747,12 @@ class Field(dict):
             (None, [pa.binary(), pa.large_binary()]),
         ]
     
-    def _types_compatible_with_promotion_rule(self, current_type: pa.DataType, new_type: pa.DataType, 
-                                            source_types) -> bool:
+    def _types_compatible_with_promotion_rule(
+        self, 
+        current_type: pa.DataType, 
+        new_type: pa.DataType, 
+        source_types,
+    ) -> bool:
         """Check if types are compatible with a specific promotion rule."""
         if source_types is None:  # any_to_* cases
             return True
@@ -687,21 +766,33 @@ class Field(dict):
             new_compatible = any(self._types_compatible(new_type, src) for src in source_types)
             return current_compatible or new_compatible
     
-    def _find_type_in_hierarchy(self, data_type: pa.DataType, hierarchy: List[pa.DataType]) -> Optional[int]:
+    def _find_type_in_hierarchy(
+        self, 
+        data_type: pa.DataType, 
+        hierarchy: List[pa.DataType],
+    ) -> Optional[int]:
         """Find the index of a compatible type in the hierarchy."""
         for i, hierarchy_type in enumerate(hierarchy):
             if self._types_compatible(data_type, hierarchy_type):
                 return i
         return None
     
-    def _types_compatible(self, type1: pa.DataType, type2: pa.DataType) -> bool:
+    def _types_compatible(
+        self, 
+        type1: pa.DataType, 
+        type2: pa.DataType,
+    ) -> bool:
         """Check if two types are compatible (ignoring nullability)."""
         # For complex types like list and dictionary, compare their value types
         base_type1 = type1.value_type if isinstance(type1, (pa.ListType, pa.DictionaryType)) else type1
         base_type2 = type2.value_type if isinstance(type2, (pa.ListType, pa.DictionaryType)) else type2
         return base_type1.equals(base_type2)
     
-    def _can_cast_to(self, from_type: pa.DataType, to_type: pa.DataType) -> bool:
+    def _can_cast_to(
+        self, 
+        from_type: pa.DataType, 
+        to_type: pa.DataType,
+    ) -> bool:
         """Check if a type can be cast to another type."""
         # Null can cast to anything
         if from_type == pa.null():
@@ -714,7 +805,10 @@ class Field(dict):
         # Test casting with a minimal array
         return self._test_cast_with_sample_array(from_type, to_type)
     
-    def _can_cast_to_binary(self, from_type: pa.DataType) -> bool:
+    def _can_cast_to_binary(
+        self, 
+        from_type: pa.DataType,
+    ) -> bool:
         """Check if a type can be cast to binary (directly or via string)."""
         # Binary and string can always cast to binary
         if pa.types.is_binary(from_type) or pa.types.is_string(from_type):
@@ -722,7 +816,11 @@ class Field(dict):
         # For other types, check if they can cast to string first
         return self._can_cast_to(from_type, pa.string())
     
-    def _test_cast_with_sample_array(self, from_type: pa.DataType, to_type: pa.DataType) -> bool:
+    def _test_cast_with_sample_array(
+        self, 
+        from_type: pa.DataType, 
+        to_type: pa.DataType,
+    ) -> bool:
         """Test casting by creating a sample array and attempting the cast."""
         try:
             test_array = self._create_sample_array(from_type)
@@ -733,7 +831,10 @@ class Field(dict):
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
             return False
     
-    def _create_sample_array(self, data_type: pa.DataType) -> Optional[pa.Array]:
+    def _create_sample_array(
+        self, 
+        data_type: pa.DataType,
+    ) -> Optional[pa.Array]:
         """Create a minimal sample array for testing type casting."""
         if isinstance(data_type, (pa.ListType, pa.DictionaryType)):  # complex types
             return pa.array([None], type=data_type)
@@ -750,7 +851,12 @@ class Field(dict):
         else:
             return None  # Unknown type
     
-    def _maybe_make_nullable(self, base_type: pa.DataType, type1: pa.DataType, type2: pa.DataType) -> pa.DataType:
+    def _maybe_make_nullable(
+        self, 
+        base_type: pa.DataType, 
+        type1: pa.DataType, 
+        type2: pa.DataType,
+    ) -> pa.DataType:
         """Make the base type nullable if either input type is nullable."""
         # PyArrow doesn't have a direct way to check nullability at the type level
         # This method assumes the caller will handle nullability at the field level
@@ -1378,7 +1484,16 @@ class Schema(dict):
                     new_columns.append(promoted_data)
                     
                     if type_was_promoted:
-                        # Create updated field with same properties but new type
+                        # Cast default values to match the promoted type
+                        promoted_past_default = field._cast_default_to_promoted_type(
+                            field.past_default, promoted_data.type
+                        ) if field.past_default is not None else None
+                        
+                        promoted_future_default = field._cast_default_to_promoted_type(
+                            field.future_default, promoted_data.type
+                        ) if field.future_default is not None else None
+                        
+                        # Create updated field with same properties but new type and cast defaults
                         promoted_field = pa.field(
                             field.arrow.name,
                             promoted_data.type,
@@ -1393,8 +1508,8 @@ class Schema(dict):
                             merge_order=field.merge_order,
                             is_event_time=field.is_event_time,
                             doc=field.doc,
-                            past_default=field.past_default,
-                            future_default=field.future_default,
+                            past_default=promoted_past_default,
+                            future_default=promoted_future_default,
                             consistency_type=field.consistency_type,
                             path=field.path,
                             native_object=field.native_object
@@ -1479,7 +1594,10 @@ class Schema(dict):
         
         return pa.table(new_columns, schema=pa.schema(new_schema_fields)), updated_schema
 
-    def coerce(self, dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any]) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
+    def coerce(
+        self, 
+        dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
+    ) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
         """Coerce a dataset to match this schema using field type promotion.
         
         This method processes different dataset types and applies type promotion
@@ -1530,7 +1648,10 @@ class Schema(dict):
         # Convert back to original dataset type
         return self._convert_pyarrow_to_dataset(coerced_table, original_type)
 
-    def _convert_dataset_to_pyarrow(self, dataset: Any) -> Tuple[Optional[pa.Table], str]:
+    def _convert_dataset_to_pyarrow(
+        self, 
+        dataset: Any,
+    ) -> Tuple[Optional[pa.Table], str]:
         """Convert various dataset types to PyArrow table and track original type.
         
         Args:

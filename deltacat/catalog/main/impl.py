@@ -163,7 +163,7 @@ def _validate_write_mode_and_table_existence(
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper()}")
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}")
     
     return table_exists_flag
 
@@ -195,7 +195,7 @@ def _validate_write_mode_and_table_version_existence(
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper()}")
+        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}")
     
     # Check table version existence if specified
     table_version_exists_flag = False
@@ -672,7 +672,7 @@ def _handle_merge_delete_mode(
     """Handle MERGE/DELETE modes by validating merge keys and getting existing stream."""
     if not table_schema or not table_schema.merge_keys:
         raise ValueError(
-            f"{mode.value.upper()} mode requires tables to have at least one merge key. "
+            f"{mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()} mode requires tables to have at least one merge key. "
             f"Table {namespace}.{table} has no merge keys. "
             f"Use APPEND mode instead or specify merge keys in the schema."
         )
