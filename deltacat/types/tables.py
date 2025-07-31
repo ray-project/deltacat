@@ -211,12 +211,15 @@ TABLE_CLASS_TO_SELECT_COLUMNS_FUNC: Dict[
     pl.DataFrame: pl_utils.select_columns,
 }
 
-TABLE_CLASS_TO_TABLE_TYPE: Dict[Type[LocalTable], str] = {
+TABLE_CLASS_TO_TABLE_TYPE: Dict[Union[LocalTable, DistributedDataset], str] = {
     pa.Table: DatasetType.PYARROW.value,
     papq.ParquetFile: DatasetType.PYARROW_PARQUET.value,
     pl.DataFrame: DatasetType.POLARS.value,
     pd.DataFrame: DatasetType.PANDAS.value,
     np.ndarray: DatasetType.NUMPY.value,
+    daft.DataFrame: DatasetType.DAFT.value,
+    RayDataset: DatasetType.RAY_DATASET.value,
+    MaterializedDataset: DatasetType.RAY_DATASET.value,
 }
 
 TABLE_TYPE_TO_DATASET_CREATE_FUNC: Dict[str, Callable] = {
@@ -447,6 +450,22 @@ def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     return _get_table_function(table, TABLE_CLASS_TO_SLICER_FUNC, "slicer")
 
 
+def get_dataset_type(dataset: Dataset) -> DatasetType:
+    """Get the DatasetType enum value for a given dataset object.
+    
+    Args:
+        dataset: The dataset object to identify
+        
+    Returns:
+        DatasetType enum value corresponding to the dataset type
+        
+    Raises:
+        ValueError: If the dataset type is not supported
+    """
+    dataset_type_str = _get_table_function(dataset, TABLE_CLASS_TO_TABLE_TYPE, "dataset type identification")
+    return DatasetType(dataset_type_str)
+
+
 def table_to_pyarrow(table: Union[LocalTable, DistributedDataset], **kwargs) -> pa.Table:
     to_pyarrow_func = _get_table_function(table, TABLE_CLASS_TO_PYARROW_FUNC, "pyarrow conversion")
     return to_pyarrow_func(table, **kwargs)
@@ -484,11 +503,12 @@ def from_pyarrow(pa_table: pa.Table, target_type: DatasetType, **kwargs) -> Data
         
     Raises:
         ValueError: If target_type is not supported
-    """
-    if target_type not in DATASET_TYPE_FROM_PYARROW:
-        raise ValueError(f"Unsupported target type: {target_type}")
-    
-    conversion_func = DATASET_TYPE_FROM_PYARROW[target_type]
+    """ 
+    conversion_func = _get_table_type_function(
+        target_type, 
+        DATASET_TYPE_FROM_PYARROW, 
+        f"{target_type} conversion",
+    )
     return conversion_func(pa_table, **kwargs)
 
 

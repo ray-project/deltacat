@@ -18,11 +18,15 @@ from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
     NullOrder,
+    Dataset,
 )
 from deltacat.types.tables import (
     get_table_length,
     to_pyarrow,
+    from_pyarrow,
+    get_dataset_type,
 )
+from deltacat.types.media import DatasetType
 from deltacat import logs
 
 
@@ -1632,10 +1636,8 @@ class Schema(dict):
             return dataset
         
         # Convert dataset to PyArrow table for processing
-        pa_table, original_type = self._convert_dataset_to_pyarrow(dataset)
-        if pa_table is None:
-            # Unsupported type, return as-is
-            return dataset
+        pa_table = to_pyarrow(dataset)
+
         
         # Process columns using field coercion
         coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)
@@ -1649,83 +1651,7 @@ class Schema(dict):
         coerced_table = pa.table(reordered_columns, schema=pa.schema(reordered_fields))
         
         # Convert back to original dataset type
-        return self._convert_pyarrow_to_dataset(coerced_table, original_type)
-
-    def _convert_dataset_to_pyarrow(
-        self, 
-        dataset: Any,
-    ) -> Tuple[Optional[pa.Table], str]:
-        """Convert various dataset types to PyArrow table and track original type.
-        
-        Args:
-            dataset: Input dataset of various types
-            
-        Returns:
-            Tuple of (PyArrow table, original type string) or (None, '') if unsupported
-        """  
-        # Determine original type before conversion
-        original_type = self._get_dataset_type_string(dataset)
-        if not original_type:
-            # Unsupported type
-            return None, ''
-        
-        try:
-            # Use tables.py to_pyarrow function for conversion
-            pa_table = to_pyarrow(dataset)
-            return pa_table, original_type
-        except Exception:
-            # If conversion fails, return None
-            return None, ''
-    
-    def _get_dataset_type_string(self, dataset: Any) -> str:
-        """Get a string identifier for the dataset type.
-        
-        Args:
-            dataset: Input dataset
-            
-        Returns:
-            String identifier for the dataset type, or empty string if unsupported
-        """
-        if isinstance(dataset, pa.Table):
-            return 'pyarrow'
-        elif isinstance(dataset, pd.DataFrame):
-            return 'pandas'
-        elif isinstance(dataset, np.ndarray):
-            return 'numpy'
-        else:
-            # Check for optional types
-            try:
-                import polars as pl
-                if isinstance(dataset, pl.DataFrame):
-                    return 'polars'
-            except ImportError:
-                pass
-            
-            try:
-                import daft
-                if isinstance(dataset, daft.DataFrame):
-                    return 'daft'
-            except ImportError:
-                pass
-                
-            # Check for other types supported by tables.py
-            try:
-                import pyarrow.parquet as papq
-                if isinstance(dataset, papq.ParquetFile):
-                    return 'pyarrow'  # ParquetFile converts to PyArrow table
-            except ImportError:
-                pass
-                
-            # Check for Ray dataset types
-            try:
-                from ray.data.dataset import Dataset as RayDataset
-                from ray.data.dataset import MaterializedDataset
-                if isinstance(dataset, (RayDataset, MaterializedDataset)):
-                    return 'pyarrow'  # Ray datasets convert to PyArrow tables
-            except ImportError:
-                pass
-            
-            return ''
+        return from_pyarrow(coerced_table, get_dataset_type(dataset))
 
     def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Process table columns using field coercion and add missing fields.
@@ -1822,36 +1748,6 @@ class Schema(dict):
                         break
         
         return reordered_columns, reordered_fields
-
-    def _convert_pyarrow_to_dataset(self, pa_table: pa.Table, original_type: str) -> Any:
-        """Convert PyArrow table back to the original dataset type.
-        
-        Args:
-            pa_table: Processed PyArrow table
-            original_type: Original dataset type identifier
-            
-        Returns:
-            Dataset converted back to original type
-        """
-        from deltacat.types.tables import from_pyarrow
-        from deltacat.types.media import DatasetType
-        
-        # Mapping from string identifiers to DatasetType enum values
-        type_mapping = {
-            'pyarrow': DatasetType.PYARROW,
-            'pandas': DatasetType.PANDAS,
-            'polars': DatasetType.POLARS,
-            'daft': DatasetType.DAFT,
-            'numpy': DatasetType.NUMPY,
-        }
-        
-        # Use the centralized from_pyarrow function if type is supported
-        if original_type in type_mapping:
-            target_type = type_mapping[original_type]
-            return from_pyarrow(pa_table, target_type)
-        else:
-            # Fall back to returning pyarrow table for unknown types
-            return pa_table
 
     @staticmethod
     def _del_subschema(
