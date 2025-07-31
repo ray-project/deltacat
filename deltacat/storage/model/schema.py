@@ -1842,8 +1842,18 @@ class SchemaUpdate:
     
     def _validate_add_field_compatibility(self, new_field: Field, field_locator: FieldLocator) -> None:
         """Validate that adding a new field won't break compatibility."""
-        # New fields are generally safe if they're nullable or have default values
+        field_name = self._get_field_name(field_locator)
         arrow_field = new_field.arrow
+        
+        # Check for duplicate field IDs across all existing fields
+        if new_field.id is not None:
+            existing_field_ids = {f.id for f in self.base_schema.fields if f.id is not None}
+            if new_field.id in existing_field_ids:
+                raise SchemaCompatibilityError(
+                    f"Cannot add field '{field_name}' with duplicate field ID {new_field.id}. "
+                    f"Field IDs must be unique across all fields in the schema.",
+                    field_locator
+                )
         
         # Check if field is nullable or has default values
         is_nullable = arrow_field.nullable
@@ -1852,7 +1862,7 @@ class SchemaUpdate:
         
         if not (is_nullable or has_past_default or has_future_default):
             raise SchemaCompatibilityError(
-                f"Adding non-nullable field '{self._get_field_name(field_locator)}' without "
+                f"Adding non-nullable field '{field_name}' without "
                 f"default values would break compatibility with existing data",
                 field_locator
             )
@@ -1860,6 +1870,28 @@ class SchemaUpdate:
     def _validate_remove_field_compatibility(self, field: Field, field_locator: FieldLocator) -> None:
         """Validate that removing a field won't break compatibility."""
         field_name = self._get_field_name(field_locator)
+        
+        # Check for protected field types that should never be removed
+        if field.is_merge_key:
+            raise SchemaCompatibilityError(
+                f"Cannot remove merge key field '{field_name}'. "
+                f"Merge keys are critical for data integrity and cannot be removed.",
+                field_locator
+            )
+            
+        if field.merge_order is not None:
+            raise SchemaCompatibilityError(
+                f"Cannot remove merge order field '{field_name}'. "
+                f"Fields with merge_order are critical for data ordering and cannot be removed.",
+                field_locator
+            )
+            
+        if field.is_event_time:
+            raise SchemaCompatibilityError(
+                f"Cannot remove event time field '{field_name}'. "
+                f"Event time fields are critical for temporal operations and cannot be removed.",
+                field_locator
+            )
         
         # Removing fields generally breaks compatibility for consumers expecting them
         raise SchemaCompatibilityError(
@@ -1878,6 +1910,49 @@ class SchemaUpdate:
         old_arrow = old_field.arrow
         new_arrow = new_field.arrow
         field_name = self._get_field_name(field_locator)
+        
+        # Protect critical field attributes that should never be changed
+        if old_field.is_merge_key != new_field.is_merge_key:
+            raise SchemaCompatibilityError(
+                f"Cannot change merge key status for field '{field_name}'. "
+                f"Merge key designation is critical for data integrity and cannot be modified.",
+                field_locator
+            )
+            
+        if old_field.merge_order != new_field.merge_order:
+            raise SchemaCompatibilityError(
+                f"Cannot change merge order for field '{field_name}'. "
+                f"Merge order is critical for data consistency and cannot be modified.",
+                field_locator
+            )
+            
+        if old_field.is_event_time != new_field.is_event_time:
+            raise SchemaCompatibilityError(
+                f"Cannot change event time status for field '{field_name}'. "
+                f"Event time designation is critical for temporal operations and cannot be modified.",
+                field_locator
+            )
+        
+        # Validate schema consistency type evolution rules
+        self._validate_consistency_type_evolution(old_field, new_field, field_locator)
+        
+        # Protect past_default immutability
+        if old_field.past_default != new_field.past_default:
+            raise SchemaCompatibilityError(
+                f"Cannot change past_default for field '{field_name}'. "
+                f"The past_default value is immutable once set to maintain data consistency.",
+                field_locator
+            )
+        
+        # Check for duplicate field IDs (if field ID is being changed)
+        if old_field.id != new_field.id and new_field.id is not None:
+            existing_field_ids = {f.id for f in self.base_schema.fields if f.id is not None and f != old_field}
+            if new_field.id in existing_field_ids:
+                raise SchemaCompatibilityError(
+                    f"Cannot update field '{field_name}' to use duplicate field ID {new_field.id}. "
+                    f"Field IDs must be unique across all fields in the schema.",
+                    field_locator
+                )
         
         # Check data type compatibility
         if not self._is_type_compatible(old_arrow.type, new_arrow.type):
@@ -1899,6 +1974,69 @@ class SchemaUpdate:
                     f"providing both past_default and future_default values",
                     field_locator
                 )
+    
+    def _validate_consistency_type_evolution(
+        self, 
+        old_field: Field, 
+        new_field: Field, 
+        field_locator: FieldLocator
+    ) -> None:
+        """
+        Validate schema consistency type evolution rules.
+        
+        Allowed transitions:
+        - COERCE -> VALIDATE  
+        - VALIDATE -> COERCE
+        - COERCE -> NONE
+        - VALIDATE -> NONE
+        
+        Forbidden transitions:
+        - NONE -> COERCE
+        - NONE -> VALIDATE
+        """
+        from deltacat.storage.model.types import SchemaConsistencyType
+        
+        old_type = old_field.consistency_type
+        new_type = new_field.consistency_type
+        field_name = self._get_field_name(field_locator)
+        
+        # If types are the same, no validation needed
+        if old_type == new_type:
+            return
+            
+        # Handle None values (treat as no consistency type set)
+        if old_type is None and new_type is None:
+            return
+            
+        # Allow transitions from any type to NONE (relaxing constraints)
+        if new_type == SchemaConsistencyType.NONE or new_type is None:
+            return
+            
+        # Allow transitions between COERCE and VALIDATE (bidirectional)
+        if (old_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE) and 
+            new_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE)):
+            return
+            
+        # Allow transitions from None to COERCE or VALIDATE (adding constraints)
+        if old_type is None and new_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE):
+            return
+            
+        # Forbid transitions from NONE to COERCE or VALIDATE (tightening constraints)
+        if (old_type == SchemaConsistencyType.NONE and 
+            new_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE)):
+            raise SchemaCompatibilityError(
+                f"Cannot change consistency type for field '{field_name}' from {old_type.value} to {new_type.value}. "
+                f"Transitioning from NONE to {new_type.value} would tighten validation constraints "
+                f"and potentially break existing data processing.",
+                field_locator
+            )
+            
+        # If we get here, it's an unexpected combination
+        raise SchemaCompatibilityError(
+            f"Invalid consistency type transition for field '{field_name}' from "
+            f"{old_type.value if old_type else 'None'} to {new_type.value if new_type else 'None'}.",
+            field_locator
+        )
     
     def _is_type_compatible(self, old_type: pa.DataType, new_type: pa.DataType) -> bool:
         """
