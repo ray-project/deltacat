@@ -825,6 +825,33 @@ class Schema(dict):
             schema_id=self.id + 1,
         )
 
+    def update(
+        self,
+        allow_incompatible_changes: bool = False
+    ) -> 'SchemaUpdate':
+        """
+        Create a SchemaUpdate instance for safely evolving this schema.
+        
+        This method provides a convenient way to create a SchemaUpdate for this schema
+        without needing to call SchemaUpdate.of() directly.
+        
+        Args:
+            allow_incompatible_changes: If True, allows changes that may break
+                backward compatibility. If False (default), raises SchemaCompatibilityError
+                for incompatible changes.
+                
+        Returns:
+            A new SchemaUpdate instance configured for this schema
+            
+        Example:
+            >>> schema = Schema.of([Field.of(pa.field("id", pa.int64()))])
+            >>> new_field = Field.of(pa.field("name", pa.string()))
+            >>> updated_schema = (schema.update()
+            ...                         .add_field("name", new_field)
+            ...                         .apply())
+        """
+        return SchemaUpdate.of(self, allow_incompatible_changes=allow_incompatible_changes)
+
     def field_id(self, name: Union[FieldName, NestedFieldName]) -> FieldId:
         return Schema._field_name_to_field_id(self.arrow, name)
 
@@ -1594,7 +1621,7 @@ class SchemaList(List[Schema]):
         return val
 
 
-class SchemaUpdate:
+class SchemaUpdate(dict):
     """
     Provides safe schema evolution capabilities for DeltaCAT schemas.
     
@@ -1609,29 +1636,85 @@ class SchemaUpdate:
     after schema changes.
     
     Example:
+        Using Schema.update():
         >>> schema = Schema.of([Field.of(pa.field("id", pa.int64()))])
-        >>> update = SchemaUpdate(schema)
         >>> new_field = Field.of(pa.field("name", pa.string()))
-        >>> updated_schema = update.add_field("name", new_field).build()
+        >>> updated_schema = (schema.update()
+        ...                         .add_field("name", new_field)
+        ...                         .apply())
+
+        Using SchemaUpdate.of():
+        >>> schema = Schema.of([Field.of(pa.field("id", pa.int64()))])
+        >>> update = SchemaUpdate.of(schema)
+        >>> new_field = Field.of(pa.field("name", pa.string()))
+        >>> updated_schema = update.add_field("name", new_field).apply()
     """
     
-    def __init__(
-        self, 
+    @staticmethod
+    def of(
         base_schema: Schema, 
         allow_incompatible_changes: bool = False
-    ):
+    ) -> 'SchemaUpdate':
         """
-        Initialize a SchemaUpdate for the given base schema.
+        Create a SchemaUpdate for the given base schema.
         
         Args:
             base_schema: The original schema to update
             allow_incompatible_changes: If True, allows changes that may break
                 backward compatibility. If False (default), raises SchemaCompatibilityError
                 for incompatible changes.
+                
+        Returns:
+            A new SchemaUpdate instance
         """
-        self.base_schema = base_schema
-        self.allow_incompatible_changes = allow_incompatible_changes
-        self._operations: List[Tuple[str, FieldLocator, Optional[Field]]] = []
+        return SchemaUpdate._build(
+            base_schema=base_schema,
+            allow_incompatible_changes=allow_incompatible_changes,
+            operations=[]
+        )
+    
+    @staticmethod
+    def _build(
+        base_schema: Schema,
+        allow_incompatible_changes: bool,
+        operations: List[Tuple[str, FieldLocator, Optional[Field]]]
+    ) -> 'SchemaUpdate':
+        """Internal builder method."""
+        schema_update = SchemaUpdate()
+        schema_update["baseSchema"] = base_schema
+        schema_update["allowIncompatibleChanges"] = allow_incompatible_changes
+        schema_update["operations"] = operations
+        return schema_update
+    
+    @property
+    def base_schema(self) -> Schema:
+        """Get the base schema being updated."""
+        return self["baseSchema"]
+    
+    @base_schema.setter  
+    def base_schema(self, value: Schema) -> None:
+        """Set the base schema being updated."""
+        self["baseSchema"] = value
+    
+    @property
+    def allow_incompatible_changes(self) -> bool:
+        """Get whether incompatible changes are allowed."""
+        return self["allowIncompatibleChanges"]
+    
+    @allow_incompatible_changes.setter
+    def allow_incompatible_changes(self, value: bool) -> None:
+        """Set whether incompatible changes are allowed."""
+        self["allowIncompatibleChanges"] = value
+    
+    @property
+    def operations(self) -> List[Tuple[str, FieldLocator, Optional[Field]]]:
+        """Get the list of pending operations."""
+        return self["operations"]
+    
+    @operations.setter
+    def operations(self, value: List[Tuple[str, FieldLocator, Optional[Field]]]) -> None:
+        """Set the list of pending operations."""
+        self["operations"] = value
         
     def add_field(self, field_locator: FieldLocator, new_field: Field) -> 'SchemaUpdate':
         """
@@ -1647,7 +1730,7 @@ class SchemaUpdate:
         Raises:
             SchemaCompatibilityError: If field already exists or addition would break compatibility
         """
-        self._operations.append(("add", field_locator, new_field))
+        self.operations.append(("add", field_locator, new_field))
         return self
         
     def remove_field(self, field_locator: FieldLocator) -> 'SchemaUpdate':
@@ -1663,7 +1746,7 @@ class SchemaUpdate:
         Raises:
             SchemaCompatibilityError: If field doesn't exist or removal would break compatibility
         """
-        self._operations.append(("remove", field_locator, None))
+        self.operations.append(("remove", field_locator, None))
         return self
         
     def update_field(self, field_locator: FieldLocator, updated_field: Field) -> 'SchemaUpdate':
@@ -1680,10 +1763,10 @@ class SchemaUpdate:
         Raises:
             SchemaCompatibilityError: If field doesn't exist or update would break compatibility
         """
-        self._operations.append(("update", field_locator, updated_field))
+        self.operations.append(("update", field_locator, updated_field))
         return self
         
-    def build(self) -> Schema:
+    def apply(self) -> Schema:
         """
         Apply all pending operations and return the updated schema.
         
@@ -1700,7 +1783,7 @@ class SchemaUpdate:
                               for i, field in enumerate(updated_fields)}
         
         # Apply operations in order
-        for operation, field_locator, field_data in self._operations:
+        for operation, field_locator, field_data in self.operations:
             if operation == "add":
                 self._apply_add_field(updated_fields, field_name_to_index, field_locator, field_data)
             elif operation == "remove":

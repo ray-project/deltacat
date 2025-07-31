@@ -339,3 +339,31 @@ def test_schema_type_promotion_edge_cases():
     promoted_data, was_promoted = field_int.promote_type_if_needed(data_float)
     assert was_promoted, "int32 should promote to accommodate float64"
     assert pa.types.is_floating(promoted_data.type), f"Should promote to float type, got {promoted_data.type}"
+
+
+def test_schema_update_method(schema_a):
+    """Test the Schema.update() convenience method."""
+    # Test basic usage
+    update = schema_a.update()
+    assert isinstance(update, SchemaUpdate)
+    assert update.base_schema == schema_a
+    assert not update.allow_incompatible_changes
+    
+    # Test with allow_incompatible_changes=True
+    update_permissive = schema_a.update(allow_incompatible_changes=True)
+    assert isinstance(update_permissive, SchemaUpdate)
+    assert update_permissive.base_schema == schema_a
+    assert update_permissive.allow_incompatible_changes
+    
+    # Test method chaining with actual field operations
+    new_field = Field.of(pa.field("name", pa.string(), nullable=True), field_id=4)
+    updated_schema = (schema_a.update()
+                             .add_field("name", new_field)
+                             .apply())
+    
+    assert len(updated_schema.fields) == 2
+    assert updated_schema.field("col1") == schema_a.field("col1")  # Original field preserved
+    added_field = updated_schema.field("name")
+    assert added_field.arrow.name == "name"
+    assert added_field.arrow.type == pa.string()
+    assert added_field.id == 4
