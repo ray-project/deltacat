@@ -69,6 +69,74 @@ FieldName = str
 NestedFieldName = List[str]
 FieldLocator = Union[FieldName, NestedFieldName, FieldId]
 
+
+class SchemaUpdateOperation(tuple):
+    """
+    Represents a single schema update operation (add, remove, or update field).
+    
+    This class inherits from tuple and stores:
+    - operation: str ("add", "remove", "update")  
+    - field_locator: FieldLocator (name, path, or ID)
+    - field: Optional[Field] (the field data for add/update operations)
+    """
+    
+    @staticmethod
+    def add_field(field_locator: FieldLocator, field: 'Field') -> 'SchemaUpdateOperation':
+        """Create an operation to add a new field."""
+        return SchemaUpdateOperation(("add", field_locator, field))
+    
+    @staticmethod
+    def remove_field(field_locator: FieldLocator) -> 'SchemaUpdateOperation':
+        """Create an operation to remove an existing field.""" 
+        return SchemaUpdateOperation(("remove", field_locator, None))
+    
+    @staticmethod
+    def update_field(field_locator: FieldLocator, field: 'Field') -> 'SchemaUpdateOperation':
+        """Create an operation to update an existing field."""
+        return SchemaUpdateOperation(("update", field_locator, field))
+    
+    @property
+    def operation(self) -> str:
+        """The operation type: 'add', 'remove', or 'update'."""
+        return self[0]
+    
+    @property
+    def field_locator(self) -> FieldLocator:
+        """The field locator (name, path, or ID)."""
+        return self[1]
+    
+    @property
+    def field(self) -> Optional['Field']:
+        """The field data (None for remove operations)."""
+        return self[2]
+
+
+class SchemaUpdateOperations(List[SchemaUpdateOperation]):
+    """
+    A list of schema update operations that can be applied to a schema.
+    
+    This class inherits from List[SchemaUpdateOperation] and provides convenience
+    methods for creating and managing schema update operations.
+    """
+    
+    @staticmethod
+    def of(operations: List[SchemaUpdateOperation]) -> 'SchemaUpdateOperations':
+        """Create a SchemaUpdateOperations list from a list of operations."""
+        typed_operations = SchemaUpdateOperations()
+        for operation in operations:
+            if operation is not None and not isinstance(operation, SchemaUpdateOperation):
+                operation = SchemaUpdateOperation(operation)
+            typed_operations.append(operation)
+        return typed_operations
+    
+    def __getitem__(self, item):
+        """Override to ensure items are properly typed as SchemaUpdateOperation."""
+        val = super().__getitem__(item)
+        if val is not None and not isinstance(val, SchemaUpdateOperation):
+            self[item] = val = SchemaUpdateOperation(val)
+        return val
+
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
@@ -1224,8 +1292,11 @@ class Schema(dict):
         table: pa.Table, 
         schema_evolution_mode: Optional[str] = None,
         default_schema_consistency_type: Optional['SchemaConsistencyType'] = None
-    ) -> Tuple[pa.Table, bool]:
+    ) -> Tuple[pa.Table, 'Schema']:
         """Validate and coerce a PyArrow table to match this schema's field types and constraints.
+        
+        This method now uses SchemaUpdate for safe schema evolution, ensuring all field
+        protection rules and validation are applied consistently.
         
         Args:
             table: PyArrow Table to validate and coerce
@@ -1233,15 +1304,16 @@ class Schema(dict):
             default_schema_consistency_type: Default consistency type for new fields in AUTO mode
             
         Returns:
-            Tuple[pa.Table, bool]: Table with data validated/coerced according to schema consistency types,
-                                  and a boolean indicating if the schema was modified
+            Tuple[pa.Table, Schema]: Table with data validated/coerced according to schema consistency types,
+                                    and the (potentially updated) schema
             
         Raises:
             ValueError: If validation fails or coercion is not possible
+            SchemaCompatibilityError: If schema evolution would break compatibility
         """
         if not self.field_ids_to_fields:
             # No fields defined in schema, return original table
-            return table, False
+            return table, self
         
         # Create a mapping from field names to Field objects
         # TODO(pdames): Ensure this works properly with subschemas.
@@ -1249,8 +1321,10 @@ class Schema(dict):
         for field in self.field_ids_to_fields.values():
             field_name_to_field[field.arrow.name] = field
         
-        # Track if schema was modified
+        # Track schema modifications and collect update operations
         schema_modified = False
+        field_updates = {}  # field_name -> updated_field
+        new_fields = {}     # field_name -> new_field
         
         # Process each column in the table
         new_columns = []
@@ -1277,36 +1351,49 @@ class Schema(dict):
                     new_columns.append(promoted_data)
                     
                     if type_was_promoted:
-                        # Update the field type in the schema
+                        # Create updated field with same properties but new type
                         promoted_field = pa.field(
                             field.arrow.name,
                             promoted_data.type,
                             nullable=field.arrow.nullable,
                             metadata=field.arrow.metadata
                         )
-                        new_schema_fields.append(promoted_field)
                         
-                        # Update the field in our schema mapping
-                        updated_field = Field.of(promoted_field, consistency_type=field.consistency_type)
-                        # Find and update the field in the schema
-                        for field_id, existing_field in self.field_ids_to_fields.items():
-                            if existing_field.arrow.name == field.arrow.name:
-                                self.field_ids_to_fields[field_id] = updated_field
-                                schema_modified = True
-                                break
+                        updated_field = Field.of(
+                            promoted_field,
+                            field_id=field.id,
+                            is_merge_key=field.is_merge_key,
+                            merge_order=field.merge_order,
+                            is_event_time=field.is_event_time,
+                            doc=field.doc,
+                            past_default=field.past_default,
+                            future_default=field.future_default,
+                            consistency_type=field.consistency_type,
+                            path=field.path,
+                            native_object=field.native_object
+                        )
+                        
+                        # Store update for later application
+                        field_updates[column_name] = updated_field
+                        schema_modified = True
+                        new_schema_fields.append(promoted_field)
                     else:
                         new_schema_fields.append(field.arrow)
             else:
                 # Field not in schema - handle based on evolution mode
                 if schema_evolution_mode == "AUTO":
-                    # Add new field to schema with default consistency type
+                    # Create new field with default consistency type
+                    next_field_id = self.max_field_id + 1
                     new_field = Field.of(
                         pa.field(column_name, column_data.type, nullable=True),
+                        field_id=next_field_id,
                         consistency_type=default_schema_consistency_type or SchemaConsistencyType.NONE
                     )
-                    # Add the field to our schema
-                    self.field_ids_to_fields[len(self.field_ids_to_fields)] = new_field
-                    schema_modified = True  # Mark that schema was modified
+                    
+                    # Store new field for later application
+                    new_fields[column_name] = new_field
+                    schema_modified = True
+                    
                     # Process the column with the new field
                     new_columns.append(column_data)
                     new_schema_fields.append(new_field.arrow)
@@ -1346,11 +1433,24 @@ class Schema(dict):
                         new_columns.append(null_column)
                     new_schema_fields.append(field.arrow)
         
-        # If schema was modified, update the schema's arrow property
+        # Apply schema updates if any modifications were made
+        updated_schema = self
         if schema_modified:
-            self["arrow"] = pa.schema(new_schema_fields)
+            # Initialize schema update with allow_incompatible_changes=True for type promotion
+            schema_update = self.update(allow_incompatible_changes=True)
+            
+            # Apply field updates
+            for field_name, updated_field in field_updates.items():
+                schema_update = schema_update.update_field(field_name, updated_field)
+            
+            # Apply new fields
+            for field_name, new_field in new_fields.items():
+                schema_update = schema_update.add_field(field_name, new_field)
+            
+            # Apply all updates
+            updated_schema = schema_update.apply()
         
-        return pa.table(new_columns, schema=pa.schema(new_schema_fields)), schema_modified
+        return pa.table(new_columns, schema=pa.schema(new_schema_fields)), updated_schema
 
     def coerce(self, dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any]) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
         """Coerce a dataset to match this schema using field type promotion.
@@ -1631,9 +1731,9 @@ class SchemaUpdate(dict):
     3. Update existing fields with compatible changes
     4. Validate schema compatibility to prevent breaking existing dataset consumers
     
-    The class enforces backward compatibility by default to ensure that PyArrow,
-    Pandas, Polars, Ray Data, Daft, and other dataset types continue to work
-    after schema changes.
+    The class enforces backward compatibility by default to ensure that table
+    consumer jobs writtten using PyArrow, Pandas, Polars, Ray Data, Daft, and other 
+    dataset types continue to work after schema changes.
     
     Example:
         Using Schema.update():
@@ -1670,14 +1770,14 @@ class SchemaUpdate(dict):
         return SchemaUpdate._build(
             base_schema=base_schema,
             allow_incompatible_changes=allow_incompatible_changes,
-            operations=[]
+            operations=SchemaUpdateOperations.of([])
         )
     
     @staticmethod
     def _build(
         base_schema: Schema,
         allow_incompatible_changes: bool,
-        operations: List[Tuple[str, FieldLocator, Optional[Field]]]
+        operations: SchemaUpdateOperations
     ) -> 'SchemaUpdate':
         """Internal builder method."""
         schema_update = SchemaUpdate()
@@ -1707,12 +1807,12 @@ class SchemaUpdate(dict):
         self["allowIncompatibleChanges"] = value
     
     @property
-    def operations(self) -> List[Tuple[str, FieldLocator, Optional[Field]]]:
+    def operations(self) -> SchemaUpdateOperations:
         """Get the list of pending operations."""
         return self["operations"]
     
     @operations.setter
-    def operations(self, value: List[Tuple[str, FieldLocator, Optional[Field]]]) -> None:
+    def operations(self, value: SchemaUpdateOperations) -> None:
         """Set the list of pending operations."""
         self["operations"] = value
         
@@ -1730,7 +1830,7 @@ class SchemaUpdate(dict):
         Raises:
             SchemaCompatibilityError: If field already exists or addition would break compatibility
         """
-        self.operations.append(("add", field_locator, new_field))
+        self.operations.append(SchemaUpdateOperation.add_field(field_locator, new_field))
         return self
         
     def remove_field(self, field_locator: FieldLocator) -> 'SchemaUpdate':
@@ -1746,7 +1846,7 @@ class SchemaUpdate(dict):
         Raises:
             SchemaCompatibilityError: If field doesn't exist or removal would break compatibility
         """
-        self.operations.append(("remove", field_locator, None))
+        self.operations.append(SchemaUpdateOperation.remove_field(field_locator))
         return self
         
     def update_field(self, field_locator: FieldLocator, updated_field: Field) -> 'SchemaUpdate':
@@ -1763,7 +1863,7 @@ class SchemaUpdate(dict):
         Raises:
             SchemaCompatibilityError: If field doesn't exist or update would break compatibility
         """
-        self.operations.append(("update", field_locator, updated_field))
+        self.operations.append(SchemaUpdateOperation.update_field(field_locator, updated_field))
         return self
         
     def apply(self) -> Schema:
@@ -1783,16 +1883,16 @@ class SchemaUpdate(dict):
                               for i, field in enumerate(updated_fields)}
         
         # Apply operations in order
-        for operation, field_locator, field_data in self.operations:
-            if operation == "add":
-                self._apply_add_field(updated_fields, field_name_to_index, field_locator, field_data)
-            elif operation == "remove":
-                self._apply_remove_field(updated_fields, field_name_to_index, field_locator)
-            elif operation == "update":
-                self._apply_update_field(updated_fields, field_name_to_index, field_locator, field_data)
+        for operation in self.operations:
+            if operation.operation == "add":
+                self._apply_add_field(updated_fields, field_name_to_index, operation.field_locator, operation.field)
+            elif operation.operation == "remove":
+                self._apply_remove_field(updated_fields, field_name_to_index, operation.field_locator)
+            elif operation.operation == "update":
+                self._apply_update_field(updated_fields, field_name_to_index, operation.field_locator, operation.field)
         
-        # Create new schema from updated fields
-        return Schema.of(updated_fields)
+        # Create new schema from updated fields with incremented schema ID
+        return Schema.of(updated_fields, schema_id=self.base_schema.id + 1)
     
     def _apply_add_field(
         self, 

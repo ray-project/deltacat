@@ -44,6 +44,9 @@ from deltacat.storage.model.schema import (
     NestedFieldName,
     Schema,
     SchemaList,
+    SchemaUpdate,
+    SchemaUpdateOperation,
+    SchemaUpdateOperations,
 )
 from deltacat.storage.model.stream import (
     Stream,
@@ -147,6 +150,9 @@ __all__ = [
     "PartitionValues",
     "Schema",
     "SchemaList",
+    "SchemaUpdate",
+    "SchemaUpdateOperation",
+    "SchemaUpdateOperations",
     "SchemaConsistencyType",
     "SortKey",
     "SortKeyList",

@@ -31,6 +31,7 @@ from deltacat.storage.model.namespace import Namespace, NamespaceProperties
 from deltacat.storage.model.schema import (
     Schema, 
     SchemaUpdate,
+    SchemaUpdateOperations,
 )
 from deltacat.storage.model.table import TableProperties, Table
 from deltacat.storage.model.types import (
@@ -47,7 +48,10 @@ from deltacat.storage.model.partition import (
     UNKNOWN_PARTITION_ID,
     UNSPECIFIED_PARTITION_ID,
 )
-from deltacat.storage.model.table_version import TableVersion
+from deltacat.storage.model.table_version import (
+    TableVersion, 
+    TableVersionProperties,
+)
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import Delta
 from deltacat.storage.model.types import CommitState
@@ -451,7 +455,7 @@ def write_to_table(
         )
 
         # Get the active table version and stream
-        table_version_obj = _get_latest_or_given_table_version(
+        table_version_obj = _get_latest_active_or_given_table_version(
             namespace=namespace,
             table_name=table,
             table_version=table_version or table_definition.table_version.table_version,
@@ -838,14 +842,16 @@ def _validate_and_coerce_data_against_schema(
         return data, False, None
     
     # Validate and coerce the table against the schema
-    validated_table, schema_modified = schema.validate_and_coerce_table(
+    validated_table, updated_schema = schema.validate_and_coerce_table(
         pa_table, 
         schema_evolution_mode=schema_evolution_mode,
         default_schema_consistency_type=default_schema_consistency_type
     )
     
-    # If schema was modified, the original schema object has been updated in-place
-    updated_schema = schema if schema_modified else None
+    # Check if schema was modified by comparing with original
+    schema_modified = not updated_schema.equivalent_to(schema, True)
+    # Return updated schema only if it was modified
+    updated_schema = updated_schema if schema_modified else None
     
     # Convert back to original data type if needed
     if isinstance(data, pa.Table):
@@ -1200,7 +1206,7 @@ def _get_and_validate_table_metadata(
     table: str, namespace: str, table_version: Optional[str], **kwargs
 ) -> TableVersion:
     """Get table version object and validate its metadata."""
-    table_version_obj = _get_latest_or_given_table_version(
+    table_version_obj = _get_latest_active_or_given_table_version(
         namespace=namespace,
         table_name=table,
         table_version=table_version,
@@ -1473,15 +1479,18 @@ def alter_table(
     table: str,
     *args,
     namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema_updates: Optional[SchemaUpdate] = None,
+    schema_updates: Optional[SchemaUpdateOperations] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    sort_keys: Optional[SortScheme] = None,
+    sort_key_updates: Optional[SortScheme] = None,
     description: Optional[str] = None,
+    table_version_description: Optional[str] = None,
     properties: Optional[TableProperties] = None,
+    table_version_properties: Optional[TableVersionProperties] = None,
     **kwargs,
 ) -> None:
-    """Alter deltacat table/table_version definition.
+    """Alter DeltaCAT table/table_version definition.
 
     Modifies various aspects of a table's metadata including lifecycle state,
     schema, partitioning, sort keys, description, and properties.
@@ -1489,43 +1498,85 @@ def alter_table(
     Args:
         table: Name of the table to alter.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
-        lifecycle_state: New lifecycle state for the table.
-        schema_updates: Schema updates to apply.
+        table_version: Optional version of the table to alter. Uses latest active version if not specified.
+        lifecycle_state: New lifecycle state for the table version.
+        schema_updates: List of schema update operations to apply (add, remove, update fields).
         partition_updates: Map of partition scheme updates to apply.
-        sort_keys: New sort keys scheme.
+        sort_key_updates: New sort  scheme updates to apply.
         description: New description for the table.
+        table_version_description: New table version description.
         properties: New table properties.
+        table_version_properties: New table version properties.
 
     Returns:
         None
 
     Raises:
         TableNotFoundError: If the table does not already exist.
+        TableVersionNotFoundError: If the specified table version or active table version does not exist.
     """
     namespace = namespace or default_namespace()
 
+    if partition_updates:
+        raise NotImplementedError("Partition updates are not yet supported.")
+    if sort_key_updates:
+        raise NotImplementedError("Sort key updates are not yet supported.")
+    
     _get_storage(**kwargs).update_table(
         *args,
         namespace=namespace,
         table_name=table,
         description=description,
         properties=properties,
-        lifecycle_state=lifecycle_state,
         **kwargs,
     )
 
-    table_version = _get_storage(**kwargs).get_latest_table_version(
-        namespace, table, **kwargs
-    )
+    if table_version is None:
+        table_version = _get_storage(**kwargs).get_latest_active_table_version(
+            namespace, table, **kwargs
+        )
+        if table_version is None:
+            raise TableVersionNotFoundError(f"No active table version found for table {namespace}.{table}. "
+                           "Please specify a table_version parameter.")
+    else:
+        table_version = _get_storage(**kwargs).get_table_version(
+            namespace, table, table_version, **kwargs
+        )
+        if table_version is None:
+            raise TableVersionNotFoundError(f"Table version '{table_version}' not found for table {namespace}.{table}")
+
+    # Apply schema updates if provided
+    updated_schema = None
+    if schema_updates is not None:
+        # Get the current schema from the table version
+        current_schema = table_version.schema
+        
+        # Create a SchemaUpdate from the current schema
+        schema_update = current_schema.update()
+        
+        # Apply each operation in the list
+        for operation in schema_updates:
+            if operation.operation == "add":
+                schema_update = schema_update.add_field(operation.field_locator, operation.field)
+            elif operation.operation == "remove":
+                schema_update = schema_update.remove_field(operation.field_locator)
+            elif operation.operation == "update":
+                schema_update = schema_update.update_field(operation.field_locator, operation.field)
+            else:
+                raise ValueError(f"Unknown schema update operation: {operation.operation}")
+        
+        # Apply all the updates to get the final schema
+        updated_schema = schema_update.apply()
+
     _get_storage(**kwargs).update_table_version(
         *args,
         namespace=namespace,
         table_name=table,
         table_version=table_version.id,
-        description=description,
-        schema_updates=schema_updates,
-        partition_updates=partition_updates,
-        sort_keys=sort_keys,
+        lifecycle_state=lifecycle_state,
+        description=table_version_description or description,
+        schema=updated_schema,
+        properties=table_version_properties,
         **kwargs,
     )
 
@@ -1698,7 +1749,7 @@ def get_table(
         Deltacat TableDefinition if the table exists, None otherwise.
 
     Raises:
-        TableVersionNotFoundError: If the table version does not exist.
+        TableVersionNotFoundError: If the table version or latest active table version does not exist.
         StreamNotFoundError: If the stream does not exist.
     """
     namespace = namespace or default_namespace()
@@ -1710,7 +1761,7 @@ def get_table(
         return None
 
     table_version: Optional[TableVersion] = _get_storage(**kwargs).get_table_version(
-        *args, namespace, name, table_version or table.latest_table_version, **kwargs
+        *args, namespace, name, table_version or table.latest_active_table_version, **kwargs
     )
 
     if table_version is None:
@@ -1907,7 +1958,7 @@ def default_namespace(*args, **kwargs) -> str:
     return DEFAULT_NAMESPACE  # table functions
 
 
-def _get_latest_or_given_table_version(
+def _get_latest_active_or_given_table_version(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
@@ -1916,12 +1967,14 @@ def _get_latest_or_given_table_version(
 ) -> TableVersion:
     table_version_obj = None
     if table_version is None:
-        table_version_obj = _get_storage(**kwargs).get_latest_table_version(
+        table_version_obj = _get_storage(**kwargs).get_latest_active_table_version(
             namespace=namespace, 
             table_name=table_name, 
             *args, 
             **kwargs,
         )
+        if table_version_obj is None:
+            raise TableVersionNotFoundError(f"No active table version found for table {namespace}.{table_name}")
         table_version = table_version_obj.table_version
     else:
         table_version_obj = _get_storage(**kwargs).get_table_version(

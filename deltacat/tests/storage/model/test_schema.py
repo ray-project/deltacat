@@ -304,6 +304,8 @@ def test_equivalent_schemas_different_instances():
     assert schema1.equivalent_to(schema2)
 
 
+
+
 def test_empty_schema_fails():
     with pytest.raises(ValueError):
         Schema.of({})

@@ -1105,6 +1105,7 @@ def create_table_version(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    lifecycle_state: Optional[LifecycleState] = LifecycleState.CREATED,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
@@ -1118,7 +1119,7 @@ def create_table_version(
     **kwargs,
 ) -> Tuple[Table, TableVersion, Stream]:
     """
-    Create a table version with an unreleased lifecycle state and an empty delta
+    Create a table version with the given or CREATED lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned to improve write
     performance, or have their writes governed by a schema and partition scheme
     to improve data consistency and read performance.
@@ -1189,6 +1190,7 @@ def create_table_version(
     new_table.description = table_description or table_version_description
     new_table.properties = table_properties
     new_table.latest_table_version = table_version
+    new_table.latest_active_table_version = table_version if lifecycle_state == LifecycleState.ACTIVE else None
     catalog_properties = get_catalog_properties(**kwargs)
     locator = TableVersionLocator.at(
         namespace=namespace,
@@ -1204,7 +1206,7 @@ def create_table_version(
         content_types=supported_content_types,
         sort_scheme=sort_keys,
         watermark=None,
-        lifecycle_state=LifecycleState.CREATED,
+        lifecycle_state=lifecycle_state,
         schemas=[schema] if schema else None,
         partition_schemes=[partition_scheme],
         sort_schemes=[sort_keys],
@@ -1349,10 +1351,7 @@ def update_table_version(
 
     new_table_version: TableVersion = Metafile.update_for(old_table_version)
     new_table_version.state = lifecycle_state or old_table_version.state
-    # TODO(pdames): Use schema patch to check for backwards incompatible changes.
-    #  By default, backwards incompatible changes should be pushed to a new
-    #  table version unless the user explicitly forces the update to this
-    #  table version (i.e., at the cost of potentially breaking consumers).
+
     update_schema = schema and not schema.equivalent_to(
         old_table_version.schema,
         True,

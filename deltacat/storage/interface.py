@@ -290,9 +290,9 @@ def create_table_version(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    lifecycle_state: Optional[LifecycleState] = LifecycleState.CREATED,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -301,9 +301,9 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
     **kwargs,
-) -> Tuple[Optional[Table], TableVersion, Stream]:
+) -> Tuple[Table, TableVersion, Stream]:
     """
-    Create a table version with an unreleased lifecycle state and an empty delta
+    Create a table version with the given or CREATED lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned to improve write
     performance, or have their writes governed by a schema and partition scheme
     to improve data consistency and read performance.
