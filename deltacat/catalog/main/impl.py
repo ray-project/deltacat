@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 from collections import defaultdict
+import os
 
 import pandas as pd
 import polars as pl
@@ -13,10 +14,7 @@ from ray.data._internal.pandas_block import PandasBlockSchema
 import deltacat as dc
 
 from deltacat.storage.model.manifest import ManifestAuthor
-from deltacat.catalog.model.properties import (
-    CatalogProperties,
-    get_catalog_properties,
-)
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     StreamNotFoundError,
@@ -50,7 +48,10 @@ from deltacat.storage.model.table_version import (
 from deltacat.storage.model.types import DeltaType
 from deltacat.storage import Delta
 from deltacat.storage.model.types import CommitState
-from deltacat.storage.model.transaction import Transaction
+from deltacat.storage.model.transaction import (
+    Transaction,
+    setup_transaction,
+)
 from deltacat.types.media import (
     ContentType,
     DatasetType,
@@ -79,39 +80,6 @@ The `CatalogProperties` instance returned by `initialize()` contains all
 durable state required to deterministically reconstruct the associated DeltaCAT
 native `Catalog` implementation (e.g., the root URI for the catalog metastore).
 """
-
-
-# Transaction management helper
-def _setup_transaction(
-    transaction: Optional[Transaction], **kwargs
-) -> tuple[Transaction, bool]:
-    """
-    Set up transaction handling for catalog operations.
-
-    Returns a tuple of (transaction, commit_transaction) where:
-    - transaction: The transaction to use (either provided or newly created)
-    - commit_transaction: True if we should commit the transaction on success
-
-    If a transaction is provided, it will be reused and not committed.
-    If no transaction is provided, a new interactive transaction is created and will be committed.
-    """
-    transaction = transaction
-    commit_transaction = transaction is None
-
-    if commit_transaction:
-        # Create and start an interactive transaction for atomic operations
-        transaction = Transaction.of(
-            txn_operations=[],  # Start with empty operations to enable interactive mode
-        )
-
-        # Get catalog properties for transaction management
-        catalog_properties = get_catalog_properties(**kwargs)
-        transaction = transaction.start(
-            catalog_root_dir=catalog_properties.root,
-            filesystem=catalog_properties.filesystem,
-        )
-
-    return transaction, commit_transaction
 
 
 # catalog functions
@@ -425,7 +393,7 @@ def write_to_table(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    write_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    write_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = write_transaction
 
     try:
@@ -1313,9 +1281,26 @@ def _get_qualified_deltas_for_read(
     return qualified_deltas
 
 
+def _get_max_parallelism(
+    max_parallelism: Optional[int], distributed_dataset_type: Optional[DatasetType]
+) -> int:
+    """Get the max parallelism for a read operation."""
+    if distributed_dataset_type:
+        max_parallelism = max_parallelism or 100
+    else:
+        max_parallelism = max_parallelism or os.cpu_count()
+    if max_parallelism < 1:
+        raise ValueError(
+            f"max_parallelism must be greater than 0, but got {max_parallelism}"
+        )
+    logger.info(f"Using max_parallelism={max_parallelism} for read operation")
+
+    return max_parallelism
+
+
 def _download_and_process_table_data(
     qualified_deltas: List[Delta],
-    table_type: Optional[DatasetType],
+    read_as: Optional[DatasetType],
     distributed_dataset_type: Optional[DatasetType],
     max_parallelism: Optional[int],
     columns: Optional[List[str]],
@@ -1329,7 +1314,7 @@ def _download_and_process_table_data(
 
     result = _get_storage(**kwargs).download_delta(
         merged_delta,
-        table_type=table_type,
+        table_type=read_as,
         storage_type=StorageType.DISTRIBUTED
         if distributed_dataset_type
         else StorageType.LOCAL,
@@ -1342,7 +1327,7 @@ def _download_and_process_table_data(
 
     # Process result based on storage type and schema
     return _process_table_result(
-        result, table_type, distributed_dataset_type, table_schema
+        result, read_as, distributed_dataset_type, table_schema
     )
 
 
@@ -1482,7 +1467,7 @@ def read_table(
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    table_type: Optional[DatasetType] = DatasetType.PYARROW,
+    read_as: Optional[DatasetType] = DatasetType.PYARROW,
     distributed_dataset_type: Optional[DatasetType] = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
@@ -1497,23 +1482,29 @@ def read_table(
         table: Name of the table to read.
         namespace: Optional namespace of the table. Uses default if not specified.
         table_version: Optional specific version of the table to read.
-        table_type: Type of dataset to return for local storage.
-        distributed_dataset_type: Type of dataset to return for distributed storage.
+        read_as: Local table type to use for reading table files. Valid values include members
+            of DatasetType.local() like NUMPY, PANDAS, POLARS, and PYARROW. Defaults to DatasetType.PYARROW.
+        distributed_dataset_type: Type of dataset to return for distributed storage. Set to None
+            to store the table in local memory with the same table type used to read table files.
+            Valid values include members of DatasetType.distributed() like DAFT and RAY_DATASET.
+            Defaults to DatasetType.DAFT.
         partition_filter: Optional list of partitions to read from.
-        max_parallelism: Optional maximum parallelism for data download.
+        max_parallelism: Optional maximum parallelism for data download. Defaults to the number of
+            available CPU cores for local reads and 100 for distributed reads.
         columns: Optional list of columns to include in the result.
         file_path_column: Optional column name to add file paths to the result.
-        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
+        transaction: Optional transaction to chain this read operation to. If provided, uncommitted
+            changes from the transaction will be visible to this read operation.
         **kwargs: Additional keyword arguments.
 
     Returns:
         Dataset containing the table data.
     """
     # Validate input parameters
-    _validate_read_table_input(table_type, distributed_dataset_type)
+    _validate_read_table_input(read_as, distributed_dataset_type)
 
     # Set up transaction handling
-    read_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    read_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = read_transaction
 
     try:
@@ -1541,9 +1532,19 @@ def read_table(
             )
 
         # Download and process the data
+        # TODO(pdames): Remove once we implement a custom SerDe for pa.ParquetFile
+        if read_as == DatasetType.PYARROW_PARQUET:
+            max_parallelism = 1
+            logger.warning(
+                f"Forcing max_parallelism to 1 for PyArrow Parquet reads to avoid serialization errors."
+            )
+        max_parallelism = _get_max_parallelism(
+            max_parallelism,
+            distributed_dataset_type,
+        )
         result = _download_and_process_table_data(
             qualified_deltas,
-            table_type,
+            read_as,
             distributed_dataset_type,
             max_parallelism,
             columns,
@@ -1551,7 +1552,6 @@ def read_table(
             table_version_obj.schema,
             **kwargs,
         )
-
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             read_transaction.seal()
@@ -1609,7 +1609,7 @@ def alter_table(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    alter_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    alter_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = alter_transaction
 
     try:
@@ -1743,7 +1743,7 @@ def create_table(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    create_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    create_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = create_transaction
 
     try:
@@ -1810,6 +1810,8 @@ def drop_table(
     Args:
         name: Name of the table to drop.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        table_version: Optional table version of the table to drop. If not specified, the parent table of all
+        table versions will be dropped.
         purge: If True, permanently delete the table data. If False, only remove from catalog.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
@@ -1828,13 +1830,27 @@ def drop_table(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    drop_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    drop_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = drop_transaction
 
     try:
-        _get_storage(**kwargs).delete_table(
-            *args, namespace=namespace, name=name, purge=purge, **kwargs
-        )
+        if not table_version:
+            _get_storage(**kwargs).delete_table(
+                namespace=namespace,
+                name=name,
+                purge=purge,
+                *args,
+                **kwargs,
+            )
+        else:
+            _get_storage(**kwargs).update_table_version(
+                namespace=namespace,
+                table_name=name,
+                table_version=table_version,
+                lifecycle_state=LifecycleState.DELETED,
+                *args,
+                **kwargs,
+            )
 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
@@ -1877,7 +1893,7 @@ def list_tables(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    list_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    list_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = list_transaction
 
     try:
@@ -1933,7 +1949,7 @@ def get_table(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    get_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    get_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = get_transaction
 
     try:
@@ -2036,7 +2052,7 @@ def rename_table(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    rename_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    rename_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = rename_transaction
 
     try:
@@ -2078,7 +2094,7 @@ def table_exists(
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
-    exists_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    exists_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = exists_transaction
 
     try:
@@ -2110,7 +2126,7 @@ def list_namespaces(
         ListResult containing Namespace objects.
     """
     # Set up transaction handling
-    list_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    list_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = list_transaction
 
     try:
@@ -2129,7 +2145,10 @@ def list_namespaces(
 
 
 def get_namespace(
-    namespace: str, *args, transaction: Optional[Transaction] = None, **kwargs
+    namespace: str,
+    *args,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
 ) -> Optional[Namespace]:
     """Get metadata for a specific table namespace.
 
@@ -2141,7 +2160,7 @@ def get_namespace(
         Namespace object if the namespace exists, None otherwise.
     """
     # Set up transaction handling
-    get_ns_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    get_ns_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = get_ns_transaction
 
     try:
@@ -2162,7 +2181,10 @@ def get_namespace(
 
 
 def namespace_exists(
-    namespace: str, *args, transaction: Optional[Transaction] = None, **kwargs
+    namespace: str,
+    *args,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
 ) -> bool:
     """Check if a namespace exists.
 
@@ -2174,7 +2196,7 @@ def namespace_exists(
         True if the namespace exists, False otherwise.
     """
     # Set up transaction handling
-    exists_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    exists_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = exists_transaction
 
     try:
@@ -2215,9 +2237,7 @@ def create_namespace(
         NamespaceAlreadyExistsError: If the namespace already exists.
     """
     # Set up transaction handling
-    namespace_transaction, commit_transaction = _setup_transaction(
-        transaction, **kwargs
-    )
+    namespace_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = namespace_transaction
 
     try:
@@ -2260,7 +2280,7 @@ def alter_namespace(
         None
     """
     # Set up transaction handling
-    alter_ns_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    alter_ns_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = alter_ns_transaction
 
     try:
@@ -2293,8 +2313,8 @@ def drop_namespace(
 
     Args:
         namespace: Name of the namespace to drop.
-        purge: If True, permanently delete all tables in the namespace.
-            If False, only remove from catalog.
+        purge: If True, permanently delete all table data in the namespace.
+            If False, only removes the namespace from the catalog.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -2306,12 +2326,15 @@ def drop_namespace(
         raise NotImplementedError("Purge flag is not currently supported.")
 
     # Set up transaction handling
-    drop_ns_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    drop_ns_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = drop_ns_transaction
 
     try:
         _get_storage(**kwargs).delete_namespace(
-            *args, namespace=namespace, purge=purge, **kwargs
+            *args,
+            namespace=namespace,
+            purge=purge,
+            **kwargs,
         )
 
         if commit_transaction:

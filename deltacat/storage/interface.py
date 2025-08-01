@@ -418,9 +418,9 @@ def delete_table(
     **kwargs,
 ) -> None:
     """
-    Drops the given table and all its contents (table versions, streams, partitions,
-    and deltas). If purge is True, also removes all data files associated with the table.
-    Raises an error if the given table does not exist.
+    Drops the given table from the catalog. If purge is True, also removes
+    all data files associated with the table. Raises an error if the given table
+    does not exist.
     """
     raise NotImplementedError("delete_table not implemented")
 
@@ -432,10 +432,9 @@ def delete_namespace(
     **kwargs,
 ) -> None:
     """
-    Drops a table namespace and all its contents. If purge is True, then all
-    tables, table versions, and deltas will be deleted. Otherwise, the namespace
-    will be dropped only if it is empty. Raises an error if the given namespace
-    does not exist.
+    Drops the given namespace from the catalog. If purge is True, also removes
+    all data files associated with the namespace. Raises an error if the given
+    namespace does not exist.
     """
     raise NotImplementedError("drop_namespace not implemented")
 

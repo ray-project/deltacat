@@ -5,7 +5,7 @@ import logging
 import copy
 
 import msgpack
-from typing import Optional, Any, Dict, Union, List, Callable, Tuple
+from typing import Optional, Any, Dict, Union, List, Callable, Tuple, TYPE_CHECKING
 
 import pyarrow as pa
 from pyarrow import ArrowInvalid
@@ -25,6 +25,10 @@ from deltacat.types.tables import (
     from_pyarrow,
     get_dataset_type,
 )
+
+if TYPE_CHECKING:
+    from deltacat.storage.model.types import SortKey
+
 from deltacat import logs
 
 
@@ -1151,7 +1155,7 @@ class Schema(dict):
         )
         return self.field_ids_to_fields[field_id]
 
-    def merge_order_sort_keys(self) -> Optional[List["SortKey"]]:  # noqa
+    def merge_order_sort_keys(self) -> Optional[List[SortKey]]:
         """Extract sort keys from fields with merge_order defined, or use event_time as fallback.
 
         If explicit merge_order fields are defined, they take precedence.
@@ -1599,7 +1603,7 @@ class Schema(dict):
 
     def _create_sort_keys_from_merge_order_fields(
         self, fields_with_merge_order: List["Field"]
-    ) -> List["SortKey"]:  # noqa
+    ) -> List[SortKey]:
         """Create sort keys from fields with explicit merge_order.
 
         Args:

@@ -5,7 +5,7 @@ import pyarrow
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
-from deltacat.catalog import get_catalog_properties
+from deltacat.catalog.model.properties import get_catalog_properties
 from deltacat.constants import DEFAULT_TABLE_VERSION, DATA_FILE_DIR_NAME
 from deltacat.exceptions import (
     TableNotFoundError,
@@ -25,6 +25,7 @@ from deltacat.storage.model.delta import (
     DeltaProperties,
     DeltaType,
 )
+from deltacat.storage.model.transaction import setup_transaction
 from deltacat.storage.model.types import (
     CommitState,
     DistributedDataset,
@@ -96,29 +97,6 @@ from deltacat.types.tables import (
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
-
-def _ensure_transaction(
-    transaction: Optional[Transaction] = None, **kwargs
-) -> Tuple[Transaction, bool]:
-    """
-    Utility method to ensure a transaction exists and determine if it should be committed.
-    Creates a new transaction if none is provided.
-
-    Args:
-        transaction: Optional existing transaction to use
-        **kwargs: Additional arguments for catalog properties
-
-    Returns:
-        Tuple[Transaction, bool]: The transaction to use and whether to commit it
-    """
-    commit_transaction = transaction is None
-    if commit_transaction:
-        catalog_properties = get_catalog_properties(**kwargs)
-        transaction = Transaction.of().start(
-            catalog_properties.root, catalog_properties.filesystem
-        )
-    return transaction, commit_transaction
 
 
 def _list(
@@ -403,7 +381,7 @@ def list_partitions(
     table version if not specified. Raises an error if the table version does
     not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     if not namespace:
         raise ValueError("Namespace cannot be empty.")
@@ -503,7 +481,7 @@ def list_deltas(
     default. The manifests can either be optionally retrieved as part of this
     call or lazily loaded via subsequent calls to `get_delta_manifest`.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     # TODO(pdames): Delta listing should ideally either use an efficient
     #  range-limited dir listing of partition children between start and end
@@ -666,7 +644,7 @@ def get_delta(
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     # TODO(pdames): Honor `include_manifest` param.
 
@@ -754,7 +732,7 @@ def get_latest_delta(
     default. The manifest can either be optionally retrieved as part of this
     call or lazily loaded via a subsequent call to `get_delta_manifest`.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     stream = get_stream(
         namespace=namespace,
@@ -995,7 +973,7 @@ def download_delta_manifest_entry(
     """
     # TODO (pdames): Deprecate this method and replace with
     #  `read_delta_manifest_entry`
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     is_delta = isinstance(delta_like, Delta)
     is_delta_locator = isinstance(delta_like, DeltaLocator)
@@ -1107,7 +1085,7 @@ def create_namespace(
     Creates a table namespace with the given name and properties. Returns
     the created namespace.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     namespace = Namespace.of(
         locator=NamespaceLocator.of(namespace=namespace),
@@ -1139,7 +1117,7 @@ def update_namespace(
     Updates a table namespace's name and/or properties. Raises an error if the
     given namespace does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     # Check if the namespace exists
     old_namespace_meta = get_namespace(
@@ -1199,7 +1177,7 @@ def create_table_version(
 
     Raises an error if the given namespace does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     if not namespace_exists(
         namespace=namespace,
@@ -1336,7 +1314,7 @@ def update_table(
     when its first table version was created. Raises an error if the given
     table does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     old_table = get_table(
         namespace=namespace,
@@ -1380,7 +1358,7 @@ def update_table_version(
 ) -> None:
     """
     Update a table version. Notably, updating an unreleased table version's
-    lifecycle state to 'active' telegraphs that it is ready for external
+    lifecycle state to 'ACTIVE' telegraphs that it is ready for external
     consumption, and causes all calls made to consume/produce streams,
     partitions, or deltas from/to its parent table to automatically resolve to
     this table version by default (i.e., when the client does not explicitly
@@ -1396,7 +1374,7 @@ def update_table_version(
         transaction: Optional transaction to append operations to instead of
                     creating and committing a new transaction.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     old_table_version = get_table_version(
         namespace=namespace,
         table_name=table_name,
@@ -1557,7 +1535,7 @@ def stage_stream(
     Returns the staged stream. Raises an error if the table version does not
     exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
@@ -1632,7 +1610,7 @@ def commit_stream(
     previous stream registered for the same table version. Returns the
     committed stream.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     if not stream.stream_id:
         raise ValueError("Stream ID to commit must be set to a staged stream ID.")
@@ -1736,7 +1714,7 @@ def delete_stream(
     Resolves to the deltacat stream format if no stream format is given.
     Raises an error if the stream does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
@@ -1783,19 +1761,19 @@ def delete_table(
     **kwargs,
 ) -> None:
     """
-    Drops the given table and all its contents (table versions, streams, partitions,
-    and deltas). If purge is True, also removes all data files associated with the table.
-    Raises an error if the given table does not exist.
-
-    TODO: Honor purge once garbage collection is implemented.
+    Drops the given table from the catalog. If purge is True, also removes
+    all data files associated with the table. Raises an error if the given table
+    does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    if purge:
+        raise NotImplementedError("Purge flag is not currently supported.")
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     table: Optional[Table] = get_table(
-        *args,
         namespace=namespace,
         table_name=name,
         transaction=transaction,
+        *args,
         **kwargs,
     )
 
@@ -1822,10 +1800,13 @@ def delete_namespace(
     **kwargs,
 ) -> None:
     """
-    Drops the given table namespace and all its contents. Raises an error if the
-    given namespace does not exist.
+    Drops the given namespace from the catalog. If purge is True, also removes
+    all data files associated with the namespace. Raises an error if the given
+    namespace does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    if purge:
+        raise NotImplementedError("Purge flag is not currently supported.")
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     namespace_obj: Optional[Namespace] = get_namespace(
         namespace=namespace,
@@ -1886,7 +1867,7 @@ def get_stream(
     Resolves to the DeltaCAT stream format if no stream format is given.
     Returns None if the table version or stream format does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
             namespace=namespace,
@@ -1933,7 +1914,7 @@ def stream_exists(
     Resolves to the DeltaCAT stream format if no stream format is given.
     Returns None if the table version or stream format does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     if not table_version:
         table_version = _resolve_latest_active_table_version_id(
             namespace=namespace,
@@ -1983,7 +1964,7 @@ def stage_partition(
     The partition_values must represent the results of transforms in a partition
     spec specified in the stream.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     # TODO(pdames): Cache last retrieved metafile revisions in memory to resolve
     #   potentially high cost of staging many partitions.
@@ -2113,7 +2094,7 @@ def commit_partition(
     specified, then the commit will be rejected if it does not match the actual
     ID of the partition being replaced.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     if previous_partition:
         raise NotImplementedError(
@@ -2235,7 +2216,7 @@ def delete_partition(
     values should not be specified for unpartitioned tables. Raises an error
     if the partition does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     partition_to_delete = get_partition(
         stream_locator=stream_locator,
@@ -2307,7 +2288,7 @@ def get_partition(
     resolves to the table version's current partition scheme by default.
     Raises an error if the given stream locator does not exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     locator = PartitionLocator.of(
         stream_locator=stream_locator,
         partition_values=partition_values,
@@ -2495,7 +2476,7 @@ def commit_delta(
     stream position is specified, it must be greater than the latest stream
     position in the target partition.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     delta: Delta = Metafile.update_for(delta)
     delta_type: Optional[DeltaType] = delta.type
@@ -2646,7 +2627,7 @@ def get_latest_table_version(
     Returns None if no table version exists for the given table. Raises
     an error if the given table doesn't exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     table_version_id = _resolve_latest_table_version_id(
         namespace=namespace,
         table_name=table_name,
@@ -2685,7 +2666,7 @@ def get_latest_active_table_version(
     table. Returns None if no active table version exists for the given table.
     Raises an error if the given table doesn't exist.
     """
-    transaction, commit_transaction = _ensure_transaction(transaction, **kwargs)
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     table_version_id = _resolve_latest_active_table_version_id(
         namespace=namespace,
         table_name=table_name,

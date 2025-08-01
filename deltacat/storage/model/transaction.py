@@ -40,6 +40,33 @@ from deltacat.utils.filesystem import (
 )
 
 
+def setup_transaction(
+    transaction: Optional[Transaction] = None,
+    **kwargs,
+) -> Tuple[Transaction, bool]:
+    """
+    Utility method to ensure a transaction exists and determine if it should be committed
+    within the caller's context. Creates a new transaction if none is provided.
+
+    Args:
+        transaction: Optional existing transaction to use
+        **kwargs: Additional arguments for catalog properties
+
+    Returns:
+        Tuple[Transaction, bool]: The transaction to use and whether to commit it
+    """
+    commit_transaction = transaction is None
+    if commit_transaction:
+        from deltacat.catalog.model.properties import get_catalog_properties
+
+        catalog_properties = get_catalog_properties(**kwargs)
+        transaction = Transaction.of().start(
+            catalog_properties.root,
+            catalog_properties.filesystem,
+        )
+    return transaction, commit_transaction
+
+
 class TransactionTimeProvider:
     """
     Provider interface for transaction start and end times. An ideal

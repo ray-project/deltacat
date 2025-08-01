@@ -2052,7 +2052,7 @@ class TestDatasetTypes:
                 namespace=namespace,
                 catalog=catalog_name,
                 distributed_dataset_type=None,
-                table_type=storage_type,
+                read_as=storage_type,
             )
 
             # Verify the data was read correctly
@@ -2122,7 +2122,7 @@ class TestDatasetTypes:
         # Test LOCAL storage types with custom kwargs
         local_test_cases = [
             {
-                "table_type": DatasetType.PYARROW,
+                "read_as": DatasetType.PYARROW,
                 "name": "PyArrow",
                 "custom_kwargs": {
                     "pre_buffer": True,
@@ -2131,7 +2131,7 @@ class TestDatasetTypes:
                 },
             },
             {
-                "table_type": DatasetType.PANDAS,
+                "read_as": DatasetType.PANDAS,
                 "name": "Pandas",
                 "custom_kwargs": {
                     "use_pandas_metadata": True,
@@ -2139,7 +2139,7 @@ class TestDatasetTypes:
                 },
             },
             {
-                "table_type": DatasetType.POLARS,
+                "read_as": DatasetType.POLARS,
                 "name": "Polars",
                 "custom_kwargs": {
                     "use_pyarrow": True,
@@ -2147,7 +2147,7 @@ class TestDatasetTypes:
                 },
             },
             {
-                "table_type": DatasetType.NUMPY,
+                "read_as": DatasetType.NUMPY,
                 "name": "NumPy",
                 "custom_kwargs": {
                     "use_pandas_metadata": True,
@@ -2163,7 +2163,7 @@ class TestDatasetTypes:
                 namespace=namespace,
                 catalog=catalog_name,
                 distributed_dataset_type=None,
-                table_type=test_case["table_type"],
+                read_as=test_case["read_as"],
                 **test_case["custom_kwargs"],
             )
 
@@ -2171,28 +2171,28 @@ class TestDatasetTypes:
             file_path_column = test_case["custom_kwargs"].get("file_path_column")
 
             assert get_table_length(result_table) == 5
-            if test_case["table_type"] == DatasetType.PYARROW:
+            if test_case["read_as"] == DatasetType.PYARROW:
                 assert isinstance(result_table, pa.Table)
                 expected_cols = 5 if file_path_column else 4
                 assert len(result_table.column_names) == expected_cols
                 if file_path_column:
                     assert file_path_column in result_table.column_names
 
-            elif test_case["table_type"] == DatasetType.PANDAS:
+            elif test_case["read_as"] == DatasetType.PANDAS:
                 assert isinstance(result_table, pd.DataFrame)
                 expected_cols = 5 if file_path_column else 4
                 assert len(result_table.columns) == expected_cols
                 if file_path_column:
                     assert file_path_column in result_table.columns
 
-            elif test_case["table_type"] == DatasetType.POLARS:
+            elif test_case["read_as"] == DatasetType.POLARS:
                 assert isinstance(result_table, pl.DataFrame)
                 expected_cols = 5 if file_path_column else 4
                 assert result_table.shape[1] == expected_cols
                 if file_path_column:
                     assert file_path_column in result_table.columns
 
-            elif test_case["table_type"] == DatasetType.NUMPY:
+            elif test_case["read_as"] == DatasetType.NUMPY:
                 assert isinstance(result_table, np.ndarray)
                 expected_cols = 5 if file_path_column else 4
                 assert result_table.shape[1] == expected_cols
@@ -2327,7 +2327,7 @@ class TestDatasetTypes:
         test_cases = [
             {
                 "name": "PyArrow LOCAL with file_path_column + include_columns (path NOT in include)",
-                "table_type": DatasetType.PYARROW,
+                "read_as": DatasetType.PYARROW,
                 "distributed_dataset_type": None,
                 "include_columns": [
                     "id",
@@ -2342,7 +2342,7 @@ class TestDatasetTypes:
             },
             {
                 "name": "PyArrow LOCAL with file_path_column + include_columns (path IN include)",
-                "table_type": DatasetType.PYARROW,
+                "read_as": DatasetType.PYARROW,
                 "distributed_dataset_type": None,
                 "include_columns": [
                     "id",
@@ -2354,7 +2354,7 @@ class TestDatasetTypes:
             },
             {
                 "name": "Pandas LOCAL with file_path_column + include_columns (path NOT in include)",
-                "table_type": DatasetType.PANDAS,
+                "read_as": DatasetType.PANDAS,
                 "distributed_dataset_type": None,
                 "include_columns": [
                     "value",
@@ -2369,7 +2369,7 @@ class TestDatasetTypes:
             },
             {
                 "name": "RAY_DATASET with file_path_column + include_columns (path NOT in include)",
-                "table_type": None,
+                "read_as": None,
                 "distributed_dataset_type": DatasetType.RAY_DATASET,
                 "include_columns": [
                     "id",
@@ -2384,7 +2384,7 @@ class TestDatasetTypes:
             },
             {
                 "name": "DAFT with file_path_column + include_columns (path NOT in include)",
-                "table_type": None,
+                "read_as": None,
                 "distributed_dataset_type": DatasetType.DAFT,
                 "include_columns": [
                     "name",
@@ -2411,8 +2411,8 @@ class TestDatasetTypes:
                 "file_path_column": test_case["file_path_column"],
             }
 
-            if test_case["table_type"]:
-                read_args["table_type"] = test_case["table_type"]
+            if test_case["read_as"]:
+                read_args["read_as"] = test_case["read_as"]
                 read_args["distributed_dataset_type"] = None
             else:
                 read_args["distributed_dataset_type"] = test_case[
@@ -2423,9 +2423,9 @@ class TestDatasetTypes:
             result = dc.read_table(**read_args)
 
             # Get column names based on result type
-            if test_case["table_type"] == DatasetType.PYARROW:
+            if test_case["read_as"] == DatasetType.PYARROW:
                 actual_columns = set(result.column_names)
-            elif test_case["table_type"] == DatasetType.PANDAS:
+            elif test_case["read_as"] == DatasetType.PANDAS:
                 actual_columns = set(result.columns)
             elif test_case["distributed_dataset_type"] == DatasetType.RAY_DATASET:
                 actual_columns = set(result.schema().names)
@@ -3154,7 +3154,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.PANDAS,
+            read_as=DatasetType.PANDAS,
         )
 
         # Convert result to pandas if needed
@@ -3220,7 +3220,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.PANDAS,
+            read_as=DatasetType.PANDAS,
         )
 
         # Convert result to pandas if needed
@@ -3320,7 +3320,7 @@ class TestTableVersionWriteModes:
                 table_name,
                 catalog=self.catalog_name,
                 namespace=namespace,
-                table_type=dataset_type,
+                read_as=dataset_type,
             )
 
             if dataset_type == DatasetType.PANDAS:
@@ -3425,7 +3425,7 @@ class TestTableVersionWriteModes:
                 table_name,
                 catalog=self.catalog_name,
                 namespace=namespace,
-                table_type=dataset_type,
+                read_as=dataset_type,
                 distributed_dataset_type=None,  # Force local-only processing
             )
 
@@ -3519,7 +3519,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.PANDAS,
+            read_as=DatasetType.PANDAS,
             distributed_dataset_type=DatasetType.RAY_DATASET,
         )
 
@@ -3542,7 +3542,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.PYARROW,
+            read_as=DatasetType.PYARROW,
             distributed_dataset_type=DatasetType.RAY_DATASET,
         )
 
@@ -3566,7 +3566,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.POLARS,
+            read_as=DatasetType.POLARS,
             distributed_dataset_type=DatasetType.RAY_DATASET,
         )
 
@@ -3598,7 +3598,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.PYARROW_PARQUET,
+            read_as=DatasetType.PYARROW_PARQUET,
             distributed_dataset_type=DatasetType.RAY_DATASET,
         )
 
@@ -3657,7 +3657,7 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            table_type=DatasetType.PANDAS,
+            read_as=DatasetType.PANDAS,
         )
 
         # Convert result to pandas if needed
@@ -4126,7 +4126,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            table_type=DatasetType.PYARROW,
+            read_as=DatasetType.PYARROW,
             distributed_dataset_type=None,  # Force local storage
         )
 
