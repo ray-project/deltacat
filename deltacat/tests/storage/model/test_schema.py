@@ -364,7 +364,7 @@ def test_schema_update_method(schema_a):
 
     # Test method chaining with field addition
     new_field = Field.of(pa.field("name", pa.string(), nullable=True), field_id=4)
-    updated_schema = schema_a.update().add_field("name", new_field).apply()
+    updated_schema = schema_a.update().add_field(new_field).apply()
 
     assert len(updated_schema.fields) == 2
     assert updated_schema.field("col1") == schema_a.field(

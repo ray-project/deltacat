@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from deltacat.catalog.model.catalog import get_catalog
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -6,13 +6,14 @@ from deltacat.storage.model.partition import PartitionScheme
 from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
-from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.schema import (
+    Schema,
+    SchemaUpdateOperations,
+)
 from deltacat.storage.model.table import TableProperties
 from deltacat.storage.model.types import (
-    DistributedDataset,
+    Dataset,
     LifecycleState,
-    LocalDataset,
-    LocalTable,
     StreamFormat,
 )
 from deltacat.types.media import ContentType
@@ -21,7 +22,7 @@ from deltacat.types.tables import TableWriteMode
 
 # table functions
 def write_to_table(
-    data: Union[LocalTable, LocalDataset, DistributedDataset],
+    data: Dataset,
     table: str,
     *args,
     namespace: Optional[str] = None,
@@ -56,8 +57,8 @@ def read_table(
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
     **kwargs,
-) -> DistributedDataset:
-    """Read a table into a distributed dataset."""
+) -> Dataset:
+    """Read a table into a dataset."""
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.read_table(
         table,
@@ -74,7 +75,7 @@ def alter_table(
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema_updates: Optional[Dict[str, Any]] = None,
+    schema_updates: Optional[SchemaUpdateOperations] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
@@ -103,7 +104,7 @@ def create_table(
     *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
-    version: Optional[str] = None,
+    table_version: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = LifecycleState.ACTIVE,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
@@ -122,7 +123,7 @@ def create_table(
         name,
         *args,
         namespace=namespace,
-        version=version,
+        table_version=table_version,
         lifecycle_state=lifecycle_state,
         schema=schema,
         partition_scheme=partition_scheme,

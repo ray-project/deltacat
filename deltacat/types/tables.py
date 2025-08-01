@@ -1,8 +1,11 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 import logging
 import multiprocessing
 from enum import Enum
 from functools import partial
-from typing import Callable, Dict, Type, Union, Optional, Any, List, Tuple
+from typing import Callable, Dict, Type, Union, Optional, Any, List, Tuple, TYPE_CHECKING
 from uuid import uuid4
 
 import daft
@@ -10,10 +13,12 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pyarrow as pa
+import pyarrow.dataset as ds
 import pyarrow.fs
 import pyarrow.parquet as papq
 import ray
 from ray.data.block import Block, BlockMetadata, BlockAccessor
+from ray.data._internal.pandas_block import PandasBlockSchema
 from ray.data.dataset import Dataset as RayDataset, MaterializedDataset
 from ray.data.datasource import FilenameProvider
 from ray.data.read_api import (
@@ -74,6 +79,9 @@ from deltacat.exceptions import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
+
+if TYPE_CHECKING:
+    from deltacat.storage.model.schema import Schema
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -251,6 +259,103 @@ TABLE_TYPE_TO_CONCAT_FUNC: Dict[str, Callable] = {
     DatasetType.NUMPY.value: np_utils.concat_ndarrays,
     DatasetType.POLARS.value: pl_utils.concat_dataframes,
 }
+
+
+def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
+    """Infer schema from NumPy array."""
+    if data.ndim == 1:
+        arrow_type = pa.from_numpy_dtype(data.dtype)
+        arrow_schema = pa.schema([("column_0", arrow_type)])
+    elif data.ndim == 2:
+        arrow_type = pa.from_numpy_dtype(data.dtype)
+        fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
+        arrow_schema = pa.schema(fields)
+    else:
+        raise ValueError(
+            f"NumPy arrays with {data.ndim} dimensions are not supported. "
+            f"Only 1D and 2D arrays are supported."
+        )
+
+    from deltacat.storage.model.schema import Schema
+    return Schema.of(schema=arrow_schema)
+
+
+def _infer_schema_from_ray_dataset(data: RayDataset) -> Schema:
+    """Infer schema from Ray Dataset."""
+    ray_schema = data.schema()
+    base_schema = ray_schema.base_schema
+
+    if isinstance(base_schema, pa.Schema):
+        arrow_schema = base_schema
+    elif isinstance(base_schema, PandasBlockSchema):
+        try:
+            dtype_dict = {
+                name: dtype for name, dtype in zip(base_schema.names, base_schema.types)
+            }
+            empty_df = pd.DataFrame(columns=base_schema.names).astype(dtype_dict)
+            arrow_schema = pa.Schema.from_pandas(empty_df)
+        except Exception as e:
+            raise ValueError(
+                f"Failed to convert Ray Dataset PandasBlockSchema to PyArrow schema: {e}"
+            )
+    else:
+        raise ValueError(
+            f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
+            f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
+        )
+
+    from deltacat.storage.model.schema import Schema
+    return Schema.of(schema=arrow_schema)
+
+
+def _infer_schema_from_pandas_dataframe(data: pd.DataFrame) -> Schema:
+    """Infer schema from Pandas DataFrame."""
+    from deltacat.storage.model.schema import Schema
+    arrow_schema = pa.Schema.from_pandas(data)
+    return Schema.of(schema=arrow_schema)
+
+
+def _infer_schema_from_polars_dataframe(data: pl.DataFrame) -> Schema:
+    """Infer schema from Polars DataFrame."""
+    from deltacat.storage.model.schema import Schema
+    arrow_table = data.to_arrow()
+    return Schema.of(schema=arrow_table.schema)
+
+
+def _infer_schema_from_pyarrow(data: Union[pa.Table, pa.RecordBatch, ds.Dataset]) -> Schema:
+    """Infer schema from PyArrow Table, RecordBatch, or Dataset."""
+    from deltacat.storage.model.schema import Schema
+    return Schema.of(schema=data.schema)
+
+
+def _infer_schema_from_daft_dataframe(data: daft.DataFrame) -> Schema:
+    """Infer schema from Daft DataFrame."""
+    from deltacat.storage.model.schema import Schema
+    daft_schema = data.schema()
+    arrow_schema = daft_schema.to_pyarrow_schema()
+    return Schema.of(schema=arrow_schema)
+
+
+TABLE_CLASS_TO_SCHEMA_INFERENCE_FUNC: Dict[Type[Union[LocalTable, DistributedDataset], Callable]] = {
+    pd.DataFrame: _infer_schema_from_pandas_dataframe,
+    pl.DataFrame: _infer_schema_from_polars_dataframe,
+    pa.Table: _infer_schema_from_pyarrow,
+    pa.RecordBatch: _infer_schema_from_pyarrow,
+    ds.Dataset: _infer_schema_from_pyarrow,
+    RayDataset: _infer_schema_from_ray_dataset,
+    daft.DataFrame: _infer_schema_from_daft_dataframe,
+    np.ndarray: _infer_schema_from_numpy_array,
+}
+
+
+def infer_table_schema(data: Union[LocalTable, DistributedDataset]) -> Schema:
+    """Infer schema from a table or dataset."""
+    infer_schema_func = _get_table_function(
+        data,
+        TABLE_CLASS_TO_SCHEMA_INFERENCE_FUNC,
+        "schema inference",
+    )
+    return infer_schema_func(data)
 
 
 def concat_tables(tables: List[LocalTable], table_type: DatasetType) -> LocalTable:

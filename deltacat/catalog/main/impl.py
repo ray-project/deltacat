@@ -6,11 +6,9 @@ import os
 import pandas as pd
 import polars as pl
 import pyarrow as pa
-import pyarrow.dataset as ds
 import numpy as np
 import ray.data as rd
 import daft
-from ray.data._internal.pandas_block import PandasBlockSchema
 import deltacat as dc
 
 from deltacat.storage.model.manifest import ManifestAuthor
@@ -62,6 +60,7 @@ from deltacat.types.tables import (
     TableReadOptimizationLevel,
     TableWriteMode,
     concat_tables,
+    infer_table_schema,
 )
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
@@ -189,75 +188,6 @@ def _validate_write_mode_and_table_version_existence(
     return table_exists_flag, table_version_exists_flag
 
 
-def _infer_schema_from_data(data: Dataset) -> Schema:
-    """Infer schema from various data types."""
-    if isinstance(data, pd.DataFrame):
-        arrow_schema = pa.Schema.from_pandas(data)
-        return Schema.of(schema=arrow_schema)
-    elif isinstance(data, pl.DataFrame):
-        arrow_table = data.to_arrow()
-        return Schema.of(schema=arrow_table.schema)
-    elif isinstance(data, (pa.Table, pa.RecordBatch, ds.Dataset)):
-        return Schema.of(schema=data.schema)
-    elif isinstance(data, rd.Dataset):
-        return _infer_schema_from_ray_dataset(data)
-    elif isinstance(data, daft.DataFrame):
-        daft_schema = data.schema()
-        arrow_schema = daft_schema.to_pyarrow_schema()
-        return Schema.of(schema=arrow_schema)
-    elif isinstance(data, np.ndarray):
-        return _infer_schema_from_numpy_array(data)
-    else:
-        raise ValueError(
-            "Could not infer schema from data. Please provide schema explicitly."
-        )
-
-
-def _infer_schema_from_ray_dataset(data: rd.Dataset) -> Schema:
-    """Infer schema from Ray Dataset."""
-    ray_schema = data.schema()
-    base_schema = ray_schema.base_schema
-
-    if isinstance(base_schema, pa.Schema):
-        arrow_schema = base_schema
-    elif isinstance(base_schema, PandasBlockSchema):
-        try:
-            dtype_dict = {
-                name: dtype for name, dtype in zip(base_schema.names, base_schema.types)
-            }
-            empty_df = pd.DataFrame(columns=base_schema.names).astype(dtype_dict)
-            arrow_schema = pa.Schema.from_pandas(empty_df)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to convert Ray Dataset PandasBlockSchema to PyArrow schema: {e}"
-            )
-    else:
-        raise ValueError(
-            f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
-            f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
-        )
-
-    return Schema.of(schema=arrow_schema)
-
-
-def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
-    """Infer schema from NumPy array."""
-    if data.ndim == 1:
-        arrow_type = pa.from_numpy_dtype(data.dtype)
-        arrow_schema = pa.schema([("column_0", arrow_type)])
-    elif data.ndim == 2:
-        arrow_type = pa.from_numpy_dtype(data.dtype)
-        fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
-        arrow_schema = pa.schema(fields)
-    else:
-        raise ValueError(
-            f"NumPy arrays with {data.ndim} dimensions are not supported. "
-            f"Only 1D and 2D arrays are supported."
-        )
-
-    return Schema.of(schema=arrow_schema)
-
-
 def _get_or_create_table_and_version(
     data: Dataset,
     table: str,
@@ -274,12 +204,12 @@ def _get_or_create_table_and_version(
     if not table_exists_flag:
         # Table doesn't exist - create new table with specified version
         if "schema" not in kwargs:
-            kwargs["schema"] = _infer_schema_from_data(data)
+            kwargs["schema"] = infer_table_schema(data)
 
         return create_table(
             table,
             namespace=namespace,
-            version=table_version,  # Pass the specific version
+            table_version=table_version,  # Pass the specific version
             content_types=[content_type],
             *args,
             **kwargs,
@@ -298,7 +228,7 @@ def _get_or_create_table_and_version(
             if mode == TableWriteMode.CREATE:
                 # For CREATE mode, we want to create a new table version
                 if "schema" not in kwargs:
-                    kwargs["schema"] = _infer_schema_from_data(data)
+                    kwargs["schema"] = infer_table_schema(data)
 
                 # Create a new table version directly using storage API
                 # We need to bypass the create_table function's existence check
@@ -425,8 +355,8 @@ def write_to_table(
 
         # Get the active table version and stream
         table_version_obj = _get_latest_active_or_given_table_version(
-            namespace=namespace,
-            table_name=table,
+            namespace=table_definition.table.namespace,
+            table_name=table_definition.table.table_name,
             table_version=table_version or table_definition.table_version.table_version,
             **kwargs,
         )
@@ -1699,7 +1629,7 @@ def create_table(
     name: str,
     *args,
     namespace: Optional[str] = None,
-    version: Optional[str] = None,
+    table_version: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = LifecycleState.ACTIVE,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
@@ -1748,25 +1678,32 @@ def create_table(
 
     try:
         table = get_table(
-            *args, name, namespace=namespace, table_version=version, **kwargs
+            *args,
+            name,
+            namespace=namespace,
+            table_version=table_version,
+            **kwargs,
         )
         if table is not None:
             if fail_if_exists:
+                table_identifier = f"{namespace}.{name}" if not table_version else f"{namespace}.{name}.{table_version}"
                 raise TableAlreadyExistsError(
-                    f"Table {namespace}.{name} already exists"
+                    f"Table {table_identifier} already exists"
                 )
             return table
 
         if not namespace_exists(namespace, **kwargs):
             create_namespace(
-                *args, namespace=namespace, properties=namespace_properties, **kwargs
+                namespace=namespace,
+                properties=namespace_properties,
+                *args,
+                **kwargs,
             )
 
         (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
-            *args,
             namespace=namespace,
             table_name=name,
-            table_version=version,
+            table_version=table_version,
             schema=schema,
             partition_scheme=partition_scheme,
             sort_keys=sort_keys,
@@ -1775,6 +1712,7 @@ def create_table(
             table_properties=table_properties,
             lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
             supported_content_types=content_types,
+            *args,
             **kwargs,
         )
 
