@@ -117,7 +117,7 @@ class TestSchemaUpdate:
         new_field = Field.of(pa.field("email", pa.string(), nullable=True), field_id=4)
 
         update = SchemaUpdate.of(base_schema)
-        result_schema = update.add_field("email", new_field).apply()
+        result_schema = update.add_field(new_field).apply()
 
         assert len(result_schema.fields) == 4
         # Verify the field was added with correct properties
@@ -139,7 +139,7 @@ class TestSchemaUpdate:
         )
 
         update = SchemaUpdate.of(base_schema)
-        result_schema = update.add_field("status", new_field).apply()
+        result_schema = update.add_field(new_field).apply()
 
         assert len(result_schema.fields) == 4
         # Verify the field was added with correct properties
@@ -159,7 +159,7 @@ class TestSchemaUpdate:
         )
 
         update = SchemaUpdate.of(base_schema)
-        result_schema = update.add_field("priority", new_field).apply()
+        result_schema = update.add_field(new_field).apply()
 
         assert len(result_schema.fields) == 4
         # Verify the field was added with correct properties
@@ -178,11 +178,10 @@ class TestSchemaUpdate:
 
         update = SchemaUpdate.of(base_schema)
         with pytest.raises(SchemaCompatibilityError) as exc_info:
-            update.add_field("required_field", new_field).apply()
+            update.add_field(new_field).apply()
 
         assert "non-nullable field" in str(exc_info.value)
         assert "without default values" in str(exc_info.value)
-        assert exc_info.value.field_locator == "required_field"
 
     def test_add_field_non_nullable_allowed_with_flag(self, base_schema):
         """Test adding non-nullable field succeeds with allow_incompatible_changes=True."""
@@ -191,7 +190,7 @@ class TestSchemaUpdate:
         )
 
         update = SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
-        result_schema = update.add_field("required_field", new_field).apply()
+        result_schema = update.add_field(new_field).apply()
 
         assert len(result_schema.fields) == 4
         # Verify the field was added with correct properties
@@ -207,10 +206,9 @@ class TestSchemaUpdate:
 
         update = SchemaUpdate.of(base_schema)
         with pytest.raises(SchemaCompatibilityError) as exc_info:
-            update.add_field("name", duplicate_field).apply()
+            update.add_field(duplicate_field).apply()
 
         assert "already exists" in str(exc_info.value)
-        assert exc_info.value.field_locator == "name"
 
     def test_remove_field_fails_by_default(self, base_schema):
         """Test that removing fields fails by default for compatibility."""
@@ -308,8 +306,8 @@ class TestSchemaUpdate:
 
         result_schema = (
             SchemaUpdate.of(base_schema)
-            .add_field("email", new_field1)
-            .add_field("score", new_field2)
+            .add_field(new_field1)
+            .add_field(new_field2)
             .update_field_type("age", pa.int64())
             .apply()
         )
@@ -352,7 +350,7 @@ class TestSchemaUpdate:
         )
 
         update = SchemaUpdate.of(complex_schema)
-        result_schema = update.add_field("preferences", new_struct_field).apply()
+        result_schema = update.add_field(new_struct_field).apply()
 
         assert len(result_schema.fields) == 5
         # Verify the struct field was added correctly
@@ -367,12 +365,12 @@ class TestSchemaUpdate:
 
         # Test string locator
         update1 = SchemaUpdate.of(base_schema)
-        result1 = update1.add_field("test", new_field).apply()
+        result1 = update1.add_field(new_field).apply()
         assert len(result1.fields) == 4
 
         # Test list locator (nested field path)
         update2 = SchemaUpdate.of(base_schema)
-        result2 = update2.add_field(["test"], new_field).apply()
+        result2 = update2.add_field(new_field).apply()
         assert len(result2.fields) == 4
 
         # Test int locator for updates (using existing field ID)
@@ -431,11 +429,9 @@ class TestSchemaUpdate:
 
         update = SchemaUpdate.of(base_schema)
         with pytest.raises(SchemaCompatibilityError) as exc_info:
-            update.add_field("required", new_field).apply()
+            update.add_field(new_field).apply()
 
-        error = exc_info.value
-        assert error.field_locator == "required"
-        assert isinstance(error.field_locator, str)
+        assert "Adding non-nullable field" in str(exc_info.value)
 
     def test_operations_applied_in_order(self, base_schema):
         """Test that operations are applied in the order they were added."""
@@ -444,9 +440,9 @@ class TestSchemaUpdate:
 
         result_schema = (
             SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
-            .add_field("temp", new_field)
+            .add_field(new_field)
             .remove_field("temp")
-            .add_field("temp", new_field)
+            .add_field(new_field)
             .apply()
         )
 
@@ -458,8 +454,6 @@ class TestSchemaUpdate:
         assert temp_field.arrow.type == pa.string()
         assert temp_field.id == 4
 
-    # ===================== New Protection Tests =====================
-
     def test_duplicate_field_id_validation_add_field(self, base_schema):
         """Test that adding a field with duplicate field ID fails."""
         # Try to add a field with ID 2, which already exists for 'name' field
@@ -469,10 +463,9 @@ class TestSchemaUpdate:
 
         update = SchemaUpdate.of(base_schema)
         with pytest.raises(SchemaCompatibilityError) as exc_info:
-            update.add_field("new_field", duplicate_id_field).apply()
+            update.add_field(duplicate_id_field).apply()
 
         assert "duplicate field ID 2" in str(exc_info.value)
-        assert exc_info.value.field_locator == "new_field"
 
     def test_duplicate_field_id_validation_update_field(self, base_schema):
         """Test that updating a field to use duplicate field ID fails."""
@@ -585,7 +578,7 @@ class TestSchemaUpdate:
             consistency_type=SchemaConsistencyType.COERCE,
         )
         schema_with_coerce = (
-            SchemaUpdate.of(base_schema).add_field("test", coerce_field).apply()
+            SchemaUpdate.of(base_schema).add_field(coerce_field).apply()
         )
 
         # Now update it to VALIDATE - this should be allowed
@@ -604,7 +597,7 @@ class TestSchemaUpdate:
             consistency_type=SchemaConsistencyType.VALIDATE,
         )
         schema_with_validate = (
-            SchemaUpdate.of(base_schema).add_field("test", validate_field).apply()
+            SchemaUpdate.of(base_schema).add_field(validate_field).apply()
         )
 
         # Now update it to COERCE - this should be allowed
@@ -623,7 +616,7 @@ class TestSchemaUpdate:
             consistency_type=SchemaConsistencyType.COERCE,
         )
         schema_with_coerce = (
-            SchemaUpdate.of(base_schema).add_field("test", coerce_field).apply()
+            SchemaUpdate.of(base_schema).add_field(coerce_field).apply()
         )
 
         # Now update it to NONE - this should be allowed (relaxing constraints)
@@ -642,7 +635,7 @@ class TestSchemaUpdate:
             consistency_type=SchemaConsistencyType.NONE,
         )
         schema_with_none = (
-            SchemaUpdate.of(base_schema).add_field("test", none_field).apply()
+            SchemaUpdate.of(base_schema).add_field(none_field).apply()
         )
 
         # Now try to update it to COERCE - this should fail
@@ -663,7 +656,7 @@ class TestSchemaUpdate:
             consistency_type=SchemaConsistencyType.NONE,
         )
         schema_with_none = (
-            SchemaUpdate.of(base_schema).add_field("test", none_field).apply()
+            SchemaUpdate.of(base_schema).add_field(none_field).apply()
         )
 
         # Now try to update it to VALIDATE - this should fail
@@ -691,17 +684,425 @@ class TestSchemaUpdate:
 
     def test_duplicate_field_id_still_forbidden_with_flag(self, base_schema):
         """Test that duplicate field IDs are still forbidden even with allow_incompatible_changes=True."""
+
+        test_schema = Schema.of(
+        [
+            Field.of(
+                pa.field("foo", pa.int64(), nullable=False),
+                field_id=1,
+                is_merge_key=True,
+            ),
+            Field.of(pa.field("name", pa.string(), nullable=True), field_id=2),
+            Field.of(pa.field("age", pa.int32(), nullable=True), field_id=3),
+        ]
+        )
         # Duplicate field IDs should always be forbidden as they break schema integrity
         duplicate_id_field = Field.of(
-            pa.field("new_field", pa.string(), nullable=True), field_id=2
+            pa.field("new_field", pa.string(), nullable=True), field_id=1
         )
 
-        update = SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+        update = SchemaUpdate.of(test_schema, allow_incompatible_changes=True)
         # The duplicate ID validation can happen at SchemaUpdate level or Schema.of() level
         with pytest.raises((SchemaCompatibilityError, ValueError)) as exc_info:
-            update.add_field("new_field", duplicate_id_field).apply()
+            update.add_field(duplicate_id_field).apply()
 
         assert (
             "duplicate field" in str(exc_info.value).lower()
             or "duplicate field id" in str(exc_info.value).lower()
         )
+
+    def test_rename_field_success(self, base_schema):
+        """Test successfully renaming a field."""
+        update = SchemaUpdate.of(base_schema)
+        result_schema = update.rename_field("name", "full_name").apply()
+        
+        # Original field should be gone
+        field_names = [f.path[0] for f in result_schema.fields if f.path]
+        assert "name" not in field_names
+        assert "full_name" in field_names
+        
+        # Renamed field should have same properties except name
+        original_field = base_schema.field("name")
+        renamed_field = result_schema.field("full_name")
+        
+        assert renamed_field.arrow.name == "full_name"
+        assert renamed_field.arrow.type == original_field.arrow.type
+        assert renamed_field.arrow.nullable == original_field.arrow.nullable
+        assert renamed_field.id == original_field.id
+        assert renamed_field.doc == original_field.doc
+        assert renamed_field.consistency_type == original_field.consistency_type
+
+    def test_rename_field_nonexistent_field_fails(self, base_schema):
+        """Test renaming a field that doesn't exist fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.rename_field("nonexistent", "new_name").apply()
+        
+        assert "does not exist" in str(exc_info.value)
+        assert exc_info.value.field_locator == "nonexistent"
+
+    def test_update_field_type_success(self, base_schema):
+        """Test successfully updating field type."""
+        update = SchemaUpdate.of(base_schema)
+        result_schema = update.update_field_type("age", pa.int64()).apply()
+        
+        # Field should have new type but same other properties
+        original_field = base_schema.field("age")
+        updated_field = result_schema.field("age")
+        
+        assert updated_field.arrow.type == pa.int64()
+        assert updated_field.arrow.name == original_field.arrow.name
+        assert updated_field.arrow.nullable == original_field.arrow.nullable
+        assert updated_field.id == original_field.id
+        assert updated_field.doc == original_field.doc
+        assert updated_field.consistency_type == original_field.consistency_type
+
+    def test_update_field_type_incompatible_fails(self, base_schema):
+        """Test updating field type with incompatible type fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_type("age", pa.string()).apply()
+        
+        assert "would break compatibility" in str(exc_info.value)
+
+    def test_update_field_type_incompatible_allowed_with_flag(self, base_schema):
+        """Test incompatible type update succeeds with allow_incompatible_changes=True."""
+        update = SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+        result_schema = update.update_field_type("age", pa.string()).apply()
+        
+        updated_field = result_schema.field("age")
+        assert updated_field.arrow.type == pa.string()
+
+    def test_update_field_type_nonexistent_field_fails(self, base_schema):
+        """Test updating type of a field that doesn't exist fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_type("nonexistent", pa.string()).apply()
+        
+        assert "does not exist" in str(exc_info.value)
+        assert exc_info.value.field_locator == "nonexistent"
+
+    def test_update_field_doc_success(self, base_schema):
+        """Test successfully updating field documentation."""
+        update = SchemaUpdate.of(base_schema)
+        result_schema = update.update_field_doc("name", "Full name of the person").apply()
+        
+        # Field should have new doc but same other properties
+        original_field = base_schema.field("name")
+        updated_field = result_schema.field("name")
+        
+        assert updated_field.doc == "Full name of the person"
+        assert updated_field.arrow.name == original_field.arrow.name
+        assert updated_field.arrow.type == original_field.arrow.type
+        assert updated_field.arrow.nullable == original_field.arrow.nullable
+        assert updated_field.id == original_field.id
+        assert updated_field.consistency_type == original_field.consistency_type
+
+    def test_update_field_doc_to_none(self, base_schema):
+        """Test updating field documentation to None."""
+        # First set some doc
+        schema_with_doc = (
+            SchemaUpdate.of(base_schema)
+            .update_field_doc("name", "Original doc")
+            .apply()
+        )
+        
+        # Then update to None
+        update = SchemaUpdate.of(schema_with_doc)
+        result_schema = update.update_field_doc("name", None).apply()
+        
+        updated_field = result_schema.field("name")
+        assert updated_field.doc is None
+
+    def test_update_field_doc_nonexistent_field_fails(self, base_schema):
+        """Test updating doc of a field that doesn't exist fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_doc("nonexistent", "Some doc").apply()
+        
+        assert "does not exist" in str(exc_info.value)
+        assert exc_info.value.field_locator == "nonexistent"
+
+    def test_update_field_nullability_success(self, base_schema):
+        """Test successfully updating field nullability."""
+        # Make nullable field non-nullable (should succeed with allow_incompatible_changes)
+        update = SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+        result_schema = update.update_field_nullability("name", False).apply()
+        
+        # Field should have new nullability but same other properties
+        original_field = base_schema.field("name")
+        updated_field = result_schema.field("name")
+        
+        assert updated_field.arrow.nullable is False
+        assert updated_field.arrow.name == original_field.arrow.name
+        assert updated_field.arrow.type == original_field.arrow.type
+        assert updated_field.id == original_field.id
+        assert updated_field.doc == original_field.doc
+        assert updated_field.consistency_type == original_field.consistency_type
+
+    def test_update_field_nullability_incompatible_fails(self, base_schema):
+        """Test making nullable field non-nullable fails without flag."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_nullability("name", False).apply()
+        
+        assert "non-nullable without" in str(exc_info.value)
+
+    def test_update_field_nullability_nonexistent_field_fails(self, base_schema):
+        """Test updating nullability of a field that doesn't exist fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_nullability("nonexistent", True).apply()
+        
+        assert "does not exist" in str(exc_info.value)
+        assert exc_info.value.field_locator == "nonexistent"
+
+    def test_update_field_consistency_type_success(self, base_schema):
+        """Test successfully updating field consistency type."""
+        update = SchemaUpdate.of(base_schema)
+        result_schema = update.update_field_consistency_type("name", SchemaConsistencyType.VALIDATE).apply()
+        
+        # Field should have new consistency type but same other properties
+        original_field = base_schema.field("name")
+        updated_field = result_schema.field("name")
+        
+        assert updated_field.consistency_type == SchemaConsistencyType.VALIDATE
+        assert updated_field.arrow.name == original_field.arrow.name
+        assert updated_field.arrow.type == original_field.arrow.type
+        assert updated_field.arrow.nullable == original_field.arrow.nullable
+        assert updated_field.id == original_field.id
+        assert updated_field.doc == original_field.doc
+
+    def test_update_field_consistency_type_to_none(self, base_schema):
+        """Test updating field consistency type to None."""
+        # First set some consistency type
+        schema_with_coerce = (
+            SchemaUpdate.of(base_schema)
+            .update_field_consistency_type("name", SchemaConsistencyType.COERCE)
+            .apply()
+        )
+        
+        # Then update to None
+        update = SchemaUpdate.of(schema_with_coerce)
+        result_schema = update.update_field_consistency_type("name", None).apply()
+        
+        updated_field = result_schema.field("name")
+        assert updated_field.consistency_type is None
+
+    def test_update_field_consistency_type_nonexistent_field_fails(self, base_schema):
+        """Test updating consistency type of a field that doesn't exist fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_consistency_type("nonexistent", SchemaConsistencyType.VALIDATE).apply()
+        
+        assert "does not exist" in str(exc_info.value)
+        assert exc_info.value.field_locator == "nonexistent"
+
+    def test_update_field_future_default_success(self, base_schema):
+        """Test successfully updating field future default."""
+        update = SchemaUpdate.of(base_schema)
+        result_schema = update.update_field_future_default("name", "Unknown").apply()
+        
+        # Field should have new future default but same other properties
+        original_field = base_schema.field("name")
+        updated_field = result_schema.field("name")
+        
+        assert updated_field.future_default == "Unknown"
+        assert updated_field.arrow.name == original_field.arrow.name
+        assert updated_field.arrow.type == original_field.arrow.type
+        assert updated_field.arrow.nullable == original_field.arrow.nullable
+        assert updated_field.id == original_field.id
+        assert updated_field.doc == original_field.doc
+        assert updated_field.consistency_type == original_field.consistency_type
+        assert updated_field.past_default == original_field.past_default
+
+    def test_update_field_future_default_to_none(self, base_schema):
+        """Test updating field future default to None."""
+        # First set some future default
+        schema_with_default = (
+            SchemaUpdate.of(base_schema)
+            .update_field_future_default("name", "Default Name")
+            .apply()
+        )
+        
+        # Then update to None
+        update = SchemaUpdate.of(schema_with_default)
+        result_schema = update.update_field_future_default("name", None).apply()
+        
+        updated_field = result_schema.field("name")
+        assert updated_field.future_default is None
+
+    def test_update_field_future_default_invalid_type_fails(self, base_schema):
+        """Test updating field future default with incompatible type fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(ValueError) as exc_info:
+            update.update_field_future_default("name", 123).apply()  # int for string field
+        
+        assert "not compatible with type" in str(exc_info.value)
+
+    def test_update_field_future_default_nonexistent_field_fails(self, base_schema):
+        """Test updating future default of a field that doesn't exist fails."""
+        update = SchemaUpdate.of(base_schema)
+        with pytest.raises(SchemaCompatibilityError) as exc_info:
+            update.update_field_future_default("nonexistent", "value").apply()
+        
+        assert "does not exist" in str(exc_info.value)
+        assert exc_info.value.field_locator == "nonexistent"
+
+    def test_method_chaining_with_metadata_preservation(self, base_schema):
+        """Test that chaining operations on the same field preserves metadata correctly."""
+        result_schema = (SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+                        .update_field_type("age", pa.int64())
+                        .update_field_consistency_type("age", SchemaConsistencyType.VALIDATE)
+                        .update_field_future_default("age", 0)
+                        .apply())
+
+        age_field = result_schema.field("age")
+        assert age_field.arrow.type == pa.int64()
+        assert age_field.consistency_type == SchemaConsistencyType.VALIDATE
+        assert age_field.future_default == 0
+
+    def test_individual_methods_work_correctly(self, base_schema):
+        """Test that each method works correctly on its own."""
+        # Test doc update
+        result1 = SchemaUpdate.of(base_schema).update_field_doc("name", "Full name").apply()
+        assert result1.field("name").doc == "Full name"
+        
+        # Test nullability update
+        result2 = (
+            SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+            .update_field_nullability("name", False)
+            .apply()
+        )
+        assert result2.field("name").arrow.nullable is False
+        
+        # Test rename
+        result3 = SchemaUpdate.of(base_schema).rename_field("name", "full_name").apply()
+        assert result3.field("full_name").arrow.name == "full_name"
+        
+        # Test multiple independent operations
+        result4 = (
+            SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+            .update_field_type("age", pa.int64())
+            .update_field_consistency_type("name", SchemaConsistencyType.VALIDATE)
+            .apply()
+        )
+        
+        assert result4.field("age").arrow.type == pa.int64()
+        assert result4.field("name").consistency_type == SchemaConsistencyType.VALIDATE
+
+    def test_method_chaining_different_fields(self, base_schema):
+        """Test chaining operations on different fields."""
+        result_schema = (SchemaUpdate.of(base_schema, allow_incompatible_changes=True)
+                        .update_field_type("age", pa.int64())
+                        .update_field_doc("name", "Updated name")
+                        .update_field_consistency_type("id", SchemaConsistencyType.VALIDATE)
+                        .apply())
+
+        age_field = result_schema.field("age")
+        assert age_field.arrow.type == pa.int64()
+        
+        name_field = result_schema.field("name")
+        assert name_field.doc == "Updated name"
+        
+        id_field = result_schema.field("id")
+        assert id_field.consistency_type == SchemaConsistencyType.VALIDATE
+
+    def test_user_friendly_methods_vs_protected_update_field(self, base_schema):
+        """Test that user-friendly methods produce same results as protected _update_field."""
+        # Using update_field_type should be equivalent to using _update_field with manually constructed field
+        update1 = SchemaUpdate.of(base_schema)
+        result1 = update1.update_field_type("age", pa.int64()).apply()
+        
+        # Manually construct the updated field
+        original_field = base_schema.field("age")
+        new_arrow_field = pa.field(
+            original_field.arrow.name,
+            pa.int64(),
+            nullable=original_field.arrow.nullable,
+            metadata=original_field.arrow.metadata,
+        )
+        updated_field = Field.of(
+            new_arrow_field,
+            field_id=original_field.id,
+            is_merge_key=original_field.is_merge_key,
+            merge_order=original_field.merge_order,
+            is_event_time=original_field.is_event_time,
+            doc=original_field.doc,
+            past_default=original_field.past_default,
+            future_default=original_field.future_default,
+            consistency_type=original_field.consistency_type,
+            native_object=original_field.native_object,
+        )
+        
+        update2 = SchemaUpdate.of(base_schema)
+        result2 = update2._update_field("age", updated_field).apply()
+        
+        # Results should be equivalent
+        field1 = result1.field("age")
+        field2 = result2.field("age")
+        
+        assert field1.arrow.type == field2.arrow.type
+        assert field1.arrow.name == field2.arrow.name
+        assert field1.arrow.nullable == field2.arrow.nullable
+        assert field1.id == field2.id
+        assert field1.doc == field2.doc
+        assert field1.consistency_type == field2.consistency_type
+
+    def test_schema_update_convenience_method_with_user_friendly_methods(self, base_schema):
+        """Test Schema.update() convenience method with user-friendly methods."""
+        # Start with a schema that has a field we can modify
+        base_schema = base_schema.update().add_field(
+            Field.of(pa.field("score", pa.int32(), nullable=True), field_id=10)
+        ).apply()
+        
+        # Test update_field_type (compatible type widening)
+        result1 = base_schema.update().update_field_type("score", pa.int64()).apply()
+        score_field = result1.field("score")
+        assert score_field.arrow.type == pa.int64()
+        assert score_field.arrow.name == "score"
+        assert score_field.id == 10
+        
+        # Test update_field_doc
+        result2 = base_schema.update().update_field_doc("score", "User score").apply()
+        score_field = result2.field("score")
+        assert score_field.doc == "User score"
+        assert score_field.arrow.type == pa.int32()  # Type unchanged
+        
+        # Test update_field_consistency_type
+        result3 = base_schema.update().update_field_consistency_type(
+            "score", SchemaConsistencyType.VALIDATE
+        ).apply()
+        score_field = result3.field("score")
+        assert score_field.consistency_type == SchemaConsistencyType.VALIDATE
+        assert score_field.arrow.type == pa.int32()  # Type unchanged
+        
+        # Test update_field_future_default
+        result4 = base_schema.update().update_field_future_default("score", 100).apply()
+        score_field = result4.field("score")
+        assert score_field.future_default == 100
+        assert score_field.arrow.type == pa.int32()  # Type unchanged
+        
+        # Test rename_field
+        result5 = base_schema.update().rename_field("score", "user_score").apply()
+        field_names = [f.path[0] for f in result5.fields if f.path]
+        assert "score" not in field_names
+        assert "user_score" in field_names
+        renamed_field = result5.field("user_score")
+        assert renamed_field.arrow.name == "user_score"
+        assert renamed_field.arrow.type == pa.int32()
+        assert renamed_field.id == 10
+        
+        # Test method chaining with user-friendly methods
+        result6 = (base_schema.update()
+                   .update_field_type("score", pa.int64())
+                   .update_field_doc("score", "User score in points")
+                   .update_field_consistency_type("score", SchemaConsistencyType.COERCE)
+                   .update_field_future_default("score", 0)
+                   .apply())
+                   
+        final_score_field = result6.field("score")
+        assert final_score_field.arrow.type == pa.int64()
+        assert final_score_field.doc == "User score in points"
+        assert final_score_field.consistency_type == SchemaConsistencyType.COERCE
+        assert final_score_field.future_default == 0

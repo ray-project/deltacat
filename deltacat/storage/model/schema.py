@@ -81,16 +81,16 @@ class SchemaUpdateOperation(tuple):
 
     This class inherits from tuple and stores:
     - operation: str ("add", "remove", "update")
-    - field_locator: FieldLocator (name, path, or ID)
+    - field_locator: Optional[FieldLocator] (name, path, or ID)
     - field: Optional[Field] (the field data for add/update operations)
     """
 
     @staticmethod
     def add_field(
-        field_locator: FieldLocator, field: "Field"
+        field: "Field"
     ) -> "SchemaUpdateOperation":
         """Create an operation to add a new field."""
-        return SchemaUpdateOperation(("add", field_locator, field))
+        return SchemaUpdateOperation(("add", None, field))
 
     @staticmethod
     def remove_field(field_locator: FieldLocator) -> "SchemaUpdateOperation":
@@ -110,7 +110,7 @@ class SchemaUpdateOperation(tuple):
         return self[0]
 
     @property
-    def field_locator(self) -> FieldLocator:
+    def field_locator(self) -> Optional[FieldLocator]:
         """The field locator (name, path, or ID)."""
         return self[1]
 
@@ -1409,7 +1409,7 @@ class Schema(dict):
     def _visit_fields(
         current: Union[pa.Schema, pa.Field],
         visit: Callable,
-        path: NestedFieldName = [],
+        path: Optional[NestedFieldName] = None,
         *args,
         **kwargs,
     ) -> None:
@@ -1418,14 +1418,15 @@ class Schema(dict):
         fields.
 
         Args:
-            current (pa.Schema or pa.Field): The schema or field to visit.
-            visit (callable): A function that visits the current field.
-            path (NestedFieldName): The current path to the field.
+            current: The schema or field to visit.
+            visit: A function that visits the current field.
+            path: The current path to the field.
             *args: Additional args to pass to the visit function.
             **kwargs: Additional keyword args to pass to the visit function.
         Returns:
             None
         """
+        path = [] if path is None else path
         if isinstance(current, pa.Schema):
             for field in current:
                 Schema._visit_fields(
@@ -1845,7 +1846,7 @@ class Schema(dict):
 
         # Apply new fields
         for field_name, new_field in new_fields.items():
-            schema_update = schema_update.add_field(field_name, new_field)
+            schema_update = schema_update.add_field(new_field)
 
         # Apply all updates
         return schema_update.apply()
@@ -2131,7 +2132,6 @@ class SchemaUpdate(dict):
 
     def add_field(
         self,
-        field_locator: FieldLocator,
         new_field: Field,
     ) -> "SchemaUpdate":
         """
@@ -2148,7 +2148,7 @@ class SchemaUpdate(dict):
             SchemaCompatibilityError: If field already exists or addition would break compatibility
         """
         self.operations.append(
-            SchemaUpdateOperation.add_field(field_locator, new_field)
+            SchemaUpdateOperation.add_field(new_field)
         )
         return self
 
@@ -2389,24 +2389,6 @@ class SchemaUpdate(dict):
 
         return self._update_field(field_locator, updated_field)
 
-    def update_field(
-        self, field_locator: FieldLocator, updated_field: Field
-    ) -> "SchemaUpdate":
-        """
-        Update an existing field with compatible changes.
-
-        Args:
-            field_locator: Location identifier for the field to update
-            updated_field: The new Field object to replace the existing field
-
-        Returns:
-            Self for method chaining
-
-        Raises:
-            SchemaCompatibilityError: If field doesn't exist or update would break compatibility
-        """
-        return self._update_field(field_locator, updated_field)
-
     def _update_field(
         self, field_locator: FieldLocator, updated_field: Field
     ) -> "SchemaUpdate":
@@ -2443,7 +2425,6 @@ class SchemaUpdate(dict):
             SchemaCompatibilityError: If field doesn't exist
         """
         field_name = self._get_field_name(field_locator)
-
         # Search for the field in the base schema
         base_field = None
         for field in self.base_schema.fields:
@@ -2513,12 +2494,13 @@ class SchemaUpdate(dict):
                 self._apply_add_field(
                     updated_fields,
                     field_name_to_index,
-                    operation.field_locator,
                     operation.field,
                 )
             elif operation.operation == "remove":
                 self._apply_remove_field(
-                    updated_fields, field_name_to_index, operation.field_locator
+                    updated_fields, 
+                    field_name_to_index, 
+                    operation.field_locator,
                 )
             elif operation.operation == "update":
                 self._apply_update_field(
@@ -2535,21 +2517,20 @@ class SchemaUpdate(dict):
         self,
         fields: List[Field],
         field_name_to_index: Dict[str, int],
-        field_locator: FieldLocator,
         new_field: Field,
     ) -> None:
         """Apply add field operation with compatibility validation."""
-        field_name = self._get_field_name(field_locator)
+        field_name = new_field.arrow.name
 
         # Check if field already exists
         if field_name in field_name_to_index:
             raise SchemaCompatibilityError(
-                f"Field '{field_name}' already exists in schema", field_locator
+                f"Field '{field_name}' already exists in schema",
             )
 
         # Validate compatibility for new field
         if not self.allow_incompatible_changes:
-            self._validate_add_field_compatibility(new_field, field_locator)
+            self._validate_add_field_compatibility(new_field)
 
         # Create a copy of the field with the correct path
         field_with_path = Field.of(
@@ -2703,10 +2684,10 @@ class SchemaUpdate(dict):
             return str1 == str2
 
     def _validate_add_field_compatibility(
-        self, new_field: Field, field_locator: FieldLocator
+        self, new_field: Field
     ) -> None:
         """Validate that adding a new field won't break compatibility."""
-        field_name = self._get_field_name(field_locator)
+        field_name = new_field.arrow.name
         arrow_field = new_field.arrow
 
         # Check for duplicate field IDs across all existing fields
@@ -2718,7 +2699,6 @@ class SchemaUpdate(dict):
                 raise SchemaCompatibilityError(
                     f"Cannot add field '{field_name}' with duplicate field ID {new_field.id}. "
                     f"Field IDs must be unique across all fields in the schema.",
-                    field_locator,
                 )
 
         # Check if field is nullable or has default values
@@ -2730,7 +2710,6 @@ class SchemaUpdate(dict):
             raise SchemaCompatibilityError(
                 f"Adding non-nullable field '{field_name}' without "
                 f"default values would break compatibility with existing data",
-                field_locator,
             )
 
     def _validate_remove_field_compatibility(
