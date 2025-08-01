@@ -684,7 +684,7 @@ class TestCopyOnWrite:
         table_properties = COPY_ON_WRITE_TABLE_PROPERTIES
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,  # Specify content types
@@ -967,7 +967,7 @@ class TestCopyOnWrite:
 
         # Get the table to inspect what was created
         table_def = dc.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
         )
@@ -1008,7 +1008,7 @@ class TestCopyOnWrite:
         table_properties = COPY_ON_WRITE_TABLE_PROPERTIES
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
@@ -1229,7 +1229,7 @@ class TestCopyOnWrite:
         }
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
@@ -1618,7 +1618,7 @@ class TestCopyOnWrite:
         }
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
@@ -1716,7 +1716,7 @@ class TestCopyOnWrite:
         }
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
@@ -1814,7 +1814,7 @@ class TestCopyOnWrite:
         }
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
@@ -1915,7 +1915,7 @@ class TestCopyOnWrite:
         }
 
         dc.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
@@ -4906,7 +4906,7 @@ class TestAlterTable:
 
         # Get original schema for comparison
         original_table = dc.get_table(
-            name=table_name, namespace=namespace, catalog=catalog_name
+            table=table_name, namespace=namespace, catalog=catalog_name
         )
         original_schema = original_table.table_version.schema
         original_schema_id = original_schema.id
@@ -4930,7 +4930,9 @@ class TestAlterTable:
 
         # Verify the schema was updated
         updated_table = dc.get_table(
-            name=table_name, namespace=namespace, catalog=catalog_name
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
         )
         updated_schema = updated_table.table_version.schema
 
@@ -4975,7 +4977,9 @@ class TestAlterTable:
 
         # Get original schema
         original_table = dc.get_table(
-            name=table_name, namespace=namespace, catalog=catalog_name
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
         )
         original_schema_id = original_table.table_version.schema.id
 
@@ -5007,7 +5011,9 @@ class TestAlterTable:
 
         # Verify both fields were added
         updated_table = dc.get_table(
-            name=table_name, namespace=namespace, catalog=catalog_name
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
         )
         updated_schema = updated_table.table_version.schema
 
@@ -5051,7 +5057,9 @@ class TestAlterTable:
 
         # Get original schema
         original_table = dc.get_table(
-            name=table_name, namespace=namespace, catalog=catalog_name
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
         )
         original_schema_id = original_table.table_version.schema.id
         original_age_field = original_table.table_version.schema.field("age")
@@ -5080,7 +5088,9 @@ class TestAlterTable:
 
         # Verify the field was updated
         updated_table = dc.get_table(
-            name=table_name, namespace=namespace, catalog=catalog_name
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
         )
         updated_schema = updated_table.table_version.schema
         updated_age_field = updated_schema.field("age")

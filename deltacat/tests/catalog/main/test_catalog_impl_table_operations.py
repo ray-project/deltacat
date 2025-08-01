@@ -118,7 +118,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         table_definition = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             sort_keys=sample_sort_keys,
@@ -156,7 +156,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             description="First creation",
             inner=catalog_properties,
@@ -175,7 +175,7 @@ class TestCatalogTableOperations:
             match=f"Table {namespace_name}.{table_name} already exists",
         ):
             catalog.create_table(
-                name=table_name,
+                table=table_name,
                 namespace=namespace_name,
                 description="Second creation attempt",
                 inner=catalog_properties,
@@ -188,7 +188,7 @@ class TestCatalogTableOperations:
 
         # Create the table with original description
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             description="Original description",
             inner=catalog_properties,
@@ -202,7 +202,7 @@ class TestCatalogTableOperations:
 
         # Create the same table with fail_if_exists=False
         table_definition = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             description="Updated description",
             fail_if_exists=False,
@@ -222,7 +222,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             inner=catalog_properties,
         )
@@ -236,7 +236,7 @@ class TestCatalogTableOperations:
 
         # Drop the table
         catalog.drop_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             inner=catalog_properties,
         )
@@ -262,7 +262,7 @@ class TestCatalogTableOperations:
         # Try to drop the table, should raise TableNotFoundError
         with pytest.raises(TableNotFoundError, match=table_name):
             catalog.drop_table(
-                name=table_name,
+                table=table_name,
                 namespace=namespace_name,
                 inner=catalog_properties,
             )
@@ -274,7 +274,7 @@ class TestCatalogTableOperations:
 
         # Create the table with original name
         catalog.create_table(
-            name=original_name,
+            table=original_name,
             namespace=namespace_name,
             description="Table to be renamed",
             inner=catalog_properties,
@@ -335,7 +335,7 @@ class TestCatalogTableOperations:
 
         # Create a table
         catalog.create_table(
-            name=existing_table,
+            table=existing_table,
             namespace=namespace_name,
             inner=catalog_properties,
         )
@@ -360,7 +360,7 @@ class TestCatalogTableOperations:
 
         # Create table with default namespace
         table_definition = catalog.create_table(
-            name=table_name, inner=catalog_properties
+            table=table_name, inner=catalog_properties
         )
 
         table = table_definition.table
@@ -383,7 +383,7 @@ class TestCatalogTableOperations:
 
         # Try to create table with non-existent namespace
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=new_namespace,
             inner=catalog_properties,
         )
@@ -407,7 +407,7 @@ class TestCatalogTableOperations:
 
         # Create the table with initial properties
         table = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             sort_keys=sample_sort_keys,
@@ -507,7 +507,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         table = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             description="Initial description",
@@ -583,7 +583,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             inner=catalog_properties,
@@ -641,7 +641,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         table = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             inner=catalog_properties,
@@ -688,7 +688,7 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             inner=catalog_properties,
         )
@@ -698,7 +698,7 @@ class TestCatalogTableOperations:
             NotImplementedError, match="Purge flag is not currently supported"
         ):
             catalog.drop_table(
-                name=table_name,
+                table=table_name,
                 namespace=namespace_name,
                 purge=True,
                 inner=catalog_properties,
@@ -717,7 +717,7 @@ class TestCatalogTableOperations:
         )
 
         table_def = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -740,7 +740,7 @@ class TestCatalogTableOperations:
 
         # Create table first
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -749,7 +749,7 @@ class TestCatalogTableOperations:
         # Try to create again with fail_if_exists=True (default)
         with pytest.raises(TableAlreadyExistsError):
             catalog.create_table(
-                name=table_name,
+                table=table_name,
                 namespace=self.test_namespace,
                 schema=schema,
                 fail_if_exists=True,
@@ -763,7 +763,7 @@ class TestCatalogTableOperations:
 
         # Create table first
         table_def1 = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -771,7 +771,7 @@ class TestCatalogTableOperations:
 
         # Create again with fail_if_exists=False should return existing table
         table_def2 = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             fail_if_exists=False,
@@ -891,7 +891,7 @@ class TestWriteToTable:
         )
 
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -935,7 +935,7 @@ class TestWriteToTable:
 
         # Verify table has correct schema
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1188,7 +1188,7 @@ class TestWriteToTable:
 
         # Verify schema was used
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1210,7 +1210,7 @@ class TestWriteToTable:
 
         # Verify table was created with schema=None (schemaless)
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1248,13 +1248,13 @@ class TestWriteToTable:
 
         # Verify both tables were created
         table_inferred = catalog.get_table(
-            name=table_name_inferred,
+            table=table_name_inferred,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
 
         table_schemaless = catalog.get_table(
-            name=table_name_schemaless,
+            table=table_name_schemaless,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1292,7 +1292,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1323,7 +1323,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1353,7 +1353,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1384,7 +1384,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1409,7 +1409,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1434,7 +1434,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1457,7 +1457,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1529,7 +1529,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1691,7 +1691,7 @@ class TestWriteToTable:
 
         # Get the table definition to access stream information
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1829,7 +1829,7 @@ class TestWriteToTable:
 
         # Create table with sort keys
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             sort_keys=sort_scheme,
             inner=self.catalog_properties,

@@ -1754,7 +1754,7 @@ def delete_stream(
 
 def delete_table(
     namespace: str,
-    name: str,
+    table_name: str,
     purge: bool = False,
     *args,
     transaction: Optional[Transaction] = None,
@@ -1771,7 +1771,7 @@ def delete_table(
 
     table: Optional[Table] = get_table(
         namespace=namespace,
-        table_name=name,
+        table_name=table_name,
         transaction=transaction,
         *args,
         **kwargs,
@@ -1779,7 +1779,7 @@ def delete_table(
 
     if not table:
         # TODO(pdames): Refactor this so that it doesn't initialize Ray
-        raise TableNotFoundError(f"Table `{namespace}.{name}` does not exist.")
+        raise TableNotFoundError(f"Table `{namespace}.{table_name}` does not exist.")
 
     transaction.step(
         TransactionOperation.of(

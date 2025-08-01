@@ -178,23 +178,13 @@ class TestNamespace:
         )
 
         # When we delete the namespace with purge=True
-        metastore.delete_namespace(
-            namespace="namespace1",
-            purge=True,
-            catalog=self.catalog,
-        )
-
-        # Then the namespace should not exist anymore
-        assert not metastore.namespace_exists(
-            namespace="namespace1",
-            catalog=self.catalog,
-        )
-
-        # And it should not be listed in namespaces
-        list_result = metastore.list_namespaces(catalog=self.catalog)
-        namespaces = list_result.all_items()
-        assert len(namespaces) == 1  # Only namespace2 should remain
-        assert namespaces[0].equivalent_to(self.namespace2)
+        # Then we should get a ValueError due to purge not being supported
+        with pytest.raises(NotImplementedError):
+            metastore.delete_namespace(
+                namespace="namespace1",
+                purge=True,
+                catalog=self.catalog,
+            )
 
     def test_delete_namespace_operations_after_delete(self):
         # Given a namespace that exists
@@ -436,7 +426,7 @@ class TestTable:
         # When we delete the table
         metastore.delete_table(
             namespace=self.test_namespace.namespace,
-            name=self.test_table1.table_name,
+            table_name=self.test_table1.table_name,
             catalog=self.catalog,
         )
         # Then the table should not exist anymore
@@ -462,26 +452,14 @@ class TestTable:
             catalog=self.catalog,
         )
         # When we delete the table with purge=True
-        metastore.delete_table(
-            namespace=self.test_namespace.namespace,
-            name=self.test_table1.table_name,
-            purge=True,
-            catalog=self.catalog,
-        )
-        # Then the table should not exist anymore
-        assert not metastore.table_exists(
-            namespace=self.test_namespace.namespace,
-            table_name=self.test_table1.table_name,
-            catalog=self.catalog,
-        )
-        # And it should not be listed in tables
-        list_result = metastore.list_tables(
-            namespace=self.test_namespace.namespace,
-            catalog=self.catalog,
-        )
-        tables = list_result.all_items()
-        assert len(tables) == 1  # Only table2 should remain
-        assert tables[0].equivalent_to(self.test_table2)
+        # Then we should get a NotImplementedError due to purge not being supported
+        with pytest.raises(NotImplementedError):
+            metastore.delete_table(
+                namespace=self.test_namespace.namespace,
+                table_name=self.test_table1.table_name,
+                purge=True,
+                catalog=self.catalog,
+            )
 
     def test_delete_table_not_exists(self):
         # When we try to delete a non-existent table
@@ -489,7 +467,7 @@ class TestTable:
         with pytest.raises(TableNotFoundError):
             metastore.delete_table(
                 namespace=self.test_namespace.namespace,
-                name="non_existent_table",
+                table_name="non_existent_table",
                 catalog=self.catalog,
             )
 
@@ -499,7 +477,7 @@ class TestTable:
         with pytest.raises(TableNotFoundError):
             metastore.delete_table(
                 namespace="non_existent_namespace",
-                name=self.test_table1.table_name,
+                table_name=self.test_table1.table_name,
                 catalog=self.catalog,
             )
 
@@ -509,7 +487,7 @@ class TestTable:
         table_version = self.tv1.table_version
         metastore.delete_table(
             namespace=self.test_namespace.namespace,
-            name=table_name,
+            table_name=table_name,
             catalog=self.catalog,
         )
 

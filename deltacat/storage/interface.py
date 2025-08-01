@@ -412,7 +412,7 @@ def delete_stream(
 
 def delete_table(
     namespace: str,
-    name: str,
+    table_name: str,
     purge: bool = False,
     *args,
     **kwargs,

@@ -100,7 +100,7 @@ def alter_table(
 
 
 def create_table(
-    name: str,
+    table: str,
     *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
@@ -120,7 +120,7 @@ def create_table(
     `fail_if_exists` is True (default behavior)."""
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.create_table(
-        name,
+        table,
         *args,
         namespace=namespace,
         table_version=table_version,
@@ -139,7 +139,7 @@ def create_table(
 
 
 def drop_table(
-    name: str,
+    table: str,
     *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
@@ -151,7 +151,7 @@ def drop_table(
     if the table does not exist."""
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.drop_table(
-        name,
+        table,
         *args,
         namespace=namespace,
         table_version=table_version,
@@ -180,7 +180,10 @@ def refresh_table(
 
 
 def list_tables(
-    *args, namespace: Optional[str] = None, catalog: Optional[str] = None, **kwargs
+    *args,
+    namespace: Optional[str] = None,
+    catalog: Optional[str] = None,
+    **kwargs,
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions. Raises an error if the given namespace
     does not exist."""
@@ -194,7 +197,7 @@ def list_tables(
 
 
 def get_table(
-    name: str,
+    table: str,
     *args,
     namespace: Optional[str] = None,
     catalog: Optional[str] = None,
@@ -206,7 +209,7 @@ def get_table(
     exist."""
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.get_table(
-        name,
+        table,
         *args,
         namespace=namespace,
         table_version=table_version,
@@ -358,7 +361,11 @@ def alter_namespace(
 
 
 def drop_namespace(
-    namespace: str, *args, catalog: Optional[str] = None, purge: bool = False, **kwargs
+    namespace: str,
+    *args,
+    catalog: Optional[str] = None,
+    purge: bool = False,
+    **kwargs,
 ) -> None:
     """Drop the given namespace and all of its tables from the catalog,
     optionally purging them."""
@@ -372,7 +379,11 @@ def drop_namespace(
     )
 
 
-def default_namespace(*args, catalog: Optional[str] = None, **kwargs) -> str:
+def default_namespace(
+    *args,
+    catalog: Optional[str] = None,
+    **kwargs,
+) -> str:
     """Returns the default namespace for the catalog."""
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.default_namespace(*args, inner=catalog_obj.inner, **kwargs)

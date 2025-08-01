@@ -169,7 +169,10 @@ def _validate_write_mode_and_table_version_existence(
     if table_version is not None and table_exists_flag:
         try:
             existing_table_def = get_table(
-                table, namespace=namespace, table_version=table_version, **kwargs
+                table,
+                namespace=namespace,
+                table_version=table_version,
+                **kwargs,
             )
             table_version_exists_flag = existing_table_def is not None
         except (TableVersionNotFoundError, Exception):
@@ -434,7 +437,7 @@ def write_to_table(
                 namespace=namespace,
                 table_name=table,
                 table_version=table_version_obj.table_version,
-                schema=updated_schema or table_version_obj.schema,
+                schema=updated_schema,
                 **catalog_kwargs,
             )
 
@@ -1626,7 +1629,7 @@ def alter_table(
 
 
 def create_table(
-    name: str,
+    table: str,
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
@@ -1649,7 +1652,7 @@ def create_table(
 
 
     Args:
-        name: Name of the table to create.
+        table: Name of the table to create.
         namespace: Optional namespace for the table. Uses default namespace if not specified.
         version: Optional version identifier for the table.
         lifecycle_state: Lifecycle state of the new table. Defaults to ACTIVE.
@@ -1677,20 +1680,20 @@ def create_table(
     kwargs["transaction"] = create_transaction
 
     try:
-        table = get_table(
-            *args,
-            name,
+        existing_table = get_table(
+            table,
             namespace=namespace,
             table_version=table_version,
+            *args,
             **kwargs,
         )
-        if table is not None:
+        if existing_table is not None:
             if fail_if_exists:
-                table_identifier = f"{namespace}.{name}" if not table_version else f"{namespace}.{name}.{table_version}"
+                table_identifier = f"{namespace}.{table}" if not table_version else f"{namespace}.{table}.{table_version}"
                 raise TableAlreadyExistsError(
                     f"Table {table_identifier} already exists"
                 )
-            return table
+            return existing_table
 
         if not namespace_exists(namespace, **kwargs):
             create_namespace(
@@ -1702,7 +1705,7 @@ def create_table(
 
         (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
             namespace=namespace,
-            table_name=name,
+            table_name=table,
             table_version=table_version,
             schema=schema,
             partition_scheme=partition_scheme,
@@ -1735,7 +1738,7 @@ def create_table(
 
 
 def drop_table(
-    name: str,
+    table: str,
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
@@ -1746,7 +1749,7 @@ def drop_table(
     """Drop a table from the catalog and optionally purges underlying data.
 
     Args:
-        name: Name of the table to drop.
+        table: Name of the table to drop.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         table_version: Optional table version of the table to drop. If not specified, the parent table of all
         table versions will be dropped.
@@ -1775,7 +1778,7 @@ def drop_table(
         if not table_version:
             _get_storage(**kwargs).delete_table(
                 namespace=namespace,
-                name=name,
+                table_name=table,
                 purge=purge,
                 *args,
                 **kwargs,
@@ -1783,7 +1786,7 @@ def drop_table(
         else:
             _get_storage(**kwargs).update_table_version(
                 namespace=namespace,
-                table_name=name,
+                table_name=table,
                 table_version=table_version,
                 lifecycle_state=LifecycleState.DELETED,
                 *args,
@@ -1858,7 +1861,7 @@ def list_tables(
 
 
 def get_table(
-    name: str,
+    table: str,
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
@@ -1869,7 +1872,7 @@ def get_table(
     """Get table definition metadata.
 
     Args:
-        name: Name of the table to retrieve.
+        table: Name of the table to retrieve.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         table_version: Optional specific version of the table to retrieve.
             If not specified, the latest version is used.
@@ -1891,34 +1894,37 @@ def get_table(
     kwargs["transaction"] = get_transaction
 
     try:
-        table: Optional[Table] = _get_storage(**kwargs).get_table(
-            *args, table_name=name, namespace=namespace, **kwargs
+        table_obj: Optional[Table] = _get_storage(**kwargs).get_table(
+            table_name=table,
+            namespace=namespace,
+            *args,
+            **kwargs,
         )
 
-        if table is None:
+        if table_obj is None:
             return None
 
         table_version: Optional[TableVersion] = _get_storage(
             **kwargs
         ).get_table_version(
-            *args,
             namespace,
-            name,
-            table_version or table.latest_active_table_version,
+            table,
+            table_version or table_obj.latest_active_table_version,
+            *args,
             **kwargs,
         )
 
         if table_version is None:
             raise TableVersionNotFoundError(
-                f"TableVersion {namespace}.{name}.{table_version} does not exist."
+                f"TableVersion {namespace}.{table}.{table_version} does not exist."
             )
 
         stream = _get_storage(**kwargs).get_stream(
-            *args,
             namespace=namespace,
-            table_name=name,
+            table_name=table,
             table_version=table_version.id,
             stream_format=stream_format,
+            *args,
             **kwargs,
         )
 
@@ -1928,7 +1934,7 @@ def get_table(
             )
 
         result = TableDefinition.of(
-            table=table,
+            table=table_obj,
             table_version=table_version,
             stream=stream,
         )
@@ -2016,6 +2022,7 @@ def table_exists(
     table: str,
     *args,
     namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> bool:
@@ -2024,6 +2031,8 @@ def table_exists(
     Args:
         table: Name of the table to check.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        table_version: Optional specific version of the table to check.
+            If not specified, the latest version is used.
         transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
@@ -2037,7 +2046,10 @@ def table_exists(
 
     try:
         result = _get_storage(**kwargs).table_exists(
-            *args, table_name=table, namespace=namespace, **kwargs
+            table_name=table,
+            namespace=namespace,
+            *args,
+            **kwargs,
         )
 
         if commit_transaction:
@@ -2327,7 +2339,10 @@ def _get_latest_active_or_given_table_version(
 
 
 def _get_all_committed_partitions(
-    table: str, namespace: str, table_version: str, **kwargs
+    table: str,
+    namespace: str,
+    table_version: str,
+    **kwargs,
 ) -> List[Union[Partition, PartitionLocator]]:
     """Get all committed partitions for a table and validate uniqueness."""
     logger.info(
