@@ -31,7 +31,6 @@ from tenacity import (
 )
 
 from deltacat.compute.compactor_v2.constants import MAX_RECORDS_PER_COMPACTED_FILE
-from deltacat.storage.model.types import LocalTable, DistributedDataset, Dataset
 from deltacat import logs
 from deltacat.constants import (
     UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY,

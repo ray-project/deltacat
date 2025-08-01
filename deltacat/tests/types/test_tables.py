@@ -76,8 +76,6 @@ def test_conversion_functions_with_real_data():
 
 def test_conversion_roundtrip_consistency():
     """Test that conversion functions maintain data integrity through roundtrips."""
-    import pyarrow as pa
-
     # Create test data
     original_df = pd.DataFrame(
         {

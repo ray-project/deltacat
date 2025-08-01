@@ -7,7 +7,7 @@ import posixpath
 import pyarrow
 import pyarrow as pa
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
 from deltacat.constants import METAFILE_FORMAT, METAFILE_FORMAT_JSON, TXN_DIR_NAME
@@ -32,6 +32,9 @@ from deltacat.storage.model.types import (
     StreamFormat,
 )
 from deltacat.types.media import ContentType
+
+if TYPE_CHECKING:
+    from deltacat.compute.compactor import RoundCompletionInfo
 
 
 """
@@ -177,7 +180,7 @@ class Partition(Metafile):
 
     @compaction_round_completion_info.setter
     def compaction_round_completion_info(
-        self, compaction_round_completion_info: Optional["RoundCompletionInfo"]
+        self, compaction_round_completion_info: Optional[RoundCompletionInfo]
     ) -> None:
         self["compactionRoundCompletionInfo"] = compaction_round_completion_info
 

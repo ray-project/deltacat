@@ -1,6 +1,6 @@
 from __future__ import annotations
 from enum import Enum
-from typing import Callable
+from typing import Callable, Optional, TYPE_CHECKING
 import logging
 
 import tenacity
@@ -27,6 +27,9 @@ from deltacat import logs
 from deltacat.utils.ray_utils.runtime import (
     get_current_ray_task_id,
 )
+
+if TYPE_CHECKING:
+    from deltacat.storage.model.schema import FieldLocator
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 

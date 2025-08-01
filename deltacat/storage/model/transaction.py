@@ -306,7 +306,6 @@ class Transaction(dict):
     ) -> Transaction:
         if txn_operations is None:
             txn_operations = []
-        operation_types = set([op.type for op in txn_operations])
         transaction = Transaction()
         transaction.operations = txn_operations
         transaction.interactive = len(txn_operations) == 0
@@ -931,7 +930,7 @@ class Transaction(dict):
                     current_txn_revision_file_path=path,
                     filesystem=fs,
                 )
-        except Exception as e:
+        except Exception:
             self._fail_and_cleanup(
                 failed_txn_log_dir=failed_dir,
                 running_log_path=running_path,

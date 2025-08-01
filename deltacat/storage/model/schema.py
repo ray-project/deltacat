@@ -86,9 +86,7 @@ class SchemaUpdateOperation(tuple):
     """
 
     @staticmethod
-    def add_field(
-        field: "Field"
-    ) -> "SchemaUpdateOperation":
+    def add_field(field: "Field") -> "SchemaUpdateOperation":
         """Create an operation to add a new field."""
         return SchemaUpdateOperation(("add", None, field))
 
@@ -1842,7 +1840,7 @@ class Schema(dict):
 
         # Apply field updates
         for field_name, updated_field in field_updates.items():
-            schema_update = schema_update.update_field(field_name, updated_field)
+            schema_update = schema_update._update_field(field_name, updated_field)
 
         # Apply new fields
         for field_name, new_field in new_fields.items():
@@ -2147,9 +2145,7 @@ class SchemaUpdate(dict):
         Raises:
             SchemaCompatibilityError: If field already exists or addition would break compatibility
         """
-        self.operations.append(
-            SchemaUpdateOperation.add_field(new_field)
-        )
+        self.operations.append(SchemaUpdateOperation.add_field(new_field))
         return self
 
     def remove_field(self, field_locator: FieldLocator) -> "SchemaUpdate":
@@ -2498,8 +2494,8 @@ class SchemaUpdate(dict):
                 )
             elif operation.operation == "remove":
                 self._apply_remove_field(
-                    updated_fields, 
-                    field_name_to_index, 
+                    updated_fields,
+                    field_name_to_index,
                     operation.field_locator,
                 )
             elif operation.operation == "update":
@@ -2683,9 +2679,7 @@ class SchemaUpdate(dict):
             )
             return str1 == str2
 
-    def _validate_add_field_compatibility(
-        self, new_field: Field
-    ) -> None:
+    def _validate_add_field_compatibility(self, new_field: Field) -> None:
         """Validate that adding a new field won't break compatibility."""
         field_name = new_field.arrow.name
         arrow_field = new_field.arrow

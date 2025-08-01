@@ -139,7 +139,7 @@ class TestCatalogTableOperations:
         assert table_version.table_name == table_name
         assert table_version.namespace == namespace_name
         assert table_version.description == "Test table for unit tests"
-        assert table_version.state == LifecycleState.CREATED
+        assert table_version.state == LifecycleState.ACTIVE
         assert table.properties.get("owner") == "test-user"
         assert table.properties.get("department") == "engineering"
         assert table_version.schema.arrow.names == sample_arrow_schema.names
@@ -388,7 +388,7 @@ class TestCatalogTableOperations:
             pa.field("count", pa.float64(), nullable=True), field_id=100
         )
         schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field("count", new_field)]
+            [SchemaUpdateOperation.add_field(new_field)]
         )
 
         # Create updated properties
@@ -416,7 +416,7 @@ class TestCatalogTableOperations:
 
         # Verify table properties were updated
         assert updated_table_version.description == "Updated description"
-        assert updated_table_version.state == LifecycleState.CREATED
+        assert updated_table_version.state == LifecycleState.ACTIVE
         assert updated_table.properties.get("owner") == "new-user"
         assert updated_table.properties.get("department") == "data-science"
         assert updated_table.properties.get("priority") == "high"
@@ -425,7 +425,7 @@ class TestCatalogTableOperations:
         updated_schema = updated_table_version.schema
         assert updated_schema.field("count") is not None
         assert updated_schema.field("count").arrow.type == pa.float64()
-        assert updated_schema.field("count").arrow.nullable == True
+        assert updated_schema.field("count").arrow.nullable is True
         assert updated_schema.field("count").id == 100
 
         # Verify schema ID was incremented (proving SchemaUpdate was used)
@@ -483,8 +483,8 @@ class TestCatalogTableOperations:
 
         schema_updates = SchemaUpdateOperations.of(
             [
-                SchemaUpdateOperation.add_field("count", new_field1),
-                SchemaUpdateOperation.add_field("status", new_field2),
+                SchemaUpdateOperation.add_field(new_field1),
+                SchemaUpdateOperation.add_field(new_field2),
             ]
         )
 
@@ -535,14 +535,12 @@ class TestCatalogTableOperations:
         schema = Schema.of(initial_fields)
 
         # Create the table
-        table = catalog.create_table(
+        catalog.create_table(
             name=table_name,
             namespace=namespace_name,
             schema=schema,
             inner=catalog_properties,
         )
-
-        original_schema = table.table_version.schema
 
         # Note: Field removal would normally require allow_incompatible_changes in SchemaUpdate
         # For this test, we're just testing the API structure

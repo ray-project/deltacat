@@ -28,7 +28,6 @@ from deltacat.storage.model.schema import (
     Schema,
     Field,
     MergeOrder,
-    SchemaConsistencyType,
 )
 from deltacat.storage.model.table import TableProperties
 from deltacat.storage.model.types import (
@@ -36,7 +35,6 @@ from deltacat.storage.model.types import (
     SortOrder,
     NullOrder,
 )
-from deltacat.types.tables import TableWriteMode
 from deltacat.types.media import DatasetType, ContentType
 from deltacat.types.tables import (
     get_table_length,
@@ -524,7 +522,6 @@ class TestHelperFunctionErrorCases:
         overlap_ids = set(overlap_data["id"])
         simple_ids = set(simple_data["id"])
         additional_ids = set(additional_data["id"])
-        merge_ids = set(merge_data["id"])
 
         # Test expected overlaps
         expected_test_overlap = {3, 4}
@@ -548,7 +545,7 @@ class TestReadTableMain:
         """Test Daft distributed read functionality with temporary catalog."""
         dc.init()
         catalog_name = str(uuid.uuid4())
-        catalog = dc.put_catalog(
+        dc.put_catalog(
             catalog_name,
             catalog=Catalog(config=temp_catalog_properties),
         )
@@ -586,7 +583,7 @@ class TestReadTableMain:
         """Test Daft distributed read functionality with multiple deltas."""
         dc.init()
         catalog_name = str(uuid.uuid4())
-        catalog = dc.put_catalog(
+        dc.put_catalog(
             catalog_name,
             catalog=Catalog(config=temp_catalog_properties),
         )
@@ -789,7 +786,7 @@ class TestCopyOnWrite:
         table_name = "test_two_upserts"
 
         # Step 1: Create table with merge keys
-        schema = self._create_table_with_merge_keys(table_name)
+        self._create_table_with_merge_keys(table_name)
 
         # Step 2: Write initial data using MERGE mode (creates UPSERT delta)
         initial_data = self._create_initial_data()
@@ -857,7 +854,7 @@ class TestCopyOnWrite:
         table_name = "test_three_upserts"
 
         # Step 1: Create table with merge keys
-        schema = self._create_table_with_merge_keys(table_name)
+        self._create_table_with_merge_keys(table_name)
 
         # Step 2: Write initial data
         initial_data = self._create_initial_data()
@@ -1439,7 +1436,7 @@ class TestCopyOnWrite:
         table_name = "test_replace_duplicates_existing"
 
         # Step 1: Create table with some initial data
-        schema = self._create_table_with_merge_keys(table_name)
+        self._create_table_with_merge_keys(table_name)
         initial_data = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -1520,7 +1517,7 @@ class TestCopyOnWrite:
         table_name = "test_replace_duplicates_existing_v2"
 
         # Step 1: Create table and write initial data
-        schema = self._create_table_with_merge_keys(table_name)
+        self._create_table_with_merge_keys(table_name)
         initial_data = pd.DataFrame(
             {
                 "id": [1, 2, 3],
@@ -2030,9 +2027,7 @@ class TestDatasetTypes:
             }
         )
 
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         dc.write_to_table(
             data=test_data,
@@ -2114,9 +2109,7 @@ class TestDatasetTypes:
             }
         )
 
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         dc.write_to_table(
             data=test_data,
@@ -2250,9 +2243,6 @@ class TestDatasetTypes:
                         "file_path_column"
                     ]
 
-                    # Check schema for path column
-                    schema_names = result_table.schema().names
-
                     # Ray dataset should have the file path column
                     sample_data = result_table.take(2)
                     assert (
@@ -2323,9 +2313,7 @@ class TestDatasetTypes:
             }
         )
 
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         dc.write_to_table(
             data=test_data,
@@ -3246,9 +3234,6 @@ class TestTableVersionWriteModes:
 
     def test_future_default_auto_set_from_past_default(self):
         """Test that future_default is automatically set to past_default when not explicitly set."""
-        table_name = "future_default_auto_test"
-        namespace = "test_ns"
-
         # Create field with only past_default (no future_default)
         field = Field.of(
             field=pa.field("category", pa.string(), nullable=True),
@@ -3265,8 +3250,6 @@ class TestTableVersionWriteModes:
 
     def test_future_default_not_overridden_when_explicitly_set(self):
         """Test that future_default is NOT overridden when explicitly set, even if past_default exists."""
-        table_name = "future_default_explicit_test"
-        namespace = "test_ns"
 
         # Create field with both past_default and explicit future_default
         field = Field.of(
@@ -3683,13 +3666,13 @@ class TestTableVersionWriteModes:
         # Verify timestamp default
         assert "created_at" in result.columns, "created_at column should be present"
         assert all(
-            pd.notna(result["created_at"])
-        ), "All created_at values should not be null"
+            result["created_at"] == pd.to_datetime(1640995200000000, unit="us")
+        ), "All created_at values should be 2022-01-01 00:00:00 UTC"
 
         # Verify boolean default
         assert "is_active" in result.columns, "is_active column should be present"
         assert all(
-            result["is_active"] == True
+            result["is_active"] == np.bool_(True)
         ), f"All is_active values should be True, got {result['is_active'].tolist()}"
 
 
@@ -3698,9 +3681,7 @@ class TestSchemaConsistency:
         """Test missing field handling and backfill behavior based on SchemaConsistencyType."""
         namespace = "test_namespace"
         catalog_name = f"test-{uuid.uuid4()}"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create a schema with different consistency types and field configurations
         fields = [
@@ -3864,9 +3845,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"schemaless-append-test-{uuid.uuid4()}"
         table_name = "schemaless_append_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Test 1: Create schemaless table with initial data
         initial_data = pd.DataFrame(
@@ -3976,9 +3955,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"schemaless-merge-test-{uuid.uuid4()}"
         table_name = "schemaless_merge_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Test 1: Create schemaless table (schema=None)
         initial_data = pd.DataFrame(
@@ -4107,9 +4084,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"schemaless-evolving-test-{uuid.uuid4()}"
         table_name = "schemaless_evolving_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Test 1: Create schemaless table with initial columns
         initial_data = pd.DataFrame(
@@ -4191,9 +4166,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"schemaless-distributed-test-{uuid.uuid4()}"
         table_name = "schemaless_distributed_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create schemaless table with initial columns
         initial_data = pd.DataFrame(
@@ -4291,9 +4264,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"type-promotion-test-{uuid.uuid4()}"
         table_name = "type_promotion_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Test 1: Create table with int32 field with NONE consistency type
         initial_data = pd.DataFrame(
@@ -4463,9 +4434,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"binary-promotion-test-{uuid.uuid4()}"
         table_name = "binary_promotion_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Test 1: Start with string field that has NONE consistency type
         initial_data = pd.DataFrame(
@@ -4604,7 +4573,7 @@ class TestSchemaConsistency:
 
         # The new string data should have been converted to binary
         # Check that we have a mix of original strings (converted to binary), binary data, and new strings (converted to binary)
-        last_item = combined_result3["data"].iloc[-1]
+        combined_result3["data"].iloc[-1]
 
         # Test 4: Test direct unit-level binary promotion
 
@@ -4740,9 +4709,7 @@ class TestSchemaConsistency:
         namespace = "test_namespace"
         catalog_name = f"critical-column-test-{uuid.uuid4()}"
         table_name = "critical_column_table"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create initial data with merge key
         initial_data = pd.DataFrame(
@@ -4844,17 +4811,13 @@ class TestSchemaConsistency:
         assert none_result is None, "None default should remain None"
 
         # Test error handling - incompatible cast should return None
-        incompatible_result = original_field._cast_default_to_promoted_type(
-            "not_a_number", pa.int64()
-        )
+        original_field._cast_default_to_promoted_type("not_a_number", pa.int64())
         # Note: This actually works due to string→int conversion, so let's test with a complex type
         complex_field = Field.of(
             pa.field("complex", pa.list_(pa.int32())),
             consistency_type=SchemaConsistencyType.NONE,
         )
-        incompatible_result = complex_field._cast_default_to_promoted_type(
-            42, pa.list_(pa.string())
-        )
+        complex_field._cast_default_to_promoted_type(42, pa.list_(pa.string()))
         # This should work or return None gracefully - the important thing is no exceptions
 
     def test_default_value_backfill_with_promotion(self, temp_catalog_properties):
@@ -4928,9 +4891,7 @@ class TestAlterTable:
         namespace = "test_namespace"
         catalog_name = f"alter-table-add-test-{uuid.uuid4()}"
         table_name = "alter_table_add_test"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create initial table with basic schema
         initial_data = create_test_data()
@@ -4955,7 +4916,7 @@ class TestAlterTable:
             pa.field("email", pa.string(), nullable=True), field_id=100
         )
         schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field("email", new_field)]
+            [SchemaUpdateOperation.add_field(new_field)]
         )
 
         # Alter the table - no need to specify table version since newly created versions are now ACTIVE
@@ -4976,7 +4937,7 @@ class TestAlterTable:
         # Verify new field was added
         assert updated_schema.field("email") is not None
         assert updated_schema.field("email").arrow.type == pa.string()
-        assert updated_schema.field("email").arrow.nullable == True
+        assert updated_schema.field("email").arrow.nullable is True
         assert updated_schema.field("email").id == 100
 
         # Verify schema ID was incremented
@@ -4999,9 +4960,7 @@ class TestAlterTable:
         namespace = "test_namespace"
         catalog_name = f"alter-table-multiple-test-{uuid.uuid4()}"
         table_name = "alter_table_multiple_test"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create initial table
         initial_data = create_test_data()
@@ -5032,8 +4991,8 @@ class TestAlterTable:
 
         schema_updates = SchemaUpdateOperations.of(
             [
-                SchemaUpdateOperation.add_field("email", email_field),
-                SchemaUpdateOperation.add_field("status", status_field),
+                SchemaUpdateOperation.add_field(email_field),
+                SchemaUpdateOperation.add_field(status_field),
             ]
         )
 
@@ -5077,9 +5036,7 @@ class TestAlterTable:
         namespace = "test_namespace"
         catalog_name = f"alter-table-update-test-{uuid.uuid4()}"
         table_name = "alter_table_update_test"
-        dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create initial table
         initial_data = create_test_data()
@@ -5129,7 +5086,7 @@ class TestAlterTable:
         updated_age_field = updated_schema.field("age")
 
         # Verify field properties were updated (nullable changed)
-        assert updated_age_field.arrow.nullable == True
+        assert updated_age_field.arrow.nullable is True
         assert updated_age_field.id == original_age_field.id
 
         # Verify schema ID was incremented
@@ -5146,16 +5103,14 @@ class TestAlterTable:
         namespace = "test_namespace"
         catalog_name = f"alter-table-error-test-{uuid.uuid4()}"
         table_name = "alter_table_error_test"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create schema update operation
         new_field = Field.of(
             pa.field("email", pa.string(), nullable=True), field_id=100
         )
         schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field("email", new_field)]
+            [SchemaUpdateOperation.add_field(new_field)]
         )
 
         # Try to alter a completely non-existent table - should fail because no table exists
@@ -5183,9 +5138,7 @@ class TestAlterTable:
         namespace = "test_namespace"
         catalog_name = f"alter-table-invalid-version-test-{uuid.uuid4()}"
         table_name = "alter_table_invalid_version_test"
-        catalog = dc.put_catalog(
-            catalog_name, catalog=Catalog(config=temp_catalog_properties)
-        )
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
         # Create initial table
         initial_data = create_test_data()
@@ -5203,7 +5156,7 @@ class TestAlterTable:
             pa.field("email", pa.string(), nullable=True), field_id=100
         )
         schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field("email", new_field)]
+            [SchemaUpdateOperation.add_field(new_field)]
         )
 
         # Try to alter with invalid table version - should raise an error

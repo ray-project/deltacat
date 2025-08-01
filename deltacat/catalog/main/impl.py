@@ -290,33 +290,6 @@ def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
     return Schema.of(schema=arrow_schema)
 
 
-def _get_or_create_table(
-    data: Dataset,
-    table: str,
-    namespace: str,
-    table_exists_flag: bool,
-    content_type: ContentType,
-    *args,
-    **kwargs,
-) -> TableDefinition:
-    """Get existing table or create new one based on existence flag."""
-    if not table_exists_flag:
-        # Handle schema: differentiate between explicit schema=None vs no schema argument
-        if "schema" not in kwargs:
-            # No schema argument provided - infer schema from data
-            kwargs["schema"] = _infer_schema_from_data(data)
-
-        return create_table(
-            table,
-            namespace=namespace,
-            content_types=[content_type],
-            *args,
-            **kwargs,
-        )
-    else:
-        return get_table(table, namespace=namespace, **kwargs)
-
-
 def _get_or_create_table_and_version(
     data: Dataset,
     table: str,
@@ -444,6 +417,7 @@ def write_to_table(
         content_type: Content type for the data files.
         schema: Optional DeltaCAT schema for the table. Used when creating tables
             and updating existing table version schemas.
+        lifecycle_state: Lifecycle state of any new table version created. Defaults to ACTIVE.
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
@@ -1683,15 +1657,12 @@ def alter_table(
             # Apply each operation in the list
             for operation in schema_updates:
                 if operation.operation == "add":
-                    schema_update = schema_update.add_field(
-                        operation.field_locator, 
-                        operation.field,
-                    )
+                    schema_update = schema_update.add_field(operation.field)
                 elif operation.operation == "remove":
                     schema_update = schema_update.remove_field(operation.field_locator)
                 elif operation.operation == "update":
                     schema_update = schema_update._update_field(
-                        operation.field_locator, 
+                        operation.field_locator,
                         operation.field,
                     )
                 else:
