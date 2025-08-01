@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
-import threading
 from collections import defaultdict
 
 import pandas as pd
@@ -15,7 +14,7 @@ import deltacat as dc
 
 from deltacat.storage.model.manifest import ManifestAuthor
 from deltacat.catalog.model.properties import (
-    CatalogProperties, 
+    CatalogProperties,
     get_catalog_properties,
 )
 from deltacat.exceptions import (
@@ -29,8 +28,7 @@ from deltacat.storage.model.sort_key import SortScheme
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
 from deltacat.storage.model.schema import (
-    Schema, 
-    SchemaUpdate,
+    Schema,
     SchemaUpdateOperations,
 )
 from deltacat.storage.model.table import TableProperties, Table
@@ -44,12 +42,9 @@ from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
     PartitionScheme,
-    PartitionValues,
-    UNKNOWN_PARTITION_ID,
-    UNSPECIFIED_PARTITION_ID,
 )
 from deltacat.storage.model.table_version import (
-    TableVersion, 
+    TableVersion,
     TableVersionProperties,
 )
 from deltacat.storage.model.types import DeltaType
@@ -57,15 +52,14 @@ from deltacat.storage import Delta
 from deltacat.storage.model.types import CommitState
 from deltacat.storage.model.transaction import Transaction
 from deltacat.types.media import (
-    ContentType, 
+    ContentType,
     DatasetType,
     StorageType,
 )
 from deltacat.types.tables import (
-    SchemaEvolutionMode, 
-    TableProperty, 
-    TableReadOptimizationLevel, 
-    TableWriteMode, 
+    TableProperty,
+    TableReadOptimizationLevel,
+    TableWriteMode,
     concat_tables,
 )
 from deltacat import logs
@@ -88,33 +82,35 @@ native `Catalog` implementation (e.g., the root URI for the catalog metastore).
 
 
 # Transaction management helper
-def _setup_transaction(transaction: Optional[Transaction], **kwargs) -> tuple[Transaction, bool]:
+def _setup_transaction(
+    transaction: Optional[Transaction], **kwargs
+) -> tuple[Transaction, bool]:
     """
     Set up transaction handling for catalog operations.
-    
+
     Returns a tuple of (transaction, commit_transaction) where:
     - transaction: The transaction to use (either provided or newly created)
     - commit_transaction: True if we should commit the transaction on success
-    
+
     If a transaction is provided, it will be reused and not committed.
     If no transaction is provided, a new interactive transaction is created and will be committed.
     """
     transaction = transaction
     commit_transaction = transaction is None
-    
+
     if commit_transaction:
         # Create and start an interactive transaction for atomic operations
         transaction = Transaction.of(
             txn_operations=[],  # Start with empty operations to enable interactive mode
         )
-        
+
         # Get catalog properties for transaction management
         catalog_properties = get_catalog_properties(**kwargs)
         transaction = transaction.start(
             catalog_root_dir=catalog_properties.root,
             filesystem=catalog_properties.filesystem,
         )
-    
+
     return transaction, commit_transaction
 
 
@@ -151,8 +147,8 @@ def _validate_write_mode_and_table_existence(
 ) -> bool:
     """Validate write mode against table existence and return whether table exists."""
     table_exists_flag = table_exists(
-        table, 
-        namespace=namespace, 
+        table,
+        namespace=namespace,
         **kwargs,
     )
     logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
@@ -163,8 +159,10 @@ def _validate_write_mode_and_table_existence(
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}")
-    
+        raise ValueError(
+            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}"
+        )
+
     return table_exists_flag
 
 
@@ -176,14 +174,14 @@ def _validate_write_mode_and_table_version_existence(
     **kwargs,
 ) -> Tuple[bool, bool]:
     """Validate write mode against table and table version existence.
-    
+
     Returns:
         Tuple of (table_exists_flag, table_version_exists_flag)
     """
     # First validate table existence
     table_exists_flag = table_exists(
-        table, 
-        namespace=namespace, 
+        table,
+        namespace=namespace,
         **kwargs,
     )
     logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
@@ -195,32 +193,31 @@ def _validate_write_mode_and_table_version_existence(
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}")
-    
+        raise ValueError(
+            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}"
+        )
+
     # Check table version existence if specified
     table_version_exists_flag = False
     if table_version is not None and table_exists_flag:
         try:
             existing_table_def = get_table(
-                table, 
-                namespace=namespace, 
-                table_version=table_version, 
-                **kwargs
+                table, namespace=namespace, table_version=table_version, **kwargs
             )
             table_version_exists_flag = existing_table_def is not None
         except (TableVersionNotFoundError, Exception):
             table_version_exists_flag = False
-            
+
         logger.info(
             f"Table version ({namespace}.{table}.{table_version}) exists: {table_version_exists_flag}"
         )
-        
+
         # Validate table version constraints
         if mode == TableWriteMode.CREATE and table_version_exists_flag:
             raise ValueError(
                 f"Table version {namespace}.{table}.{table_version} already exists and mode is CREATE"
             )
-    
+
     return table_exists_flag, table_version_exists_flag
 
 
@@ -252,14 +249,13 @@ def _infer_schema_from_ray_dataset(data: rd.Dataset) -> Schema:
     """Infer schema from Ray Dataset."""
     ray_schema = data.schema()
     base_schema = ray_schema.base_schema
-    
+
     if isinstance(base_schema, pa.Schema):
         arrow_schema = base_schema
     elif isinstance(base_schema, PandasBlockSchema):
         try:
             dtype_dict = {
-                name: dtype
-                for name, dtype in zip(base_schema.names, base_schema.types)
+                name: dtype for name, dtype in zip(base_schema.names, base_schema.types)
             }
             empty_df = pd.DataFrame(columns=base_schema.names).astype(dtype_dict)
             arrow_schema = pa.Schema.from_pandas(empty_df)
@@ -272,7 +268,7 @@ def _infer_schema_from_ray_dataset(data: rd.Dataset) -> Schema:
             f"Unsupported Ray Dataset schema type: {type(base_schema)}. "
             f"Expected PyArrow Schema or PandasBlockSchema, got {base_schema}"
         )
-    
+
     return Schema.of(schema=arrow_schema)
 
 
@@ -290,7 +286,7 @@ def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
             f"NumPy arrays with {data.ndim} dimensions are not supported. "
             f"Only 1D and 2D arrays are supported."
         )
-    
+
     return Schema.of(schema=arrow_schema)
 
 
@@ -309,7 +305,7 @@ def _get_or_create_table(
         if "schema" not in kwargs:
             # No schema argument provided - infer schema from data
             kwargs["schema"] = _infer_schema_from_data(data)
-        
+
         return create_table(
             table,
             namespace=namespace,
@@ -338,7 +334,7 @@ def _get_or_create_table_and_version(
         # Table doesn't exist - create new table with specified version
         if "schema" not in kwargs:
             kwargs["schema"] = _infer_schema_from_data(data)
-        
+
         return create_table(
             table,
             namespace=namespace,
@@ -351,9 +347,9 @@ def _get_or_create_table_and_version(
         if table_version_exists_flag:
             # Table version exists - get it
             return get_table(
-                table, 
-                namespace=namespace, 
-                table_version=table_version, 
+                table,
+                namespace=namespace,
+                table_version=table_version,
                 **kwargs,
             )
         else:
@@ -362,10 +358,12 @@ def _get_or_create_table_and_version(
                 # For CREATE mode, we want to create a new table version
                 if "schema" not in kwargs:
                     kwargs["schema"] = _infer_schema_from_data(data)
-                
+
                 # Create a new table version directly using storage API
                 # We need to bypass the create_table function's existence check
-                (table_obj, table_version_obj, stream) = _get_storage(**kwargs).create_table_version(
+                (table_obj, table_version_obj, stream) = _get_storage(
+                    **kwargs
+                ).create_table_version(
                     *args,
                     namespace=namespace,
                     table_name=table,
@@ -376,14 +374,25 @@ def _get_or_create_table_and_version(
                     table_version_description=kwargs.get("description"),
                     table_description=kwargs.get("description"),
                     table_properties=kwargs.get("table_properties"),
-                    lifecycle_state=kwargs.get("lifecycle_state", LifecycleState.ACTIVE),
+                    lifecycle_state=kwargs.get(
+                        "lifecycle_state", LifecycleState.ACTIVE
+                    ),
                     supported_content_types=[content_type],
-                    **{k: v for k, v in kwargs.items() if k not in [
-                        'schema', 'partition_scheme', 'sort_keys', 'description', 
-                        'table_properties', 'lifecycle_state'
-                    ]},
+                    **{
+                        k: v
+                        for k, v in kwargs.items()
+                        if k
+                        not in [
+                            "schema",
+                            "partition_scheme",
+                            "sort_keys",
+                            "description",
+                            "table_properties",
+                            "lifecycle_state",
+                        ]
+                    },
                 )
-                
+
                 return TableDefinition.of(
                     table=table_obj,
                     table_version=table_version_obj,
@@ -398,8 +407,8 @@ def _get_or_create_table_and_version(
     else:
         # No specific version requested - get latest
         return get_table(
-            table, 
-            namespace=namespace, 
+            table,
+            namespace=namespace,
             **kwargs,
         )
 
@@ -422,7 +431,7 @@ def write_to_table(
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
     as additional keyword arguments.
-    
+
     Args:
         data: Local or distributed data to write to the table.
         table: Name of the table to write to.
@@ -435,7 +444,7 @@ def write_to_table(
         content_type: Content type for the data files.
         schema: Optional DeltaCAT schema for the table. Used when creating tables
             and updating existing table version schemas.
-        transaction: Optional transaction to append write operations to instead of 
+        transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
     """
@@ -447,25 +456,28 @@ def write_to_table(
 
     try:
         # Validate write mode and table/table version existence
-        table_exists_flag, table_version_exists_flag = _validate_write_mode_and_table_version_existence(
-            table, 
-            namespace, 
-            table_version, 
-            mode, 
+        (
+            table_exists_flag,
+            table_version_exists_flag,
+        ) = _validate_write_mode_and_table_version_existence(
+            table,
+            namespace,
+            table_version,
+            mode,
             **kwargs,
         )
 
         # Get or create table and table version
         table_definition = _get_or_create_table_and_version(
-            data, 
-            table, 
-            namespace, 
-            table_version, 
-            table_exists_flag, 
-            table_version_exists_flag, 
-            content_type, 
-            mode, 
-            *args, 
+            data,
+            table,
+            namespace,
+            table_version,
+            table_exists_flag,
+            table_version_exists_flag,
+            content_type,
+            mode,
+            *args,
             **kwargs,
         )
 
@@ -479,11 +491,11 @@ def write_to_table(
 
         # Handle different write modes and get stream and delta type
         stream, delta_type = _handle_write_mode(
-            mode, 
-            table_definition, 
-            table_version_obj, 
-            namespace, 
-            table, 
+            mode,
+            table_definition,
+            table_version_obj,
+            namespace,
+            table,
             **kwargs,
         )
 
@@ -492,25 +504,25 @@ def write_to_table(
 
         # Automatically set entry_params for DELETE/MERGE modes if not provided
         _set_entry_params_if_needed(
-            mode, 
-            table_version_obj, 
+            mode,
+            table_version_obj,
             kwargs,
         )
 
         # Validate table configuration
         _validate_table_configuration(
-            stream, 
-            table_version_obj, 
-            namespace, 
+            stream,
+            table_version_obj,
+            namespace,
             table,
         )
 
         # Handle partition creation/retrieval
         partition, commit_staged_partition = _handle_partition_creation(
-            mode, 
-            table_exists_flag, 
-            delta_type, 
-            stream, 
+            mode,
+            table_exists_flag,
+            delta_type,
+            stream,
             **kwargs,
         )
 
@@ -518,57 +530,64 @@ def write_to_table(
         converted_data = _convert_data_if_needed(data)
 
         # Get table properties for schema evolution
-        schema_evolution_mode = table_version_obj.read_table_property(TableProperty.SCHEMA_EVOLUTION_MODE)
-        default_schema_consistency_type = table_version_obj.read_table_property(TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE)
+        schema_evolution_mode = table_version_obj.read_table_property(
+            TableProperty.SCHEMA_EVOLUTION_MODE
+        )
+        default_schema_consistency_type = table_version_obj.read_table_property(
+            TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE
+        )
 
         # Validate and coerce data against schema if schema consistency types are set
-        validated_data, schema_modified, updated_schema = _validate_and_coerce_data_against_schema(
-            converted_data, 
+        (
+            validated_data,
+            schema_modified,
+            updated_schema,
+        ) = _validate_and_coerce_data_against_schema(
+            converted_data,
             table_version_obj.schema,
             schema_evolution_mode=schema_evolution_mode,
-            default_schema_consistency_type=default_schema_consistency_type
+            default_schema_consistency_type=default_schema_consistency_type,
         )
 
         # Update table version if schema was modified during evolution
         if schema_modified:
             # Extract catalog properties and filter kwargs
             catalog_kwargs = {
-                'catalog': kwargs.get('catalog'),
-                'inner': kwargs.get('inner'),
-                'transaction': write_transaction,  # Pass transaction to update_table_version
+                "catalog": kwargs.get("catalog"),
+                "inner": kwargs.get("inner"),
+                "transaction": write_transaction,  # Pass transaction to update_table_version
             }
-            
+
             _get_storage(**catalog_kwargs).update_table_version(
                 namespace=namespace,
                 table_name=table,
                 table_version=table_version_obj.table_version,
                 schema=updated_schema or table_version_obj.schema,
-                **catalog_kwargs
+                **catalog_kwargs,
             )
 
         # Stage and commit delta, handle compaction
         _stage_commit_and_compact(
-            validated_data, 
-            partition, 
-            delta_type, 
-            content_type, 
+            validated_data,
+            partition,
+            delta_type,
+            content_type,
             commit_staged_partition,
-            table_version_obj, 
-            namespace, 
-            table, 
+            table_version_obj,
+            namespace,
+            table,
             **kwargs,
         )
 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             write_transaction.seal()
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during write_to_table: {e}")
         raise
-    
-    
+
 
 def _handle_write_mode(
     mode: TableWriteMode,
@@ -580,48 +599,48 @@ def _handle_write_mode(
 ) -> Tuple[Any, DeltaType]:  # Using Any for stream type to avoid complex imports
     """Handle different write modes and return appropriate stream and delta type."""
     table_schema = table_definition.table_version.schema
-    
+
     if mode == TableWriteMode.REPLACE:
         return _handle_replace_mode(
-            table_schema, 
-            namespace, 
-            table, 
-            table_version_obj, 
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
             **kwargs,
         )
     elif mode == TableWriteMode.APPEND:
         return _handle_append_mode(
-            table_schema, 
-            namespace, 
-            table, 
-            table_version_obj, 
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
             **kwargs,
         )
     elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
         return _handle_merge_delete_mode(
-            mode, 
-            table_schema, 
-            namespace, 
-            table, 
-            table_version_obj, 
+            mode,
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
             **kwargs,
         )
     else:
         # AUTO and CREATE modes
         return _handle_auto_create_mode(
-            table_schema, 
-            namespace, 
-            table, 
-            table_version_obj, 
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
             **kwargs,
         )
 
 
 def _handle_replace_mode(
-    table_schema, 
-    namespace: str, 
-    table: str, 
-    table_version_obj: TableVersion, 
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle REPLACE mode by staging and committing a new stream."""
@@ -631,17 +650,21 @@ def _handle_replace_mode(
         table_version=table_version_obj.table_version,
         **kwargs,
     )
-    
+
     stream = _get_storage(**kwargs).commit_stream(stream=stream, **kwargs)
-    delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
+    delta_type = (
+        DeltaType.UPSERT
+        if table_schema and table_schema.merge_keys
+        else DeltaType.APPEND
+    )
     return stream, delta_type
 
 
 def _handle_append_mode(
-    table_schema, 
-    namespace: str, 
-    table: str, 
-    table_version_obj: TableVersion, 
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle APPEND mode by validating no merge keys and getting existing stream."""
@@ -651,22 +674,22 @@ def _handle_append_mode(
             f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
             f"Use MERGE mode instead."
         )
-    
+
     stream = _get_table_stream(
-        namespace, 
-        table, 
-        table_version_obj.table_version, 
+        namespace,
+        table,
+        table_version_obj.table_version,
         **kwargs,
     )
     return stream, DeltaType.APPEND
 
 
 def _handle_merge_delete_mode(
-    mode: TableWriteMode, 
-    table_schema, 
-    namespace: str, 
-    table: str, 
-    table_version_obj: TableVersion, 
+    mode: TableWriteMode,
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle MERGE/DELETE modes by validating merge keys and getting existing stream."""
@@ -676,11 +699,11 @@ def _handle_merge_delete_mode(
             f"Table {namespace}.{table} has no merge keys. "
             f"Use APPEND mode instead or specify merge keys in the schema."
         )
-    
+
     stream = _get_table_stream(
-        namespace, 
-        table, 
-        table_version_obj.table_version, 
+        namespace,
+        table,
+        table_version_obj.table_version,
         **kwargs,
     )
     delta_type = DeltaType.UPSERT if mode == TableWriteMode.MERGE else DeltaType.DELETE
@@ -688,27 +711,31 @@ def _handle_merge_delete_mode(
 
 
 def _handle_auto_create_mode(
-    table_schema, 
-    namespace: str, 
-    table: str, 
-    table_version_obj: TableVersion, 
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle AUTO and CREATE modes by getting existing stream."""
     stream = _get_table_stream(
-        namespace, 
-        table, 
-        table_version_obj.table_version, 
+        namespace,
+        table,
+        table_version_obj.table_version,
         **kwargs,
     )
-    delta_type = DeltaType.UPSERT if table_schema and table_schema.merge_keys else DeltaType.APPEND
+    delta_type = (
+        DeltaType.UPSERT
+        if table_schema and table_schema.merge_keys
+        else DeltaType.APPEND
+    )
     return stream, delta_type
 
 
 def _validate_table_configuration(
-    stream, 
-    table_version_obj: TableVersion, 
-    namespace: str, 
+    stream,
+    table_version_obj: TableVersion,
+    namespace: str,
     table: str,
 ) -> None:
     """Validate table configuration for unsupported features."""
@@ -753,7 +780,7 @@ def _handle_partition_creation(
         # REPLACE mode or new table: Stage a new partition
         partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
         # If we're doing UPSERT/DELETE operations, let compaction handle the commit
-        commit_staged_partition = (delta_type not in (DeltaType.UPSERT, DeltaType.DELETE))
+        commit_staged_partition = delta_type not in (DeltaType.UPSERT, DeltaType.DELETE)
         return partition, commit_staged_partition
     elif delta_type in (DeltaType.UPSERT, DeltaType.DELETE):
         # UPSERT/DELETE operations: Try to use existing committed partition first
@@ -763,12 +790,12 @@ def _handle_partition_creation(
             **kwargs,
         )
         commit_staged_partition = False
-        
+
         if not partition:
             # No existing committed partition found, stage a new one
             partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
             commit_staged_partition = False  # Let compaction handle the commit
-        
+
         return partition, commit_staged_partition
     else:
         # APPEND mode on existing table: Get existing partition
@@ -783,7 +810,7 @@ def _handle_partition_creation(
             # No existing partition found, create a new one
             partition = _get_storage(**kwargs).stage_partition(stream=stream, **kwargs)
             commit_staged_partition = True
-        
+
         return partition, commit_staged_partition
 
 
@@ -801,33 +828,33 @@ def _convert_data_if_needed(data: Dataset) -> Dataset:
         else:
             # Running with local backend - convert to PyArrow Table
             return data.to_arrow()
-    
+
     return data
 
 
 def _validate_and_coerce_data_against_schema(
-    data: Dataset, 
+    data: Dataset,
     schema: Optional[Schema],
     schema_evolution_mode: Optional[str] = None,
-    default_schema_consistency_type: Optional[SchemaConsistencyType] = None
+    default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
 ) -> Tuple[Dataset, bool, Optional[Schema]]:
     """Validate and coerce data against the table schema if schema consistency types are set.
-    
+
     Args:
         data: The dataset to validate/coerce
         schema: The DeltaCAT schema to validate against (optional)
         schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
         default_schema_consistency_type: Default consistency type for new fields in AUTO mode
-        
+
     Returns:
         Tuple[Dataset, bool, Optional[Schema]]: Validated/coerced data, flag indicating if schema was modified, and updated schema
-        
+
     Raises:
         ValueError: If validation fails or coercion is not possible
     """
     if not schema:
         return data, False, None
-    
+
     # Convert data to PyArrow table for validation
     if isinstance(data, pa.Table):
         pa_table = data
@@ -841,9 +868,13 @@ def _validate_and_coerce_data_against_schema(
             pa_table = pa.table([data], names=[f"column_0"])
         elif data.ndim == 2:
             column_names = [f"column_{i}" for i in range(data.shape[1])]
-            pa_table = pa.table([data[:, i] for i in range(data.shape[1])], names=column_names)
+            pa_table = pa.table(
+                [data[:, i] for i in range(data.shape[1])], names=column_names
+            )
         else:
-            raise ValueError(f"NumPy arrays with {data.ndim} dimensions are not supported")
+            raise ValueError(
+                f"NumPy arrays with {data.ndim} dimensions are not supported"
+            )
     elif isinstance(data, rd.Dataset):
         # For Ray Dataset, we can't easily validate without converting to PyArrow
         # For now, skip validation for Ray datasets
@@ -853,21 +884,23 @@ def _validate_and_coerce_data_against_schema(
         pa_table = data.to_arrow()
     else:
         # Unknown data type, skip validation
-        logger.warning(f"Schema validation skipped for unsupported data type: {type(data)}")
+        logger.warning(
+            f"Schema validation skipped for unsupported data type: {type(data)}"
+        )
         return data, False, None
-    
+
     # Validate and coerce the table against the schema
     validated_table, updated_schema = schema.validate_and_coerce_table(
-        pa_table, 
+        pa_table,
         schema_evolution_mode=schema_evolution_mode,
-        default_schema_consistency_type=default_schema_consistency_type
+        default_schema_consistency_type=default_schema_consistency_type,
     )
-    
+
     # Check if schema was modified by comparing with original
     schema_modified = not updated_schema.equivalent_to(schema, True)
     # Return updated schema only if it was modified
     updated_schema = updated_schema if schema_modified else None
-    
+
     # Convert back to original data type if needed
     if isinstance(data, pa.Table):
         return validated_table, schema_modified, updated_schema
@@ -909,18 +942,18 @@ def _stage_commit_and_compact(
     )
 
     delta = _get_storage(**kwargs).commit_delta(delta=delta, **kwargs)
-    
+
     if commit_staged_partition:
         _get_storage(**kwargs).commit_partition(partition=partition, **kwargs)
 
-    # Check compaction trigger decision  
+    # Check compaction trigger decision
     should_compact = _trigger_compaction(
         table_version_obj,
         delta,
         TableReadOptimizationLevel.MAX,
         **kwargs,
     )
-    
+
     if should_compact:
         # Run V2 compaction session to merge or delete data
         _run_compaction_session(
@@ -934,24 +967,29 @@ def _stage_commit_and_compact(
 
 
 def _trigger_compaction(
-        table_version_obj: TableVersion, 
-        latest_delta: Optional[Delta],
-        target_read_optimization_level: TableReadOptimizationLevel,
-        **kwargs,
-    ) -> bool:
+    table_version_obj: TableVersion,
+    latest_delta: Optional[Delta],
+    target_read_optimization_level: TableReadOptimizationLevel,
+    **kwargs,
+) -> bool:
     # Import inside function to avoid circular imports
     from deltacat.compute.compactor.utils import round_completion_reader as rci
-    
+
     # Extract delta type from latest_delta if available, otherwise default to no compaction
     if latest_delta is not None:
         delta_type = latest_delta.type
         partition_values = latest_delta.partition_locator.partition_values
-        logger.info(f"Using delta type {delta_type} from latest delta {latest_delta.locator}")
+        logger.info(
+            f"Using delta type {delta_type} from latest delta {latest_delta.locator}"
+        )
     else:
         logger.info(f"No latest delta discovered, defaulting to no compaction.")
         return False
-    
-    if table_version_obj.read_table_property(TableProperty.READ_OPTIMIZATION_LEVEL) == target_read_optimization_level:
+
+    if (
+        table_version_obj.read_table_property(TableProperty.READ_OPTIMIZATION_LEVEL)
+        == target_read_optimization_level
+    ):
         if delta_type == DeltaType.DELETE or delta_type == DeltaType.UPSERT:
             return True
         elif delta_type == DeltaType.APPEND:
@@ -962,17 +1000,17 @@ def _trigger_compaction(
                 table_version_obj.locator.table_version,
                 **kwargs,
             )
-            
+
             if not stream:
                 return False
-                
+
             # Use provided partition_values or None for unpartitioned tables
             partition_locator = PartitionLocator.of(
                 stream_locator=stream.locator,
                 partition_values=partition_values,
                 partition_id=None,
             )
-            
+
             # Get round completion info to determine high watermark
             round_completion_info = rci.read_round_completion_info(
                 source_partition_locator=partition_locator,
@@ -980,9 +1018,14 @@ def _trigger_compaction(
                 deltacat_storage=_get_storage(**kwargs),
                 deltacat_storage_kwargs=kwargs,
             )
-            
-            high_watermark = round_completion_info.high_watermark if round_completion_info and isinstance(round_completion_info.high_watermark, int) else 0
-            
+
+            high_watermark = (
+                round_completion_info.high_watermark
+                if round_completion_info
+                and isinstance(round_completion_info.high_watermark, int)
+                else 0
+            )
+
             # Get all deltas appended since last compaction
             deltas = _get_storage(**kwargs).list_deltas(
                 namespace=table_version_obj.locator.namespace,
@@ -992,34 +1035,43 @@ def _trigger_compaction(
                 start_stream_position=high_watermark + 1,
                 **kwargs,
             )
-            
+
             if not deltas:
                 return False
-                
+
             # Count deltas appended since last compaction
             appended_deltas_since_last_compaction = len(deltas)
-            delta_trigger = table_version_obj.read_table_property(TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER)
+            delta_trigger = table_version_obj.read_table_property(
+                TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER
+            )
             if delta_trigger and appended_deltas_since_last_compaction >= delta_trigger:
                 return True
-                
+
             # Count files appended since last compaction
             appended_files_since_last_compaction = 0
             for delta in deltas:
                 if delta.manifest and delta.manifest.entries:
                     appended_files_since_last_compaction += len(delta.manifest.entries)
-                    
-            file_trigger = table_version_obj.read_table_property(TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER)
+
+            file_trigger = table_version_obj.read_table_property(
+                TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER
+            )
             if file_trigger and appended_files_since_last_compaction >= file_trigger:
                 return True
-                
+
             # Count records appended since last compaction
             appended_records_since_last_compaction = 0
             for delta in deltas:
                 if delta.meta and delta.meta.record_count:
                     appended_records_since_last_compaction += delta.meta.record_count
-                    
-            record_trigger = table_version_obj.read_table_property(TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER)
-            if record_trigger and appended_records_since_last_compaction >= record_trigger:
+
+            record_trigger = table_version_obj.read_table_property(
+                TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER
+            )
+            if (
+                record_trigger
+                and appended_records_since_last_compaction >= record_trigger
+            ):
                 return True
     return False
 
@@ -1027,18 +1079,24 @@ def _trigger_compaction(
 def _get_compaction_primary_keys(table_version_obj: TableVersion) -> set:
     """Extract primary keys from table schema for compaction."""
     table_schema = table_version_obj.schema
-    return set(table_schema.merge_keys) if table_schema and table_schema.merge_keys else set()
+    return (
+        set(table_schema.merge_keys)
+        if table_schema and table_schema.merge_keys
+        else set()
+    )
 
 
 def _get_compaction_hash_bucket_count(partition: Partition) -> int:
     """Determine hash bucket count from previous compaction or default."""
     hash_bucket_count = 8  # Default
     if (
-        partition.compaction_round_completion_info 
+        partition.compaction_round_completion_info
         and partition.compaction_round_completion_info.hash_bucket_count
     ):
         hash_bucket_count = partition.compaction_round_completion_info.hash_bucket_count
-        logger.info(f"Using hash bucket count {hash_bucket_count} from previous compaction")
+        logger.info(
+            f"Using hash bucket count {hash_bucket_count} from previous compaction"
+        )
     else:
         logger.info(f"Using default hash bucket count {hash_bucket_count}")
     return hash_bucket_count
@@ -1046,10 +1104,10 @@ def _get_compaction_hash_bucket_count(partition: Partition) -> int:
 
 def _get_merge_order_sort_keys(table_version_obj: TableVersion):
     """Extract sort keys from merge_order fields in schema for compaction.
-    
+
     Args:
         table_version_obj: The table version containing schema
-        
+
     Returns:
         List of SortKey objects from merge_order fields, or None if no merge_order fields are defined
     """
@@ -1067,25 +1125,29 @@ def _create_compaction_params(
     **kwargs,
 ):
     """Create compaction parameters for the compaction session."""
-    from deltacat.compute.compactor.model.compact_partition_params import CompactPartitionParams
-    
-    return CompactPartitionParams.of({
-        "catalog": kwargs.get("inner", kwargs.get("catalog")),
-        "source_partition_locator": partition.locator,
-        "destination_partition_locator": partition.locator,  # In-place compaction
-        "primary_keys": primary_keys,
-        "last_stream_position_to_compact": latest_stream_position,
-        "deltacat_storage": _get_storage(**kwargs),
-        "deltacat_storage_kwargs": kwargs,
-        "list_deltas_kwargs": kwargs,
-        "hash_bucket_count": hash_bucket_count,
-        "records_per_compacted_file": table_version_obj.read_table_property(
-            TableProperty.RECORDS_PER_COMPACTED_FILE,
-        ),
-        "compacted_file_content_type": ContentType.PARQUET,
-        "drop_duplicates": True,
-        "sort_keys": _get_merge_order_sort_keys(table_version_obj),
-    })
+    from deltacat.compute.compactor.model.compact_partition_params import (
+        CompactPartitionParams,
+    )
+
+    return CompactPartitionParams.of(
+        {
+            "catalog": kwargs.get("inner", kwargs.get("catalog")),
+            "source_partition_locator": partition.locator,
+            "destination_partition_locator": partition.locator,  # In-place compaction
+            "primary_keys": primary_keys,
+            "last_stream_position_to_compact": latest_stream_position,
+            "deltacat_storage": _get_storage(**kwargs),
+            "deltacat_storage_kwargs": kwargs,
+            "list_deltas_kwargs": kwargs,
+            "hash_bucket_count": hash_bucket_count,
+            "records_per_compacted_file": table_version_obj.read_table_property(
+                TableProperty.RECORDS_PER_COMPACTED_FILE,
+            ),
+            "compacted_file_content_type": ContentType.PARQUET,
+            "drop_duplicates": True,
+            "sort_keys": _get_merge_order_sort_keys(table_version_obj),
+        }
+    )
 
 
 def _run_compaction_session(
@@ -1098,7 +1160,7 @@ def _run_compaction_session(
 ) -> None:
     """
     Run a V2 compaction session for the given table and partition.
-    
+
     Args:
         table_version_obj: The table version object
         partition: The partition to compact
@@ -1109,12 +1171,12 @@ def _run_compaction_session(
     """
     # Import inside function to avoid circular imports
     from deltacat.compute.compactor_v2.compaction_session import compact_partition
-    
+
     try:
         # Extract compaction configuration
         primary_keys = _get_compaction_primary_keys(table_version_obj)
         hash_bucket_count = _get_compaction_hash_bucket_count(partition)
-        
+
         # Create compaction parameters
         compact_partition_params = _create_compaction_params(
             table_version_obj,
@@ -1124,7 +1186,7 @@ def _run_compaction_session(
             hash_bucket_count,
             **kwargs,
         )
-          
+
         # Run V2 compaction session
         compact_partition(params=compact_partition_params)
     except Exception as e:
@@ -1137,34 +1199,32 @@ def _run_compaction_session(
 
 def _get_merge_key_field_names_from_schema(schema) -> List[str]:
     """Extract merge key field names from a DeltaCAT Schema object.
-    
+
     Args:
         schema: DeltaCAT Schema object
-        
+
     Returns:
         List of field names that are marked as merge keys
     """
     if not schema or not schema.merge_keys:
         return []
-    
+
     merge_key_field_names = []
     field_ids_to_fields = schema.field_ids_to_fields
-    
+
     for merge_key_id in schema.merge_keys:
         if merge_key_id in field_ids_to_fields:
             field = field_ids_to_fields[merge_key_id]
             merge_key_field_names.append(field.arrow.name)
-    
+
     return merge_key_field_names
 
 
 def _set_entry_params_if_needed(
-    mode: TableWriteMode,
-    table_version_obj,
-    kwargs: dict
+    mode: TableWriteMode, table_version_obj, kwargs: dict
 ) -> None:
     """Automatically set entry_params to merge keys if not already set by user.
-    
+
     Args:
         mode: The table write mode
         table_version_obj: The table version object containing schema
@@ -1173,21 +1233,24 @@ def _set_entry_params_if_needed(
     # Only set entry_params for DELETE and MERGE modes
     if mode not in [TableWriteMode.DELETE, TableWriteMode.MERGE]:
         return
-    
+
     # Don't override if user already provided entry_params
-    if 'entry_params' in kwargs and kwargs['entry_params'] is not None:
+    if "entry_params" in kwargs and kwargs["entry_params"] is not None:
         return
-    
+
     # Get schema from table version
     if not table_version_obj or not table_version_obj.schema:
         return
-    
+
     # Extract merge key field names
-    merge_key_field_names = _get_merge_key_field_names_from_schema(table_version_obj.schema)
-    
+    merge_key_field_names = _get_merge_key_field_names_from_schema(
+        table_version_obj.schema
+    )
+
     if merge_key_field_names:
         from deltacat.storage import EntryParams
-        kwargs['entry_params'] = EntryParams.of(merge_key_field_names)
+
+        kwargs["entry_params"] = EntryParams.of(merge_key_field_names)
 
 
 def _get_table_stream(namespace: str, table: str, table_version: str, **kwargs):
@@ -1201,11 +1264,13 @@ def _get_table_stream(namespace: str, table: str, table_version: str, **kwargs):
 
 
 def _validate_read_table_input(
-    table_type: Optional[DatasetType], 
-    distributed_dataset_type: Optional[DatasetType]
+    table_type: Optional[DatasetType], distributed_dataset_type: Optional[DatasetType]
 ) -> None:
     """Validate input parameters for read_table operation."""
-    if distributed_dataset_type and distributed_dataset_type not in DatasetType.distributed():
+    if (
+        distributed_dataset_type
+        and distributed_dataset_type not in DatasetType.distributed()
+    ):
         raise ValueError(
             f"{distributed_dataset_type} is not a valid distributed dataset type. "
             f"Valid distributed dataset types are: {DatasetType.distributed()}."
@@ -1227,7 +1292,7 @@ def _get_and_validate_table_metadata(
         table_version=table_version,
         **kwargs,
     )
-    
+
     # Validate content types
     if (
         table_version_obj.content_types is None
@@ -1237,42 +1302,41 @@ def _get_and_validate_table_metadata(
             "Expected exactly one content type but "
             f"found {table_version_obj.content_types}."
         )
-    
+
     return table_version_obj
 
 
 def _get_qualified_deltas_for_read(
-    table: str, 
-    namespace: str, 
-    table_version: str, 
-    partition_filter: Optional[List[Union[Partition, PartitionLocator]]], 
-    **kwargs
+    table: str,
+    namespace: str,
+    table_version: str,
+    partition_filter: Optional[List[Union[Partition, PartitionLocator]]],
+    **kwargs,
 ) -> List[Delta]:
     """Get qualified deltas for reading based on partition filter."""
     logger.info(
         f"Reading metadata for table={namespace}/{table}/{table_version} "
         f"with partition_filters={partition_filter}."
     )
-    
+
     # Get partition filter if not provided
     if partition_filter is None:
         partition_filter = _get_all_committed_partitions(
             table, namespace, table_version, **kwargs
         )
-    
+
     # Get deltas from partitions
     qualified_deltas = _get_deltas_from_partition_filter(
         partition_filter=partition_filter,
         **kwargs,
     )
-    
+
     logger.info(
         f"Total qualified deltas={len(qualified_deltas)} "
         f"from {len(partition_filter)} partitions."
     )
-    
-    return qualified_deltas
 
+    return qualified_deltas
 
 
 def _download_and_process_table_data(
@@ -1283,29 +1347,33 @@ def _download_and_process_table_data(
     columns: Optional[List[str]],
     file_path_column: Optional[str],
     table_schema: Optional[Schema],
-    **kwargs
+    **kwargs,
 ) -> Dataset:
     """Download delta data and process result based on storage type."""
     # Merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
-    
+
     result = _get_storage(**kwargs).download_delta(
         merged_delta,
         table_type=table_type,
-        storage_type=StorageType.DISTRIBUTED if distributed_dataset_type else StorageType.LOCAL,
+        storage_type=StorageType.DISTRIBUTED
+        if distributed_dataset_type
+        else StorageType.LOCAL,
         max_parallelism=max_parallelism,
         columns=columns,
         distributed_dataset_type=distributed_dataset_type,
         file_path_column=file_path_column,
         **kwargs,
     )
-    
+
     # Process result based on storage type and schema
-    return _process_table_result(result, table_type, distributed_dataset_type, table_schema)
+    return _process_table_result(
+        result, table_type, distributed_dataset_type, table_schema
+    )
 
 
 def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dataset:
-    """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method.""" 
+    """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method."""
     # Convert target PyArrow schema to DeltaCAT schema and use its coerce method
     deltacat_schema = Schema.of(schema=target_schema)
     return deltacat_schema.coerce(dataset)
@@ -1315,7 +1383,7 @@ def _extract_pyarrow_schema(table_result: Dataset) -> Optional[pa.Schema]:
     """Extract PyArrow schema from various table result types."""
     if isinstance(table_result, pa.Table):
         return table_result.schema
-    elif hasattr(table_result, 'to_arrow'):
+    elif hasattr(table_result, "to_arrow"):
         return table_result.to_arrow().schema
     elif isinstance(table_result, pd.DataFrame):
         return pa.Table.from_pandas(table_result).schema
@@ -1333,17 +1401,19 @@ def _collect_all_column_names(results: List[Dataset]) -> set:
     return all_columns
 
 
-def _build_target_schema(table_schema: Schema, all_columns: set, results: List[Dataset]) -> Optional[pa.Schema]:
+def _build_target_schema(
+    table_schema: Schema, all_columns: set, results: List[Dataset]
+) -> Optional[pa.Schema]:
     """Build target schema combining table schema fields with additional columns from results."""
     latest_schema = table_schema.arrow
     target_fields = []
     table_column_names = {field.name for field in latest_schema}
-    
+
     # First, add fields from table schema that are present in results
     for field in latest_schema:
         if field.name in all_columns:
             target_fields.append(field)
-    
+
     # Then, add any additional columns from results that aren't in table schema
     for table_result in results:
         temp_schema = _extract_pyarrow_schema(table_result)
@@ -1353,11 +1423,13 @@ def _build_target_schema(table_schema: Schema, all_columns: set, results: List[D
                     target_fields.append(field)
                     table_column_names.add(field.name)
             break  # Only need to check first result for additional columns
-    
+
     return pa.schema(target_fields) if target_fields else None
 
 
-def _coerce_results_to_schema(results: List[Dataset], target_schema: pa.Schema) -> List[Dataset]:
+def _coerce_results_to_schema(
+    results: List[Dataset], target_schema: pa.Schema
+) -> List[Dataset]:
     """Coerce all table results to match the target schema."""
     coerced_results = []
     for i, table_result in enumerate(results):
@@ -1372,54 +1444,62 @@ def _coerce_results_to_schema(results: List[Dataset], target_schema: pa.Schema) 
 
 
 def _handle_local_table_concatenation(
-    results: List[Dataset], 
-    table_type: DatasetType, 
-    table_schema: Optional[Schema]
+    results: List[Dataset], table_type: DatasetType, table_schema: Optional[Schema]
 ) -> Dataset:
     """Handle concatenation of local table results with schema coercion."""
     if table_schema is None:
-        logger.debug(f"Returning raw list of {len(results)} tables for schemaless table")
+        logger.debug(
+            f"Returning raw list of {len(results)} tables for schemaless table"
+        )
         return results
-    
+
     try:
         # Collect all column names and build unified schema
         all_columns = _collect_all_column_names(results)
         target_schema = _build_target_schema(table_schema, all_columns, results)
-        
+
         if target_schema:
             logger.debug(f"Target schema for coercion: {target_schema}")
             coerced_results = _coerce_results_to_schema(results, target_schema)
         else:
             coerced_results = results
-        
+
         # Attempt concatenation
-        logger.debug(f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type}")
+        logger.debug(
+            f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type}"
+        )
         concatenated_result = concat_tables(coerced_results, table_type)
-        logger.debug(f"Concatenation complete, result type: {type(concatenated_result)}")
+        logger.debug(
+            f"Concatenation complete, result type: {type(concatenated_result)}"
+        )
         return concatenated_result
-        
+
     except Exception as e:
-        logger.warning(f"Schema coercion or concatenation failed: {e}. Returning original results.")
+        logger.warning(
+            f"Schema coercion or concatenation failed: {e}. Returning original results."
+        )
         return results
 
 
 def _process_table_result(
-    result: Dataset, 
-    table_type: Optional[DatasetType], 
+    result: Dataset,
+    table_type: Optional[DatasetType],
     distributed_dataset_type: Optional[DatasetType],
-    table_schema: Optional[Schema]
+    table_schema: Optional[Schema],
 ) -> Dataset:
     """Process table results based on storage type and schema."""
-    
+
     # Handle schemaless tables with distributed datasets
     if table_schema is None and distributed_dataset_type:
-        logger.debug(f"Schemaless table detected with distributed dataset type: {distributed_dataset_type}")
+        logger.debug(
+            f"Schemaless table detected with distributed dataset type: {distributed_dataset_type}"
+        )
         return result
-    
+
     # Handle local storage table concatenation
     if not distributed_dataset_type and table_type and isinstance(result, list):
         return _handle_local_table_concatenation(result, table_type, table_schema)
-    
+
     return result
 
 
@@ -1436,9 +1516,9 @@ def read_table(
     file_path_column: Optional[str] = None,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> Dataset: 
+) -> Dataset:
     """Read a table into a dataset.
-    
+
     Args:
         table: Name of the table to read.
         namespace: Optional namespace of the table. Uses default if not specified.
@@ -1451,13 +1531,13 @@ def read_table(
         file_path_column: Optional column name to add file paths to the result.
         transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
         **kwargs: Additional keyword arguments.
-        
+
     Returns:
         Dataset containing the table data.
     """
     # Validate input parameters
     _validate_read_table_input(table_type, distributed_dataset_type)
-    
+
     # Set up transaction handling
     read_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = read_transaction
@@ -1468,12 +1548,16 @@ def read_table(
         table_version_obj = _get_and_validate_table_metadata(
             table, namespace, table_version, **kwargs
         )
-        
+
         # Get partitions and deltas to read
         qualified_deltas = _get_qualified_deltas_for_read(
-            table, namespace, table_version_obj.table_version, partition_filter, **kwargs
+            table,
+            namespace,
+            table_version_obj.table_version,
+            partition_filter,
+            **kwargs,
         )
-        
+
         # For schemaless tables, distributed datasets are not yet supported
         if table_version_obj.schema is None and distributed_dataset_type:
             raise NotImplementedError(
@@ -1481,25 +1565,25 @@ def read_table(
                 f"Table '{namespace}.{table}' has no schema, but distributed_dataset_type={distributed_dataset_type} was specified. "
                 f"Please use local storage by setting distributed_dataset_type=None."
             )
-        
+
         # Download and process the data
         result = _download_and_process_table_data(
-            qualified_deltas, 
-            table_type, 
+            qualified_deltas,
+            table_type,
             distributed_dataset_type,
             max_parallelism,
             columns,
             file_path_column,
             table_version_obj.schema,
-            **kwargs
+            **kwargs,
         )
 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             read_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during read_table: {e}")
@@ -1559,7 +1643,7 @@ def alter_table(
             raise NotImplementedError("Partition updates are not yet supported.")
         if sort_key_updates:
             raise NotImplementedError("Sort key updates are not yet supported.")
-        
+
         _get_storage(**kwargs).update_table(
             *args,
             namespace=namespace,
@@ -1574,35 +1658,47 @@ def alter_table(
                 namespace, table, **kwargs
             )
             if table_version is None:
-                raise TableVersionNotFoundError(f"No active table version found for table {namespace}.{table}. "
-                               "Please specify a table_version parameter.")
+                raise TableVersionNotFoundError(
+                    f"No active table version found for table {namespace}.{table}. "
+                    "Please specify a table_version parameter."
+                )
         else:
             table_version = _get_storage(**kwargs).get_table_version(
                 namespace, table, table_version, **kwargs
             )
             if table_version is None:
-                raise TableVersionNotFoundError(f"Table version '{table_version}' not found for table {namespace}.{table}")
+                raise TableVersionNotFoundError(
+                    f"Table version '{table_version}' not found for table {namespace}.{table}"
+                )
 
         # Apply schema updates if provided
         updated_schema = None
         if schema_updates is not None:
             # Get the current schema from the table version
             current_schema = table_version.schema
-            
+
             # Create a SchemaUpdate from the current schema
             schema_update = current_schema.update()
-            
+
             # Apply each operation in the list
             for operation in schema_updates:
                 if operation.operation == "add":
-                    schema_update = schema_update.add_field(operation.field_locator, operation.field)
+                    schema_update = schema_update.add_field(
+                        operation.field_locator, 
+                        operation.field,
+                    )
                 elif operation.operation == "remove":
                     schema_update = schema_update.remove_field(operation.field_locator)
                 elif operation.operation == "update":
-                    schema_update = schema_update.update_field(operation.field_locator, operation.field)
+                    schema_update = schema_update._update_field(
+                        operation.field_locator, 
+                        operation.field,
+                    )
                 else:
-                    raise ValueError(f"Unknown schema update operation: {operation.operation}")
-            
+                    raise ValueError(
+                        f"Unknown schema update operation: {operation.operation}"
+                    )
+
             # Apply all the updates to get the final schema
             updated_schema = schema_update.apply()
 
@@ -1621,7 +1717,7 @@ def alter_table(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             alter_transaction.seal()
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during alter_table: {e}")
@@ -1680,10 +1776,14 @@ def create_table(
     kwargs["transaction"] = create_transaction
 
     try:
-        table = get_table(*args, name, namespace=namespace, table_version=version, **kwargs)
+        table = get_table(
+            *args, name, namespace=namespace, table_version=version, **kwargs
+        )
         if table is not None:
             if fail_if_exists:
-                raise TableAlreadyExistsError(f"Table {namespace}.{name} already exists")
+                raise TableAlreadyExistsError(
+                    f"Table {namespace}.{name} already exists"
+                )
             return table
 
         if not namespace_exists(namespace, **kwargs):
@@ -1716,9 +1816,9 @@ def create_table(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             create_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during create_table: {e}")
@@ -1755,7 +1855,7 @@ def drop_table(
         raise NotImplementedError("Purge flag is not currently supported.")
 
     namespace = namespace or default_namespace()
-    
+
     # Set up transaction handling
     drop_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = drop_transaction
@@ -1768,7 +1868,7 @@ def drop_table(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             drop_transaction.seal()
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during drop_table: {e}")
@@ -1789,10 +1889,10 @@ def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) 
 
 
 def list_tables(
-    *args, 
-    namespace: Optional[str] = None, 
+    *args,
+    namespace: Optional[str] = None,
     transaction: Optional[Transaction] = None,
-    **kwargs
+    **kwargs,
 ) -> ListResult[TableDefinition]:
     """List a page of table definitions.
 
@@ -1804,13 +1904,15 @@ def list_tables(
         ListResult containing TableDefinition objects for tables in the namespace.
     """
     namespace = namespace or default_namespace()
-    
+
     # Set up transaction handling
     list_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = list_transaction
 
     try:
-        tables = _get_storage(**kwargs).list_tables(*args, namespace=namespace, **kwargs)
+        tables = _get_storage(**kwargs).list_tables(
+            *args, namespace=namespace, **kwargs
+        )
         table_definitions = [
             get_table(*args, table.table_name, namespace=namespace, **kwargs)
             for table in tables.all_items()
@@ -1821,9 +1923,9 @@ def list_tables(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             list_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during list_tables: {e}")
@@ -1858,7 +1960,7 @@ def get_table(
         StreamNotFoundError: If the stream does not exist.
     """
     namespace = namespace or default_namespace()
-    
+
     # Set up transaction handling
     get_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = get_transaction
@@ -1871,8 +1973,14 @@ def get_table(
         if table is None:
             return None
 
-        table_version: Optional[TableVersion] = _get_storage(**kwargs).get_table_version(
-            *args, namespace, name, table_version or table.latest_active_table_version, **kwargs
+        table_version: Optional[TableVersion] = _get_storage(
+            **kwargs
+        ).get_table_version(
+            *args,
+            namespace,
+            name,
+            table_version or table.latest_active_table_version,
+            **kwargs,
         )
 
         if table_version is None:
@@ -1903,9 +2011,9 @@ def get_table(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             get_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during get_table: {e}")
@@ -1913,11 +2021,11 @@ def get_table(
 
 
 def truncate_table(
-    table: str, 
-    *args, 
-    namespace: Optional[str] = None, 
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
     transaction: Optional[Transaction] = None,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Truncate table data.
 
@@ -1933,12 +2041,12 @@ def truncate_table(
 
 
 def rename_table(
-    table: str, 
-    new_name: str, 
-    *args, 
-    namespace: Optional[str] = None, 
+    table: str,
+    new_name: str,
+    *args,
+    namespace: Optional[str] = None,
     transaction: Optional[Transaction] = None,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Rename an existing table.
 
@@ -1955,20 +2063,24 @@ def rename_table(
         TableNotFoundError: If the table does not exist.
     """
     namespace = namespace or default_namespace()
-    
+
     # Set up transaction handling
     rename_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = rename_transaction
 
     try:
         _get_storage(**kwargs).update_table(
-            *args, table_name=table, new_table_name=new_name, namespace=namespace, **kwargs
+            *args,
+            table_name=table,
+            new_table_name=new_name,
+            namespace=namespace,
+            **kwargs,
         )
 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             rename_transaction.seal()
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during rename_table: {e}")
@@ -1976,11 +2088,11 @@ def rename_table(
 
 
 def table_exists(
-    table: str, 
-    *args, 
-    namespace: Optional[str] = None, 
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
     transaction: Optional[Transaction] = None,
-    **kwargs
+    **kwargs,
 ) -> bool:
     """Check if a table exists in the catalog.
 
@@ -1993,7 +2105,7 @@ def table_exists(
         True if the table exists, False otherwise.
     """
     namespace = namespace or default_namespace()
-    
+
     # Set up transaction handling
     exists_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = exists_transaction
@@ -2006,16 +2118,18 @@ def table_exists(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             exists_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during table_exists: {e}")
         raise
 
 
-def list_namespaces(*args, transaction: Optional[Transaction] = None, **kwargs) -> ListResult[Namespace]:
+def list_namespaces(
+    *args, transaction: Optional[Transaction] = None, **kwargs
+) -> ListResult[Namespace]:
     """List a page of table namespaces.
 
     Args:
@@ -2034,9 +2148,9 @@ def list_namespaces(*args, transaction: Optional[Transaction] = None, **kwargs) 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             list_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during list_namespaces: {e}")
@@ -2044,10 +2158,7 @@ def list_namespaces(*args, transaction: Optional[Transaction] = None, **kwargs) 
 
 
 def get_namespace(
-    namespace: str, 
-    *args, 
-    transaction: Optional[Transaction] = None,
-    **kwargs
+    namespace: str, *args, transaction: Optional[Transaction] = None, **kwargs
 ) -> Optional[Namespace]:
     """Get metadata for a specific table namespace.
 
@@ -2063,14 +2174,16 @@ def get_namespace(
     kwargs["transaction"] = get_ns_transaction
 
     try:
-        result = _get_storage(**kwargs).get_namespace(*args, namespace=namespace, **kwargs)
+        result = _get_storage(**kwargs).get_namespace(
+            *args, namespace=namespace, **kwargs
+        )
 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             get_ns_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during get_namespace: {e}")
@@ -2078,10 +2191,7 @@ def get_namespace(
 
 
 def namespace_exists(
-    namespace: str, 
-    *args, 
-    transaction: Optional[Transaction] = None,
-    **kwargs
+    namespace: str, *args, transaction: Optional[Transaction] = None, **kwargs
 ) -> bool:
     """Check if a namespace exists.
 
@@ -2097,14 +2207,16 @@ def namespace_exists(
     kwargs["transaction"] = exists_transaction
 
     try:
-        result = _get_storage(**kwargs).namespace_exists(*args, namespace=namespace, **kwargs)
+        result = _get_storage(**kwargs).namespace_exists(
+            *args, namespace=namespace, **kwargs
+        )
 
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             exists_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during namespace_exists: {e}")
@@ -2112,11 +2224,11 @@ def namespace_exists(
 
 
 def create_namespace(
-    namespace: str, 
-    *args, 
-    properties: Optional[NamespaceProperties] = None, 
+    namespace: str,
+    *args,
+    properties: Optional[NamespaceProperties] = None,
     transaction: Optional[Transaction] = None,
-    **kwargs
+    **kwargs,
 ) -> Namespace:
     """Create a new namespace.
 
@@ -2132,7 +2244,9 @@ def create_namespace(
         NamespaceAlreadyExistsError: If the namespace already exists.
     """
     # Set up transaction handling
-    namespace_transaction, commit_transaction = _setup_transaction(transaction, **kwargs)
+    namespace_transaction, commit_transaction = _setup_transaction(
+        transaction, **kwargs
+    )
     kwargs["transaction"] = namespace_transaction
 
     try:
@@ -2146,9 +2260,9 @@ def create_namespace(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             namespace_transaction.seal()
-        
+
         return result
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during create_namespace: {e}")
@@ -2190,7 +2304,7 @@ def alter_namespace(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             alter_ns_transaction.seal()
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during alter_namespace: {e}")
@@ -2198,11 +2312,11 @@ def alter_namespace(
 
 
 def drop_namespace(
-    namespace: str, 
-    *args, 
-    purge: bool = False, 
+    namespace: str,
+    *args,
+    purge: bool = False,
     transaction: Optional[Transaction] = None,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Drop a namespace and all of its tables from the catalog.
 
@@ -2232,7 +2346,7 @@ def drop_namespace(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             drop_ns_transaction.seal()
-        
+
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         logger.error(f"Error during drop_namespace: {e}")
@@ -2258,13 +2372,15 @@ def _get_latest_active_or_given_table_version(
     table_version_obj = None
     if table_version is None:
         table_version_obj = _get_storage(**kwargs).get_latest_active_table_version(
-            namespace=namespace, 
-            table_name=table_name, 
-            *args, 
+            namespace=namespace,
+            table_name=table_name,
+            *args,
             **kwargs,
         )
         if table_version_obj is None:
-            raise TableVersionNotFoundError(f"No active table version found for table {namespace}.{table_name}")
+            raise TableVersionNotFoundError(
+                f"No active table version found for table {namespace}.{table_name}"
+            )
         table_version = table_version_obj.table_version
     else:
         table_version_obj = _get_storage(**kwargs).get_table_version(
@@ -2286,7 +2402,7 @@ def _get_all_committed_partitions(
         f"Reading all partitions metadata in the table={table} "
         "as partition_filter was None."
     )
-    
+
     all_partitions = (
         _get_storage(**kwargs)
         .list_partitions(
@@ -2297,18 +2413,21 @@ def _get_all_committed_partitions(
         )
         .all_items()
     )
-    
+
     committed_partitions = [
-        partition for partition in all_partitions 
+        partition
+        for partition in all_partitions
         if partition.state == CommitState.COMMITTED
     ]
-    
+
     logger.info(
         f"Found {len(committed_partitions)} committed partitions for "
         f"table={namespace}/{table}/{table_version}"
     )
-    
-    _validate_partition_uniqueness(committed_partitions, namespace, table, table_version)
+
+    _validate_partition_uniqueness(
+        committed_partitions, namespace, table, table_version
+    )
     return committed_partitions
 
 
@@ -2319,7 +2438,7 @@ def _validate_partition_uniqueness(
     commit_count_per_partition_value = defaultdict(int)
     for partition in partitions:
         commit_count_per_partition_value[partition.partition_values] += 1
-    
+
     # Check for multiple committed partitions for the same partition values
     for partition_values, commit_count in commit_count_per_partition_value.items():
         if commit_count > 1:
@@ -2360,13 +2479,15 @@ def _get_deltas_from_partition_filter(
                     result_deltas.append(delta)
             if non_append_deltas:
                 delta_types = {delta.type for delta in non_append_deltas}
-                delta_info = [(str(delta.locator), delta.type) for delta in non_append_deltas[:5]]  # Show first 5
+                delta_info = [
+                    (str(delta.locator), delta.type) for delta in non_append_deltas[:5]
+                ]  # Show first 5
                 raise NotImplementedError(
                     f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-append deltas "
                     f"with types {delta_types}. All deltas must be APPEND type for read operations. "
                     f"Examples: {delta_info}. Please run compaction first to merge non-append deltas."
                 )
- 
+
             logger.info(f"Validated {len(deltas)} qualified deltas are all APPEND type")
     return result_deltas
 

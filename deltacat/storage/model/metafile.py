@@ -1224,15 +1224,17 @@ class Metafile(dict):
                     if mutable_src_locator is not None:
                         # this update includes a rename
                         # mark the source metafile mapping as deleted
-                        locator_write_path = current_txn_op.src_metafile._write_locator_to_id_map_file(
-                            locator=mutable_src_locator,
-                            success_txn_log_dir=success_txn_log_dir,
-                            parent_obj_path=parent_obj_path,
-                            current_txn_op=current_txn_op,
-                            current_txn_op_type=TransactionOperationType.DELETE,
-                            current_txn_start_time=current_txn_start_time,
-                            current_txn_id=current_txn_id,
-                            filesystem=filesystem,
+                        locator_write_path = (
+                            current_txn_op.src_metafile._write_locator_to_id_map_file(
+                                locator=mutable_src_locator,
+                                success_txn_log_dir=success_txn_log_dir,
+                                parent_obj_path=parent_obj_path,
+                                current_txn_op=current_txn_op,
+                                current_txn_op_type=TransactionOperationType.DELETE,
+                                current_txn_start_time=current_txn_start_time,
+                                current_txn_id=current_txn_id,
+                                filesystem=filesystem,
+                            )
                         )
                         locator_write_paths.append(locator_write_path)
                     # mark the dest metafile mapping as created
@@ -1270,7 +1272,8 @@ class Metafile(dict):
             REVISION_DIR_NAME,
         )
         if (
-            current_txn_op.type in [TransactionOperationType.UPDATE, TransactionOperationType.REPLACE]
+            current_txn_op.type
+            in [TransactionOperationType.UPDATE, TransactionOperationType.REPLACE]
             and current_txn_op.src_metafile.id != current_txn_op.dest_metafile.id
         ):
             # TODO(pdames): block operations including both a rename & replace?

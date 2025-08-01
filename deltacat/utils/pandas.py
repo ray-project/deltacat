@@ -389,7 +389,7 @@ ENCODING_TO_PD_COMPRESSION: Dict[str, str] = {
 
 
 def slice_dataframe(
-    dataframe: pd.DataFrame, 
+    dataframe: pd.DataFrame,
     max_len: Optional[int],
 ) -> List[pd.DataFrame]:
     """
@@ -413,8 +413,8 @@ def concat_dataframes(dataframes: List[pd.DataFrame]) -> Optional[pd.DataFrame]:
 
 
 def append_column_to_dataframe(
-    dataframe: pd.DataFrame, 
-    column_name: str, 
+    dataframe: pd.DataFrame,
+    column_name: str,
     column_value: Any,
 ) -> pd.DataFrame:
     dataframe[column_name] = column_value
@@ -422,7 +422,7 @@ def append_column_to_dataframe(
 
 
 def select_columns(
-    dataframe: pd.DataFrame, 
+    dataframe: pd.DataFrame,
     column_names: List[str],
 ) -> pd.DataFrame:
     return dataframe[column_names]

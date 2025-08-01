@@ -11,7 +11,12 @@ import daft
 
 import deltacat.catalog.main.impl as catalog
 from deltacat.catalog import get_catalog_properties
-from deltacat.storage.model.schema import Schema, Field, SchemaUpdate, SchemaUpdateOperations, SchemaUpdateOperation
+from deltacat.storage.model.schema import (
+    Schema,
+    Field,
+    SchemaUpdateOperations,
+    SchemaUpdateOperation,
+)
 from deltacat.storage.model.types import SchemaConsistencyType
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
 from deltacat.storage.model.table import TableProperties
@@ -379,10 +384,12 @@ class TestCatalogTableOperations:
         )
 
         # Create schema update operations to add a new field
-        new_field = Field.of(pa.field("count", pa.float64(), nullable=True), field_id=100)
-        schema_updates = SchemaUpdateOperations.of([
-            SchemaUpdateOperation.add_field("count", new_field)
-        ])
+        new_field = Field.of(
+            pa.field("count", pa.float64(), nullable=True), field_id=100
+        )
+        schema_updates = SchemaUpdateOperations.of(
+            [SchemaUpdateOperation.add_field("count", new_field)]
+        )
 
         # Create updated properties
         updated_properties = TableProperties(
@@ -420,7 +427,7 @@ class TestCatalogTableOperations:
         assert updated_schema.field("count").arrow.type == pa.float64()
         assert updated_schema.field("count").arrow.nullable == True
         assert updated_schema.field("count").id == 100
-        
+
         # Verify schema ID was incremented (proving SchemaUpdate was used)
         assert updated_schema.id == old_schema.id + 1
 
@@ -443,14 +450,16 @@ class TestCatalogTableOperations:
                 inner=catalog_properties,
             )
 
-    def test_alter_table_with_multiple_schema_operations(self, test_namespace, sample_arrow_schema):
+    def test_alter_table_with_multiple_schema_operations(
+        self, test_namespace, sample_arrow_schema
+    ):
         """Test altering a table with multiple schema update operations."""
         namespace_name, catalog_properties = test_namespace
         table_name = "test_alter_table_multiple_ops"
-        
+
         # Create initial schema
         schema = Schema.of(schema=sample_arrow_schema)
-        
+
         # Create the table
         table = catalog.create_table(
             name=table_name,
@@ -459,18 +468,26 @@ class TestCatalogTableOperations:
             description="Initial description",
             inner=catalog_properties,
         )
-        
+
         original_schema = table.table_version.schema
-        
+
         # Create multiple schema update operations
-        new_field1 = Field.of(pa.field("count", pa.int64(), nullable=True), field_id=100)
-        new_field2 = Field.of(pa.field("status", pa.string(), nullable=False), field_id=101, past_default="active")
-        
-        schema_updates = SchemaUpdateOperations.of([
-            SchemaUpdateOperation.add_field("count", new_field1),
-            SchemaUpdateOperation.add_field("status", new_field2),
-        ])
-        
+        new_field1 = Field.of(
+            pa.field("count", pa.int64(), nullable=True), field_id=100
+        )
+        new_field2 = Field.of(
+            pa.field("status", pa.string(), nullable=False),
+            field_id=101,
+            past_default="active",
+        )
+
+        schema_updates = SchemaUpdateOperations.of(
+            [
+                SchemaUpdateOperation.add_field("count", new_field1),
+                SchemaUpdateOperation.add_field("status", new_field2),
+            ]
+        )
+
         # Alter the table
         catalog.alter_table(
             table=table_name,
@@ -479,24 +496,24 @@ class TestCatalogTableOperations:
             description="Updated with multiple fields",
             inner=catalog_properties,
         )
-        
+
         # Get the updated table
         updated_table_def = catalog.get_table(
             table_name, namespace=namespace_name, inner=catalog_properties
         )
-        
+
         updated_schema = updated_table_def.table_version.schema
-        
+
         # Verify both fields were added
         assert updated_schema.field("count") is not None
         assert updated_schema.field("count").arrow.type == pa.int64()
         assert updated_schema.field("count").id == 100
-        
+
         assert updated_schema.field("status") is not None
         assert updated_schema.field("status").arrow.type == pa.string()
         assert updated_schema.field("status").id == 101
         assert updated_schema.field("status").past_default == "active"
-        
+
         # Verify schema ID was incremented
         assert updated_schema.id == original_schema.id + 1
 
@@ -504,15 +521,19 @@ class TestCatalogTableOperations:
         """Test altering a table with field removal (requires allow_incompatible_changes)."""
         namespace_name, catalog_properties = test_namespace
         table_name = "test_alter_table_remove"
-        
+
         # Create schema with multiple fields
         initial_fields = [
-            Field.of(pa.field("id", pa.int64(), nullable=False), field_id=1, is_merge_key=True),
+            Field.of(
+                pa.field("id", pa.int64(), nullable=False),
+                field_id=1,
+                is_merge_key=True,
+            ),
             Field.of(pa.field("name", pa.string(), nullable=True), field_id=2),
             Field.of(pa.field("temp_field", pa.float64(), nullable=True), field_id=3),
         ]
         schema = Schema.of(initial_fields)
-        
+
         # Create the table
         table = catalog.create_table(
             name=table_name,
@@ -520,16 +541,16 @@ class TestCatalogTableOperations:
             schema=schema,
             inner=catalog_properties,
         )
-        
+
         original_schema = table.table_version.schema
-        
+
         # Note: Field removal would normally require allow_incompatible_changes in SchemaUpdate
-        # For this test, we're just testing the API structure 
+        # For this test, we're just testing the API structure
         # In practice, removing fields may fail due to compatibility restrictions
-        schema_updates = SchemaUpdateOperations.of([
-            SchemaUpdateOperation.remove_field("temp_field")
-        ])
-        
+        schema_updates = SchemaUpdateOperations.of(
+            [SchemaUpdateOperation.remove_field("temp_field")]
+        )
+
         # This may raise SchemaCompatibilityError depending on SchemaUpdate validation
         # The test verifies the API works correctly even if the operation fails
         try:
@@ -539,17 +560,17 @@ class TestCatalogTableOperations:
                 schema_updates=schema_updates,
                 inner=catalog_properties,
             )
-            
+
             # If successful, verify the field was removed
             updated_table_def = catalog.get_table(
                 table_name, namespace=namespace_name, inner=catalog_properties
             )
             updated_schema = updated_table_def.table_version.schema
-            
+
             # temp_field should be removed
             with pytest.raises(ValueError):
                 updated_schema.field("temp_field")
-                
+
         except Exception as e:
             # Expected if SchemaUpdate validation prevents field removal
             # The key point is that the API accepts SchemaUpdateOperations correctly
@@ -559,14 +580,18 @@ class TestCatalogTableOperations:
         """Test altering a table with field update operation."""
         namespace_name, catalog_properties = test_namespace
         table_name = "test_alter_table_update"
-        
+
         # Create schema with a field to update
         initial_fields = [
-            Field.of(pa.field("id", pa.int64(), nullable=False), field_id=1, is_merge_key=True),
+            Field.of(
+                pa.field("id", pa.int64(), nullable=False),
+                field_id=1,
+                is_merge_key=True,
+            ),
             Field.of(pa.field("value", pa.int32(), nullable=True), field_id=2),
         ]
         schema = Schema.of(initial_fields)
-        
+
         # Create the table
         table = catalog.create_table(
             name=table_name,
@@ -574,15 +599,17 @@ class TestCatalogTableOperations:
             schema=schema,
             inner=catalog_properties,
         )
-        
+
         original_schema = table.table_version.schema
-        
+
         # Update the value field to int64 (compatible type widening)
-        updated_field = Field.of(pa.field("value", pa.int64(), nullable=True), field_id=2)
-        schema_updates = SchemaUpdateOperations.of([
-            SchemaUpdateOperation.update_field("value", updated_field)
-        ])
-        
+        updated_field = Field.of(
+            pa.field("value", pa.int64(), nullable=True), field_id=2
+        )
+        schema_updates = SchemaUpdateOperations.of(
+            [SchemaUpdateOperation.update_field("value", updated_field)]
+        )
+
         # Alter the table
         catalog.alter_table(
             table=table_name,
@@ -590,18 +617,18 @@ class TestCatalogTableOperations:
             schema_updates=schema_updates,
             inner=catalog_properties,
         )
-        
+
         # Get the updated table
         updated_table_def = catalog.get_table(
             table_name, namespace=namespace_name, inner=catalog_properties
         )
-        
+
         updated_schema = updated_table_def.table_version.schema
-        
+
         # Verify field was updated
         assert updated_schema.field("value").arrow.type == pa.int64()
         assert updated_schema.field("value").id == 2
-        
+
         # Verify schema ID was incremented
         assert updated_schema.id == original_schema.id + 1
 
@@ -1080,10 +1107,22 @@ class TestWriteToTable:
         # Define explicit schema with COERCE consistency types to preserve exact types
         explicit_schema = Schema.of(
             schema=[
-                Field.of(pa.field("id", pa.int64()), consistency_type=SchemaConsistencyType.COERCE),
-                Field.of(pa.field("name", pa.string()), consistency_type=SchemaConsistencyType.COERCE),
-                Field.of(pa.field("age", pa.int32()), consistency_type=SchemaConsistencyType.COERCE),  # Different from inferred schema
-                Field.of(pa.field("city", pa.string()), consistency_type=SchemaConsistencyType.COERCE),
+                Field.of(
+                    pa.field("id", pa.int64()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),
+                Field.of(
+                    pa.field("name", pa.string()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),
+                Field.of(
+                    pa.field("age", pa.int32()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),  # Different from inferred schema
+                Field.of(
+                    pa.field("city", pa.string()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),
             ]
         )
 

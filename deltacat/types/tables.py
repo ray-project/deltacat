@@ -1,6 +1,5 @@
 import logging
 import multiprocessing
-import os
 from enum import Enum
 from functools import partial
 from typing import Callable, Dict, Type, Union, Optional, Any, List, Tuple
@@ -132,6 +131,7 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     MaterializedDataset: ds_utils.dataset_size,
 }
 
+
 def _ray_dataset_to_pyarrow(table, **kwargs):
     """Convert Ray Dataset to PyArrow tables and concatenate."""
     arrow_refs = table.to_arrow_refs(**kwargs)
@@ -139,6 +139,7 @@ def _ray_dataset_to_pyarrow(table, **kwargs):
     if len(arrow_tables) == 1:
         return arrow_tables[0]
     return pa.concat_tables(arrow_tables)
+
 
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     Type[Union[LocalTable, DistributedDataset]], Callable
@@ -168,16 +169,20 @@ TABLE_CLASS_TO_PANDAS_FUNC: Dict[
     daft.DataFrame: lambda table, **kwargs: table.to_pandas(**kwargs),
 }
 
+
 def _pyarrow_to_polars(pa_table: pa.Table, **kwargs) -> pl.DataFrame:
     """Convert PyArrow table to Polars DataFrame with clean schema."""
     # PyArrow metadata can contain invalid UTF-8 sequences that cause Polars to raise an error
     # Create a new table without metadata that might contain invalid UTF-8
-    clean_schema = pa.schema([
-        pa.field(field.name, field.type, nullable=field.nullable)
-        for field in pa_table.schema
-    ])
+    clean_schema = pa.schema(
+        [
+            pa.field(field.name, field.type, nullable=field.nullable)
+            for field in pa_table.schema
+        ]
+    )
     clean_table = pa.Table.from_arrays(pa_table.columns, schema=clean_schema)
     return pl.from_arrow(clean_table, **kwargs)
+
 
 def _pyarrow_to_numpy(pa_table: pa.Table, **kwargs) -> np.ndarray:
     """Convert PyArrow table to numpy array."""
@@ -186,10 +191,13 @@ def _pyarrow_to_numpy(pa_table: pa.Table, **kwargs) -> np.ndarray:
     else:
         return pa_table.to_pandas().values
 
+
 DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]] = {
     DatasetType.PYARROW: lambda pa_table, **kwargs: pa_table,
     DatasetType.PANDAS: lambda pa_table, **kwargs: pa_table.to_pandas(**kwargs),
-    DatasetType.POLARS: lambda pa_table, **kwargs: _pyarrow_to_polars(pa_table, **kwargs),
+    DatasetType.POLARS: lambda pa_table, **kwargs: _pyarrow_to_polars(
+        pa_table, **kwargs
+    ),
     DatasetType.DAFT: lambda pa_table, **kwargs: daft.from_arrow(pa_table, **kwargs),
     DatasetType.NUMPY: lambda pa_table, **kwargs: _pyarrow_to_numpy(pa_table, **kwargs),
 }
@@ -248,32 +256,37 @@ TABLE_TYPE_TO_CONCAT_FUNC: Dict[str, Callable] = {
 
 def concat_tables(tables: List[LocalTable], table_type: DatasetType) -> LocalTable:
     """
-    Concatenate a list of tables into a single table using the appropriate 
+    Concatenate a list of tables into a single table using the appropriate
     concatenation function for the given table type.
-    
+
     Args:
         tables: List of tables to concatenate
         table_type: The DatasetType indicating which concatenation function to use
-        
+
     Returns:
         Single concatenated table of the appropriate type
-        
+
     Raises:
         ValueError: If no concatenation function is found for the table type
     """
-    concat_func = _get_table_type_function(table_type, TABLE_TYPE_TO_CONCAT_FUNC, "concatenation")
+    concat_func = _get_table_type_function(
+        table_type, TABLE_TYPE_TO_CONCAT_FUNC, "concatenation"
+    )
     return concat_func(tables)
+
 
 def _daft_s3_reader_wrapper(*args, **kwargs):
     """Wrapper for daft s3 reader with lazy import to avoid circular import."""
     from deltacat.utils.daft import s3_files_to_dataframe
+
     return s3_files_to_dataframe(*args, **kwargs)
+
 
 def _daft_reader_wrapper(*args, **kwargs):
     """Wrapper for daft reader with lazy import to avoid circular import."""
     from deltacat.utils.daft import files_to_dataframe
-    return files_to_dataframe(*args, **kwargs)
 
+    return files_to_dataframe(*args, **kwargs)
 
 
 DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
@@ -311,13 +324,13 @@ class TableWriteMode(str, Enum):
 class SchemaEvolutionMode(str, Enum):
     """
     Enum controlling how schema changes are handled when writing to a table.
-    
+
     MANUAL: Schema changes must be explicitly handled by the user. New fields
     not in the existing schema will cause an error.
     AUTO: Schema changes are automatically handled. New fields are added to
     the schema using the table's default_schema_consistency_type.
     """
-    
+
     MANUAL = "manual"
     AUTO = "auto"
 
@@ -326,9 +339,12 @@ class TableProperty(str, Enum):
     """
     Enum defining known table property key names.
     """
+
     READ_OPTIMIZATION_LEVEL = "read_optimization_level"
     RECORDS_PER_COMPACTED_FILE = "records_per_compacted_file"
-    APPENDED_RECORD_COUNT_COMPACTION_TRIGGER = "appended_record_count_compaction_trigger"
+    APPENDED_RECORD_COUNT_COMPACTION_TRIGGER = (
+        "appended_record_count_compaction_trigger"
+    )
     APPENDED_FILE_COUNT_COMPACTION_TRIGGER = "appended_file_count_compaction_trigger"
     APPENDED_DELTA_COUNT_COMPACTION_TRIGGER = "appended_delta_count_compaction_trigger"
     SCHEMA_EVOLUTION_MODE = "schema_evolution_mode"
@@ -341,8 +357,8 @@ class TableReadOptimizationLevel(str, Enum):
     here correspond to different tradeoffs between write and read performance.
 
     NONE: No read optimization. Deletes and updates are resolved by finding the values
-    that match merge key predicates by running compaction at read time. Provides the 
-    fastest/cheapest writes but slow/expensive reads. Resilient to conflicts with concurrent 
+    that match merge key predicates by running compaction at read time. Provides the
+    fastest/cheapest writes but slow/expensive reads. Resilient to conflicts with concurrent
     writes, including table management jobs like compaction.
 
     MODERATE: Discover record indexes that match merge key predicates at write time and record
@@ -363,7 +379,8 @@ class TableReadOptimizationLevel(str, Enum):
 TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
     TableProperty.RECORDS_PER_COMPACTED_FILE: MAX_RECORDS_PER_COMPACTED_FILE,
-    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: MAX_RECORDS_PER_COMPACTED_FILE * 2,
+    TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: MAX_RECORDS_PER_COMPACTED_FILE
+    * 2,
     TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
@@ -374,7 +391,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
 def _get_table_function(
     table: Union[LocalTable, DistributedDataset],
     function_map: Dict[Type, Callable],
-    operation_name: str
+    operation_name: str,
 ) -> Callable:
     """Generic helper to look up table-type-specific functions."""
     table_func = function_map.get(type(table))
@@ -388,9 +405,7 @@ def _get_table_function(
 
 
 def _get_table_type_function(
-    table_type: DatasetType,
-    function_map: Dict[str, Callable],
-    operation_name: str
+    table_type: DatasetType, function_map: Dict[str, Callable], operation_name: str
 ) -> Callable:
     """Generic helper to look up DatasetType-specific functions."""
     table_func = function_map.get(table_type.value)
@@ -406,7 +421,7 @@ def _get_table_type_function(
 def _convert_all(tables: List[LocalTable], conversion_fn: Callable):
     if not tables:  # Empty list
         return pd.DataFrame()
-    
+
     # Convert list elements
     all_tables = []
     for i, table in enumerate(tables):
@@ -415,21 +430,23 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable):
             all_tables.append(converted_table)
         except Exception as e:
             raise ValueError(f"Failed to convert list element {i}: {e}") from e
-    
+
     if not all_tables:
         return pd.DataFrame()
     # Concatenate with error handling
     try:
         return pd.concat(all_tables, ignore_index=True, sort=False)
     except Exception as e:
-        raise ValueError(f"Failed to concatenate {len(all_tables)} DataFrames: {e}") from e
+        raise ValueError(
+            f"Failed to concatenate {len(all_tables)} DataFrames: {e}"
+        ) from e
 
 
 def get_table_length(
     table: Union[LocalTable, DistributedDataset, BlockAccessor]
 ) -> int:
     # Handle DAFT DataFrames dynamically
-    if hasattr(table, 'count_rows') and str(type(table).__module__).startswith('daft'):
+    if hasattr(table, "count_rows") and str(type(table).__module__).startswith("daft"):
         return table.count_rows()
     elif isinstance(table, RayDataset):
         return table.count()
@@ -452,27 +469,37 @@ def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
 
 def get_dataset_type(dataset: Dataset) -> DatasetType:
     """Get the DatasetType enum value for a given dataset object.
-    
+
     Args:
         dataset: The dataset object to identify
-        
+
     Returns:
         DatasetType enum value corresponding to the dataset type
-        
+
     Raises:
         ValueError: If the dataset type is not supported
     """
-    dataset_type_str = _get_table_function(dataset, TABLE_CLASS_TO_TABLE_TYPE, "dataset type identification")
+    dataset_type_str = _get_table_function(
+        dataset, TABLE_CLASS_TO_TABLE_TYPE, "dataset type identification"
+    )
     return DatasetType(dataset_type_str)
 
 
-def table_to_pyarrow(table: Union[LocalTable, DistributedDataset], **kwargs) -> pa.Table:
-    to_pyarrow_func = _get_table_function(table, TABLE_CLASS_TO_PYARROW_FUNC, "pyarrow conversion")
+def table_to_pyarrow(
+    table: Union[LocalTable, DistributedDataset], **kwargs
+) -> pa.Table:
+    to_pyarrow_func = _get_table_function(
+        table, TABLE_CLASS_TO_PYARROW_FUNC, "pyarrow conversion"
+    )
     return to_pyarrow_func(table, **kwargs)
 
 
-def table_to_pandas(table: Union[LocalTable, DistributedDataset], **kwargs) -> pd.DataFrame:
-    to_pandas_func = _get_table_function(table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion")
+def table_to_pandas(
+    table: Union[LocalTable, DistributedDataset], **kwargs
+) -> pd.DataFrame:
+    to_pandas_func = _get_table_function(
+        table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion"
+    )
     return to_pandas_func(table, **kwargs)
 
 
@@ -492,52 +519,56 @@ def to_pandas(table: Dataset, **kwargs) -> pd.DataFrame:
 
 def from_pyarrow(pa_table: pa.Table, target_type: DatasetType, **kwargs) -> Dataset:
     """Convert PyArrow Table to the specified dataset type.
-    
+
     Args:
         pa_table: PyArrow Table to convert
         target_type: Target DatasetType to convert to
         **kwargs: Additional arguments passed to the conversion function
-        
+
     Returns:
         Dataset converted to the target type
-        
+
     Raises:
         ValueError: If target_type is not supported
-    """ 
+    """
     conversion_func = _get_table_type_function(
-        target_type, 
-        DATASET_TYPE_FROM_PYARROW, 
+        target_type,
+        DATASET_TYPE_FROM_PYARROW,
         f"{target_type} conversion",
     )
     return conversion_func(pa_table, **kwargs)
 
 
 def append_column_to_table(
-    table: LocalTable, 
-    column_name: str, 
-    column_value: Any, 
+    table: LocalTable,
+    column_name: str,
+    column_value: Any,
 ) -> LocalTable:
     """
     Generic function to append a column with a specified value to any supported dataset type.
-    
+
     Args:
         table: The table/dataset to add column to
         column_name: Name of the new column
         column_value: Value to populate in all rows of the new column
         table_type: Type of the dataset
-        
+
     Returns:
         Updated table with the new column
     """
-    append_column_to_table_func = _get_table_function(table, TABLE_CLASS_TO_APPEND_COLUMN_FUNC, "append column")
+    append_column_to_table_func = _get_table_function(
+        table, TABLE_CLASS_TO_APPEND_COLUMN_FUNC, "append column"
+    )
     return append_column_to_table_func(table, column_name, column_value)
 
 
 def select_columns_from_table(
-    table: LocalTable, 
+    table: LocalTable,
     column_names: List[str],
 ) -> LocalTable:
-    select_columns_func = _get_table_function(table, TABLE_CLASS_TO_SELECT_COLUMNS_FUNC, "select columns")
+    select_columns_func = _get_table_function(
+        table, TABLE_CLASS_TO_SELECT_COLUMNS_FUNC, "select columns"
+    )
     return select_columns_func(table, column_names)
 
 
@@ -658,8 +689,11 @@ def write_table(
             _handle_retryable_error(e, path, "write", RetryableUploadTableError)
         except BaseException as e:
             _handle_non_retryable_error(
-                e, path, "upload", NonRetryableUploadTableError, 
-                f"and content_type={content_type}"
+                e,
+                path,
+                "upload",
+                NonRetryableUploadTableError,
+                f"and content_type={content_type}",
             )
     return manifest_entries
 
@@ -846,6 +880,7 @@ def _reconstruct_manifest_entry_uri(
 ) -> ManifestEntry:
     # Reconstruct full URI with scheme for external readers (see GitHub issue #567)
     from deltacat.catalog import get_catalog_properties
+
     catalog_properties = get_catalog_properties(**kwargs)
 
     original_uri = manifest_entry.uri
@@ -853,10 +888,9 @@ def _reconstruct_manifest_entry_uri(
     if original_uri != reconstructed_uri:
         # Create a copy of the manifest entry with the reconstructed URI
         from deltacat.storage.model.manifest import ManifestEntry
+
         reconstructed_entry = ManifestEntry(
-            uri=reconstructed_uri,
-            url=manifest_entry.url,
-            meta=manifest_entry.meta
+            uri=reconstructed_uri, url=manifest_entry.url, meta=manifest_entry.meta
         )
         return reconstructed_entry
     return manifest_entry
@@ -864,31 +898,42 @@ def _reconstruct_manifest_entry_uri(
 
 def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     # Filter out DeltaCAT system kwargs that external readers don't expect.
-    return {k: v for k, v in kwargs.items() if k not in ['inner', 'catalog', 'ray_options_provider', 'distributed_dataset_type']}
+    return {
+        k: v
+        for k, v in kwargs.items()
+        if k
+        not in ["inner", "catalog", "ray_options_provider", "distributed_dataset_type"]
+    }
 
 
-def _extract_content_metadata(manifest_entry: ManifestEntry) -> Tuple[ContentType, ContentEncoding, str]:
+def _extract_content_metadata(
+    manifest_entry: ManifestEntry,
+) -> Tuple[ContentType, ContentEncoding, str]:
     """Extract content type, encoding, and path from manifest entry."""
     content_type = manifest_entry.meta.content_type
     assert content_type, f"Unknown content type for manifest entry: {manifest_entry}"
     content_type = ContentType(content_type)
-    
+
     content_encoding = manifest_entry.meta.content_encoding
-    assert content_encoding, f"Unknown content encoding for manifest entry: {manifest_entry}"
+    assert (
+        content_encoding
+    ), f"Unknown content encoding for manifest entry: {manifest_entry}"
     content_encoding = ContentEncoding(content_encoding)
-    
+
     path = manifest_entry.uri
     if path is None:
         path = manifest_entry.url
-        
+
     return content_type, content_encoding, path
 
 
-def _extract_partial_download_params(manifest_entry: ManifestEntry) -> Optional[PartialFileDownloadParams]:
+def _extract_partial_download_params(
+    manifest_entry: ManifestEntry,
+) -> Optional[PartialFileDownloadParams]:
     """Extract partial file download parameters from manifest entry."""
     if not manifest_entry.meta or not manifest_entry.meta.content_type_parameters:
         return None
-        
+
     for type_params in manifest_entry.meta.content_type_parameters:
         if isinstance(type_params, PartialFileDownloadParams):
             return type_params
@@ -905,8 +950,7 @@ def _create_retry_wrapper():
 
 
 def _process_file_path_column(
-    include_columns: Optional[List[str]], 
-    file_path_column: Optional[str]
+    include_columns: Optional[List[str]], file_path_column: Optional[str]
 ) -> Optional[List[str]]:
     """Process include_columns to filter out synthetic file_path_column."""
     if file_path_column and include_columns:
@@ -920,19 +964,21 @@ def _prepare_download_arguments(
     include_columns: Optional[List[str]],
     file_reader_kwargs_provider: Optional[ReadKwargsProvider],
     file_path_column: Optional[str],
-    **kwargs
+    **kwargs,
 ) -> Dict[str, Any]:
     """Prepare standardized arguments for download operations."""
     reader_kwargs = _filter_kwargs(kwargs)
-    processed_include_columns = _process_file_path_column(include_columns, file_path_column)
-    
+    processed_include_columns = _process_file_path_column(
+        include_columns, file_path_column
+    )
+
     return {
-        'table_type': table_type,
-        'column_names': column_names,
-        'include_columns': processed_include_columns,
-        'file_reader_kwargs_provider': file_reader_kwargs_provider,
-        'file_path_column': file_path_column,
-        **reader_kwargs
+        "table_type": table_type,
+        "column_names": column_names,
+        "include_columns": processed_include_columns,
+        "file_reader_kwargs_provider": file_reader_kwargs_provider,
+        "file_path_column": file_path_column,
+        **reader_kwargs,
     }
 
 
@@ -944,11 +990,7 @@ def _handle_retryable_error(e: Exception, path: str, operation: str, error_class
 
 
 def _handle_non_retryable_error(
-    e: Exception, 
-    path: str, 
-    operation: str, 
-    error_class: type,
-    extra_context: str = ""
+    e: Exception, path: str, operation: str, error_class: type, extra_context: str = ""
 ):
     """Handle non-retryable errors with logging and standardized error message."""
     context = f" {extra_context}" if extra_context else ""
@@ -1005,18 +1047,20 @@ def _download_manifest_entries(
     **kwargs,
 ) -> LocalDataset:
     download_args = _prepare_download_arguments(
-        table_type, 
-        column_names, 
-        include_columns, 
-        file_reader_kwargs_provider, 
-        file_path_column, 
+        table_type,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+        file_path_column,
         **kwargs,
     )
     result = []
     for e in manifest.entries:
         manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
-        result.append(download_manifest_entry(manifest_entry=manifest_entry, **download_args))
-    
+        result.append(
+            download_manifest_entry(manifest_entry=manifest_entry, **download_args)
+        )
+
     return result
 
 
@@ -1036,7 +1080,7 @@ def download_manifest_entry_ray(
     """
     Ray remote function for downloading manifest entries.
     For Polars table types, converts the result to Arrow format since Ray datasets work with Arrow.
-    """ 
+    """
     # Call the regular download function
     result = download_manifest_entry(
         manifest_entry=manifest_entry,
@@ -1086,7 +1130,10 @@ def download_manifest_entries_distributed(
         **kwargs,
     }
 
-    if distributed_dataset_type and distributed_dataset_type.value == DistributedDatasetType.RAY_DATASET.value:
+    if (
+        distributed_dataset_type
+        and distributed_dataset_type.value == DistributedDatasetType.RAY_DATASET.value
+    ):
         return _download_manifest_entries_ray_data_distributed(**params)
     elif distributed_dataset_type is not None:
         params["distributed_dataset_type"] = distributed_dataset_type
@@ -1108,7 +1155,7 @@ def _download_manifest_entries_ray_data_distributed(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
-    
+
     table_pending_ids = []
     manifest_entries = manifest.entries
     if manifest_entries:
@@ -1124,7 +1171,9 @@ def _download_manifest_entries_ray_data_distributed(
             file_path_column=file_path_column,
             **kwargs,  # Pass through kwargs like include_paths
         )
-    create_func = _get_table_type_function(table_type, TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS, "dataset create")
+    create_func = _get_table_type_function(
+        table_type, TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS, "dataset create"
+    )
     return create_func(table_pending_ids)
 
 
@@ -1132,7 +1181,7 @@ def _validate_manifest_consistency(manifest: Manifest) -> Tuple[str, str]:
     """Validate that all manifest entries have consistent content type and encoding."""
     entry_content_type = None
     entry_content_encoding = None
-    
+
     for entry in manifest.entries or []:
         if (
             entry_content_type is not None
@@ -1154,15 +1203,16 @@ def _validate_manifest_consistency(manifest: Manifest) -> Tuple[str, str]:
 
         entry_content_type = entry.meta.content_type
         entry_content_encoding = entry.meta.content_encoding
-        
+
     return entry_content_type, entry_content_encoding
 
 
 def _collect_manifest_uris(manifest: Manifest, **kwargs) -> List[str]:
     """Collect and reconstruct URIs from manifest entries."""
     from deltacat.catalog import get_catalog_properties
+
     catalog_properties = get_catalog_properties(**kwargs)
-    
+
     uris = []
     for entry in manifest.entries or []:
         full_uri = catalog_properties.reconstruct_full_path(entry.uri)
@@ -1185,19 +1235,23 @@ def _download_manifest_entries_all_dataset_distributed(
     **kwargs,
 ) -> DistributedDataset:
     # Validate manifest consistency and collect URIs
-    entry_content_type, entry_content_encoding = _validate_manifest_consistency(manifest)
+    entry_content_type, entry_content_encoding = _validate_manifest_consistency(
+        manifest
+    )
     uris = _collect_manifest_uris(manifest, **kwargs)
 
     reader_kwargs = _filter_kwargs(kwargs)
-    
+
     try:
-        reader_func = DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[distributed_dataset_type.value]
+        reader_func = DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[
+            distributed_dataset_type.value
+        ]
     except KeyError:
         raise ValueError(
             f"Unsupported distributed dataset type={distributed_dataset_type}. "
             f"Supported types: {list(DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC.keys())}"
         )
-    
+
     return reader_func(
         uris=uris,
         content_type=entry_content_type,
@@ -1222,14 +1276,14 @@ def _download_manifest_entries_parallel(
     **kwargs,
 ) -> LocalDataset:
     download_args = _prepare_download_arguments(
-        table_type, 
-        column_names, 
-        include_columns, 
-        file_reader_kwargs_provider, 
-        file_path_column, 
+        table_type,
+        column_names,
+        include_columns,
+        file_reader_kwargs_provider,
+        file_path_column,
         **kwargs,
     )
-    
+
     entries_to_process = []
     for e in manifest.entries:
         manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
@@ -1237,7 +1291,7 @@ def _download_manifest_entries_parallel(
 
     tables = []
     pool = multiprocessing.Pool(max_parallelism)
-    
+
     downloader = partial(download_manifest_entry, **download_args)
     for table in pool.map(downloader, entries_to_process):
         tables.append(table)
@@ -1257,17 +1311,23 @@ def download_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     # Extract manifest metadata
-    extracted_content_type, extracted_content_encoding, path = _extract_content_metadata(manifest_entry)
+    (
+        extracted_content_type,
+        extracted_content_encoding,
+        path,
+    ) = _extract_content_metadata(manifest_entry)
     content_type = content_type or extracted_content_type
     content_encoding = content_encoding or extracted_content_encoding
 
     # Extract partial download parameters
     partial_file_download_params = _extract_partial_download_params(manifest_entry)
- 
+
     # Filter kwargs and process file path column
     reader_kwargs = _filter_kwargs(kwargs)
-    processed_include_columns = _process_file_path_column(include_columns, file_path_column)
-     
+    processed_include_columns = _process_file_path_column(
+        include_columns, file_path_column
+    )
+
     # Create retry wrapper and read file
     retrying = _create_retry_wrapper()
     table = retrying(
@@ -1283,7 +1343,7 @@ def download_manifest_entry(
         filesystem,
         **reader_kwargs,
     )
-    
+
     # Add file path column if requested
     if file_path_column:
         table = append_column_to_table(table, file_path_column, manifest_entry.uri)
@@ -1323,6 +1383,9 @@ def read_file(
         _handle_retryable_error(e, path, "download", RetryableDownloadTableError)
     except BaseException as e:
         _handle_non_retryable_error(
-            e, path, "read", NonRetryableDownloadTableError, 
-            f"and content_type={content_type} and encoding={content_encoding}"
+            e,
+            path,
+            "read",
+            NonRetryableDownloadTableError,
+            f"and content_type={content_type} and encoding={content_encoding}",
         )

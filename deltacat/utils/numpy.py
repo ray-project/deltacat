@@ -139,10 +139,10 @@ def ndarray_to_file(
 def concat_ndarrays(arrays: List[np.ndarray]) -> Optional[np.ndarray]:
     """
     Concatenate a list of NumPy ndarrays into a single ndarray.
-    
+
     Args:
         arrays: List of NumPy ndarrays to concatenate
-        
+
     Returns:
         Concatenated NumPy ndarray, or None if input is empty
     """
@@ -154,9 +154,9 @@ def concat_ndarrays(arrays: List[np.ndarray]) -> Optional[np.ndarray]:
 
 
 def append_column_to_ndarray(
-    np_array: np.ndarray, 
-    column_name: str, 
+    np_array: np.ndarray,
+    column_name: str,
     column_value: Any,
 ) -> np.ndarray:
     # Add a new column with value repeating for each row of np_array
-    return np.concatenate((np_array, np.full((len(np_array), 1), column_value)), axis=1) 
+    return np.concatenate((np_array, np.full((len(np_array), 1), column_value)), axis=1)

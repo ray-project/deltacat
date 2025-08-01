@@ -177,7 +177,10 @@ class TransactionOperation(dict):
     ) -> TransactionOperation:
         if not dest_metafile:
             raise ValueError("Transaction operations must have a destination metafile.")
-        if operation_type in [TransactionOperationType.UPDATE, TransactionOperationType.REPLACE]:
+        if operation_type in [
+            TransactionOperationType.UPDATE,
+            TransactionOperationType.REPLACE,
+        ]:
             if not src_metafile:
                 raise ValueError(
                     f"{operation_type.value} transaction operations must have a source metafile."
@@ -192,7 +195,9 @@ class TransactionOperation(dict):
                 f"Only {TransactionOperationType.UPDATE.value} and {TransactionOperationType.REPLACE.value} transaction operations may have a source metafile."
             )
         if operation_type.is_write_operation() and read_limit:
-            raise ValueError(f"Only {TransactionOperationType.READ.value} transaction operations may have a read limit.")
+            raise ValueError(
+                f"Only {TransactionOperationType.READ.value} transaction operations may have a read limit."
+            )
         txn_op = TransactionOperation()
         txn_op.type = operation_type
         txn_op.dest_metafile = dest_metafile
@@ -304,7 +309,7 @@ class Transaction(dict):
         operation_types = set([op.type for op in txn_operations])
         transaction = Transaction()
         transaction.operations = txn_operations
-        transaction.interactive = (len(txn_operations) == 0)
+        transaction.interactive = len(txn_operations) == 0
         return transaction
 
     @staticmethod
@@ -669,7 +674,11 @@ class Transaction(dict):
         self,
         catalog_root_dir: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> Union[List[ListResult[Metafile]], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
+    ) -> Union[
+        List[ListResult[Metafile]],
+        Tuple[List[str], str],
+        Tuple[List["ListResult[Metafile]"], List[str], str],
+    ]:
         """
         Legacy wrapper that preserves the original `commit()` contract while
         delegating the heavy lifting to the incremental helpers.
@@ -683,8 +692,10 @@ class Transaction(dict):
         """
 
         if hasattr(self, "interactive") and self.interactive:
-            raise RuntimeError("Cannot commit an interactive transaction. Use transaction.start(),transaction.step(), and transaction.seal() instead.")
-        
+            raise RuntimeError(
+                "Cannot commit an interactive transaction. Use transaction.start(),transaction.step(), and transaction.seal() instead."
+            )
+
         if self.operations and len(self.operations) > 0:
             # Start a working copy (deep-copy, directory scaffolding, start-time, running/failed/success/paused dirs …)
             txn_active = self.start(catalog_root_dir, filesystem)  # deep copy
@@ -779,7 +790,10 @@ class Transaction(dict):
             self._write_running_log(running_txn_log_file_path)
 
         try:
-            metafile_write_paths, locator_write_paths = operation.dest_metafile.write_txn(
+            (
+                metafile_write_paths,
+                locator_write_paths,
+            ) = operation.dest_metafile.write_txn(
                 catalog_root_dir=catalog_root_normalized,
                 success_txn_log_dir=posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME),
                 current_txn_op=operation,
@@ -788,11 +802,11 @@ class Transaction(dict):
                 filesystem=filesystem,
             )
             # Check for concurrent txn conflicts on the metafile and locator write paths just written
-            # TODO(pdames): Remove the fast-fail check here if it grows too expensive? 
+            # TODO(pdames): Remove the fast-fail check here if it grows too expensive?
             for path in metafile_write_paths + locator_write_paths:
                 MetafileRevisionInfo.check_for_concurrent_txn_conflict(
                     success_txn_log_dir=posixpath.join(
-                        txn_log_dir, 
+                        txn_log_dir,
                         SUCCESS_TXN_DIR_NAME,
                     ),
                     current_txn_revision_file_path=path,
@@ -869,16 +883,28 @@ class Transaction(dict):
 
     def seal(
         self,
-    ) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
+    ) -> Union[
+        List["ListResult[Metafile]"],
+        Tuple[List[str], str],
+        Tuple[List["ListResult[Metafile]"], List[str], str],
+    ]:
         """
         For READ → returns list_results collected during step().
         For WRITE → returns (written_paths, success_log_path).
         """
         if not self.interactive:
-            raise RuntimeError("Cannot seal a non-interactive transaction. Call transaction.commit() instead.")
+            raise RuntimeError(
+                "Cannot seal a non-interactive transaction. Call transaction.commit() instead."
+            )
         return self._seal_steps()
 
-    def _seal_steps(self) -> Union[List["ListResult[Metafile]"], Tuple[List[str], str], Tuple[List["ListResult[Metafile]"], List[str], str]]:
+    def _seal_steps(
+        self,
+    ) -> Union[
+        List["ListResult[Metafile]"],
+        Tuple[List[str], str],
+        Tuple[List["ListResult[Metafile]"], List[str], str],
+    ]:
         fs = self._filesystem
         root = self.catalog_root_normalized
         txn_log_dir = posixpath.join(root, TXN_DIR_NAME)

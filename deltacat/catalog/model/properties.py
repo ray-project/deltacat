@@ -117,35 +117,34 @@ class CatalogProperties:
     def reconstruct_full_path(self, path: str) -> str:
         """
         Reconstruct a full path with the original scheme for external readers.
-        
+
         This addresses GitHub issue #567 by ensuring that cloud storage URIs
         include the relevant scheme prefix (e.g., s3://) that some file readers
-        require regardless of the filesystem being used to read the file 
+        require regardless of the filesystem being used to read the file
         (e.g., Daft).
-        
+
         Args:
             path: A path relative to the catalog root or absolute path
-            
+
         Returns:
             Full path with appropriate scheme prefix for external readers
         """
         # If the path already has a scheme, return it as-is
         if urllib.parse.urlparse(path).scheme:
             return path
-            
+
         # If we don't have an original scheme (local filesystem), return as-is
         if not self._original_scheme:
             return path
 
         # Reconstruct the full path with the original scheme
         # Handle both absolute and relative paths
-        if path.startswith('/'):
+        if path.startswith("/"):
             # Absolute path - this shouldn't happen normally but handle it
             return f"{self._original_scheme}:/{path}"
         else:
             # Relative path - prepend the s3:// scheme
             return f"{self._original_scheme}://{path}"
-                
 
     def __str__(self):
         return (

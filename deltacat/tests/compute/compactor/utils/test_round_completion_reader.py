@@ -15,21 +15,18 @@ class TestRoundCompletionInfoInPartition:
         """
         source_locator = get_test_partition_locator("source")
         destination_locator = get_test_partition_locator("destination")
-        
+
         # Create a test RoundCompletionInfo with prev_source_partition_locator
         pawr = PyArrowWriteResult.of(
-            file_count=1,
-            pyarrow_bytes=1000,
-            file_bytes=1000,
-            record_count=100
+            file_count=1, pyarrow_bytes=1000, file_bytes=1000, record_count=100
         )
-        
+
         expected_rci = RoundCompletionInfo.of(
             high_watermark=122,
             compacted_delta_locator=None,
             compacted_pyarrow_write_result=pawr,
             sort_keys_bit_width=12,
-            prev_source_partition_locator=source_locator
+            prev_source_partition_locator=source_locator,
         )
 
         # Create a partition with RoundCompletionInfo
@@ -37,7 +34,7 @@ class TestRoundCompletionInfoInPartition:
             locator=destination_locator,
             schema=None,
             content_types=None,
-            compaction_round_completion_info=expected_rci
+            compaction_round_completion_info=expected_rci,
         )
 
         # Mock the storage
@@ -49,15 +46,18 @@ class TestRoundCompletionInfoInPartition:
             destination_partition_locator=destination_locator,
             deltacat_storage=mock_storage,
             deltacat_storage_kwargs={},
-            destination_partition=partition
+            destination_partition=partition,
         )
 
         assert rci is not None
         assert rci == expected_rci
         assert rci.high_watermark == 122
         assert rci.sort_keys_bit_width == 12
-        assert rci.prev_source_partition_locator.partition_id == source_locator.partition_id
-        
+        assert (
+            rci.prev_source_partition_locator.partition_id
+            == source_locator.partition_id
+        )
+
         # Verify storage was not called since partition was provided
         mock_storage.get_partition.assert_not_called()
 
@@ -69,21 +69,18 @@ class TestRoundCompletionInfoInPartition:
         source_locator = get_test_partition_locator("source")
         different_source_locator = get_test_partition_locator("different_source")
         destination_locator = get_test_partition_locator("destination")
-        
+
         # Create a test RoundCompletionInfo with different prev_source_partition_locator
         pawr = PyArrowWriteResult.of(
-            file_count=1,
-            pyarrow_bytes=1000,
-            file_bytes=1000,
-            record_count=100
+            file_count=1, pyarrow_bytes=1000, file_bytes=1000, record_count=100
         )
-        
+
         expected_rci = RoundCompletionInfo.of(
             high_watermark=122,
             compacted_delta_locator=None,
             compacted_pyarrow_write_result=pawr,
             sort_keys_bit_width=12,
-            prev_source_partition_locator=different_source_locator  # Different from source_locator
+            prev_source_partition_locator=different_source_locator,  # Different from source_locator
         )
 
         # Create a partition with RoundCompletionInfo
@@ -91,7 +88,7 @@ class TestRoundCompletionInfoInPartition:
             locator=destination_locator,
             schema=None,
             content_types=None,
-            compaction_round_completion_info=expected_rci
+            compaction_round_completion_info=expected_rci,
         )
 
         # Mock the storage
@@ -103,12 +100,12 @@ class TestRoundCompletionInfoInPartition:
             destination_partition_locator=destination_locator,
             deltacat_storage=mock_storage,
             deltacat_storage_kwargs={},
-            destination_partition=partition
+            destination_partition=partition,
         )
 
         # Should return None due to mismatch
         assert rci is None
-        
+
         # Verify storage was not called since partition was provided
         mock_storage.get_partition.assert_not_called()
 
@@ -118,21 +115,18 @@ class TestRoundCompletionInfoInPartition:
         """
         source_locator = get_test_partition_locator("source")
         destination_locator = get_test_partition_locator("destination")
-        
+
         # Create a test RoundCompletionInfo
         pawr = PyArrowWriteResult.of(
-            file_count=1,
-            pyarrow_bytes=1000,
-            file_bytes=1000,
-            record_count=100
+            file_count=1, pyarrow_bytes=1000, file_bytes=1000, record_count=100
         )
-        
+
         expected_rci = RoundCompletionInfo.of(
             high_watermark=122,
             compacted_delta_locator=None,
             compacted_pyarrow_write_result=pawr,
             sort_keys_bit_width=12,
-            prev_source_partition_locator=source_locator
+            prev_source_partition_locator=source_locator,
         )
 
         # Create a partition with RoundCompletionInfo
@@ -140,7 +134,7 @@ class TestRoundCompletionInfoInPartition:
             locator=destination_locator,
             schema=None,
             content_types=None,
-            compaction_round_completion_info=expected_rci
+            compaction_round_completion_info=expected_rci,
         )
 
         # Mock the storage to return the partition
@@ -152,18 +146,18 @@ class TestRoundCompletionInfoInPartition:
             source_partition_locator=source_locator,
             destination_partition_locator=destination_locator,
             deltacat_storage=mock_storage,
-            deltacat_storage_kwargs={"test_arg": "test_value"}
+            deltacat_storage_kwargs={"test_arg": "test_value"},
         )
 
         assert rci is not None
         assert rci == expected_rci
         assert rci.high_watermark == 122
-        
+
         # Verify storage was called with correct parameters
         mock_storage.get_partition.assert_called_once_with(
             destination_locator.stream_locator,
             destination_locator.partition_values,
-            test_arg="test_value"
+            test_arg="test_value",
         )
 
     def test_read_round_completion_info_when_partition_not_found(self):
@@ -182,12 +176,12 @@ class TestRoundCompletionInfoInPartition:
             source_partition_locator=source_locator,
             destination_partition_locator=destination_locator,
             deltacat_storage=mock_storage,
-            deltacat_storage_kwargs={}
+            deltacat_storage_kwargs={},
         )
 
         # Should return None when partition not found
         assert rci is None
-        
+
         # Verify storage was called
         mock_storage.get_partition.assert_called_once()
 
@@ -203,7 +197,7 @@ class TestRoundCompletionInfoInPartition:
             locator=destination_locator,
             schema=None,
             content_types=None,
-            compaction_round_completion_info=None
+            compaction_round_completion_info=None,
         )
 
         # Mock the storage to return the partition
@@ -215,12 +209,11 @@ class TestRoundCompletionInfoInPartition:
             source_partition_locator=source_locator,
             destination_partition_locator=destination_locator,
             deltacat_storage=mock_storage,
-            deltacat_storage_kwargs={}
+            deltacat_storage_kwargs={},
         )
 
         # Should return None when no completion info
         assert rci is None
-
 
     def test_read_with_missing_prev_source_partition_locator_returns_none(self):
         """
@@ -228,21 +221,18 @@ class TestRoundCompletionInfoInPartition:
         """
         source_locator = get_test_partition_locator("source")
         destination_locator = get_test_partition_locator("destination")
-        
+
         # Create RoundCompletionInfo without prev_source_partition_locator
         pawr = PyArrowWriteResult.of(
-            file_count=1,
-            pyarrow_bytes=1000,
-            file_bytes=1000,
-            record_count=100
+            file_count=1, pyarrow_bytes=1000, file_bytes=1000, record_count=100
         )
-        
+
         rcf = RoundCompletionInfo.of(
             high_watermark=122,
             compacted_delta_locator=None,
             compacted_pyarrow_write_result=pawr,
             sort_keys_bit_width=12,
-            prev_source_partition_locator=None  # Missing
+            prev_source_partition_locator=None,  # Missing
         )
 
         # Create a partition with RoundCompletionInfo
@@ -250,7 +240,7 @@ class TestRoundCompletionInfoInPartition:
             locator=destination_locator,
             schema=None,
             content_types=None,
-            compaction_round_completion_info=rcf
+            compaction_round_completion_info=rcf,
         )
 
         # Mock the storage
@@ -262,8 +252,8 @@ class TestRoundCompletionInfoInPartition:
             destination_partition_locator=destination_locator,
             deltacat_storage=mock_storage,
             deltacat_storage_kwargs={},
-            destination_partition=partition
+            destination_partition=partition,
         )
-        
+
         # Should return None when prev_source_partition_locator is missing or mismatched
         assert result is None

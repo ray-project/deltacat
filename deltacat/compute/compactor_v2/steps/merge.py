@@ -95,8 +95,10 @@ def _build_incremental_table(
     is_delete = False
     for df_envelope in df_envelopes:
         # Allow APPEND, UPSERT, and DELETE delta types
-        assert (
-            df_envelope.delta_type in (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
+        assert df_envelope.delta_type in (
+            DeltaType.APPEND,
+            DeltaType.UPSERT,
+            DeltaType.DELETE,
         ), "Only APPEND, UPSERT, and DELETE delta types are supported"
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
@@ -541,7 +543,8 @@ def _apply_upserts(
     prev_table=None,
 ) -> Tuple[pa.Table, int, int, int]:
     assert all(
-        dfe.delta_type is DeltaType.UPSERT or dfe.delta_type is DeltaType.APPEND for dfe in dfe_list
+        dfe.delta_type is DeltaType.UPSERT or dfe.delta_type is DeltaType.APPEND
+        for dfe in dfe_list
     ), "All incoming delta file envelopes must of the DeltaType.UPSERT or DeltaType.APPEND"
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "

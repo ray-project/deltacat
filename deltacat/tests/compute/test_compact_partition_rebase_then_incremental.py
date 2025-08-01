@@ -277,8 +277,10 @@ def test_compact_partition_rebase_then_incremental_main(
         )
         # execute
         benchmark(compact_partition_func, compact_partition_params)
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
-            destination_partition_locator, metastore, catalog=catalog
+        compacted_delta_locator: DeltaLocator = (
+            get_compacted_delta_locator_from_partition(
+                destination_partition_locator, metastore, catalog=catalog
+            )
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
@@ -365,8 +367,10 @@ def test_compact_partition_rebase_then_incremental_main(
                 return
             compact_partition_func(compact_partition_params)
             # assert
-            compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
-                destination_partition_locator, metastore, catalog=catalog
+            compacted_delta_locator: DeltaLocator = (
+                get_compacted_delta_locator_from_partition(
+                    destination_partition_locator, metastore, catalog=catalog
+                )
             )
             tables = metastore.download_delta(
                 compacted_delta_locator,

@@ -302,9 +302,7 @@ def test_compact_partition_incremental_main(
             compact_partition_func(compact_partition_params)
         assert expected_terminal_exception_message in str(exc_info.value)
         return
-    benchmark.pedantic(
-        compact_partition_func, setup=_incremental_compaction_setup
-    )
+    benchmark.pedantic(compact_partition_func, setup=_incremental_compaction_setup)
 
     # validate - get RoundCompletionInfo from the compacted partition
     round_completion_info: RoundCompletionInfo = get_rci_from_partition(

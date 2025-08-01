@@ -28,10 +28,10 @@ def create_delta_from_csv_file(
         **kwargs,
     )
     committed_delta = commit_delta_to_staged_partition(
-        staged_partition, 
-        pa_table, 
-        content_type, 
-        *args, 
+        staged_partition,
+        pa_table,
+        content_type,
+        *args,
         **kwargs,
     )
     return committed_delta
@@ -45,6 +45,7 @@ def create_table_from_csv_file_paths(
         table = pa.csv.read_csv(file_path)
         tables.append(table)
     return pa.concat_tables(tables)
+
 
 def stage_partition_from_file_paths(
     namespace: str,
@@ -60,16 +61,16 @@ def stage_partition_from_file_paths(
     if table_name is None:
         table_name = "-".join(file_paths).replace("/", "_")
     metastore.create_table_version(
-        namespace, 
-        table_name, 
-        str(table_version), 
+        namespace,
+        table_name,
+        str(table_version),
         schema=schema,
         **kwargs,
     )
     stream = metastore.get_stream(
-        namespace, 
-        table_name, 
-        str(table_version), 
+        namespace,
+        table_name,
+        str(table_version),
         **kwargs,
     )
     staged_partition = metastore.stage_partition(stream, **kwargs)

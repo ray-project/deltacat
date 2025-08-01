@@ -166,10 +166,7 @@ def compact_partition(
         f"compaction_partition.bin"
     ) if enable_profiler else nullcontext():
         partition = None
-        (
-            new_partition,
-            new_rci,
-        ) = _execute_compaction_round(
+        (new_partition, new_rci,) = _execute_compaction_round(
             source_partition_locator,
             destination_partition_locator,
             primary_keys,
@@ -206,7 +203,7 @@ def compact_partition(
             # Set the round completion info on the partition before committing
             partition.compaction_round_completion_info = new_rci
             partition = deltacat_storage.commit_partition(
-                partition, 
+                partition,
                 **deltacat_storage_kwargs,
             )
             logger.info(f"Committed compacted partition: {partition}")

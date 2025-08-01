@@ -302,8 +302,12 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         assert (
             execute_compaction_result_spy.call_args.args[-1] is False
         ), "Table version erroneously marked as in-place compacted!"
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_partition(
-            rebased_partition.locator, metastore, catalog=ds_mock_kwargs.get("inner")
+        compacted_delta_locator: DeltaLocator = (
+            get_compacted_delta_locator_from_partition(
+                rebased_partition.locator,
+                metastore,
+                catalog=ds_mock_kwargs.get("inner"),
+            )
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs

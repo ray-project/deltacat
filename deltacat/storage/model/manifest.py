@@ -4,8 +4,11 @@ import logging
 import itertools
 
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from deltacat.storage.model.schema import FieldLocator
 
 from deltacat import logs
 

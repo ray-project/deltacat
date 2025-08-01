@@ -464,9 +464,7 @@ class TestTransactionPersistence:
         # Set up a transaction and a single operation
         locator = NamespaceLocator.of(namespace="pause_test")
         ns = Namespace.of(locator=locator)
-        txn = Transaction.of().start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
 
         op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
         txn.step(op)
@@ -502,9 +500,7 @@ class TestTransactionPersistence:
     # Simulates a full multi-step transaction with multiple pause/resume cycles and verifies correctness of all outputs
     def test_transaction_pause_and_resume_roundtrip_complex(self, temp_dir):
         # Step 0: Create an empty interactive transaction
-        txn = Transaction.of().start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
 
         # Step 1: Add first namespace, pause
         ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))
@@ -551,9 +547,7 @@ class TestTransactionPersistence:
     # Repeats a complex pause/resume flow with additional assertions on namespace equality and time consistency
     def test_transaction_pause_and_resume_roundtrip_complex_2(self, temp_dir):
         # Step 0: Create an empty interactive transaction
-        txn = Transaction.of().start(
-            temp_dir
-        )
+        txn = Transaction.of().start(temp_dir)
 
         # Step 1: Add first namespace, pause
         ns1 = Namespace.of(locator=NamespaceLocator.of(namespace="roundtrip_ns_1"))

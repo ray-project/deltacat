@@ -58,9 +58,9 @@ def write_to_table(
 
 
 def read_table(
-    table: str, 
-    *args, 
-    namespace: Optional[str] = None, 
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
     """Read data from a DeltaCat table.

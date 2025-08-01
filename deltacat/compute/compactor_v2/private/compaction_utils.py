@@ -55,7 +55,6 @@ from deltacat.storage import (
     Stream,
     StreamLocator,
 )
-from deltacat.storage.model.types import CommitState
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -717,10 +716,9 @@ def _create_round_completion_info(
         f"Checking if partition {rci_source_partition_locator} is inplace compacted against {params.destination_partition_locator}..."
     )
     is_inplace_compacted: bool = _is_inplace_compacted(
-        rci_source_partition_locator, 
-        params.destination_partition_locator
+        rci_source_partition_locator, params.destination_partition_locator
     )
-    
+
     # Determine the prev_source_partition_locator based on compaction type
     if is_inplace_compacted:
         logger.info(
@@ -772,27 +770,29 @@ def _commit_compaction_result(
         f"Partition-{params.source_partition_locator} -> "
         f"{compaction_session_type} Compaction session data processing completed"
     )
-    # TODO(pdames): Uncomment this once we support concurrent writes to the same 
-    #   partition (via write_to_table). This requires updating the commit_partition 
-    #   method to support previous partition as input. Right now, a concurrent write 
+    # TODO(pdames): Uncomment this once we support concurrent writes to the same
+    #   partition (via write_to_table). This requires updating the commit_partition
+    #   method to support previous partition as input. Right now, a concurrent write
     #   to the same partition will cause the commit_partition method to fail.
     if execute_compaction_result.new_compacted_partition:
         previous_partition: Optional[Partition] = None
-    #   if execute_compaction_result.is_inplace_compacted:
-    #       previous_partition: Optional[
-    #           Partition
-    #       ] = params.deltacat_storage.get_partition(
-    #           params.source_partition_locator.stream_locator,
-    #           params.source_partition_locator.partition_values,
-    #           **params.deltacat_storage_kwargs,
-    #       )
-    #       # NOTE: Retrieving the previous partition again as the partition_id may have changed by the time commit_partition is called.
+        #   if execute_compaction_result.is_inplace_compacted:
+        #       previous_partition: Optional[
+        #           Partition
+        #       ] = params.deltacat_storage.get_partition(
+        #           params.source_partition_locator.stream_locator,
+        #           params.source_partition_locator.partition_values,
+        #           **params.deltacat_storage_kwargs,
+        #       )
+        #       # NOTE: Retrieving the previous partition again as the partition_id may have changed by the time commit_partition is called.
         logger.info(
             f"Committing compacted partition to: {execute_compaction_result.new_compacted_partition.locator} "
             f"using previous partition: {previous_partition.locator if previous_partition else None}"
         )
         # Set the round completion info on the partition before committing
-        execute_compaction_result.new_compacted_partition.compaction_round_completion_info = execute_compaction_result.new_round_completion_info
+        execute_compaction_result.new_compacted_partition.compaction_round_completion_info = (
+            execute_compaction_result.new_round_completion_info
+        )
         committed_partition: Partition = params.deltacat_storage.commit_partition(
             execute_compaction_result.new_compacted_partition,
             previous_partition,

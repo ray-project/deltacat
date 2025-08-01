@@ -32,10 +32,10 @@ def read_round_completion_info(
     """
     if not destination_partition_locator:
         return None
-        
+
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
-    
+
     try:
         # Use provided partition or get it from storage
         if destination_partition:
@@ -47,19 +47,25 @@ def read_round_completion_info(
                 destination_partition_locator.partition_values,
                 **deltacat_storage_kwargs,
             )
-        
+
         if partition:
             round_completion_info = partition.compaction_round_completion_info
             if round_completion_info:
                 # Validate that prev_source_partition_locator matches current source
-                if not source_partition_locator or not round_completion_info.prev_source_partition_locator:
+                if (
+                    not source_partition_locator
+                    or not round_completion_info.prev_source_partition_locator
+                ):
                     raise ValueError(
                         f"Source partition locator ({source_partition_locator}) and "
                         f"prev_source_partition_locator ({round_completion_info.prev_source_partition_locator}) "
                         f"must both be provided."
                     )
 
-                if (round_completion_info.prev_source_partition_locator.canonical_string() != source_partition_locator.canonical_string()):
+                if (
+                    round_completion_info.prev_source_partition_locator.canonical_string()
+                    != source_partition_locator.canonical_string()
+                ):
                     logger.warning(
                         f"Previous source partition locator mismatch: "
                         f"expected {source_partition_locator.canonical_string()}, "
@@ -67,11 +73,15 @@ def read_round_completion_info(
                         f"in round completion info. Ignoring cached round completion info."
                     )
                     return None
-                
-                logger.info(f"Read round completion info from partition metafile: {round_completion_info}")
+
+                logger.info(
+                    f"Read round completion info from partition metafile: {round_completion_info}"
+                )
                 return round_completion_info
-        
+
     except Exception as e:
-        logger.debug(f"Failed to read round completion info from partition metafile: {e}")
-        
+        logger.debug(
+            f"Failed to read round completion info from partition metafile: {e}"
+        )
+
     return None

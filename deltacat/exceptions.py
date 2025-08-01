@@ -255,8 +255,14 @@ class NamespaceAlreadyExistsError(NonRetryableError):
 class SchemaCompatibilityError(NonRetryableError):
     error_name = DeltaCatErrorNames.SCHEMA_COMPATIBILITY_ERROR.value
     """Raised when a schema update would break backward compatibility."""
-    
-    def __init__(self, message: str, field_locator: Optional[FieldLocator] = None, *args, **kwargs):
+
+    def __init__(
+        self,
+        message: str,
+        field_locator: Optional[FieldLocator] = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(message, *args, **kwargs)
         self.field_locator = field_locator
 

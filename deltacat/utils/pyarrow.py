@@ -372,14 +372,15 @@ def read_parquet(
     **read_kwargs,
 ) -> pa.Table:
     # Convert DeltaCAT Schema to PyArrow Schema if present
-    if 'schema' in read_kwargs:
+    if "schema" in read_kwargs:
         from deltacat.storage.model.schema import Schema as DeltaCATSchema
-        schema = read_kwargs['schema']
+
+        schema = read_kwargs["schema"]
         if isinstance(schema, DeltaCATSchema):
-            read_kwargs['schema'] = schema.arrow
+            read_kwargs["schema"] = schema.arrow
 
     # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
-    pyarrow_kwargs = {k: v for k, v in read_kwargs.items() if k not in ['entry_params']}
+    pyarrow_kwargs = {k: v for k, v in read_kwargs.items() if k not in ["entry_params"]}
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
@@ -685,7 +686,7 @@ ENCODING_TO_FILE_INIT: Dict[str, Callable] = {
 
 
 def slice_table(
-    table: pa.Table, 
+    table: pa.Table,
     max_len: Optional[int],
 ) -> List[pa.Table]:
     """
@@ -705,8 +706,8 @@ def slice_table(
 
 
 def append_column_to_table(
-    table: pa.Table, 
-    column_name: str, 
+    table: pa.Table,
+    column_name: str,
     column_value: Any,
 ) -> pa.Table:
     num_rows = table.num_rows
@@ -715,7 +716,7 @@ def append_column_to_table(
 
 
 def select_columns(
-    table: pa.Table, 
+    table: pa.Table,
     column_names: List[str],
 ) -> pa.Table:
     return table.select(column_names)
@@ -953,6 +954,7 @@ def s3_file_to_table(
         parquet_reader_func = None
         if kwargs.get(READER_TYPE_KWARG, "daft") == "daft":
             from deltacat.utils.daft import daft_s3_file_to_table
+
             parquet_reader_func = daft_s3_file_to_table
         elif partial_file_download_params and isinstance(
             partial_file_download_params, PartialParquetParameters
@@ -1515,10 +1517,10 @@ def file_to_parquet(
 def concat_tables(tables: List[pa.Table]) -> Optional[pa.Table]:
     """
     Concatenate a list of PyArrow Tables into a single Table.
-    
+
     Args:
         tables: List of PyArrow Tables to concatenate
-        
+
     Returns:
         Concatenated PyArrow Table, or None if input is empty
     """

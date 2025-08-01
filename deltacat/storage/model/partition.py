@@ -45,8 +45,8 @@ Constants for special partition types.
 """
 UNPARTITIONED_SCHEME_NAME = "unpartitioned_scheme"
 UNPARTITIONED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
-UNKNOWN_PARTITION_ID = "deadbeef-2fe7-4557-82c9-da53b1862003" # a partition ID that is assumed to exist but is not known
-UNSPECIFIED_PARTITION_ID = "deadbeef-5bff-41ea-b82c-e531f445632b" # a partition ID that has been left intentionally unspecified 
+UNKNOWN_PARTITION_ID = "deadbeef-2fe7-4557-82c9-da53b1862003"  # a partition ID that is assumed to exist but is not known
+UNSPECIFIED_PARTITION_ID = "deadbeef-5bff-41ea-b82c-e531f445632b"  # a partition ID that has been left intentionally unspecified
 
 
 class Partition(Metafile):
@@ -71,7 +71,9 @@ class Partition(Metafile):
         partition.previous_partition_id = previous_partition_id
         partition.stream_position = stream_position
         partition.partition_scheme_id = (
-            partition_scheme_id if locator and locator.partition_values else UNPARTITIONED_SCHEME_ID
+            partition_scheme_id
+            if locator and locator.partition_values
+            else UNPARTITIONED_SCHEME_ID
         )
         partition.compaction_round_completion_info = compaction_round_completion_info
         return partition
@@ -168,12 +170,15 @@ class Partition(Metafile):
         if val is not None:
             # Import here to avoid circular imports
             from deltacat.compute.compactor import RoundCompletionInfo
+
             if not isinstance(val, RoundCompletionInfo):
                 self["compactionRoundCompletionInfo"] = val = RoundCompletionInfo(val)
         return val
 
     @compaction_round_completion_info.setter
-    def compaction_round_completion_info(self, compaction_round_completion_info: Optional["RoundCompletionInfo"]) -> None:
+    def compaction_round_completion_info(
+        self, compaction_round_completion_info: Optional["RoundCompletionInfo"]
+    ) -> None:
         self["compactionRoundCompletionInfo"] = compaction_round_completion_info
 
     @property

@@ -50,6 +50,7 @@ from deltacat.utils.performance import timed_invocation
 from deltacat.types.partial_download import (
     PartialFileDownloadParams,
 )
+
 # Import directly from storage model modules to avoid circular import
 from deltacat.storage.model.transform import (
     Transform,
@@ -387,9 +388,9 @@ def files_to_dataframe(
     logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
 
     columns_to_read = include_columns or column_names
-    
+
     # Add file_path_column to selection if it was specified
-    file_path_column = read_kwargs.get('file_path_column')
+    file_path_column = read_kwargs.get("file_path_column")
     if file_path_column and columns_to_read and file_path_column not in columns_to_read:
         columns_to_read = list(columns_to_read) + [file_path_column]
 
@@ -489,6 +490,7 @@ class DeltaCatScanOperator(ScanOperator):
     def __init__(self, table, storage_config: StorageConfig) -> None:
         # Import inside method to avoid circular import
         from deltacat.catalog.model.table_definition import TableDefinition
+
         if not isinstance(table, TableDefinition):
             raise TypeError("table must be a TableDefinition instance")
         super().__init__()

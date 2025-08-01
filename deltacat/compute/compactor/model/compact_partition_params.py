@@ -502,7 +502,6 @@ class CompactPartitionParams(dict):
     def expected_previous_partition_id(self, partition_id: Optional[str]) -> None:
         self["expected_previous_partition_id"] = partition_id
 
-
     @staticmethod
     def json_handler_for_compact_partition_params(obj):
         """

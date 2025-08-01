@@ -15,7 +15,10 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.compute.resource_estimation import ResourceEstimationMethod
-from deltacat.tests.compute.test_util_common import get_rci_from_partition, read_audit_file
+from deltacat.tests.compute.test_util_common import (
+    get_rci_from_partition,
+    read_audit_file,
+)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -201,7 +204,6 @@ class TestCompactionSessionMain:
 
         # Basic verification - if we get here without exceptions, the basic flow works
 
-
         # Get a fresh reference to the destination partition to see updates
         updated_dest_partition = metastore.get_partition(
             stream_locator=dest_stream.locator,
@@ -280,7 +282,6 @@ class TestCompactionSessionMain:
             )
         )
 
-
     def test_compact_partition_when_incremental_then_rci_stats_accurate(self, catalog):
         """Test case which asserts the RCI stats are correctly generated for a rebase and incremental use-case."""
         # Create source and destination namespaces/tables
@@ -323,7 +324,9 @@ class TestCompactionSessionMain:
         )
 
         # Get RoundCompletionInfo from the compacted partition instead of file
-        backfill_rci = get_rci_from_partition(dest_partition.locator, metastore, catalog=catalog)
+        backfill_rci = get_rci_from_partition(
+            dest_partition.locator, metastore, catalog=catalog
+        )
         compaction_audit = CompactionSessionAuditInfo(
             **read_audit_file(backfill_rci.compaction_audit_url)
         )
@@ -386,8 +389,10 @@ class TestCompactionSessionMain:
             )
         )
 
-        # Get RoundCompletionInfo from the compacted partition instead of file  
-        new_rci = get_rci_from_partition(dest_partition.locator, metastore, catalog=catalog)
+        # Get RoundCompletionInfo from the compacted partition instead of file
+        new_rci = get_rci_from_partition(
+            dest_partition.locator, metastore, catalog=catalog
+        )
         compaction_audit = CompactionSessionAuditInfo(
             **read_audit_file(new_rci.compaction_audit_url)
         )

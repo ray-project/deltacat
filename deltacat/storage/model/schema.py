@@ -18,7 +18,6 @@ from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
     NullOrder,
-    Dataset,
 )
 from deltacat.types.tables import (
     get_table_length,
@@ -26,7 +25,6 @@ from deltacat.types.tables import (
     from_pyarrow,
     get_dataset_type,
 )
-from deltacat.types.media import DatasetType
 from deltacat import logs
 
 
@@ -80,62 +78,72 @@ FieldLocator = Union[FieldName, NestedFieldName, FieldId]
 class SchemaUpdateOperation(tuple):
     """
     Represents a single schema update operation (add, remove, or update field).
-    
+
     This class inherits from tuple and stores:
-    - operation: str ("add", "remove", "update")  
+    - operation: str ("add", "remove", "update")
     - field_locator: FieldLocator (name, path, or ID)
     - field: Optional[Field] (the field data for add/update operations)
     """
-    
+
     @staticmethod
-    def add_field(field_locator: FieldLocator, field: 'Field') -> 'SchemaUpdateOperation':
+    def add_field(
+        field_locator: FieldLocator, field: "Field"
+    ) -> "SchemaUpdateOperation":
         """Create an operation to add a new field."""
         return SchemaUpdateOperation(("add", field_locator, field))
-    
+
     @staticmethod
-    def remove_field(field_locator: FieldLocator) -> 'SchemaUpdateOperation':
-        """Create an operation to remove an existing field.""" 
+    def remove_field(field_locator: FieldLocator) -> "SchemaUpdateOperation":
+        """Create an operation to remove an existing field."""
         return SchemaUpdateOperation(("remove", field_locator, None))
-    
+
     @staticmethod
-    def update_field(field_locator: FieldLocator, field: 'Field') -> 'SchemaUpdateOperation':
+    def update_field(
+        field_locator: FieldLocator, field: "Field"
+    ) -> "SchemaUpdateOperation":
         """Create an operation to update an existing field."""
         return SchemaUpdateOperation(("update", field_locator, field))
-    
+
     @property
     def operation(self) -> str:
         """The operation type: 'add', 'remove', or 'update'."""
         return self[0]
-    
+
     @property
     def field_locator(self) -> FieldLocator:
         """The field locator (name, path, or ID)."""
         return self[1]
-    
+
     @property
-    def field(self) -> Optional['Field']:
+    def field(self) -> Optional["Field"]:
         """The field data (None for remove operations)."""
         return self[2]
+
+    def field_locator_matches(self, other_locator: FieldLocator) -> bool:
+        """Check if this operation's field_locator matches the given field_locator."""
+        return SchemaUpdate._field_locators_match(self.field_locator, other_locator)
 
 
 class SchemaUpdateOperations(List[SchemaUpdateOperation]):
     """
     A list of schema update operations that can be applied to a schema.
-    
+
     This class inherits from List[SchemaUpdateOperation] and provides convenience
     methods for creating and managing schema update operations.
     """
-    
+
     @staticmethod
-    def of(operations: List[SchemaUpdateOperation]) -> 'SchemaUpdateOperations':
+    def of(operations: List[SchemaUpdateOperation]) -> "SchemaUpdateOperations":
         """Create a SchemaUpdateOperations list from a list of operations."""
         typed_operations = SchemaUpdateOperations()
         for operation in operations:
-            if operation is not None and not isinstance(operation, SchemaUpdateOperation):
+            if operation is not None and not isinstance(
+                operation, SchemaUpdateOperation
+            ):
                 operation = SchemaUpdateOperation(operation)
             typed_operations.append(operation)
         return typed_operations
-    
+
     def __getitem__(self, item):
         """Override to ensure items are properly typed as SchemaUpdateOperation."""
         val = super().__getitem__(item)
@@ -393,7 +401,9 @@ class Field(dict):
         return t
 
     @staticmethod
-    def _validate_merge_key(field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None):
+    def _validate_merge_key(
+        field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None
+    ):
         # Note: large_strings were explicitly allowed for compatibility with PyIceberg Iceberg Schema to PyArrow converter
         if not (
             pa.types.is_string(field.type)
@@ -403,40 +413,53 @@ class Field(dict):
             raise ValueError(
                 f"Merge key {field} must be a primitive type or large string."
             )
-        
+
         # Merge key fields must have VALIDATE consistency type to prevent type promotion
-        if consistency_type is not None and consistency_type != SchemaConsistencyType.VALIDATE:
+        if (
+            consistency_type is not None
+            and consistency_type != SchemaConsistencyType.VALIDATE
+        ):
             raise ValueError(
                 f"Merge key field '{field.name}' must have VALIDATE consistency type, "
                 f"got {consistency_type}. Type promotion is not allowed for merge keys."
             )
-        
+
         if pa.types.is_floating(field.type):
             raise ValueError(f"Merge key {field} cannot be floating point.")
 
     @staticmethod
-    def _validate_merge_order(field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None):
+    def _validate_merge_order(
+        field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None
+    ):
         if not pa.types.is_primitive(field.type):
             raise ValueError(f"Merge order {field} must be a primitive type.")
-        
+
         # Merge order fields must have VALIDATE consistency type to prevent type promotion
-        if consistency_type is not None and consistency_type != SchemaConsistencyType.VALIDATE:
+        if (
+            consistency_type is not None
+            and consistency_type != SchemaConsistencyType.VALIDATE
+        ):
             raise ValueError(
                 f"Merge order field '{field.name}' must have VALIDATE consistency type, "
                 f"got {consistency_type}. Type promotion is not allowed for merge order fields."
             )
 
     @staticmethod
-    def _validate_event_time(field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None):
+    def _validate_event_time(
+        field: pa.Field, consistency_type: Optional[SchemaConsistencyType] = None
+    ):
         if (
             not pa.types.is_integer(field.type)
             and not pa.types.is_floating(field.type)
             and not pa.types.is_date(field.type)
         ):
             raise ValueError(f"Event time {field} must be numeric or date type.")
-        
+
         # Event time fields must have VALIDATE consistency type to prevent type promotion
-        if consistency_type is not None and consistency_type != SchemaConsistencyType.VALIDATE:
+        if (
+            consistency_type is not None
+            and consistency_type != SchemaConsistencyType.VALIDATE
+        ):
             raise ValueError(
                 f"Event time field '{field.name}' must have VALIDATE consistency type, "
                 f"got {consistency_type}. Type promotion is not allowed for event time fields."
@@ -470,12 +493,12 @@ class Field(dict):
         # Auto-set future_default to past_default if past_default exists but future_default doesn't
         if past_default is not None and future_default is None:
             future_default = past_default
-        
+
         # Default critical columns (merge key, merge order, event time) to VALIDATE consistency type
         # to prevent type promotion which could break merge semantics
         if consistency_type is None and (is_merge_key or merge_order or is_event_time):
             consistency_type = SchemaConsistencyType.VALIDATE
-        
+
         meta = {}
         if is_merge_key:
             Field._validate_merge_key(field, consistency_type)
@@ -506,14 +529,14 @@ class Field(dict):
         )
 
     def validate(
-        self, 
+        self,
         column_data: pa.Array,
     ) -> None:
         """Validate that data in a column matches this field's type and constraints.
-        
+
         Args:
             column_data: PyArrow Array containing the column data to validate
-            
+
         Raises:
             ValueError: If data doesn't match field requirements.
         """
@@ -523,19 +546,19 @@ class Field(dict):
                 f"Data type mismatch for field '{self.arrow.name}': "
                 f"expected {self.arrow.type}, got {column_data.type}"
             )
-    
+
     def coerce(
-        self, 
+        self,
         column_data: pa.Array,
     ) -> pa.Array:
         """Coerce data in a column to match this field's type.
-        
+
         Args:
             column_data: PyArrow Array containing the column data to coerce
-            
+
         Returns:
             pa.Array: Coerced data matching this field's type
-            
+
         Raises:
             ValueError: If data cannot be coerced to the field type
         """
@@ -548,20 +571,20 @@ class Field(dict):
             )
 
     def promote_type_if_needed(
-        self, 
+        self,
         column_data: pa.Array,
     ) -> Tuple[pa.Array, bool]:
         """Promote field type to accommodate new data when consistency type is NONE.
-        
+
         This method implements intelligent type widening for fields with SchemaConsistencyType.NONE:
         - Numeric types: int8 → int16 → int32 → int64 → float32 → float64 → decimal
         - Any numeric → string (most permissive)
         - Any type → binary (most permissive)
         - Maintains nullability and metadata
-        
+
         Args:
             column_data: PyArrow Array containing the column data
-            
+
         Returns:
             Tuple[pa.Array, bool]: (data, type_was_promoted)
                 - data: Either original data or data cast to promoted type
@@ -569,25 +592,25 @@ class Field(dict):
         """
         current_type = self.arrow.type
         data_type = column_data.type
-        
+
         # Early return if types are already compatible
         if current_type.equals(data_type):
             return column_data, False
-            
+
         # Find the promoted type that can accommodate both types
         promoted_type = self._find_promoted_type(current_type, data_type)
         if promoted_type is None:
             return column_data, False
-            
+
         # Handle type coercion vs promotion
         if promoted_type.equals(current_type):
             return self._coerce_to_current_type(column_data, current_type)
         else:
             return self._promote_to_new_type(column_data, promoted_type)
-    
+
     def _coerce_to_current_type(
-        self, 
-        column_data: pa.Array, 
+        self,
+        column_data: pa.Array,
         current_type: pa.DataType,
     ) -> Tuple[pa.Array, bool]:
         """Try to coerce data to current type without promoting the field type."""
@@ -596,10 +619,10 @@ class Field(dict):
             return coerced_data, False
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
             return column_data, False
-    
+
     def _promote_to_new_type(
-        self, 
-        column_data: pa.Array, 
+        self,
+        column_data: pa.Array,
         promoted_type: pa.DataType,
     ) -> Tuple[pa.Array, bool]:
         """Try to cast data to the promoted type."""
@@ -611,10 +634,10 @@ class Field(dict):
             if pa.types.is_binary(promoted_type):
                 return self._convert_to_binary_via_string(column_data, promoted_type)
             return column_data, False
-    
+
     def _convert_to_binary_via_string(
-        self, 
-        column_data: pa.Array, 
+        self,
+        column_data: pa.Array,
         binary_type: pa.DataType,
     ) -> Tuple[pa.Array, bool]:
         """Try converting to binary via string intermediate step."""
@@ -624,24 +647,24 @@ class Field(dict):
             return binary_data, True
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
             return column_data, False
-    
+
     def _cast_default_to_promoted_type(
-        self, 
-        default_value: Any, 
+        self,
+        default_value: Any,
         promoted_type: pa.DataType,
     ) -> Optional[Any]:
         """Cast a default value to match a promoted type.
-        
+
         Args:
             default_value: The original default value
             promoted_type: The new promoted type
-            
+
         Returns:
             The default value cast to the promoted type, or None if casting fails
         """
         if default_value is None:
             return None
-            
+
         try:
             # Create a scalar with the original default value
             original_scalar = pa.scalar(default_value)
@@ -649,75 +672,93 @@ class Field(dict):
             promoted_scalar = pa.compute.cast(original_scalar, promoted_type)
             # Return the Python value
             return promoted_scalar.as_py()
-        except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError, ValueError):
+        except (
+            pa.ArrowTypeError,
+            pa.ArrowInvalid,
+            pa.ArrowNotImplementedError,
+            TypeError,
+            ValueError,
+        ):
             # If direct casting fails, try via string for binary promotion
             if pa.types.is_binary(promoted_type):
                 try:
                     # Convert to string first, then to binary
-                    string_scalar = pa.compute.cast(pa.scalar(default_value), pa.string())
+                    string_scalar = pa.compute.cast(
+                        pa.scalar(default_value), pa.string()
+                    )
                     binary_scalar = pa.compute.cast(string_scalar, promoted_type)
                     return binary_scalar.as_py()
-                except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError, ValueError):
+                except (
+                    pa.ArrowTypeError,
+                    pa.ArrowInvalid,
+                    pa.ArrowNotImplementedError,
+                    TypeError,
+                    ValueError,
+                ):
                     pass
-            
+
             # If all casting attempts fail, return None to remove the default
             return None
-    
+
     def _find_promoted_type(
-        self, 
-        current_type: pa.DataType, 
+        self,
+        current_type: pa.DataType,
         new_type: pa.DataType,
     ) -> Optional[pa.DataType]:
         """Find the most specific type that can accommodate both current and new types.
-        
+
         Returns the promoted type or None if no promotion is possible.
         """
         # Try within-hierarchy promotions first (most specific)
         promoted_type = self._try_within_hierarchy_promotion(current_type, new_type)
         if promoted_type is not None:
             return promoted_type
-            
+
         # Try cross-type promotions (more permissive)
         return self._try_cross_type_promotion(current_type, new_type)
-    
+
     def _try_within_hierarchy_promotion(
-        self, 
-        current_type: pa.DataType, 
+        self,
+        current_type: pa.DataType,
         new_type: pa.DataType,
     ) -> Optional[pa.DataType]:
         """Try to promote types within the same type hierarchy."""
         type_hierarchies = self._get_type_hierarchies()
-        
+
         for hierarchy in type_hierarchies:
             current_idx = self._find_type_in_hierarchy(current_type, hierarchy)
             new_idx = self._find_type_in_hierarchy(new_type, hierarchy)
-            
+
             if current_idx is not None and new_idx is not None:
                 # Both types are in same hierarchy - promote to the higher one
                 promoted_idx = max(current_idx, new_idx)
                 promoted_type = hierarchy[promoted_idx]
                 return self._maybe_make_nullable(promoted_type, current_type, new_type)
-        
+
         return None
-    
+
     def _try_cross_type_promotion(
-        self, 
-        current_type: pa.DataType, 
+        self,
+        current_type: pa.DataType,
         new_type: pa.DataType,
     ) -> Optional[pa.DataType]:
         """Try cross-type promotions in order of specificity."""
         promotions = self._get_cross_type_promotions()
-        
+
         for source_types, target_types in promotions:
-            if self._types_compatible_with_promotion_rule(current_type, new_type, source_types):
+            if self._types_compatible_with_promotion_rule(
+                current_type, new_type, source_types
+            ):
                 # Find the most specific target type that works for both
                 for target_type in target_types:
-                    if (self._can_cast_to(current_type, target_type) and 
-                        self._can_cast_to(new_type, target_type)):
-                        return self._maybe_make_nullable(target_type, current_type, new_type)
-        
+                    if self._can_cast_to(
+                        current_type, target_type
+                    ) and self._can_cast_to(new_type, target_type):
+                        return self._maybe_make_nullable(
+                            target_type, current_type, new_type
+                        )
         return None
-    
+
     def _get_type_hierarchies(
         self,
     ) -> List[List[pa.DataType]]:
@@ -735,47 +776,75 @@ class Field(dict):
             # Binary types (most permissive overall)
             [pa.binary(), pa.large_binary()],
         ]
-    
+
     def _get_cross_type_promotions(
         self,
     ) -> List[Tuple]:
         """Get cross-type promotions ordered by specificity (most specific first)."""
         return [
             # Any integer can promote to float (most specific numeric promotion)
-            ([pa.int8(), pa.int16(), pa.int32(), pa.int64(), pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64()],
-             [pa.float32(), pa.float64()]),
+            (
+                [
+                    pa.int8(),
+                    pa.int16(),
+                    pa.int32(),
+                    pa.int64(),
+                    pa.uint8(),
+                    pa.uint16(),
+                    pa.uint32(),
+                    pa.uint64(),
+                ],
+                [pa.float32(), pa.float64()],
+            ),
             # Any numeric can promote to decimal
-            ([pa.int8(), pa.int16(), pa.int32(), pa.int64(), pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64(),
-              pa.float32(), pa.float64()],
-             [pa.decimal128(28, 10)]),
+            (
+                [
+                    pa.int8(),
+                    pa.int16(),
+                    pa.int32(),
+                    pa.int64(),
+                    pa.uint8(),
+                    pa.uint16(),
+                    pa.uint32(),
+                    pa.uint64(),
+                    pa.float32(),
+                    pa.float64(),
+                ],
+                [pa.decimal128(28, 10)],
+            ),
             # Any type except binary can promote to string
-            ('not_binary', [pa.string(), pa.large_string()]),
+            ("not_binary", [pa.string(), pa.large_string()]),
             # Any type can promote to binary (most permissive, checked last)
             (None, [pa.binary(), pa.large_binary()]),
         ]
-    
+
     def _types_compatible_with_promotion_rule(
-        self, 
-        current_type: pa.DataType, 
-        new_type: pa.DataType, 
+        self,
+        current_type: pa.DataType,
+        new_type: pa.DataType,
         source_types,
     ) -> bool:
         """Check if types are compatible with a specific promotion rule."""
         if source_types is None:  # any_to_* cases
             return True
-        elif source_types == 'not_binary':  # any type except binary
+        elif source_types == "not_binary":  # any type except binary
             # For string promotion, require both types to be non-binary
-            return (not pa.types.is_binary(current_type) and 
-                   not pa.types.is_binary(new_type))
+            return not pa.types.is_binary(current_type) and not pa.types.is_binary(
+                new_type
+            )
         else:
             # Check if at least one type is compatible with source types
-            current_compatible = any(self._types_compatible(current_type, src) for src in source_types)
-            new_compatible = any(self._types_compatible(new_type, src) for src in source_types)
+            current_compatible = any(
+                self._types_compatible(current_type, src) for src in source_types
+            )
+            new_compatible = any(
+                self._types_compatible(new_type, src) for src in source_types
+            )
             return current_compatible or new_compatible
-    
+
     def _find_type_in_hierarchy(
-        self, 
-        data_type: pa.DataType, 
+        self,
+        data_type: pa.DataType,
         hierarchy: List[pa.DataType],
     ) -> Optional[int]:
         """Find the index of a compatible type in the hierarchy."""
@@ -783,37 +852,45 @@ class Field(dict):
             if self._types_compatible(data_type, hierarchy_type):
                 return i
         return None
-    
+
     def _types_compatible(
-        self, 
-        type1: pa.DataType, 
+        self,
+        type1: pa.DataType,
         type2: pa.DataType,
     ) -> bool:
         """Check if two types are compatible (ignoring nullability)."""
         # For complex types like list and dictionary, compare their value types
-        base_type1 = type1.value_type if isinstance(type1, (pa.ListType, pa.DictionaryType)) else type1
-        base_type2 = type2.value_type if isinstance(type2, (pa.ListType, pa.DictionaryType)) else type2
+        base_type1 = (
+            type1.value_type
+            if isinstance(type1, (pa.ListType, pa.DictionaryType))
+            else type1
+        )
+        base_type2 = (
+            type2.value_type
+            if isinstance(type2, (pa.ListType, pa.DictionaryType))
+            else type2
+        )
         return base_type1.equals(base_type2)
-    
+
     def _can_cast_to(
-        self, 
-        from_type: pa.DataType, 
+        self,
+        from_type: pa.DataType,
         to_type: pa.DataType,
     ) -> bool:
         """Check if a type can be cast to another type."""
         # Null can cast to anything
         if from_type == pa.null():
             return True
-            
+
         # Special handling for binary types (most permissive)
         if pa.types.is_binary(to_type):
             return self._can_cast_to_binary(from_type)
-            
+
         # Test casting with a minimal array
         return self._test_cast_with_sample_array(from_type, to_type)
-    
+
     def _can_cast_to_binary(
-        self, 
+        self,
         from_type: pa.DataType,
     ) -> bool:
         """Check if a type can be cast to binary (directly or via string)."""
@@ -822,10 +899,10 @@ class Field(dict):
             return True
         # For other types, check if they can cast to string first
         return self._can_cast_to(from_type, pa.string())
-    
+
     def _test_cast_with_sample_array(
-        self, 
-        from_type: pa.DataType, 
+        self,
+        from_type: pa.DataType,
         to_type: pa.DataType,
     ) -> bool:
         """Test casting by creating a sample array and attempting the cast."""
@@ -837,15 +914,15 @@ class Field(dict):
             return True
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
             return False
-    
+
     def _create_sample_array(
-        self, 
+        self,
         data_type: pa.DataType,
     ) -> Optional[pa.Array]:
         """Create a minimal sample array for testing type casting."""
         if isinstance(data_type, (pa.ListType, pa.DictionaryType)):  # complex types
             return pa.array([None], type=data_type)
-        
+
         # Create appropriate test value based on type
         if pa.types.is_integer(data_type):
             return pa.array([0], type=data_type)
@@ -857,11 +934,11 @@ class Field(dict):
             return pa.array([b""], type=data_type)
         else:
             return None  # Unknown type
-    
+
     def _maybe_make_nullable(
-        self, 
-        base_type: pa.DataType, 
-        type1: pa.DataType, 
+        self,
+        base_type: pa.DataType,
+        type1: pa.DataType,
         type2: pa.DataType,
     ) -> pa.DataType:
         """Make the base type nullable if either input type is nullable."""
@@ -1033,24 +1110,21 @@ class Schema(dict):
             schema_id=self.id + 1,
         )
 
-    def update(
-        self,
-        allow_incompatible_changes: bool = False
-    ) -> 'SchemaUpdate':
+    def update(self, allow_incompatible_changes: bool = False) -> "SchemaUpdate":
         """
         Create a SchemaUpdate instance for safely evolving this schema.
-        
+
         This method provides a convenient way to create a SchemaUpdate for this schema
         without needing to call SchemaUpdate.of() directly.
-        
+
         Args:
             allow_incompatible_changes: If True, allows changes that may break
                 backward compatibility. If False (default), raises SchemaCompatibilityError
                 for incompatible changes.
-                
+
         Returns:
             A new SchemaUpdate instance configured for this schema
-            
+
         Example:
             >>> schema = Schema.of([Field.of(pa.field("id", pa.int64()))])
             >>> new_field = Field.of(pa.field("name", pa.string()))
@@ -1058,7 +1132,9 @@ class Schema(dict):
             ...                         .add_field("name", new_field)
             ...                         .apply())
         """
-        return SchemaUpdate.of(self, allow_incompatible_changes=allow_incompatible_changes)
+        return SchemaUpdate.of(
+            self, allow_incompatible_changes=allow_incompatible_changes
+        )
 
     def field_id(self, name: Union[FieldName, NestedFieldName]) -> FieldId:
         return Schema._field_name_to_field_id(self.arrow, name)
@@ -1077,17 +1153,17 @@ class Schema(dict):
         )
         return self.field_ids_to_fields[field_id]
 
-    def merge_order_sort_keys(self) -> Optional[List["SortKey"]]:
+    def merge_order_sort_keys(self) -> Optional[List["SortKey"]]:  # noqa
         """Extract sort keys from fields with merge_order defined, or use event_time as fallback.
-        
+
         If explicit merge_order fields are defined, they take precedence.
         If no merge_order fields are defined but an event_time field exists, use event_time
         with DESCENDING merge_order (keep latest events by default).
-        
+
         Note: The sort order is inverted because deduplication keeps the "last" record
         after sorting. To keep the record with the smallest merge_order value, we need
         to sort in DESCENDING order so that record appears last.
-        
+
         Returns:
             List of SortKey objects constructed from fields with merge_order or event_time,
             or None if neither are defined.
@@ -1095,35 +1171,37 @@ class Schema(dict):
         # First priority: explicit merge_order fields
         fields_with_merge_order = self._get_fields_with_merge_order()
         if fields_with_merge_order:
-            return self._create_sort_keys_from_merge_order_fields(fields_with_merge_order)
-        
+            return self._create_sort_keys_from_merge_order_fields(
+                fields_with_merge_order
+            )
+
         # Second priority: event_time field as default merge_order key
         event_time_fields = self._get_event_time_fields()
         if event_time_fields:
             return self._create_sort_keys_from_event_time_fields(event_time_fields)
-            
+
         return None
 
     def validate_and_coerce_table(
-        self, 
-        table: pa.Table, 
+        self,
+        table: pa.Table,
         schema_evolution_mode: Optional[str] = None,
-        default_schema_consistency_type: Optional['SchemaConsistencyType'] = None
-    ) -> Tuple[pa.Table, 'Schema']:
+        default_schema_consistency_type: Optional["SchemaConsistencyType"] = None,
+    ) -> Tuple[pa.Table, "Schema"]:
         """Validate and coerce a PyArrow table to match this schema's field types and constraints.
-        
+
         This method now uses SchemaUpdate for safe schema evolution, ensuring all field
         protection rules and validation are applied consistently.
-        
+
         Args:
             table: PyArrow Table to validate and coerce
             schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
             default_schema_consistency_type: Default consistency type for new fields in AUTO mode
-            
+
         Returns:
             Tuple[pa.Table, Schema]: Table with data validated/coerced according to schema consistency types,
                                     and the (potentially updated) schema
-            
+
         Raises:
             ValueError: If validation fails or coercion is not possible
             SchemaCompatibilityError: If schema evolution would break compatibility
@@ -1131,49 +1209,59 @@ class Schema(dict):
         if not self.field_ids_to_fields:
             # No fields defined in schema, return original table
             return table, self
-        
+
         # Setup
         field_name_to_field = self._create_field_name_mapping()
         field_updates = {}  # field_name -> updated_field
-        new_fields = {}     # field_name -> new_field
+        new_fields = {}  # field_name -> new_field
         new_columns = []
         new_schema_fields = []
-        
+
         # Process each column in the table
         for column_name in table.column_names:
             column_data = table.column(column_name)
-            
-            processed_data, schema_field, field_update, new_field = self._process_existing_table_column(
-                column_name, 
-                column_data, 
-                field_name_to_field, 
-                schema_evolution_mode, 
+
+            (
+                processed_data,
+                schema_field,
+                field_update,
+                new_field,
+            ) = self._process_existing_table_column(
+                column_name,
+                column_data,
+                field_name_to_field,
+                schema_evolution_mode,
                 default_schema_consistency_type,
             )
-            
+
             new_columns.append(processed_data)
             new_schema_fields.append(schema_field)
-            
+
             if field_update:
                 field_updates[column_name] = field_update
             if new_field:
                 new_fields[column_name] = new_field
-        
+
         # Add any missing fields from schema
         table_column_names = set(table.column_names)
-        self._add_missing_schema_fields(table, table_column_names, new_columns, new_schema_fields)
-        
+        self._add_missing_schema_fields(
+            table, table_column_names, new_columns, new_schema_fields
+        )
+
         # Apply schema updates if any modifications were made
         updated_schema = self._apply_schema_updates(field_updates, new_fields)
-        
-        return pa.table(new_columns, schema=pa.schema(new_schema_fields)), updated_schema
+
+        return (
+            pa.table(new_columns, schema=pa.schema(new_schema_fields)),
+            updated_schema,
+        )
 
     def coerce(
-        self, 
+        self,
         dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
     ) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
         """Coerce a dataset to match this schema using field type promotion.
-        
+
         This method processes different dataset types and applies type promotion
         using the field's promote_type_if_needed method. It handles:
         - PyArrow Tables
@@ -1182,44 +1270,42 @@ class Schema(dict):
         - Polars DataFrames (if available)
         - Daft DataFrames (if available)
         - Other types with to_arrow() method
-        
+
         For each column, it:
         - Fields that exist in both dataset and schema: applies type promotion
-        - Fields in dataset but not in schema: preserves as-is  
+        - Fields in dataset but not in schema: preserves as-is
         - Fields in schema but not in dataset: adds with null values
         - Reorders columns to match schema order
-        
+
         Args:
             dataset: Dataset to coerce to this schema
-            
+
         Returns:
             Dataset of the same type, coerced to match this schema
-            
+
         Raises:
             ValueError: If coercion fails
         """
         if not self.field_ids_to_fields:
             # No fields defined in schema, return original dataset
             return dataset
-        
+
         # Convert dataset to PyArrow table for processing
         pa_table = to_pyarrow(dataset)
 
-        
         # Process columns using field coercion
         coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)
-        
+
         # Reorder columns to match schema order
         reordered_columns, reordered_fields = self._reorder_columns_to_schema(
             coerced_columns, coerced_fields, pa_table
         )
-        
+
         # Create new table with processed columns
         coerced_table = pa.table(reordered_columns, schema=pa.schema(reordered_fields))
-        
+
         # Convert back to original dataset type
         return from_pyarrow(coerced_table, get_dataset_type(dataset))
-
 
     @property
     def fields(self) -> List[Field]:
@@ -1504,33 +1590,32 @@ class Schema(dict):
             return pa.unify_schemas(all_schemas), subschema_to_field_names
         return Schema._to_pyarrow_schema(schema), {}  # SingleSchema
 
-    def _get_fields_with_merge_order(self) -> List['Field']:
+    def _get_fields_with_merge_order(self) -> List["Field"]:
         """Get all fields that have merge_order defined.
-        
+
         Returns:
             List of fields with merge_order defined, or empty list if none
         """
-        return [
-            field for field in self.fields 
-            if field.merge_order is not None
-        ]
-    
-    def _create_sort_keys_from_merge_order_fields(self, fields_with_merge_order: List["Field"]) -> List["SortKey"]:
+        return [field for field in self.fields if field.merge_order is not None]
+
+    def _create_sort_keys_from_merge_order_fields(
+        self, fields_with_merge_order: List["Field"]
+    ) -> List["SortKey"]:  # noqa
         """Create sort keys from fields with explicit merge_order.
-        
+
         Args:
             fields_with_merge_order: List of fields with merge_order defined
-            
+
         Returns:
             List of SortKey objects with inverted sort order for deduplication
         """
         from deltacat.storage.model.sort_key import SortKey
-        
+
         sort_keys = []
         for field in fields_with_merge_order:
             merge_order = field.merge_order
             desired_sort_order = merge_order[0]
-            
+
             # Invert the sort order because deduplication keeps the "last" record
             # ASCENDING merge_order (keep smallest) → DESCENDING sort (smallest appears last)
             # DESCENDING merge_order (keep largest) → ASCENDING sort (largest appears last)
@@ -1538,7 +1623,7 @@ class Schema(dict):
                 actual_sort_order = SortOrder.DESCENDING
             else:
                 actual_sort_order = SortOrder.ASCENDING
-                
+
             sort_key = SortKey.of(
                 key=[field.arrow.name],
                 sort_order=actual_sort_order,
@@ -1546,29 +1631,28 @@ class Schema(dict):
             )
             sort_keys.append(sort_key)
         return sort_keys
-    
-    def _get_event_time_fields(self) -> List['Field']:
+
+    def _get_event_time_fields(self) -> List["Field"]:
         """Get all fields marked as event_time.
-        
+
         Returns:
             List of event_time fields, or empty list if none
         """
-        return [
-            field for field in self.fields 
-            if field.is_event_time
-        ]
-    
-    def _create_sort_keys_from_event_time_fields(self, event_time_fields: List['Field']) -> List:
+        return [field for field in self.fields if field.is_event_time]
+
+    def _create_sort_keys_from_event_time_fields(
+        self, event_time_fields: List["Field"]
+    ) -> List:
         """Create sort keys from event_time fields with default DESCENDING merge_order.
-        
+
         Args:
             event_time_fields: List of event_time fields
-            
+
         Returns:
             List of SortKey objects with ASCENDING sort order (inverted from DESCENDING merge_order)
-        """ 
+        """
         from deltacat.storage.model.sort_key import SortKey
-        
+
         sort_keys = []
         for field in event_time_fields:
             sort_key = SortKey.of(
@@ -1579,30 +1663,30 @@ class Schema(dict):
             sort_keys.append(sort_key)
         return sort_keys
 
-    def _create_field_name_mapping(self) -> Dict[str, 'Field']:
+    def _create_field_name_mapping(self) -> Dict[str, "Field"]:
         """Create a mapping from field names to Field objects."""
         field_name_to_field = {}
         for field in self.field_ids_to_fields.values():
             field_name_to_field[field.arrow.name] = field
         return field_name_to_field
-    
+
     def _process_existing_table_column(
-        self, 
+        self,
         column_name: str,
         column_data: pa.Array,
-        field_name_to_field: Dict[str, 'Field'],
+        field_name_to_field: Dict[str, "Field"],
         schema_evolution_mode: Optional[str],
-        default_schema_consistency_type: Optional['SchemaConsistencyType']
-    ) -> Tuple[pa.Array, pa.Field, Optional['Field'], Optional['Field']]:
+        default_schema_consistency_type: Optional["SchemaConsistencyType"],
+    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
         """Process a column that exists in the table.
-        
+
         Returns:
             Tuple of (processed_column_data, schema_field, field_update, new_field)
         """
         if column_name in field_name_to_field:
             # Field exists in schema - validate/coerce according to consistency type
             field = field_name_to_field[column_name]
-            
+
             if field.consistency_type == SchemaConsistencyType.VALIDATE:
                 field.validate(column_data)
                 return column_data, field.arrow, None, None
@@ -1614,35 +1698,45 @@ class Schema(dict):
                 return self._handle_type_promotion(column_name, column_data, field)
         else:
             # Field not in schema - handle based on evolution mode
-            return self._handle_new_field(column_name, column_data, schema_evolution_mode, default_schema_consistency_type)
-    
+            return self._handle_new_field(
+                column_name,
+                column_data,
+                schema_evolution_mode,
+                default_schema_consistency_type,
+            )
+
     def _handle_type_promotion(
-        self, 
-        column_name: str,
-        column_data: pa.Array,
-        field: 'Field'
-    ) -> Tuple[pa.Array, pa.Field, Optional['Field'], Optional['Field']]:
+        self, column_name: str, column_data: pa.Array, field: "Field"
+    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
         """Handle type promotion for a field with NONE consistency type."""
         promoted_data, type_was_promoted = field.promote_type_if_needed(column_data)
-        
+
         if type_was_promoted:
             # Cast default values to match the promoted type
-            promoted_past_default = field._cast_default_to_promoted_type(
-                field.past_default, promoted_data.type
-            ) if field.past_default is not None else None
-            
-            promoted_future_default = field._cast_default_to_promoted_type(
-                field.future_default, promoted_data.type
-            ) if field.future_default is not None else None
-            
+            promoted_past_default = (
+                field._cast_default_to_promoted_type(
+                    field.past_default, promoted_data.type
+                )
+                if field.past_default is not None
+                else None
+            )
+
+            promoted_future_default = (
+                field._cast_default_to_promoted_type(
+                    field.future_default, promoted_data.type
+                )
+                if field.future_default is not None
+                else None
+            )
+
             # Create updated field with same properties but new type and cast defaults
             promoted_field = pa.field(
                 field.arrow.name,
                 promoted_data.type,
                 nullable=field.arrow.nullable,
-                metadata=field.arrow.metadata
+                metadata=field.arrow.metadata,
             )
-            
+
             updated_field = Field.of(
                 promoted_field,
                 field_id=field.id,
@@ -1654,20 +1748,20 @@ class Schema(dict):
                 future_default=promoted_future_default,
                 consistency_type=field.consistency_type,
                 path=field.path,
-                native_object=field.native_object
+                native_object=field.native_object,
             )
-            
+
             return promoted_data, promoted_field, updated_field, None
         else:
             return promoted_data, field.arrow, None, None
-    
+
     def _handle_new_field(
         self,
         column_name: str,
         column_data: pa.Array,
         schema_evolution_mode: Optional[str],
-        default_schema_consistency_type: Optional['SchemaConsistencyType']
-    ) -> Tuple[pa.Array, pa.Field, Optional['Field'], Optional['Field']]:
+        default_schema_consistency_type: Optional["SchemaConsistencyType"],
+    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
         """Handle a field that's not in the schema."""
         if schema_evolution_mode == "AUTO":
             # Create new field with default consistency type
@@ -1675,94 +1769,105 @@ class Schema(dict):
             new_field = Field.of(
                 pa.field(column_name, column_data.type, nullable=True),
                 field_id=next_field_id,
-                consistency_type=default_schema_consistency_type or SchemaConsistencyType.NONE
+                consistency_type=default_schema_consistency_type
+                or SchemaConsistencyType.NONE,
             )
             return column_data, new_field.arrow, None, new_field
         else:
             # MANUAL mode or not specified - raise error
             raise ValueError(f"Field '{column_name}' is not present in the schema")
-    
+
     def _add_missing_schema_fields(
         self,
         table: pa.Table,
         table_column_names: set,
         new_columns: List[pa.Array],
-        new_schema_fields: List[pa.Field]
+        new_schema_fields: List[pa.Field],
     ) -> None:
         """Add columns for fields that exist in schema but not in table."""
         for field in self.field_ids_to_fields.values():
             if field.arrow.name not in table_column_names:
                 consistency_type = field.consistency_type
-                
+
                 if consistency_type == SchemaConsistencyType.VALIDATE:
-                    raise ValueError(f"Field '{field.arrow.name}' is required but not present in the data")
+                    raise ValueError(
+                        f"Field '{field.arrow.name}' is required but not present in the data"
+                    )
                 elif consistency_type == SchemaConsistencyType.COERCE:
                     # Use future_default if available, otherwise check if nullable
                     if field.future_default is not None:
                         # Create column with future_default value
-                        default_array = pa.array([field.future_default] * get_table_length(table), type=field.arrow.type)
+                        default_array = pa.array(
+                            [field.future_default] * get_table_length(table),
+                            type=field.arrow.type,
+                        )
                         new_columns.append(default_array)
                     elif field.arrow.nullable:
                         # Backfill with nulls if field is nullable
-                        null_column = pa.nulls(get_table_length(table), type=field.arrow.type)
+                        null_column = pa.nulls(
+                            get_table_length(table), type=field.arrow.type
+                        )
                         new_columns.append(null_column)
                     else:
                         # Field is not nullable and no future_default - error
-                        raise ValueError(f"Field '{field.arrow.name}' is required (not nullable) but not present in the data and no future_default is set")
+                        raise ValueError(
+                            f"Field '{field.arrow.name}' is required (not nullable) but not present in the data and no future_default is set"
+                        )
                     new_schema_fields.append(field.arrow)
                 else:
                     # NONE or no consistency type - backfill with future_default or nulls
                     if field.future_default is not None:
-                        default_array = pa.array([field.future_default] * get_table_length(table), type=field.arrow.type)
+                        default_array = pa.array(
+                            [field.future_default] * get_table_length(table),
+                            type=field.arrow.type,
+                        )
                         new_columns.append(default_array)
                     else:
-                        null_column = pa.nulls(get_table_length(table), type=field.arrow.type)
+                        null_column = pa.nulls(
+                            get_table_length(table), type=field.arrow.type
+                        )
                         new_columns.append(null_column)
                     new_schema_fields.append(field.arrow)
-    
+
     def _apply_schema_updates(
-        self,
-        field_updates: Dict[str, 'Field'],
-        new_fields: Dict[str, 'Field']
-    ) -> 'Schema':
+        self, field_updates: Dict[str, "Field"], new_fields: Dict[str, "Field"]
+    ) -> "Schema":
         """Apply collected schema updates and return the updated schema."""
         if not field_updates and not new_fields:
             return self
-        
+
         # Initialize schema update with allow_incompatible_changes=True for type promotion
         schema_update = self.update(allow_incompatible_changes=True)
-        
+
         # Apply field updates
         for field_name, updated_field in field_updates.items():
             schema_update = schema_update.update_field(field_name, updated_field)
-        
+
         # Apply new fields
         for field_name, new_field in new_fields.items():
             schema_update = schema_update.add_field(field_name, new_field)
-        
+
         # Apply all updates
         return schema_update.apply()
 
     def _process_existing_columns_for_coercion(
-        self,
-        pa_table: pa.Table,
-        field_name_to_field: Dict[str, 'Field']
+        self, pa_table: pa.Table, field_name_to_field: Dict[str, "Field"]
     ) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Process columns that exist in the table for coercion.
-        
+
         Args:
             pa_table: PyArrow table to process
             field_name_to_field: Mapping from field names to Field objects
-            
+
         Returns:
             Tuple of (processed columns, corresponding fields)
         """
         new_columns = []
         new_schema_fields = []
-        
+
         for column_name in pa_table.column_names:
             column_data = pa_table.column(column_name)
-            
+
             if column_name in field_name_to_field:
                 # Field exists in target schema - use promote_type_if_needed for coercion
                 field = field_name_to_field[column_name]
@@ -1773,96 +1878,105 @@ class Schema(dict):
                 # Field not in target schema - preserve as-is
                 new_columns.append(column_data)
                 new_schema_fields.append(pa.field(column_name, column_data.type))
-        
+
         return new_columns, new_schema_fields
-    
+
     def _add_missing_fields_for_coercion(
         self,
         pa_table: pa.Table,
-        field_name_to_field: Dict[str, 'Field'],
+        field_name_to_field: Dict[str, "Field"],
         existing_columns: List[pa.Array],
-        existing_fields: List[pa.Field]
+        existing_fields: List[pa.Field],
     ) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Add columns for fields that exist in schema but not in table.
-        
+
         Args:
             pa_table: Original PyArrow table
             field_name_to_field: Mapping from field names to Field objects
             existing_columns: Columns already processed
             existing_fields: Fields already processed
-            
+
         Returns:
             Tuple of (all columns including added ones, all corresponding fields)
         """
         all_columns = existing_columns.copy()
         all_fields = existing_fields.copy()
-        
+
         # Add any missing fields from target schema with null values or past_default values
-        target_field_names = {field.arrow.name for field in self.field_ids_to_fields.values()}
+        target_field_names = {
+            field.arrow.name for field in self.field_ids_to_fields.values()
+        }
         table_field_names = set(pa_table.column_names)
-        
+
         for field_name in target_field_names - table_field_names:
             field = field_name_to_field[field_name]
-            
+
             # Check if field has past_default value and use it instead of nulls
             if field.past_default is not None:
                 # Create array filled with past_default value
-                default_column = pa.array([field.past_default] * get_table_length(pa_table), type=field.arrow.type)
+                default_column = pa.array(
+                    [field.past_default] * get_table_length(pa_table),
+                    type=field.arrow.type,
+                )
                 all_columns.append(default_column)
             else:
                 # Use null values as before
-                null_column = pa.nulls(get_table_length(pa_table), type=field.arrow.type)
+                null_column = pa.nulls(
+                    get_table_length(pa_table), type=field.arrow.type
+                )
                 all_columns.append(null_column)
-            
+
             all_fields.append(field.arrow)
-        
+
         return all_columns, all_fields
 
-    def _coerce_table_columns(self, pa_table: pa.Table) -> Tuple[List[pa.Array], List[pa.Field]]:
+    def _coerce_table_columns(
+        self, pa_table: pa.Table
+    ) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Process table columns using field coercion and add missing fields.
-        
+
         Args:
             pa_table: PyArrow table to process
-            
+
         Returns:
             Tuple of (list of coerced columns, list of corresponding fields)
         """
         # Create mapping from field names to Field objects
         field_name_to_field = self._create_field_name_mapping()
-        
+
         # Process existing columns in the table
-        processed_columns, processed_fields = self._process_existing_columns_for_coercion(
-            pa_table, field_name_to_field
-        )
-        
+        (
+            processed_columns,
+            processed_fields,
+        ) = self._process_existing_columns_for_coercion(pa_table, field_name_to_field)
+
         # Add any missing fields from target schema
         all_columns, all_fields = self._add_missing_fields_for_coercion(
             pa_table, field_name_to_field, processed_columns, processed_fields
         )
-        
+
         return all_columns, all_fields
 
     def _reorder_columns_to_schema(
-        self, 
-        columns: List[pa.Array], 
-        fields: List[pa.Field], 
-        original_table: pa.Table
+        self, columns: List[pa.Array], fields: List[pa.Field], original_table: pa.Table
     ) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Reorder columns to match schema order, preserving extra fields.
-        
+
         Args:
             columns: List of processed columns
             fields: List of corresponding field schemas
             original_table: Original table for field name ordering
-            
+
         Returns:
             Tuple of (reordered columns, reordered fields)
         """
         # Reorder columns to match schema order
         reordered_columns = []
         reordered_fields = []
-        schema_field_names = [field.arrow.name for field in self.field_ids_to_fields.values()]
-        
+        schema_field_names = [
+            field.arrow.name for field in self.field_ids_to_fields.values()
+        ]
+
         # Add schema fields in schema order
         for field_name in schema_field_names:
             for i, field in enumerate(fields):
@@ -1870,12 +1984,12 @@ class Schema(dict):
                     reordered_columns.append(columns[i])
                     reordered_fields.append(field)
                     break
-        
+
         # Add any extra fields that aren't in schema (preserve original order)
         target_field_names = set(schema_field_names)
         table_field_names = set(original_table.column_names)
         extra_field_names = table_field_names - target_field_names
-        
+
         for field_name in original_table.column_names:
             if field_name in extra_field_names:
                 for i, field in enumerate(fields):
@@ -1883,7 +1997,7 @@ class Schema(dict):
                         reordered_columns.append(columns[i])
                         reordered_fields.append(field)
                         break
-        
+
         return reordered_columns, reordered_fields
 
     @staticmethod
@@ -1935,17 +2049,17 @@ class SchemaList(List[Schema]):
 class SchemaUpdate(dict):
     """
     Provides safe schema evolution capabilities for DeltaCAT schemas.
-    
+
     SchemaUpdate allows users to:
     1. Add new fields to a schema
-    2. Remove existing fields from a schema  
+    2. Remove existing fields from a schema
     3. Update existing fields with compatible changes
     4. Validate schema compatibility to prevent breaking existing dataset consumers
-    
+
     The class enforces backward compatibility by default to ensure that table
-    consumer jobs writtten using PyArrow, Pandas, Polars, Ray Data, Daft, and other 
+    consumer jobs writtten using PyArrow, Pandas, Polars, Ray Data, Daft, and other
     dataset types continue to work after schema changes.
-    
+
     Example:
         Using Schema.update():
         >>> schema = Schema.of([Field.of(pa.field("id", pa.int64()))])
@@ -1960,172 +2074,483 @@ class SchemaUpdate(dict):
         >>> new_field = Field.of(pa.field("name", pa.string()))
         >>> updated_schema = update.add_field("name", new_field).apply()
     """
-    
+
     @staticmethod
     def of(
-        base_schema: Schema, 
-        allow_incompatible_changes: bool = False
-    ) -> 'SchemaUpdate':
+        base_schema: Schema, allow_incompatible_changes: bool = False
+    ) -> "SchemaUpdate":
         """
         Create a SchemaUpdate for the given base schema.
-        
+
         Args:
             base_schema: The original schema to update
             allow_incompatible_changes: If True, allows changes that may break
                 backward compatibility. If False (default), raises SchemaCompatibilityError
                 for incompatible changes.
-                
+
         Returns:
             A new SchemaUpdate instance
         """
-        return SchemaUpdate._build(
-            base_schema=base_schema,
-            allow_incompatible_changes=allow_incompatible_changes,
-            operations=SchemaUpdateOperations.of([])
+        return SchemaUpdate(
+            {
+                "baseSchema": base_schema,
+                "allowIncompatibleChanges": allow_incompatible_changes,
+                "operations": SchemaUpdateOperations.of([]),
+            }
         )
-    
-    @staticmethod
-    def _build(
-        base_schema: Schema,
-        allow_incompatible_changes: bool,
-        operations: SchemaUpdateOperations
-    ) -> 'SchemaUpdate':
-        """Internal builder method."""
-        schema_update = SchemaUpdate()
-        schema_update["baseSchema"] = base_schema
-        schema_update["allowIncompatibleChanges"] = allow_incompatible_changes
-        schema_update["operations"] = operations
-        return schema_update
-    
+
     @property
     def base_schema(self) -> Schema:
         """Get the base schema being updated."""
         return self["baseSchema"]
-    
-    @base_schema.setter  
+
+    @base_schema.setter
     def base_schema(self, value: Schema) -> None:
         """Set the base schema being updated."""
         self["baseSchema"] = value
-    
+
     @property
     def allow_incompatible_changes(self) -> bool:
         """Get whether incompatible changes are allowed."""
         return self["allowIncompatibleChanges"]
-    
+
     @allow_incompatible_changes.setter
     def allow_incompatible_changes(self, value: bool) -> None:
         """Set whether incompatible changes are allowed."""
         self["allowIncompatibleChanges"] = value
-    
+
     @property
     def operations(self) -> SchemaUpdateOperations:
         """Get the list of pending operations."""
         return self["operations"]
-    
+
     @operations.setter
     def operations(self, value: SchemaUpdateOperations) -> None:
         """Set the list of pending operations."""
         self["operations"] = value
-        
-    def add_field(self, field_locator: FieldLocator, new_field: Field) -> 'SchemaUpdate':
+
+    def add_field(
+        self,
+        field_locator: FieldLocator,
+        new_field: Field,
+    ) -> "SchemaUpdate":
         """
         Add a new field to the schema.
-        
+
         Args:
             field_locator: Location identifier for the new field (name, nested path, or ID)
             new_field: The Field object to add
-            
+
         Returns:
             Self for method chaining
-            
+
         Raises:
             SchemaCompatibilityError: If field already exists or addition would break compatibility
         """
-        self.operations.append(SchemaUpdateOperation.add_field(field_locator, new_field))
+        self.operations.append(
+            SchemaUpdateOperation.add_field(field_locator, new_field)
+        )
         return self
-        
-    def remove_field(self, field_locator: FieldLocator) -> 'SchemaUpdate':
+
+    def remove_field(self, field_locator: FieldLocator) -> "SchemaUpdate":
         """
         Remove an existing field from the schema.
-        
+
         Args:
             field_locator: Location identifier for the field to remove
-            
+
         Returns:
             Self for method chaining
-            
+
         Raises:
             SchemaCompatibilityError: If field doesn't exist or removal would break compatibility
         """
         self.operations.append(SchemaUpdateOperation.remove_field(field_locator))
         return self
-        
-    def update_field(self, field_locator: FieldLocator, updated_field: Field) -> 'SchemaUpdate':
+
+    def rename_field(
+        self,
+        field_locator: FieldLocator,
+        new_name: str,
+    ) -> "SchemaUpdate":
+        """
+        Rename an existing field while keeping all other properties the same.
+
+        Args:
+            field_locator: Location identifier for the field to rename
+            new_name: The new name for the field
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist or rename would break compatibility
+        """
+        # Get the existing field
+        existing_field = self._get_existing_field(field_locator)
+
+        # Create a deep copy of the field
+        updated_field = copy.deepcopy(existing_field)
+
+        # Update only the arrow field name
+        updated_field["arrow"] = pa.field(
+            new_name,
+            existing_field.arrow.type,
+            nullable=existing_field.arrow.nullable,
+            metadata=existing_field.arrow.metadata,
+        )
+
+        return self._update_field(field_locator, updated_field)
+
+    def update_field_type(
+        self, field_locator: FieldLocator, new_type: "pa.DataType"
+    ) -> "SchemaUpdate":
+        """
+        Update the PyArrow data type of an existing field while keeping all other properties the same.
+
+        Args:
+            field_locator: Location identifier for the field to update
+            new_type: The new PyArrow data type for the field
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist or type change would break compatibility
+        """
+        # Get the existing field
+        existing_field = self._get_existing_field(field_locator)
+
+        # Create a deep copy of the field
+        updated_field = copy.deepcopy(existing_field)
+
+        # Update only the arrow field type
+        updated_field["arrow"] = pa.field(
+            existing_field.arrow.name,
+            new_type,
+            nullable=existing_field.arrow.nullable,
+            metadata=existing_field.arrow.metadata,
+        )
+
+        return self._update_field(field_locator, updated_field)
+
+    def update_field_doc(
+        self,
+        field_locator: FieldLocator,
+        new_doc: Optional[str],
+    ) -> "SchemaUpdate":
+        """
+        Update the documentation of an existing field while keeping all other properties the same.
+
+        Args:
+            field_locator: Location identifier for the field to update
+            new_doc: The new documentation string for the field
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist
+        """
+        # Get the existing field
+        existing_field = self._get_existing_field(field_locator)
+
+        # Create a deep copy of the field
+        updated_field = copy.deepcopy(existing_field)
+
+        # Update the arrow field metadata to set/remove doc
+        new_metadata = copy.deepcopy(existing_field.arrow.metadata)
+        new_metadata.pop(FIELD_DOC_KEY_NAME, None)
+        if new_doc is not None:
+            new_metadata[FIELD_DOC_KEY_NAME] = new_doc
+
+        updated_field["arrow"] = pa.field(
+            existing_field.arrow.name,
+            existing_field.arrow.type,
+            nullable=existing_field.arrow.nullable,
+            metadata=new_metadata if new_metadata else None,
+        )
+
+        return self._update_field(field_locator, updated_field)
+
+    def update_field_nullability(
+        self, field_locator: FieldLocator, nullable: bool
+    ) -> "SchemaUpdate":
+        """
+        Update the nullability of an existing field while keeping all other properties the same.
+
+        Args:
+            field_locator: Location identifier for the field to update
+            nullable: Whether the field should allow null values
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist or nullability change would break compatibility
+        """
+        # Get the existing field
+        existing_field = self._get_existing_field(field_locator)
+
+        # Create a deep copy of the field
+        updated_field = copy.deepcopy(existing_field)
+
+        # Update only the arrow field nullability
+        updated_field["arrow"] = pa.field(
+            existing_field.arrow.name,
+            existing_field.arrow.type,
+            nullable=nullable,
+            metadata=existing_field.arrow.metadata,
+        )
+
+        return self._update_field(field_locator, updated_field)
+
+    def update_field_consistency_type(
+        self,
+        field_locator: FieldLocator,
+        consistency_type: Optional["SchemaConsistencyType"],
+    ) -> "SchemaUpdate":
+        """
+        Update the schema consistency type of an existing field while keeping all other properties the same.
+
+        Args:
+            field_locator: Location identifier for the field to update
+            consistency_type: The new schema consistency type for the field
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist
+        """
+        # Get the existing field
+        existing_field = self._get_existing_field(field_locator)
+
+        # Create a deep copy of the field
+        updated_field = copy.deepcopy(existing_field)
+
+        # Update the arrow field metadata to set/remove consistency type
+        new_metadata = copy.deepcopy(existing_field.arrow.metadata)
+        new_metadata.pop(FIELD_CONSISTENCY_TYPE_KEY_NAME, None)
+
+        if consistency_type is not None:
+            new_metadata[FIELD_CONSISTENCY_TYPE_KEY_NAME] = consistency_type.value
+
+        updated_field["arrow"] = pa.field(
+            existing_field.arrow.name,
+            existing_field.arrow.type,
+            nullable=existing_field.arrow.nullable,
+            metadata=new_metadata if new_metadata else None,
+        )
+
+        return self._update_field(field_locator, updated_field)
+
+    def update_field_future_default(
+        self, field_locator: FieldLocator, future_default: Optional[Any]
+    ) -> "SchemaUpdate":
+        """
+        Update the future default value of an existing field while keeping all other properties the same.
+        The future default is validated to ensure it's compatible with the field's data type.
+
+        Args:
+            field_locator: Location identifier for the field to update
+            future_default: The new future default value for the field
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist
+            ValueError: If future_default is not compatible with the field's data type
+        """
+        # Get the existing field
+        existing_field = self._get_existing_field(field_locator)
+
+        # Validate that the future_default is compatible with the field's type
+        if future_default is not None:
+            self._validate_default_value(existing_field.arrow.type, future_default)
+
+        # Create a deep copy of the field
+        updated_field = copy.deepcopy(existing_field)
+
+        # Update the arrow field metadata to set/remove future default
+        new_metadata = copy.deepcopy(existing_field.arrow.metadata)
+        new_metadata.pop(FIELD_FUTURE_DEFAULT_KEY_NAME, None)
+
+        if future_default is not None:
+            new_metadata[FIELD_FUTURE_DEFAULT_KEY_NAME] = msgpack.dumps(future_default)
+
+        updated_field["arrow"] = pa.field(
+            existing_field.arrow.name,
+            existing_field.arrow.type,
+            nullable=existing_field.arrow.nullable,
+            metadata=new_metadata if new_metadata else None,
+        )
+
+        return self._update_field(field_locator, updated_field)
+
+    def update_field(
+        self, field_locator: FieldLocator, updated_field: Field
+    ) -> "SchemaUpdate":
         """
         Update an existing field with compatible changes.
-        
+
         Args:
             field_locator: Location identifier for the field to update
             updated_field: The new Field object to replace the existing field
-            
+
         Returns:
             Self for method chaining
-            
+
         Raises:
             SchemaCompatibilityError: If field doesn't exist or update would break compatibility
         """
-        self.operations.append(SchemaUpdateOperation.update_field(field_locator, updated_field))
+        return self._update_field(field_locator, updated_field)
+
+    def _update_field(
+        self, field_locator: FieldLocator, updated_field: Field
+    ) -> "SchemaUpdate":
+        """
+        Update an existing field with compatible changes. This is the protected method
+        that handles the general case of field updates.
+
+        Args:
+            field_locator: Location identifier for the field to update
+            updated_field: The new Field object to replace the existing field
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist or update would break compatibility
+        """
+        self.operations.append(
+            SchemaUpdateOperation.update_field(field_locator, updated_field)
+        )
         return self
-        
+
+    def _get_existing_field(self, field_locator: FieldLocator) -> Field:
+        """
+        Helper method to retrieve an existing field, accounting for pending operations.
+
+        Args:
+            field_locator: Location identifier for the field to retrieve
+
+        Returns:
+            The existing Field object (with any pending updates applied)
+
+        Raises:
+            SchemaCompatibilityError: If field doesn't exist
+        """
+        field_name = self._get_field_name(field_locator)
+
+        # Search for the field in the base schema
+        base_field = None
+        for field in self.base_schema.fields:
+            field_field_name = field.path[0] if field.path else f"field_{field.id}"
+            if field_field_name == field_name:
+                base_field = field
+                break
+
+        if base_field is None:
+            # Field not found
+            raise SchemaCompatibilityError(
+                f"Field '{field_name}' does not exist in schema", field_locator
+            )
+
+        # Apply any pending operations that affect this field to get the current state
+        current_field = copy.deepcopy(base_field)
+
+        for operation in self.operations:
+            if operation.field_locator_matches(field_locator):
+                # Apply this operation to get the cumulative state
+                current_field = operation.field
+
+        return current_field
+
+    def _validate_default_value(
+        self, arrow_type: "pa.DataType", default_value: Any
+    ) -> None:
+        """
+        Helper method to validate that a default value is compatible with a PyArrow data type.
+
+        Args:
+            arrow_type: The PyArrow data type to validate against
+            default_value: The default value to validate
+
+        Raises:
+            ValueError: If the default value is not compatible with the data type
+        """
+        try:
+            # Try to create a PyArrow array with the default value to validate compatibility
+            pa.array([default_value], type=arrow_type)
+        except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError, ValueError) as e:
+            raise ValueError(
+                f"Default value {default_value} is not compatible with type {arrow_type}: {e}"
+            )
+
     def apply(self) -> Schema:
         """
         Apply all pending operations and return the updated schema.
-        
+
         Returns:
             New Schema object with all updates applied
-            
+
         Raises:
             SchemaCompatibilityError: If any operation would break backward compatibility
                 and allow_incompatible_changes is False
         """
         # Start with a copy of the base schema
         updated_fields = list(self.base_schema.fields)
-        field_name_to_index = {field.path[0] if field.path else f"field_{field.id}": i 
-                              for i, field in enumerate(updated_fields)}
-        
+        field_name_to_index = {
+            field.path[0] if field.path else f"field_{field.id}": i
+            for i, field in enumerate(updated_fields)
+        }
+
         # Apply operations in order
         for operation in self.operations:
             if operation.operation == "add":
-                self._apply_add_field(updated_fields, field_name_to_index, operation.field_locator, operation.field)
+                self._apply_add_field(
+                    updated_fields,
+                    field_name_to_index,
+                    operation.field_locator,
+                    operation.field,
+                )
             elif operation.operation == "remove":
-                self._apply_remove_field(updated_fields, field_name_to_index, operation.field_locator)
+                self._apply_remove_field(
+                    updated_fields, field_name_to_index, operation.field_locator
+                )
             elif operation.operation == "update":
-                self._apply_update_field(updated_fields, field_name_to_index, operation.field_locator, operation.field)
-        
+                self._apply_update_field(
+                    updated_fields,
+                    field_name_to_index,
+                    operation.field_locator,
+                    operation.field,
+                )
+
         # Create new schema from updated fields with incremented schema ID
         return Schema.of(updated_fields, schema_id=self.base_schema.id + 1)
-    
+
     def _apply_add_field(
-        self, 
-        fields: List[Field], 
+        self,
+        fields: List[Field],
         field_name_to_index: Dict[str, int],
-        field_locator: FieldLocator, 
-        new_field: Field
+        field_locator: FieldLocator,
+        new_field: Field,
     ) -> None:
         """Apply add field operation with compatibility validation."""
         field_name = self._get_field_name(field_locator)
-        
+
         # Check if field already exists
         if field_name in field_name_to_index:
             raise SchemaCompatibilityError(
-                f"Field '{field_name}' already exists in schema",
-                field_locator
+                f"Field '{field_name}' already exists in schema", field_locator
             )
-            
+
         # Validate compatibility for new field
         if not self.allow_incompatible_changes:
             self._validate_add_field_compatibility(new_field, field_locator)
-            
+
         # Create a copy of the field with the correct path
         field_with_path = Field.of(
             new_field.arrow,
@@ -2138,69 +2563,74 @@ class SchemaUpdate(dict):
             future_default=new_field.future_default,
             consistency_type=new_field.consistency_type,
             path=[field_name],
-            native_object=new_field.native_object
+            native_object=new_field.native_object,
         )
-        
+
         # Add the field
         fields.append(field_with_path)
         field_name_to_index[field_name] = len(fields) - 1
-    
+
     def _apply_remove_field(
         self,
         fields: List[Field],
         field_name_to_index: Dict[str, int],
-        field_locator: FieldLocator
+        field_locator: FieldLocator,
     ) -> None:
         """Apply remove field operation with compatibility validation."""
         field_name = self._get_field_name(field_locator)
-        
+
         # Check if field exists
         if field_name not in field_name_to_index:
             raise SchemaCompatibilityError(
-                f"Field '{field_name}' does not exist in schema",
-                field_locator
+                f"Field '{field_name}' does not exist in schema", field_locator
             )
-            
+
         # Validate compatibility for field removal
         if not self.allow_incompatible_changes:
             field_index = field_name_to_index[field_name]
-            self._validate_remove_field_compatibility(fields[field_index], field_locator)
-            
+            self._validate_remove_field_compatibility(
+                fields[field_index], field_locator
+            )
+
         # Remove the field
         field_index = field_name_to_index[field_name]
         fields.pop(field_index)
-        
+
         # Update indices
         del field_name_to_index[field_name]
         for name, index in field_name_to_index.items():
             if index > field_index:
                 field_name_to_index[name] = index - 1
-    
+
     def _apply_update_field(
         self,
         fields: List[Field],
         field_name_to_index: Dict[str, int],
         field_locator: FieldLocator,
-        updated_field: Field
+        updated_field: Field,
     ) -> None:
         """Apply update field operation with compatibility validation."""
         field_name = self._get_field_name(field_locator)
-        
+
         # Check if field exists
         if field_name not in field_name_to_index:
             raise SchemaCompatibilityError(
-                f"Field '{field_name}' does not exist in schema",
-                field_locator
+                f"Field '{field_name}' does not exist in schema", field_locator
             )
-            
+
         field_index = field_name_to_index[field_name]
         old_field = fields[field_index]
-        
+
         # Validate compatibility for field update
         if not self.allow_incompatible_changes:
-            self._validate_update_field_compatibility(old_field, updated_field, field_locator)
-            
-        # Create a copy of the updated field with the correct path  
+            self._validate_update_field_compatibility(
+                old_field, updated_field, field_locator
+            )
+
+        # Get the new field name from the updated field
+        new_field_name = updated_field.arrow.name
+
+        # Create a copy of the updated field with the correct path
         field_with_path = Field.of(
             updated_field.arrow,
             field_id=updated_field.id,
@@ -2211,13 +2641,18 @@ class SchemaUpdate(dict):
             past_default=updated_field.past_default,
             future_default=updated_field.future_default,
             consistency_type=updated_field.consistency_type,
-            path=[field_name],
-            native_object=updated_field.native_object
+            path=[new_field_name],
+            native_object=updated_field.native_object,
         )
-        
+
         # Update the field
         fields[field_index] = field_with_path
-    
+
+        # If field name changed (rename), update the mapping
+        if field_name != new_field_name:
+            del field_name_to_index[field_name]
+            field_name_to_index[new_field_name] = field_index
+
     def _get_field_name(self, field_locator: FieldLocator) -> str:
         """Extract field name from various field locator types."""
         if isinstance(field_locator, str):
@@ -2229,211 +2664,258 @@ class SchemaUpdate(dict):
             try:
                 field = self.base_schema.field(field_locator)
                 return field.path[0] if field.path else f"field_{field_locator}"
-            except:
+            except Exception:
                 return f"field_{field_locator}"
         else:
             raise ValueError(f"Invalid field locator type: {type(field_locator)}")
-    
-    def _validate_add_field_compatibility(self, new_field: Field, field_locator: FieldLocator) -> None:
+
+    @staticmethod
+    def _field_locators_match(locator1: FieldLocator, locator2: FieldLocator) -> bool:
+        """Check if two field locators refer to the same field."""
+        # For simplicity, convert both to string names and compare
+        # This works because we primarily use field names in our operations
+        if isinstance(locator1, str) and isinstance(locator2, str):
+            return locator1 == locator2
+        elif isinstance(locator1, list) and isinstance(locator2, list):
+            return locator1 == locator2
+        elif isinstance(locator1, int) and isinstance(locator2, int):
+            return locator1 == locator2
+        else:
+            # Convert to strings and compare (this is a simplified approach)
+            str1 = (
+                locator1
+                if isinstance(locator1, str)
+                else (
+                    locator1[0]
+                    if isinstance(locator1, list) and locator1
+                    else str(locator1)
+                )
+            )
+            str2 = (
+                locator2
+                if isinstance(locator2, str)
+                else (
+                    locator2[0]
+                    if isinstance(locator2, list) and locator2
+                    else str(locator2)
+                )
+            )
+            return str1 == str2
+
+    def _validate_add_field_compatibility(
+        self, new_field: Field, field_locator: FieldLocator
+    ) -> None:
         """Validate that adding a new field won't break compatibility."""
         field_name = self._get_field_name(field_locator)
         arrow_field = new_field.arrow
-        
+
         # Check for duplicate field IDs across all existing fields
         if new_field.id is not None:
-            existing_field_ids = {f.id for f in self.base_schema.fields if f.id is not None}
+            existing_field_ids = {
+                f.id for f in self.base_schema.fields if f.id is not None
+            }
             if new_field.id in existing_field_ids:
                 raise SchemaCompatibilityError(
                     f"Cannot add field '{field_name}' with duplicate field ID {new_field.id}. "
                     f"Field IDs must be unique across all fields in the schema.",
-                    field_locator
+                    field_locator,
                 )
-        
+
         # Check if field is nullable or has default values
         is_nullable = arrow_field.nullable
         has_past_default = new_field.past_default is not None
         has_future_default = new_field.future_default is not None
-        
+
         if not (is_nullable or has_past_default or has_future_default):
             raise SchemaCompatibilityError(
                 f"Adding non-nullable field '{field_name}' without "
                 f"default values would break compatibility with existing data",
-                field_locator
+                field_locator,
             )
-    
-    def _validate_remove_field_compatibility(self, field: Field, field_locator: FieldLocator) -> None:
+
+    def _validate_remove_field_compatibility(
+        self, field: Field, field_locator: FieldLocator
+    ) -> None:
         """Validate that removing a field won't break compatibility."""
         field_name = self._get_field_name(field_locator)
-        
+
         # Check for protected field types that should never be removed
         if field.is_merge_key:
             raise SchemaCompatibilityError(
                 f"Cannot remove merge key field '{field_name}'. "
                 f"Merge keys are critical for data integrity and cannot be removed.",
-                field_locator
+                field_locator,
             )
-            
+
         if field.merge_order is not None:
             raise SchemaCompatibilityError(
                 f"Cannot remove merge order field '{field_name}'. "
                 f"Fields with merge_order are critical for data ordering and cannot be removed.",
-                field_locator
+                field_locator,
             )
-            
+
         if field.is_event_time:
             raise SchemaCompatibilityError(
                 f"Cannot remove event time field '{field_name}'. "
                 f"Event time fields are critical for temporal operations and cannot be removed.",
-                field_locator
+                field_locator,
             )
-        
+
         # Removing fields generally breaks compatibility for consumers expecting them
         raise SchemaCompatibilityError(
             f"Removing field '{field_name}' would break compatibility with existing consumers. "
             f"Set allow_incompatible_changes=True to force removal.",
-            field_locator
+            field_locator,
         )
-    
+
     def _validate_update_field_compatibility(
-        self, 
-        old_field: Field, 
-        new_field: Field, 
-        field_locator: FieldLocator
+        self, old_field: Field, new_field: Field, field_locator: FieldLocator
     ) -> None:
         """Validate that updating a field won't break compatibility."""
         old_arrow = old_field.arrow
         new_arrow = new_field.arrow
         field_name = self._get_field_name(field_locator)
-        
+
         # Protect critical field attributes that should never be changed
         if old_field.is_merge_key != new_field.is_merge_key:
             raise SchemaCompatibilityError(
                 f"Cannot change merge key status for field '{field_name}'. "
                 f"Merge key designation is critical for data integrity and cannot be modified.",
-                field_locator
+                field_locator,
             )
-            
+
         if old_field.merge_order != new_field.merge_order:
             raise SchemaCompatibilityError(
                 f"Cannot change merge order for field '{field_name}'. "
                 f"Merge order is critical for data consistency and cannot be modified.",
-                field_locator
+                field_locator,
             )
-            
+
         if old_field.is_event_time != new_field.is_event_time:
             raise SchemaCompatibilityError(
                 f"Cannot change event time status for field '{field_name}'. "
                 f"Event time designation is critical for temporal operations and cannot be modified.",
-                field_locator
+                field_locator,
             )
-        
+
         # Validate schema consistency type evolution rules
         self._validate_consistency_type_evolution(old_field, new_field, field_locator)
-        
+
         # Protect past_default immutability
         if old_field.past_default != new_field.past_default:
             raise SchemaCompatibilityError(
                 f"Cannot change past_default for field '{field_name}'. "
                 f"The past_default value is immutable once set to maintain data consistency.",
-                field_locator
+                field_locator,
             )
-        
+
         # Check for duplicate field IDs (if field ID is being changed)
         if old_field.id != new_field.id and new_field.id is not None:
-            existing_field_ids = {f.id for f in self.base_schema.fields if f.id is not None and f != old_field}
+            existing_field_ids = {
+                f.id
+                for f in self.base_schema.fields
+                if f.id is not None and f != old_field
+            }
             if new_field.id in existing_field_ids:
                 raise SchemaCompatibilityError(
                     f"Cannot update field '{field_name}' to use duplicate field ID {new_field.id}. "
                     f"Field IDs must be unique across all fields in the schema.",
-                    field_locator
+                    field_locator,
                 )
-        
+
         # Check data type compatibility
         if not self._is_type_compatible(old_arrow.type, new_arrow.type):
             raise SchemaCompatibilityError(
                 f"Cannot change field '{field_name}' from {old_arrow.type} to {new_arrow.type}. "
                 f"This change would break compatibility with PyArrow, Pandas, Polars, Ray Data, and Daft.",
-                field_locator
+                field_locator,
             )
-        
+
         # Check nullability - making a field non-nullable is incompatible
         if old_arrow.nullable and not new_arrow.nullable:
             # Only allow if we have past/future defaults to fill null values
             has_past_default = new_field.past_default is not None
             has_future_default = new_field.future_default is not None
-            
+
             if not (has_past_default and has_future_default):
                 raise SchemaCompatibilityError(
                     f"Cannot make nullable field '{field_name}' non-nullable without "
                     f"providing both past_default and future_default values",
-                    field_locator
+                    field_locator,
                 )
-    
+
     def _validate_consistency_type_evolution(
-        self, 
-        old_field: Field, 
-        new_field: Field, 
-        field_locator: FieldLocator
+        self, old_field: Field, new_field: Field, field_locator: FieldLocator
     ) -> None:
         """
         Validate schema consistency type evolution rules.
-        
+
         Allowed transitions:
-        - COERCE -> VALIDATE  
+        - COERCE -> VALIDATE
         - VALIDATE -> COERCE
         - COERCE -> NONE
         - VALIDATE -> NONE
-        
+
         Forbidden transitions:
         - NONE -> COERCE
         - NONE -> VALIDATE
-        """ 
+        """
         old_type = old_field.consistency_type
         new_type = new_field.consistency_type
         field_name = self._get_field_name(field_locator)
-        
+
         # If types are the same, no validation needed
         if old_type == new_type:
             return
-            
+
         # Handle None values (treat as no consistency type set)
         if old_type is None and new_type is None:
             return
-            
+
         # Allow transitions from any type to NONE (relaxing constraints)
         if new_type == SchemaConsistencyType.NONE or new_type is None:
             return
-            
+
         # Allow transitions between COERCE and VALIDATE (bidirectional)
-        if (old_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE) and 
-            new_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE)):
+        if old_type in (
+            SchemaConsistencyType.COERCE,
+            SchemaConsistencyType.VALIDATE,
+        ) and new_type in (
+            SchemaConsistencyType.COERCE,
+            SchemaConsistencyType.VALIDATE,
+        ):
             return
-            
+
         # Allow transitions from None to COERCE or VALIDATE (adding constraints)
-        if old_type is None and new_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE):
+        if old_type is None and new_type in (
+            SchemaConsistencyType.COERCE,
+            SchemaConsistencyType.VALIDATE,
+        ):
             return
-            
+
         # Forbid transitions from NONE to COERCE or VALIDATE (tightening constraints)
-        if (old_type == SchemaConsistencyType.NONE and 
-            new_type in (SchemaConsistencyType.COERCE, SchemaConsistencyType.VALIDATE)):
+        if old_type == SchemaConsistencyType.NONE and new_type in (
+            SchemaConsistencyType.COERCE,
+            SchemaConsistencyType.VALIDATE,
+        ):
             raise SchemaCompatibilityError(
                 f"Cannot change consistency type for field '{field_name}' from {old_type.value} to {new_type.value}. "
                 f"Transitioning from NONE to {new_type.value} would tighten validation constraints "
                 f"and potentially break existing data processing.",
-                field_locator
+                field_locator,
             )
-            
+
         # If we get here, it's an unexpected combination
         raise SchemaCompatibilityError(
             f"Invalid consistency type transition for field '{field_name}' from "
             f"{old_type.value if old_type else 'None'} to {new_type.value if new_type else 'None'}.",
-            field_locator
+            field_locator,
         )
-    
+
     def _is_type_compatible(self, old_type: pa.DataType, new_type: pa.DataType) -> bool:
         """
         Check if changing from old_type to new_type is backward compatible.
-        
+
         Compatible changes include:
         - Same type
         - Widening numeric types (int32 -> int64, float32 -> float64)
@@ -2444,53 +2926,53 @@ class SchemaUpdate(dict):
         # Same type is always compatible
         if old_type.equals(new_type):
             return True
-            
+
         # Numeric type widening
         if pa.types.is_integer(old_type) and pa.types.is_integer(new_type):
             # Check bit width and signedness using string representation
-            old_signed = 'int' in str(old_type) and 'uint' not in str(old_type)
-            new_signed = 'int' in str(new_type) and 'uint' not in str(new_type)
+            old_signed = "int" in str(old_type) and "uint" not in str(old_type)
+            new_signed = "int" in str(new_type) and "uint" not in str(new_type)
             return new_type.bit_width >= old_type.bit_width and old_signed == new_signed
-            
+
         if pa.types.is_floating(old_type) and pa.types.is_floating(new_type):
             return new_type.bit_width >= old_type.bit_width
-            
+
         # Integer to float promotion
         if pa.types.is_integer(old_type) and pa.types.is_floating(new_type):
             return True
-            
+
         # String/binary type compatibility
         if pa.types.is_string(old_type) and pa.types.is_string(new_type):
             return True
         if pa.types.is_binary(old_type) and pa.types.is_binary(new_type):
             return True
-            
+
         # Struct type compatibility (new fields can be added)
         if pa.types.is_struct(old_type) and pa.types.is_struct(new_type):
             old_names = {field.name for field in old_type}
             new_names = {field.name for field in new_type}
-            
+
             # All old fields must exist in new type
             if not old_names.issubset(new_names):
                 return False
-                
+
             # Check compatibility of common fields
             for old_field in old_type:
                 new_field = new_type.field(old_field.name)
                 if not self._is_type_compatible(old_field.type, new_field.type):
                     return False
-                    
+
             return True
-            
+
         # List type compatibility
         if pa.types.is_list(old_type) and pa.types.is_list(new_type):
             return self._is_type_compatible(old_type.value_type, new_type.value_type)
-            
-        # Map type compatibility  
+
+        # Map type compatibility
         if pa.types.is_map(old_type) and pa.types.is_map(new_type):
-            return (self._is_type_compatible(old_type.key_type, new_type.key_type) and
-                    self._is_type_compatible(old_type.item_type, new_type.item_type))
-        
+            return self._is_type_compatible(
+                old_type.key_type, new_type.key_type
+            ) and self._is_type_compatible(old_type.item_type, new_type.item_type)
+
         # Default: types are incompatible
         return False
-

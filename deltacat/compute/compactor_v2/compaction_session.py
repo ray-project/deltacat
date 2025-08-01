@@ -99,7 +99,9 @@ def _execute_compaction(
         previous_compacted_delta_manifest,
         round_completion_info,
     ) = fetch_compaction_metadata_result
-    rci_source_partition_locator: PartitionLocator = _get_rci_source_partition_locator(params)
+    rci_source_partition_locator: PartitionLocator = _get_rci_source_partition_locator(
+        params
+    )
 
     base_audit_url: str = rci_source_partition_locator.path(
         f"{params.compaction_artifact_path}/compaction-audit"
