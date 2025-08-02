@@ -1690,7 +1690,11 @@ def create_table(
         )
         if existing_table is not None:
             if fail_if_exists:
-                table_identifier = f"{namespace}.{table}" if not table_version else f"{namespace}.{table}.{table_version}"
+                table_identifier = (
+                    f"{namespace}.{table}"
+                    if not table_version
+                    else f"{namespace}.{table}.{table_version}"
+                )
                 raise TableAlreadyExistsError(
                     f"Table {table_identifier} already exists"
                 )
@@ -2059,7 +2063,6 @@ def table_exists(
             **kwargs,
         )
         if table_obj is None:
-            print("Table does not exist")
             return False
         table_version = table_version or table_obj.latest_active_table_version
         table_version_exists = _get_storage(**kwargs).table_version_exists(
@@ -2070,7 +2073,6 @@ def table_exists(
             **kwargs,
         )
         if not table_version_exists:
-            print("Table version does not exist")
             return False
         stream_exists = _get_storage(**kwargs).stream_exists(
             namespace=namespace,
@@ -2080,7 +2082,6 @@ def table_exists(
             *args,
             **kwargs,
         )
-        print(f"Stream exists: {stream_exists}")
         return stream_exists
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted

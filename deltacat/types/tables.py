@@ -5,7 +5,17 @@ import logging
 import multiprocessing
 from enum import Enum
 from functools import partial
-from typing import Callable, Dict, Type, Union, Optional, Any, List, Tuple, TYPE_CHECKING
+from typing import (
+    Callable,
+    Dict,
+    Type,
+    Union,
+    Optional,
+    Any,
+    List,
+    Tuple,
+    TYPE_CHECKING,
+)
 from uuid import uuid4
 
 import daft
@@ -277,6 +287,7 @@ def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
         )
 
     from deltacat.storage.model.schema import Schema
+
     return Schema.of(schema=arrow_schema)
 
 
@@ -305,12 +316,14 @@ def _infer_schema_from_ray_dataset(data: RayDataset) -> Schema:
         )
 
     from deltacat.storage.model.schema import Schema
+
     return Schema.of(schema=arrow_schema)
 
 
 def _infer_schema_from_pandas_dataframe(data: pd.DataFrame) -> Schema:
     """Infer schema from Pandas DataFrame."""
     from deltacat.storage.model.schema import Schema
+
     arrow_schema = pa.Schema.from_pandas(data)
     return Schema.of(schema=arrow_schema)
 
@@ -318,25 +331,32 @@ def _infer_schema_from_pandas_dataframe(data: pd.DataFrame) -> Schema:
 def _infer_schema_from_polars_dataframe(data: pl.DataFrame) -> Schema:
     """Infer schema from Polars DataFrame."""
     from deltacat.storage.model.schema import Schema
+
     arrow_table = data.to_arrow()
     return Schema.of(schema=arrow_table.schema)
 
 
-def _infer_schema_from_pyarrow(data: Union[pa.Table, pa.RecordBatch, ds.Dataset]) -> Schema:
+def _infer_schema_from_pyarrow(
+    data: Union[pa.Table, pa.RecordBatch, ds.Dataset]
+) -> Schema:
     """Infer schema from PyArrow Table, RecordBatch, or Dataset."""
     from deltacat.storage.model.schema import Schema
+
     return Schema.of(schema=data.schema)
 
 
 def _infer_schema_from_daft_dataframe(data: daft.DataFrame) -> Schema:
     """Infer schema from Daft DataFrame."""
     from deltacat.storage.model.schema import Schema
+
     daft_schema = data.schema()
     arrow_schema = daft_schema.to_pyarrow_schema()
     return Schema.of(schema=arrow_schema)
 
 
-TABLE_CLASS_TO_SCHEMA_INFERENCE_FUNC: Dict[Type[Union[LocalTable, DistributedDataset], Callable]] = {
+TABLE_CLASS_TO_SCHEMA_INFERENCE_FUNC: Dict[
+    Type[Union[LocalTable, DistributedDataset], Callable]
+] = {
     pd.DataFrame: _infer_schema_from_pandas_dataframe,
     pl.DataFrame: _infer_schema_from_polars_dataframe,
     pa.Table: _infer_schema_from_pyarrow,

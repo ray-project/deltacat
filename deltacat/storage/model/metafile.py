@@ -1057,12 +1057,10 @@ class Metafile(dict):
             if not mri.exists():
                 return None
             if mri.txn_op_type == TransactionOperationType.DELETE:
-                err_msg = (
-                    f"Locator {locator} to metafile ID resolution failed "
-                    f"because its metafile ID mapping was deleted. You may "
-                    f"have an old reference to a renamed or deleted object."
-                )
-                raise ValueError(err_msg)
+                # Return None for DELETE revisions to allow graceful handling
+                # of renamed objects. The from_serializable mechanism can then
+                # restore the correct locator from parent metadata.
+                return None
             metafile_id = posixpath.splitext(mri.path)[1][1:]
         return metafile_id
 

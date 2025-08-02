@@ -1550,7 +1550,9 @@ class TestWriteToTable:
         # Use a plain dict which doesn't have schema inference
         unsupported_data = {"key": "value"}
 
-        with pytest.raises(ValueError, match="No schema inference function found for table type"):
+        with pytest.raises(
+            ValueError, match="No schema inference function found for table type"
+        ):
             catalog.write_to_table(
                 data=unsupported_data,
                 table=table_name,
