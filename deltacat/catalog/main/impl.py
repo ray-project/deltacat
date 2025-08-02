@@ -453,15 +453,15 @@ def write_to_table(
             table,
             **kwargs,
         )
-
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during write_to_table: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             write_transaction.seal()
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during write_to_table: {e}")
-        raise
 
 
 def _handle_write_mode(
@@ -1485,16 +1485,16 @@ def read_table(
             table_version_obj.schema,
             **kwargs,
         )
+        return result
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during read_table: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             read_transaction.seal()
-
-        return result
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during read_table: {e}")
-        raise
 
 
 def alter_table(
@@ -1618,14 +1618,15 @@ def alter_table(
             **kwargs,
         )
 
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during alter_table: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             alter_transaction.seal()
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during alter_table: {e}")
-        raise
 
 
 def create_table(
@@ -1725,16 +1726,17 @@ def create_table(
             stream=stream,
         )
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            create_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during create_table: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            create_transaction.seal()
 
 
 def drop_table(
@@ -1793,14 +1795,15 @@ def drop_table(
                 **kwargs,
             )
 
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during drop_table: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             drop_transaction.seal()
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during drop_table: {e}")
-        raise
 
 
 def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) -> None:
@@ -1848,16 +1851,17 @@ def list_tables(
 
         result = ListResult(items=table_definitions)
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            list_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during list_tables: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            list_transaction.seal()
 
 
 def get_table(
@@ -1939,16 +1943,17 @@ def get_table(
             stream=stream,
         )
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            get_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during get_table: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            get_transaction.seal()
 
 
 def truncate_table(
@@ -2001,21 +2006,22 @@ def rename_table(
 
     try:
         _get_storage(**kwargs).update_table(
-            *args,
             table_name=table,
             new_table_name=new_name,
             namespace=namespace,
+            *args,
             **kwargs,
         )
 
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during rename_table: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             rename_transaction.seal()
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during rename_table: {e}")
-        raise
 
 
 def table_exists(
@@ -2023,6 +2029,7 @@ def table_exists(
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
+    stream_format: StreamFormat = StreamFormat.DELTACAT,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> bool:
@@ -2045,23 +2052,45 @@ def table_exists(
     kwargs["transaction"] = exists_transaction
 
     try:
-        result = _get_storage(**kwargs).table_exists(
-            table_name=table,
+        table_obj = _get_storage(**kwargs).get_table(
             namespace=namespace,
+            table_name=table,
             *args,
             **kwargs,
         )
-
+        if table_obj is None:
+            print("Table does not exist")
+            return False
+        table_version = table_version or table_obj.latest_active_table_version
+        table_version_exists = _get_storage(**kwargs).table_version_exists(
+            namespace,
+            table,
+            table_version,
+            *args,
+            **kwargs,
+        )
+        if not table_version_exists:
+            print("Table version does not exist")
+            return False
+        stream_exists = _get_storage(**kwargs).stream_exists(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version,
+            stream_format=stream_format,
+            *args,
+            **kwargs,
+        )
+        print(f"Stream exists: {stream_exists}")
+        return stream_exists
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during table_exists: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             exists_transaction.seal()
-
-        return result
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during table_exists: {e}")
-        raise
 
 
 def list_namespaces(
@@ -2082,16 +2111,17 @@ def list_namespaces(
     try:
         result = _get_storage(**kwargs).list_namespaces(*args, **kwargs)
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            list_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during list_namespaces: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            list_transaction.seal()
 
 
 def get_namespace(
@@ -2118,16 +2148,17 @@ def get_namespace(
             *args, namespace=namespace, **kwargs
         )
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            get_ns_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during get_namespace: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            get_ns_transaction.seal()
 
 
 def namespace_exists(
@@ -2154,16 +2185,17 @@ def namespace_exists(
             *args, namespace=namespace, **kwargs
         )
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            exists_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during namespace_exists: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            exists_transaction.seal()
 
 
 def create_namespace(
@@ -2198,16 +2230,17 @@ def create_namespace(
             *args, namespace=namespace, properties=properties, **kwargs
         )
 
-        if commit_transaction:
-            # Seal the interactive transaction to commit all operations atomically
-            namespace_transaction.seal()
-
         return result
 
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
         logger.error(f"Error during create_namespace: {e}")
         raise
+    finally:
+        if commit_transaction:
+            # Seal the interactive transaction to commit all operations atomically
+            namespace_transaction.seal()
 
 
 def alter_namespace(
@@ -2242,14 +2275,15 @@ def alter_namespace(
             **kwargs,
         )
 
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during alter_namespace: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             alter_ns_transaction.seal()
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during alter_namespace: {e}")
-        raise
 
 
 def drop_namespace(
@@ -2287,14 +2321,15 @@ def drop_namespace(
             **kwargs,
         )
 
+    except Exception as e:
+        # If any error occurs, the transaction remains uncommitted
+        commit_transaction = False
+        logger.error(f"Error during drop_namespace: {e}")
+        raise
+    finally:
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             drop_ns_transaction.seal()
-
-    except Exception as e:
-        # If any error occurs, the transaction remains uncommitted
-        logger.error(f"Error during drop_namespace: {e}")
-        raise
 
 
 def default_namespace(*args, **kwargs) -> str:

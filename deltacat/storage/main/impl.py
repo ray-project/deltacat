@@ -2576,7 +2576,12 @@ def get_table(
     )
 
 
-def table_exists(namespace: str, table_name: str, *args, **kwargs) -> bool:
+def table_exists(
+    namespace: str,
+    table_name: str,
+    *args,
+    **kwargs,
+) -> bool:
     """
     Returns True if the given table exists, False if not.
     """
