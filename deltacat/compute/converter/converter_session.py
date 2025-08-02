@@ -13,7 +13,7 @@ from deltacat import logs
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
 )
-from typing import Dict, List, Any, Callable
+from typing import Dict, List, Any, Callable, Tuple
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -44,7 +44,9 @@ from pyiceberg.table.metadata import TableMetadata
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMetadata:
+def converter_session(
+    params: ConverterSessionParams, **kwargs: Any
+) -> Tuple[TableMetadata, int]:
     """
     Convert equality deletes to position deletes with option to enforce primary key uniqueness.
 
@@ -78,6 +80,9 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
             - location_provider_prefix_override: Optional prefix override for file locations
             - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
         **kwargs: Additional keyword arguments (currently unused)
+
+    Returns:
+        Tuple[TableMetadata, int]: A tuple containing the table metadata and the committed snapshot ID
 
     Raises:
         Exception: If snapshot commitment fails or other critical errors occur
@@ -256,7 +261,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
                 snapshot_type, to_be_deleted_files_list, to_be_added_files_list
             )
         )
-        return
+        return iceberg_table.metadata, iceberg_table.metadata.current_snapshot_id
 
     logger.info(
         f"Snapshot action: {_get_snapshot_action_description(snapshot_type, to_be_deleted_files_list, to_be_added_files_list)}"
@@ -285,14 +290,14 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
             )
         else:
             logger.warning(f"Unexpected snapshot type: {snapshot_type}")
-            return
+            return iceberg_table.metadata, iceberg_table.metadata.current_snapshot_id
 
         logger.info(
             f"Committed new Iceberg snapshot for {table_identifier}: {converter_snapshot_id}"
         )
 
         # Return the converter committed snapshot id
-        return converter_snapshot_id
+        return iceberg_table.metadata, converter_snapshot_id
     except Exception as e:
         logger.error(f"Failed to commit snapshot for {table_identifier}: {str(e)}")
         raise

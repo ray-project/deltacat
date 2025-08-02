@@ -92,6 +92,7 @@ from deltacat.exceptions import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
+from deltacat.utils.filesystem import append_protocol_prefix_by_type, FilesystemType
 
 if TYPE_CHECKING:
     from deltacat.storage.model.schema import Schema
@@ -1083,10 +1084,21 @@ def write_sliced_table(
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
-) -> ManifestEntryList:
+    skip_manifest_write: bool = False,
+) -> Union[ManifestEntryList, List[str]]:
     """
-    Writes table slices to 1 or more files and returns
-    manifest entries describing the uploaded files.
+    Writes the given table to 1 or more files and return either manifest entries
+    or file paths depending on skip_manifest_write parameter.
+
+    Args:
+        skip_manifest_write: If True, calls table_writer_fn directly and returns file paths as strings.
+                           If False (default), creates manifest entries and returns ManifestEntryList.
+    """
+
+    # Determine if we should write the whole table or slice it
+    should_write_whole_table = max_records_per_entry is None or not get_table_length(
+        table
+    )
 
     Args:
         table: The local table or distributed dataset to write
@@ -1109,29 +1121,22 @@ def write_sliced_table(
         retry=retry_if_exception_type(RetryableError),
     )
 
-    manifest_entries = ManifestEntryList()
-    table_record_count = get_table_length(table)
-
-    if max_records_per_entry is None or not table_record_count:
-        # write the whole table to a single file
-        manifest_entries = retrying(
-            write_table,
-            table,
-            f"{base_path}",  # cast any non-string arg to string
-            filesystem,
-            table_writer_fn,
-            table_writer_kwargs,
-            content_type,
-            entry_params,
-            entry_type,
-        )
-    else:
-        # iteratively write table slices
-        table_slices = table_slicer_fn(table, max_records_per_entry)
-        for table_slice in table_slices:
-            slice_entries = retrying(
+    if should_write_whole_table:
+        # Write the whole table to a single file
+        if skip_manifest_write:
+            return retrying(
+                _write_table_direct,
+                table,
+                f"{base_path}",
+                filesystem,
+                table_writer_fn,
+                table_writer_kwargs,
+                content_type,
+            )
+        else:
+            manifest_entries = retrying(
                 write_table,
-                table_slice,
+                table,
                 f"{base_path}",  # cast any non-string arg to string
                 filesystem,
                 table_writer_fn,
@@ -1140,8 +1145,98 @@ def write_sliced_table(
                 entry_params,
                 entry_type,
             )
-            manifest_entries.extend(slice_entries)
-    return manifest_entries
+            return manifest_entries
+    else:
+        # Iteratively write table slices
+        if skip_manifest_write:
+            # Direct write mode - iteratively write table slices
+            file_paths = []
+            table_slices = table_slicer_fn(table, max_records_per_entry)
+            for table_slice in table_slices:
+                slice_paths = retrying(
+                    _write_table_direct,
+                    table_slice,
+                    f"{base_path}",
+                    filesystem,
+                    table_writer_fn,
+                    table_writer_kwargs,
+                    content_type,
+                )
+                file_paths.extend(slice_paths)
+            return file_paths
+        else:
+            # Manifest entry mode - iteratively write table slices
+            manifest_entries = ManifestEntryList()
+            table_slices = table_slicer_fn(table, max_records_per_entry)
+            for table_slice in table_slices:
+                slice_entries = retrying(
+                    write_table,
+                    table_slice,
+                    f"{base_path}",  # cast any non-string arg to string
+                    filesystem,
+                    table_writer_fn,
+                    table_writer_kwargs,
+                    content_type,
+                    entry_params,
+                    entry_type,
+                )
+                manifest_entries.extend(slice_entries)
+            return manifest_entries
+
+
+def _write_table_direct(
+    table: Union[LocalTable, DistributedDataset],
+    base_path: str,
+    filesystem: Optional[pa.fs.FileSystem],
+    table_writer_fn: Callable,
+    table_writer_kwargs: Optional[Dict[str, Any]],
+    content_type: ContentType = ContentType.PARQUET,
+) -> List[str]:
+    """
+    Writes the given table directly using table_writer_fn and returns file paths as strings.
+    This is used when skip_manifest_write=True to bypass manifest entry creation.
+    """
+    if table_writer_kwargs is None:
+        table_writer_kwargs = {}
+
+    wrapped_obj = (
+        CapturedBlockWritePathsActor.remote()
+        if isinstance(table, RayDataset)
+        else CapturedBlockWritePathsBase()
+    )
+    capture_object = CapturedBlockWritePaths(wrapped_obj)
+    block_write_path_provider = UuidBlockWritePathProvider(
+        capture_object,
+        base_path=base_path,
+    )
+
+    # Call table_writer_fn directly
+    table_writer_fn(
+        table,
+        base_path,
+        filesystem,
+        block_write_path_provider,
+        content_type.value,
+        **table_writer_kwargs,
+    )
+
+    # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
+    del block_write_path_provider
+    write_paths = capture_object.write_paths()
+
+    # Determine filesystem type and append protocol prefixes
+    if filesystem is not None:
+        filesystem_type = FilesystemType.from_filesystem(filesystem)
+        return [
+            append_protocol_prefix_by_type(path, filesystem_type)
+            for path in write_paths
+        ]
+    else:
+        # If no filesystem provided, assume S3 (common case)
+        return [
+            append_protocol_prefix_by_type(path, FilesystemType.S3)
+            for path in write_paths
+        ]
 
 
 def write_table(

@@ -177,10 +177,12 @@ def commit_append_snapshot(
             if new_position_delete_files:
                 for data_file in new_position_delete_files:
                     append_snapshot.append_data_file(data_file)
+
     except Exception as e:
         raise e
     else:
-        return append_snapshot._snapshot_id
+        metadata = tx.commit_transaction().metadata
+        return (metadata, append_snapshot._snapshot_id)
 
 
 def append_delete_files_override(
@@ -295,4 +297,5 @@ def commit_replace_snapshot(
     except Exception as e:
         raise e
     else:
-        return replace_delete_snapshot._snapshot_id
+        metadata = tx.commit_transaction().metadata
+        return (metadata, replace_delete_snapshot._snapshot_id)

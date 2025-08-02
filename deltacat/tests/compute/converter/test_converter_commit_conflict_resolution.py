@@ -30,7 +30,7 @@ from deltacat.tests.compute.converter.utils import (
     commit_equality_delete_to_table,
 )
 from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
-    commit_replace_snapshot,
+    commit_append_snapshot,
 )
 
 from pyiceberg.typedef import Record
@@ -246,7 +246,7 @@ def create_convert_input(
             enforce_primary_key_uniqueness=True,
             position_delete_for_multiple_data_files=True,
             max_parallel_data_file_download=10,
-            s3_file_system=s3_file_system,
+            filesystem=s3_file_system,
             s3_client_kwargs={},
             task_memory=TASK_MEMORY_BYTES,
         )
@@ -392,8 +392,8 @@ def test_converter_commit_conflict_resolution(
     request,
 ) -> None:
     """
-    Parameterized test for converter functionality.
-    Tests drop duplicates, equality delete, and position delete scenarios.
+    Parameterized test for converter functionality with commit conflict resolution.
+    Tests drop duplicates scenario with concurrent writes and conflict resolution.
     """
     # Get schema fixture based on test case
     schema = request.getfixturevalue(test_case["schema"])
@@ -498,12 +498,11 @@ def test_converter_commit_conflict_resolution(
     insert_complete_event.wait()
     print("Main thread: Insert completed, proceeding with commit using stale metadata")
 
-    # Run commit_replace_snapshot in the main thread with stale table metadata
+    # Run commit_append_snapshot in the main thread with stale table metadata
     commit_exception = None
     try:
-        commit_replace_snapshot(
+        commit_append_snapshot(
             iceberg_table=tbl,  # This has stale metadata since we didn't refresh after insert
-            to_be_deleted_files=[],
             new_position_delete_files=to_be_added_files_list,
         )
     except CommitFailedException as e:
@@ -539,9 +538,8 @@ def test_converter_commit_conflict_resolution(
 
     # Refresh the table to get the latest state after rollback
     tbl.refresh()
-    converter_commit_uuid = commit_replace_snapshot(
+    metadata, converter_commit_uuid = commit_append_snapshot(
         iceberg_table=tbl,
-        to_be_deleted_files=[],
         new_position_delete_files=to_be_added_files_list,
     )
 
