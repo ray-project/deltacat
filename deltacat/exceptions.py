@@ -77,10 +77,18 @@ class DeltaCatErrorNames(str, Enum):
     TABLE_NOT_FOUND_ERROR = "TableNotFoundError"
     TABLE_VERSION_NOT_FOUND_ERROR = "TableVersionNotFoundError"
     STREAM_NOT_FOUND_ERROR = "StreamNotFoundError"
+    PARTITION_NOT_FOUND_ERROR = "PartitionNotFoundError"
     DELTA_NOT_FOUND_ERROR = "DeltaNotFoundError"
     TABLE_ALREADY_EXISTS_ERROR = "TableAlreadyExistsError"
+    TABLE_VERSION_ALREADY_EXISTS_ERROR = "TableVersionAlreadyExistsError"
     NAMESPACE_ALREADY_EXISTS_ERROR = "NamespaceAlreadyExistsError"
     SCHEMA_COMPATIBILITY_ERROR = "SchemaCompatibilityError"
+    SCHEMA_VALIDATION_ERROR = "SchemaValidationError"
+    TABLE_VALIDATION_ERROR = "TableValidationError"
+    CONCURRENT_MODIFICATION_ERROR = "ConcurrentModificationError"
+    OBJECT_NOT_FOUND_ERROR = "ObjectNotFoundError"
+    OBJECT_DELETED_ERROR = "ObjectDeletedError"
+    OBJECT_ALREADY_EXISTS_ERROR = "ObjectAlreadyExistsError"
 
 
 class DeltaCatError(Exception):
@@ -239,6 +247,10 @@ class TableVersionNotFoundError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_VERSION_NOT_FOUND_ERROR.value
 
 
+class PartitionNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.PARTITION_NOT_FOUND_ERROR.value
+
+
 class StreamNotFoundError(NonRetryableError):
     error_name = DeltaCatErrorNames.STREAM_NOT_FOUND_ERROR.value
 
@@ -251,8 +263,36 @@ class TableAlreadyExistsError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
 
 
+class TableVersionAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_VERSION_ALREADY_EXISTS_ERROR.value
+
+
 class NamespaceAlreadyExistsError(NonRetryableError):
     error_name = DeltaCatErrorNames.TABLE_ALREADY_EXISTS_ERROR.value
+
+
+class ObjectNotFoundError(NonRetryableError):
+    error_name = DeltaCatErrorNames.OBJECT_NOT_FOUND_ERROR.value
+
+
+class ObjectDeletedError(NonRetryableError):
+    error_name = DeltaCatErrorNames.OBJECT_DELETED_ERROR.value
+
+
+class ObjectAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.OBJECT_ALREADY_EXISTS_ERROR.value
+
+
+class ConcurrentModificationError(NonRetryableError):
+    error_name = DeltaCatErrorNames.CONCURRENT_MODIFICATION_ERROR.value
+
+
+class SchemaValidationError(NonRetryableError):
+    error_name = DeltaCatErrorNames.SCHEMA_VALIDATION_ERROR.value
+
+
+class TableValidationError(NonRetryableError):
+    error_name = DeltaCatErrorNames.TABLE_VALIDATION_ERROR.value
 
 
 class SchemaCompatibilityError(NonRetryableError):

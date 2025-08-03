@@ -14,7 +14,7 @@ from deltacat.storage.model.namespace import (
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
 from deltacat.constants import TXN_DIR_NAME
 
-TableProperties = dict[str, Any]
+TableProperties = Dict[str, Any]
 
 
 class Table(Metafile):

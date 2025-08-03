@@ -12,7 +12,18 @@ import ray
 import ray.data
 
 from deltacat import PartitionKey, PartitionScheme
-from deltacat.exceptions import TableNotFoundError, UnclassifiedDeltaCatError
+from deltacat.exceptions import (
+    SchemaValidationError,
+    TableNotFoundError,
+    UnclassifiedDeltaCatError,
+    NamespaceNotFoundError,
+    NamespaceAlreadyExistsError,
+    TableAlreadyExistsError,
+    TableVersionNotFoundError,
+    TableValidationError,
+    StreamNotFoundError,
+    PartitionNotFoundError,
+)
 from deltacat.storage import (
     metastore,
     CommitState,
@@ -163,8 +174,8 @@ class TestNamespace:
 
     def test_delete_namespace_not_exists(self):
         # When we try to delete a non-existent namespace
-        # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        # Then we should get a NamespaceNotFoundError
+        with pytest.raises(NamespaceNotFoundError):
             metastore.delete_namespace(
                 namespace="non_existent_namespace",
                 catalog=self.catalog,
@@ -201,7 +212,7 @@ class TestNamespace:
         )
 
         # Then trying to create a table in the deleted namespace should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.create_table_version(
                 namespace=namespace,
                 table_name="test_table",
@@ -210,14 +221,14 @@ class TestNamespace:
             )
 
         # And trying to list tables in the deleted namespace should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.list_tables(
                 namespace=namespace,
                 catalog=self.catalog,
             )
 
         # And trying to delete the namespace again should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.delete_namespace(
                 namespace=namespace,
                 catalog=self.catalog,
@@ -308,7 +319,7 @@ class TestNamespace:
 
     def test_update_namespace_not_exists(self):
         # When we try to update a non-existent namespace
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.update_namespace(
                 namespace="non_existent_namespace",
                 properties={"description": "Test"},
@@ -330,7 +341,7 @@ class TestNamespace:
 
         # When we try to rename namespace1 to namespace2
         # Then it should fail since namespace2 already exists
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceAlreadyExistsError):
             metastore.update_namespace(
                 namespace=namespace1,
                 new_namespace=namespace2,
@@ -493,7 +504,7 @@ class TestTable:
 
         # When we update the table version's description
         # This should fail with ValueError since the table no longer exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableVersionNotFoundError):
             metastore.update_table_version(
                 namespace=self.test_namespace.namespace,
                 table_name=table_name,
@@ -504,7 +515,7 @@ class TestTable:
 
         # When we create a stream under the deleted table version
         # This should fail with ValueError since the table no longer exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableVersionNotFoundError):
             metastore.stage_stream(
                 namespace=self.test_namespace.namespace,
                 table_name=table_name,
@@ -515,7 +526,7 @@ class TestTable:
         # When we create a stream under the deleted table, but omit the table
         # version to force resolution of the latest active table version.
         # This should fail with ValueError since the table no longer exists.
-        with pytest.raises(ValueError):
+        with pytest.raises(TableNotFoundError):
             metastore.stage_stream(
                 namespace=self.test_namespace.namespace,
                 table_name=table_name,
@@ -524,7 +535,7 @@ class TestTable:
 
         # When we stage a partition to the deleted table version's stream
         # This should fail with ValueError since the table no longer exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableVersionNotFoundError):
             metastore.stage_partition(
                 stream=self.stream1,
                 partition_values=[123, "abc"],
@@ -572,7 +583,7 @@ class TestTable:
 
         # When we try to rename table1 to table2's name
         # Then it should fail since table2 already exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableAlreadyExistsError):
             metastore.update_table(
                 namespace=self.test_namespace.namespace,
                 table_name=self.test_table1.table_name,
@@ -645,7 +656,7 @@ class TestTableVersion:
         table_version = create_test_table_version()
         # when we try to create ordinal table version 1 again
         # expect an error to be raised (ordinal version 3 expected)
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -745,7 +756,7 @@ class TestTableVersion:
             kwargs_copy[key] = "i_dont_exist"
             # when we list table versions
             # expect an error to be raised
-            with pytest.raises(ValueError):
+            with pytest.raises(TableNotFoundError):
                 metastore.list_table_versions(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -773,7 +784,7 @@ class TestTableVersion:
             kwargs_copy[key] = "i_dont_exist"
             # when we get the latest table version
             # expect an error to be raised
-            with pytest.raises(ValueError):
+            with pytest.raises(TableNotFoundError):
                 metastore.get_latest_table_version(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -841,7 +852,7 @@ class TestTableVersion:
         )
         # when we try to update the schema
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.update_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -987,7 +998,7 @@ class TestTableVersion:
         )
         # when we try to update the partition scheme
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.update_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1151,7 +1162,7 @@ class TestTableVersion:
         )
         # when we try to update the sort scheme
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.update_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1462,7 +1473,7 @@ class TestTableVersion:
             kwargs_copy[key] = "i_dont_exist"
             # when we get the latest active table version
             # expect an error to be raised
-            with pytest.raises(ValueError):
+            with pytest.raises(TableNotFoundError):
                 metastore.get_latest_active_table_version(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -1555,7 +1566,7 @@ class TestTableVersion:
         # given an existing table version
         # when we try to create a table version with the same ID
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1653,7 +1664,7 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="Partition key field 'non_existent_field' not found in schema",
         ):
             metastore.create_table_version(
@@ -1693,7 +1704,8 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError, match="Sort key field 'non_existent_field' not found in schema"
+            SchemaValidationError,
+            match="Sort key field 'non_existent_field' not found in schema",
         ):
             metastore.create_table_version(
                 namespace=self.table.namespace,
@@ -1723,7 +1735,7 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="Partition key field 'non_existent_field' not found in schema",
         ):
             metastore.update_table_version(
@@ -1754,7 +1766,8 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError, match="Sort key field 'non_existent_field' not found in schema"
+            SchemaValidationError,
+            match="Sort key field 'non_existent_field' not found in schema",
         ):
             metastore.update_table_version(
                 namespace=self.table.namespace,
@@ -1890,8 +1903,8 @@ class TestStream:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            kwargs_copy[key] = "i_dont_exist"
-            with pytest.raises(ValueError):
+            kwargs_copy[key] = "i_dont_exist.1"
+            with pytest.raises(TableVersionNotFoundError):
                 metastore.list_streams(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -2035,7 +2048,7 @@ class TestStream:
         # TODO(pdames): Add new getter method for deleted but not GC'd streams?
 
     def test_delete_missing_stream(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(StreamNotFoundError):
             metastore.delete_stream(
                 namespace="test_stream_ns",
                 table_name="mystreamtable",
@@ -2052,8 +2065,8 @@ class TestStream:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            kwargs_copy[key] = "i_dont_exist"
-            with pytest.raises(ValueError):
+            kwargs_copy[key] = "i_dont_exist.1"
+            with pytest.raises(StreamNotFoundError):
                 metastore.delete_stream(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -2516,7 +2529,7 @@ class TestPartition:
         # When we try to delete a non-existent partition
         partition_values = [456, "def"]
         # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(PartitionNotFoundError):
             metastore.delete_partition(
                 stream_locator=self.stream.locator,
                 partition_values=partition_values,
@@ -2537,7 +2550,7 @@ class TestPartition:
         # When we try to delete the staged partition
         # Then we should get a ValueError since only committed partitions
         # can be deleted
-        with pytest.raises(ValueError):
+        with pytest.raises(PartitionNotFoundError):
             metastore.delete_partition(
                 stream_locator=self.stream.locator,
                 partition_values=partition_values,
@@ -2602,7 +2615,7 @@ class TestPartition:
         bad_scheme_id = "nonexistent_scheme_id"
         # When we try to stage a partition with a bad scheme ID
         # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=partition_values,
@@ -2627,7 +2640,7 @@ class TestPartition:
         )
         # When we try to commit the partition without staging
         # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(PartitionNotFoundError):
             metastore.commit_partition(
                 partition=partition,
                 catalog=self.catalog,
@@ -2678,7 +2691,8 @@ class TestPartition:
 
         # When trying to stage with invalid type for col1 (string instead of int32)
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type int32"
+            TableValidationError,
+            match="incompatible with partition transform return type int32",
         ):
             metastore.stage_partition(
                 stream=self.stream,
@@ -2689,7 +2703,8 @@ class TestPartition:
 
         # When trying to stage with invalid type for col2 (int instead of string)
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type string"
+            TableValidationError,
+            match="incompatible with partition transform return type string",
         ):
             metastore.stage_partition(
                 stream=self.stream,
@@ -2701,7 +2716,9 @@ class TestPartition:
     def test_stage_partition_wrong_number_of_values(self):
         """Test that the number of partition values must match the number of partition keys."""
         # When trying to stage with too few values
-        with pytest.raises(ValueError, match="does not match number of partition keys"):
+        with pytest.raises(
+            TableValidationError, match="does not match number of partition keys"
+        ):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=[42],  # Missing second value
@@ -2710,7 +2727,9 @@ class TestPartition:
             )
 
         # When trying to stage with too many values
-        with pytest.raises(ValueError, match="does not match number of partition keys"):
+        with pytest.raises(
+            TableValidationError, match="does not match number of partition keys"
+        ):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=[42, "test", "extra"],
@@ -2853,7 +2872,7 @@ class TestPartition:
             None,
         ]
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="incompatible with partition transform return type decimal128\\(38, 0\\)",
         ):
             metastore.stage_partition(
@@ -2874,7 +2893,8 @@ class TestPartition:
             None,
         ]
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type int64"
+            TableValidationError,
+            match="incompatible with partition transform return type int64",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -2894,7 +2914,8 @@ class TestPartition:
             None,
         ]
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type int64"
+            TableValidationError,
+            match="incompatible with partition transform return type int64",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -3327,7 +3348,7 @@ class TestPartition:
         """Test list_partitions error handling with invalid namespace."""
         # When we try to list partitions with an invalid namespace
         # Then we should get a ValueError
-        with pytest.raises(ValueError, match="Default stream.*not found"):
+        with pytest.raises(StreamNotFoundError, match="Default stream.*not found"):
             metastore.list_partitions(
                 namespace="non_existent_namespace",
                 table_name="mypartitiontable",
@@ -3339,7 +3360,7 @@ class TestPartition:
         """Test list_partitions error handling with invalid table name."""
         # When we try to list partitions with an invalid table name
         # Then we should get a ValueError
-        with pytest.raises(ValueError, match="Default stream.*not found"):
+        with pytest.raises(StreamNotFoundError, match="Default stream.*not found"):
             metastore.list_partitions(
                 namespace="test_partition_ns",
                 table_name="non_existent_table",
@@ -3351,7 +3372,7 @@ class TestPartition:
         """Test list_partitions error handling with invalid table version."""
         # When we try to list partitions with an invalid table version
         # Then we should get a ValueError
-        with pytest.raises(ValueError, match="Default stream.*not found"):
+        with pytest.raises(StreamNotFoundError, match="Default stream.*not found"):
             metastore.list_partitions(
                 namespace="test_partition_ns",
                 table_name="mypartitiontable",
@@ -4886,7 +4907,7 @@ class TestDelta:
         staged_delta.locator.partition_locator.partition_id = "invalid_partition_id"
 
         # Attempt to commit should raise an error
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PartitionNotFoundError) as exc_info:
             metastore.commit_delta(
                 delta=staged_delta,
                 catalog=self.catalog,
@@ -5291,7 +5312,7 @@ class TestDelta:
     def test_get_delta_invalid_namespace(self):
         # Test error handling when trying to retrieve delta with invalid namespace
         # Attempt to retrieve delta with invalid namespace
-        with pytest.raises(ValueError):
+        with pytest.raises(StreamNotFoundError):
             metastore.get_delta(
                 namespace="non_existent_namespace",
                 table_name="test_table",
@@ -5901,7 +5922,7 @@ class TestDelta:
         staged_delta.locator.stream_position = initial_stream_position
 
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="Delta stream position .* must be greater than previous stream position",
         ):
             metastore.commit_delta(
@@ -5914,7 +5935,7 @@ class TestDelta:
             staged_delta.locator.stream_position = initial_stream_position - 1
 
             with pytest.raises(
-                ValueError,
+                TableValidationError,
                 match="Delta stream position .* must be greater than previous stream position",
             ):
                 metastore.commit_delta(
@@ -6072,7 +6093,7 @@ class TestDelta:
         # Test with invalid column names (one valid, one invalid)
         invalid_columns = ["id", "non_existent_column"]
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="One or more columns .* are not present in table version columns",
         ):
             metastore.download_delta(
@@ -7591,7 +7612,7 @@ class TestDelta:
 
         # Test with invalid column names
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="One or more columns .* are not present in table version columns",
         ):
             metastore.download_delta(
@@ -7783,7 +7804,7 @@ class TestDelta:
 
         # Test with invalid column names using DAFT
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="One or more columns .* are not present in table version columns",
         ):
             metastore.download_delta(

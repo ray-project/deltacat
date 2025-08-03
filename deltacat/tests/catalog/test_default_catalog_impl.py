@@ -24,6 +24,14 @@ from ray.data.dataset import MaterializedDataset
 
 import deltacat as dc
 from deltacat import Catalog
+from deltacat.exceptions import (
+    TableAlreadyExistsError,
+    TableVersionAlreadyExistsError,
+    TableNotFoundError,
+    TableVersionNotFoundError,
+    TableValidationError,
+    SchemaValidationError,
+)
 from deltacat.storage.model.schema import (
     Schema,
     Field,
@@ -2492,38 +2500,49 @@ class TestTableVersionWriteModes:
         self.test_data = table_version_catalog["test_data"]
 
     @pytest.mark.parametrize(
-        "table_suffix,setup_versions,test_version,should_succeed,description",
+        "table_suffix,setup_versions,test_version,expected_exception_type,description",
         [
-            ("new", [], "1", True, "Create new table with version 1"),
-            ("new2", [], None, True, "Create new table without specifying version"),
-            ("existing", ["1"], "2", True, "Create version 2 of existing table"),
-            ("existing2", ["1"], "1", False, "Try to create existing version 1"),
+            ("new", [], "1", None, "Create new table with version 1"),
+            ("new2", [], None, None, "Create new table without specifying version"),
+            ("existing", ["1"], "2", None, "Create version 2 of existing table"),
+            (
+                "existing2",
+                ["1"],
+                "1",
+                TableVersionAlreadyExistsError,
+                "Try to create existing version 1",
+            ),
             (
                 "existing3",
                 ["1"],
                 None,
-                False,
+                TableAlreadyExistsError,
                 "Try to create existing table without version",
             ),
-            ("multi", ["1", "2"], "3", True, "Create version 3 when 1,2 exist"),
+            ("multi", ["1", "2"], "3", None, "Create version 3 when 1,2 exist"),
             (
                 "multi2",
                 ["1", "2"],
                 "1",
-                False,
+                TableVersionAlreadyExistsError,
                 "Try to create existing version 1 when 1,2 exist",
             ),
             (
                 "multi3",
                 ["1", "2"],
                 "2",
-                False,
+                TableVersionAlreadyExistsError,
                 "Try to create existing version 2 when 1,2 exist",
             ),
         ],
     )
     def test_create_mode_combinations(
-        self, table_suffix, setup_versions, test_version, should_succeed, description
+        self,
+        table_suffix,
+        setup_versions,
+        test_version,
+        expected_exception_type,
+        description,
     ):
         """Test CREATE mode with all table/version existence combinations."""
         table_name = f"create_test_{table_suffix}"
@@ -2540,7 +2559,7 @@ class TestTableVersionWriteModes:
                 mode=TableWriteMode.CREATE,
             )
 
-        if should_succeed:
+        if expected_exception_type is None:
             # Should succeed
             dc.write_to_table(
                 self.test_data["initial"],
@@ -2564,7 +2583,7 @@ class TestTableVersionWriteModes:
 
         else:
             # Should fail
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(expected_exception_type):
                 dc.write_to_table(
                     self.test_data["initial"],
                     table_name,
@@ -2575,33 +2594,63 @@ class TestTableVersionWriteModes:
                 )
 
     @pytest.mark.parametrize(
-        "table_suffix,setup_versions,test_version,should_succeed,description",
+        "table_suffix,setup_versions,test_version,expected_exception_type,description",
         [
-            ("new", [], None, False, "Try to append to non-existent table"),
-            ("new2", [], "1", False, "Try to append to non-existent table version"),
+            (
+                "new",
+                [],
+                None,
+                TableNotFoundError,
+                "Try to append to non-existent table",
+            ),
+            (
+                "new2",
+                [],
+                None,
+                TableNotFoundError,
+                "Try to append to non-existent table",
+            ),
+            (
+                "new2",
+                [],
+                "1",
+                TableNotFoundError,
+                "Try to append to non-existent table and version",
+            ),
             (
                 "existing",
                 ["1"],
                 None,
-                True,
-                "Append to existing table (latest version)",
+                None,
+                "Append to existing table (latest active version)",
             ),
-            ("existing2", ["1"], "1", True, "Append to existing version 1"),
-            ("existing3", ["1"], "2", False, "Try to append to non-existent version 2"),
-            ("multi", ["1", "2"], None, True, "Append to existing table (latest is 2)"),
-            ("multi2", ["1", "2"], "1", True, "Append to existing version 1"),
-            ("multi3", ["1", "2"], "2", True, "Append to existing version 2"),
+            ("existing2", ["1"], "1", None, "Append to existing version 1"),
+            (
+                "existing3",
+                ["1"],
+                "2",
+                TableVersionNotFoundError,
+                "Try to append to non-existent version 2",
+            ),
+            ("multi", ["1", "2"], None, None, "Append to existing table (latest is 2)"),
+            ("multi2", ["1", "2"], "1", None, "Append to existing version 1"),
+            ("multi3", ["1", "2"], "2", None, "Append to existing version 2"),
             (
                 "multi4",
                 ["1", "2"],
                 "3",
-                False,
+                TableVersionNotFoundError,
                 "Try to append to non-existent version 3",
             ),
         ],
     )
     def test_append_mode_combinations(
-        self, table_suffix, setup_versions, test_version, should_succeed, description
+        self,
+        table_suffix,
+        setup_versions,
+        test_version,
+        expected_exception_type,
+        description,
     ):
         """Test APPEND mode with all table/version existence combinations."""
         table_name = f"append_test_{table_suffix}"
@@ -2618,7 +2667,7 @@ class TestTableVersionWriteModes:
                 mode=TableWriteMode.CREATE,
             )
 
-        if should_succeed:
+        if expected_exception_type is None:
             # Should succeed
             dc.write_to_table(
                 self.test_data["additional"],
@@ -2630,7 +2679,7 @@ class TestTableVersionWriteModes:
             )
         else:
             # Should fail
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(expected_exception_type):
                 dc.write_to_table(
                     self.test_data["additional"],
                     table_name,
@@ -2641,21 +2690,26 @@ class TestTableVersionWriteModes:
                 )
 
     @pytest.mark.parametrize(
-        "table_suffix,setup_versions,test_version,should_succeed,description",
+        "table_suffix,setup_versions,test_version,expected_exception_type,description",
         [
-            ("new", [], None, True, "Auto create new table"),
-            ("new2", [], "1", True, "Auto create new table with version 1"),
-            ("existing", ["1"], None, True, "Auto use existing table (latest version)"),
-            ("existing2", ["1"], "1", True, "Auto use existing version 1"),
-            ("existing3", ["1"], "2", False, "Try auto with non-existent version 2"),
-            ("multi", ["1", "2"], None, True, "Auto use existing table (latest is 2)"),
-            ("multi2", ["1", "2"], "1", True, "Auto use existing version 1"),
-            ("multi3", ["1", "2"], "2", True, "Auto use existing version 2"),
-            ("multi4", ["1", "2"], "3", False, "Try auto with non-existent version 3"),
+            ("new", [], None, None, "Auto create new table"),
+            ("new2", [], "1", None, "Auto create new table with version 1"),
+            ("existing", ["1"], None, None, "Auto use existing table (latest version)"),
+            ("existing2", ["1"], "1", None, "Auto use existing version 1"),
+            ("existing3", ["1"], "2", None, "Auto create new table version 2"),
+            ("multi", ["1", "2"], None, None, "Auto use existing table (latest is 2)"),
+            ("multi2", ["1", "2"], "1", None, "Auto use existing version 1"),
+            ("multi3", ["1", "2"], "2", None, "Auto use existing version 2"),
+            ("multi4", ["1", "2"], "3", None, "Auto create new table version 3"),
         ],
     )
     def test_auto_mode_combinations(
-        self, table_suffix, setup_versions, test_version, should_succeed, description
+        self,
+        table_suffix,
+        setup_versions,
+        test_version,
+        expected_exception_type,
+        description,
     ):
         """Test AUTO mode with all table/version existence combinations."""
         table_name = f"auto_test_{table_suffix}"
@@ -2672,44 +2726,56 @@ class TestTableVersionWriteModes:
                 mode=TableWriteMode.CREATE,
             )
 
-        if should_succeed:
-            # Should succeed
-            dc.write_to_table(
-                self.test_data["additional"],
-                table_name,
-                catalog=self.catalog_name,
-                namespace=namespace,
-                table_version=test_version,
-                mode=TableWriteMode.AUTO,
-            )
-        else:
-            # Should fail
-            with pytest.raises((ValueError, Exception)):
-                dc.write_to_table(
-                    self.test_data["additional"],
-                    table_name,
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version=test_version,
-                    mode=TableWriteMode.AUTO,
-                )
+        # All auto mode tests should succeed
+        dc.write_to_table(
+            self.test_data["additional"],
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            table_version=test_version,
+            mode=TableWriteMode.AUTO,
+        )
 
     @pytest.mark.parametrize(
-        "table_suffix,setup_versions,test_version,should_succeed,description",
+        "table_suffix,setup_versions,test_version,expected_exception_type,description",
         [
-            ("new", [], None, False, "Try to replace non-existent table"),
-            ("new2", [], "1", False, "Try to replace non-existent table version"),
-            ("existing", ["1"], None, True, "Replace existing table (latest version)"),
-            ("existing2", ["1"], "1", True, "Replace existing version 1"),
-            ("existing3", ["1"], "2", False, "Try to replace non-existent version 2"),
-            ("multi", ["1", "2"], None, True, "Replace existing table (latest is 2)"),
-            ("multi2", ["1", "2"], "1", True, "Replace existing version 1"),
-            ("multi3", ["1", "2"], "2", True, "Replace existing version 2"),
-            ("multi4", ["1", "2"], "3", False, "Try to replace non-existent version 3"),
+            ("new", [], None, TableNotFoundError, "Try to replace non-existent table"),
+            ("new2", [], None, TableNotFoundError, "Try to replace non-existent table"),
+            (
+                "new2",
+                [],
+                "1",
+                TableNotFoundError,
+                "Try to replace non-existent table and version",
+            ),
+            ("existing", ["1"], None, None, "Replace existing table (latest version)"),
+            ("existing2", ["1"], "1", None, "Replace existing version 1"),
+            (
+                "existing3",
+                ["1"],
+                "2",
+                TableVersionNotFoundError,
+                "Try to replace non-existent version 2",
+            ),
+            ("multi", ["1", "2"], None, None, "Replace existing table (latest is 2)"),
+            ("multi2", ["1", "2"], "1", None, "Replace existing version 1"),
+            ("multi3", ["1", "2"], "2", None, "Replace existing version 2"),
+            (
+                "multi4",
+                ["1", "2"],
+                "3",
+                TableVersionNotFoundError,
+                "Try to replace non-existent version 3",
+            ),
         ],
     )
     def test_replace_mode_combinations(
-        self, table_suffix, setup_versions, test_version, should_succeed, description
+        self,
+        table_suffix,
+        setup_versions,
+        test_version,
+        expected_exception_type,
+        description,
     ):
         """Test REPLACE mode with all table/version existence combinations."""
         table_name = f"replace_test_{table_suffix}"
@@ -2726,7 +2792,7 @@ class TestTableVersionWriteModes:
                 mode=TableWriteMode.CREATE,
             )
 
-        if should_succeed:
+        if expected_exception_type is None:
             # Should succeed
             dc.write_to_table(
                 self.test_data["merge_data"],
@@ -2738,7 +2804,7 @@ class TestTableVersionWriteModes:
             )
         else:
             # Should fail
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(expected_exception_type):
                 dc.write_to_table(
                     self.test_data["merge_data"],
                     table_name,
@@ -2781,53 +2847,59 @@ class TestTableVersionWriteModes:
 
         # Test MERGE mode
         test_cases = [
-            # (table, table_version, should_succeed, mode, description)
+            # (table, table_version, expected_exception_type, mode, description)
             (
                 table_name,
                 "1",
-                True,
+                None,
                 TableWriteMode.MERGE,
                 "MERGE on table with merge keys",
             ),
             (
                 table_name,
                 "2",
-                False,
+                TableVersionNotFoundError,
                 TableWriteMode.MERGE,
                 "MERGE on non-existent version",
             ),
             (
                 no_merge_table,
                 "1",
-                False,
+                TableValidationError,
                 TableWriteMode.MERGE,
                 "MERGE on table without merge keys",
             ),
             (
                 table_name,
                 "1",
-                True,
+                None,
                 TableWriteMode.DELETE,
                 "DELETE on table with merge keys",
             ),
             (
                 table_name,
                 "2",
-                False,
+                TableVersionNotFoundError,
                 TableWriteMode.DELETE,
                 "DELETE on non-existent version",
             ),
             (
                 no_merge_table,
                 "1",
-                False,
+                TableValidationError,
                 TableWriteMode.DELETE,
                 "DELETE on table without merge keys",
             ),
         ]
 
-        for table, table_version, should_succeed, mode, description in test_cases:
-            if should_succeed:
+        for (
+            table,
+            table_version,
+            expected_exception_type,
+            mode,
+            description,
+        ) in test_cases:
+            if expected_exception_type is None:
                 # Should succeed - entry_params will be automatically set from schema merge keys
                 dc.write_to_table(
                     self.test_data["merge_data"],
@@ -2839,7 +2911,7 @@ class TestTableVersionWriteModes:
                 )
             else:
                 # Should fail
-                with pytest.raises((ValueError, Exception)):
+                with pytest.raises(expected_exception_type):
                     dc.write_to_table(
                         self.test_data["merge_data"],
                         table,
@@ -2961,7 +3033,7 @@ class TestTableVersionWriteModes:
         )
 
         # Test 4: COERCE should fail when types cannot be coerced
-        with pytest.raises(Exception):
+        with pytest.raises(SchemaValidationError):
             dc.write_to_table(
                 test_data_incompatible,
                 "coerce_fail_table",
@@ -2990,7 +3062,7 @@ class TestTableVersionWriteModes:
             ]
         )
 
-        with pytest.raises(Exception):
+        with pytest.raises(SchemaValidationError):
             dc.write_to_table(
                 test_data_coercible,  # This has int64 and float64, but schema expects int32 and float32
                 "validate_fail_table",
@@ -3734,7 +3806,7 @@ class TestSchemaConsistency:
             }
         )
 
-        with pytest.raises(ValueError, match="required but not present"):
+        with pytest.raises(SchemaValidationError, match="required but not present"):
             dc.write_to_table(
                 data=incomplete_data,
                 table=table_name_base + "_test1",
@@ -3756,7 +3828,7 @@ class TestSchemaConsistency:
         )
 
         with pytest.raises(
-            ValueError, match="not nullable.*not present.*no future_default"
+            SchemaValidationError, match="not nullable.*not present.*no future_default"
         ):
             dc.write_to_table(
                 data=incomplete_data2,
@@ -3816,7 +3888,7 @@ class TestSchemaConsistency:
             np.isnan(x) for x in result_df["none_nullable"]
         )  # nulls for NONE type
 
-        # Test 4: Verify extra field rejection
+        # Test 4: Verify extra field results in schema evolution by default
         data_with_extra = pd.DataFrame(
             {
                 "required_field": ["val1", "val2"],
@@ -3825,18 +3897,28 @@ class TestSchemaConsistency:
                 "non_nullable_no_default": [1.1, 2.2],
                 "none_with_default": ["x", "y"],
                 "none_nullable": [10, 20],
-                "extra_field": ["should", "fail"],  # This field is not in schema
+                "extra_field": ["shouldn't", "fail"],  # This field is not in schema
             }
         )
 
-        with pytest.raises(ValueError, match="not present in the schema"):
-            dc.write_to_table(
-                data=data_with_extra,
-                table=table_name_base + "_test4",
-                namespace=namespace,
-                catalog=catalog_name,
-                schema=schema,
-            )
+        dc.write_to_table(
+            data=data_with_extra,
+            table=table_name_base + "_test4",
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=schema,
+        )
+
+        df = dc.read_table(
+            table=table_name_base + "_test4",
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PANDAS,
+            distributed_dataset_type=None,
+            max_parallelism=1,
+        )
+        # ensure that the dataframe contains all of the expected data
+        assert df.equals(data_with_extra)
 
     def test_schemaless_table_append_mode(self, temp_catalog_properties):
         """Test write_to_table with schema=None in APPEND mode."""
@@ -4005,7 +4087,7 @@ class TestSchemaConsistency:
 
         # MERGE mode should raise ValueError for schemaless tables
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="MERGE mode requires tables to have at least one merge key",
         ):
             dc.write_to_table(
@@ -4029,7 +4111,7 @@ class TestSchemaConsistency:
 
         # DELETE mode should raise ValueError for schemaless tables
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="DELETE mode requires tables to have at least one merge key",
         ):
             dc.write_to_table(
@@ -4747,14 +4829,27 @@ class TestSchemaConsistency:
             }
         )
 
-        # This should fail because merge key cannot be promoted
-        with pytest.raises(Exception):  # Should fail due to type validation
+        # This should fail because appends are disabled on tables with merge keys
+        with pytest.raises(
+            SchemaValidationError,
+            match="APPEND mode cannot be used with tables that have merge keys",
+        ):
             dc.write_to_table(
                 data=conflicting_data,
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
                 mode=TableWriteMode.APPEND,
+            )
+
+        # This should fail because merge key cannot be promoted
+        with pytest.raises(SchemaValidationError, match="Data type mismatch"):
+            dc.write_to_table(
+                data=conflicting_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                mode=TableWriteMode.MERGE,
             )
 
     def test_default_value_type_promotion(self, temp_catalog_properties):
@@ -4870,6 +4965,387 @@ class TestSchemaConsistency:
 
         assert none_past is None, f"None should remain None, got {none_past}"
         assert valid_future == "42", f"Expected '42', got {valid_future}"
+
+    def test_automatic_schema_evolution_with_auto_write_mode(
+        self, temp_catalog_properties
+    ):
+        """Test that automatic schema evolution works with TableWriteMode.AUTO"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-auto-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_auto_test"
+
+        # First write - establish initial schema
+        initial_data = pd.DataFrame([{"id": 1, "name": "alice", "value": 10.5}])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Second write - add new field with AUTO mode (should work)
+        evolved_data = pd.DataFrame(
+            [{"id": 2, "name": "bob", "value": 20.5, "new_field": "auto_added"}]
+        )
+
+        # This should succeed with automatic schema evolution
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.AUTO,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Verify the schema was updated
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_fields = [
+            f.arrow.name
+            for f in table_info.table_version.schema.field_ids_to_fields.values()
+        ]
+
+        assert (
+            "new_field" in schema_fields
+        ), "new_field should be automatically added to schema"
+        assert (
+            len(schema_fields) == 4
+        ), f"Expected 4 fields, got {len(schema_fields)}: {schema_fields}"
+
+    def test_automatic_schema_evolution_with_append_write_mode(
+        self, temp_catalog_properties
+    ):
+        """Test that automatic schema evolution works with TableWriteMode.APPEND"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-append-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_append_test"
+
+        # First write - establish initial schema with CREATE
+        initial_data = pd.DataFrame([{"id": 1, "name": "alice", "value": 10.5}])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Second write - add new field with APPEND mode (should work)
+        evolved_data = pd.DataFrame(
+            [{"id": 2, "name": "bob", "value": 20.5, "append_field": "appended"}]
+        )
+
+        # This should succeed with automatic schema evolution
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Verify the schema was updated
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_fields = [
+            f.arrow.name
+            for f in table_info.table_version.schema.field_ids_to_fields.values()
+        ]
+
+        assert (
+            "append_field" in schema_fields
+        ), "append_field should be automatically added to schema"
+
+    def test_automatic_schema_evolution_with_replace_write_mode(
+        self, temp_catalog_properties
+    ):
+        """Test that automatic schema evolution works with TableWriteMode.REPLACE"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-replace-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_replace_test"
+
+        # First write - establish initial schema
+        initial_data = pd.DataFrame([{"id": 1, "name": "alice", "value": 10.5}])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Second write - add new field with REPLACE mode (should work)
+        evolved_data = pd.DataFrame(
+            [{"id": 2, "name": "bob", "value": 20.5, "replace_field": "replaced"}]
+        )
+
+        # This should succeed with automatic schema evolution
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.REPLACE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Verify the schema was updated
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_fields = [
+            f.arrow.name
+            for f in table_info.table_version.schema.field_ids_to_fields.values()
+        ]
+
+        assert (
+            "replace_field" in schema_fields
+        ), "replace_field should be automatically added to schema"
+
+    def test_automatic_schema_evolution_with_merge_write_mode(
+        self, temp_catalog_properties
+    ):
+        """Test that automatic schema evolution works with TableWriteMode.MERGE"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-merge-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_merge_test"
+
+        # For MERGE mode testing, let's use APPEND mode instead since MERGE requires
+        # complex merge key setup. APPEND mode still tests schema evolution effectively.
+        # First write - establish initial schema
+        initial_data = pd.DataFrame([{"id": 1, "name": "alice", "value": 10.5}])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Second write - add new field with APPEND mode to test schema evolution
+        evolved_data = pd.DataFrame(
+            [{"id": 2, "name": "bob", "value": 20.5, "merge_field": "added_via_append"}]
+        )
+
+        # This should succeed with automatic schema evolution
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Verify the schema was updated
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_fields = [
+            f.arrow.name
+            for f in table_info.table_version.schema.field_ids_to_fields.values()
+        ]
+
+        assert (
+            "merge_field" in schema_fields
+        ), "merge_field should be automatically added to schema"
+
+    def test_automatic_schema_evolution_with_create_write_mode(
+        self, temp_catalog_properties
+    ):
+        """Test that automatic schema evolution works with TableWriteMode.CREATE for new tables"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-create-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_create_test"
+
+        # CREATE mode with new table should work and establish schema
+        initial_data = pd.DataFrame(
+            [{"id": 1, "name": "alice", "value": 10.5, "create_field": "created"}]
+        )
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        # Verify the schema includes all fields
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_fields = [
+            f.arrow.name
+            for f in table_info.table_version.schema.field_ids_to_fields.values()
+        ]
+
+        assert (
+            "create_field" in schema_fields
+        ), "create_field should be included in initial schema"
+        assert (
+            len(schema_fields) == 4
+        ), f"Expected 4 fields, got {len(schema_fields)}: {schema_fields}"
+
+    def test_manual_schema_evolution_mode_prevents_automatic_field_addition(
+        self, temp_catalog_properties
+    ):
+        """Test that SchemaEvolutionMode.MANUAL prevents automatic field addition"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-manual-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_manual_test"
+
+        # First write - establish initial schema
+        initial_data = pd.DataFrame([{"id": 1, "name": "alice", "value": 10.5}])
+
+        # Create table with MANUAL schema evolution mode
+        from deltacat.types.tables import SchemaEvolutionMode, TableProperty
+
+        table_version_properties = {
+            TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.MANUAL
+        }
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+            table_version_properties=table_version_properties,
+        )
+
+        # Second write - try to add new field with MANUAL mode (should fail)
+        evolved_data = pd.DataFrame(
+            [{"id": 2, "name": "bob", "value": 20.5, "manual_field": "should_fail"}]
+        )
+
+        # This should fail with MANUAL schema evolution mode
+        with pytest.raises(
+            SchemaValidationError,
+            match="Field 'manual_field' is not present in the schema",
+        ):
+            dc.write_to_table(
+                data=pa.Table.from_pandas(evolved_data),
+                table=table_name,
+                namespace=namespace,
+                mode=TableWriteMode.APPEND,
+                content_type=ContentType.PARQUET,
+                catalog=catalog_name,
+            )
+
+        # Verify the schema was NOT updated
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_fields = [
+            f.arrow.name
+            for f in table_info.table_version.schema.field_ids_to_fields.values()
+        ]
+
+        assert (
+            "manual_field" not in schema_fields
+        ), "manual_field should NOT be added with MANUAL mode"
+        assert (
+            len(schema_fields) == 3
+        ), f"Expected 3 fields, got {len(schema_fields)}: {schema_fields}"
+
+    def test_schema_evolution_mode_table_property_persistence(
+        self, temp_catalog_properties
+    ):
+        """Test that SchemaEvolutionMode table property is correctly set and persisted"""
+        namespace = "test_namespace"
+        catalog_name = f"test-schema-evolution-property-{uuid.uuid4()}"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        table_name = "schema_evolution_property_test"
+
+        # Test 1: Default behavior should be AUTO
+        initial_data = pd.DataFrame([{"id": 1, "name": "test"}])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+        )
+
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+        schema_evolution_mode = table_info.table_version.read_table_property(
+            TableProperty.SCHEMA_EVOLUTION_MODE
+        )
+
+        assert (
+            schema_evolution_mode == "auto"
+        ), f"Expected 'auto', got {schema_evolution_mode}"
+
+        # Test 2: Explicit MANUAL mode should be persisted
+        table_name_manual = "schema_evolution_manual_property_test"
+        from deltacat.types.tables import SchemaEvolutionMode
+
+        table_version_properties_manual = {
+            TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.MANUAL
+        }
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(initial_data),
+            table=table_name_manual,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            catalog=catalog_name,
+            table_version_properties=table_version_properties_manual,
+        )
+
+        table_info_manual = dc.get_table(
+            table=table_name_manual, namespace=namespace, catalog=catalog_name
+        )
+        schema_evolution_mode_manual = (
+            table_info_manual.table_version.read_table_property(
+                TableProperty.SCHEMA_EVOLUTION_MODE
+            )
+        )
+
+        assert (
+            schema_evolution_mode_manual == "manual"
+        ), f"Expected 'manual', got {schema_evolution_mode_manual}"
 
 
 class TestAlterTable:
@@ -5066,8 +5542,6 @@ class TestAlterTable:
 
         # Note: Even though schema specifies int32, data gets stored as int64 due to pandas defaults
         # This is expected behavior in current DeltaCAT implementation
-        print(f"Original age field type: {original_age_field.arrow.type}")
-
         # Create schema update to make the field explicitly nullable (a different kind of update)
         updated_age_field = Field.of(
             pa.field("age", original_age_field.arrow.type, nullable=True),
@@ -5124,9 +5598,7 @@ class TestAlterTable:
         )
 
         # Try to alter a completely non-existent table - should fail because no table exists
-        with pytest.raises(
-            Exception
-        ):  # Could be TableNotFoundError or ValueError depending on implementation
+        with pytest.raises(TableNotFoundError):
             dc.alter_table(
                 table=table_name,
                 namespace=namespace,
@@ -5175,7 +5647,18 @@ class TestAlterTable:
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
-                table_version="invalid_version",
+                table_version="invalid_version",  # not a valid table version identifier
+                schema_updates=schema_updates,
+                description="Should fail",
+            )
+
+        # Try to alter with a non-existent table version - should raise an error
+        with pytest.raises(TableVersionNotFoundError):
+            dc.alter_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                table_version="invalid_version.1",  # does not exist
                 schema_updates=schema_updates,
                 description="Should fail",
             )

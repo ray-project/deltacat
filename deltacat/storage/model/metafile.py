@@ -22,6 +22,12 @@ from deltacat.constants import (
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
 )
+from deltacat.exceptions import (
+    ObjectNotFoundError,
+    ObjectDeletedError,
+    ObjectAlreadyExistsError,
+    ConcurrentModificationError,
+)
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
 from deltacat.storage.model.types import TransactionOperationType
@@ -74,7 +80,7 @@ class MetafileRevisionInfo(dict):
     ) -> List[MetafileRevisionInfo]:
         if not success_txn_log_dir:
             err_msg = f"No transaction log found for: {revision_dir_path}."
-            raise ValueError(err_msg)
+            raise ObjectNotFoundError(err_msg)
         # find the latest committed revision of the target metafile
         sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=revision_dir_path,
@@ -123,7 +129,7 @@ class MetafileRevisionInfo(dict):
         :param revision_dir_path: root path of directory for metafile
         :param ignore_missing_revision: if True, will return
         MetafileRevisionInfo.undefined() on no revisions
-        :raises ValueError if no revisions are found AND
+        :raises ObjectNotFoundError if no revisions are found AND
         ignore_missing_revision=False
         """
         revisions = MetafileRevisionInfo.list_revisions(
@@ -136,7 +142,7 @@ class MetafileRevisionInfo(dict):
         )
         if not revisions and not ignore_missing_revision:
             err_msg = f"No committed revision found at {revision_dir_path}."
-            raise ValueError(err_msg)
+            raise ObjectNotFoundError(err_msg)
         return revisions[0] if revisions else MetafileRevisionInfo.undefined()
 
     @staticmethod
@@ -197,20 +203,20 @@ class MetafileRevisionInfo(dict):
             # update/delete fails if the last metafile was deleted
             if mri.txn_op_type == TransactionOperationType.DELETE:
                 if current_txn_op_type != TransactionOperationType.CREATE:
-                    raise ValueError(
+                    raise ObjectDeletedError(
                         f"Metafile {current_txn_op_type.value} failed "
                         f"for transaction ID {current_txn_id} failed. "
                         f"Metafile state at {mri.path} is deleted."
                     )
             # create fails unless the last metafile was deleted
             elif is_create_txn:
-                raise ValueError(
+                raise ObjectAlreadyExistsError(
                     f"Metafile creation for transaction ID {current_txn_id} "
                     f"failed. Metafile commit at {mri.path} already exists."
                 )
         elif not is_create_txn:
             # update/delete fails if the last metafile doesn't exist
-            raise ValueError(
+            raise ObjectNotFoundError(
                 f"Metafile {current_txn_op_type.value} failed for "
                 f"transaction ID {current_txn_id} failed. Metafile at "
                 f"{mri.path} does not exist."
@@ -237,7 +243,7 @@ class MetafileRevisionInfo(dict):
         :param current_txn_revision_file_path: Path to a metafile revision
         written by the current transaction to check for conflicts against.
         :param filesystem: Filesystem that can read the metafile revision.
-        :raises RuntimeError: if a conflict is found with another transaction.
+        :raises ConcurrentModificationError: if a conflict is found with another transaction.
         """
         revision_dir_path = posixpath.dirname(current_txn_revision_file_path)
         cur_txn_mri = MetafileRevisionInfo.parse(current_txn_revision_file_path)
@@ -265,7 +271,7 @@ class MetafileRevisionInfo(dict):
                 #  it 1-2 seconds per operation, and record known failed
                 #  transaction IDs)
                 if mri.txn_id > cur_txn_mri.txn_id:
-                    raise RuntimeError(
+                    raise ConcurrentModificationError(
                         f"Aborting transaction {cur_txn_mri.txn_id} due to "
                         f"concurrent conflict at "
                         f"{current_txn_revision_file_path} with transaction "
@@ -291,7 +297,7 @@ class MetafileRevisionInfo(dict):
                 #  that tells future transactions to only consider this txn
                 #  complete if the conflicting txn is not complete, etc.
                 if txn_end_time:
-                    raise RuntimeError(
+                    raise ConcurrentModificationError(
                         f"Aborting transaction {cur_txn_mri.txn_id} due to "
                         f"concurrent conflict at {revision_dir_path} with "
                         f"previously completed transaction {mri.txn_id} at "
@@ -314,7 +320,7 @@ class MetafileRevisionInfo(dict):
                 f"Expected to find at least 1 Metafile at "
                 f"{revision_dir_path} but found none."
             )
-            raise ValueError(err_msg)
+            raise ObjectNotFoundError(err_msg)
         return list(list(zip(*file_paths_and_sizes))[0]) if file_paths_and_sizes else []
 
     @property
@@ -859,10 +865,8 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
-        except ValueError:
+        except ObjectNotFoundError:
             # one or more ancestor's don't exist - return an empty list result
-            # TODO(pdames): Raise and catch a more explicit AncestorNotFound
-            #  error type here.
             return ListResult.empty()
         try:
             locator = (
@@ -886,11 +890,11 @@ class Metafile(dict):
                 if locator
                 else None
             )
-        except ValueError:
-            # the metafile has been deleted
+        except ObjectNotFoundError:
+            # the metafile does not exist
             return ListResult.empty()
         if not immutable_id:
-            # the metafile does not exist
+            # the metafile has been deleted
             return ListResult.empty()
         revision_dir_path = posixpath.join(
             parent_root,
@@ -1034,7 +1038,7 @@ class Metafile(dict):
         Resolves the immutable metafile ID for the given locator.
 
         :return: Immutable ID read from mapping file. None if no mapping exists.
-        :raises: ValueError if the id is found but has been deleted
+        :raises: ObjectNotFoundError if the id is not found.
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:
@@ -1098,7 +1102,7 @@ class Metafile(dict):
             )
             if not ancestor_id:
                 err_msg = f"Ancestor does not exist: {parent_locator}."
-                raise ValueError(err_msg)
+                raise ObjectNotFoundError(err_msg)
             metafile_root = posixpath.join(
                 metafile_root,
                 ancestor_id,
@@ -1109,7 +1113,7 @@ class Metafile(dict):
                     filesystem=filesystem,
                 )
             except FileNotFoundError:
-                raise ValueError(
+                raise ObjectNotFoundError(
                     f"Ancestor {parent_locator} does not exist at: " f"{metafile_root}"
                 )
             ancestor_ids.append(ancestor_id)
@@ -1304,11 +1308,9 @@ class Metafile(dict):
                     filesystem=filesystem,
                 )
                 metafile_write_paths.append(metafile_write_path)
-            except ValueError as e:
-                # TODO(pdames): raise/catch a DuplicateMetafileCreate exception.
-                if "already exists" not in str(e):
-                    raise e
+            except ObjectAlreadyExistsError:
                 # src metafile is being replaced by an existing dest metafile
+                pass
 
         else:
             metafile_write_path = self._write_metafile_revision(

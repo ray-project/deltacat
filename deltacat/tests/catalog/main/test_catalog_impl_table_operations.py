@@ -19,12 +19,12 @@ from deltacat.storage.model.schema import (
 )
 from deltacat.storage.model.types import SchemaConsistencyType
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
-from deltacat.storage.model.table import TableProperties
-from deltacat.storage.model.namespace import NamespaceProperties
 from deltacat.storage.model.types import LifecycleState
 from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableNotFoundError,
+    TableValidationError,
+    SchemaValidationError,
 )
 from deltacat.types.tables import TableWriteMode
 from deltacat.types.media import ContentType
@@ -109,12 +109,10 @@ class TestCatalogTableOperations:
         schema = Schema(arrow=sample_arrow_schema)
 
         # Create table properties
-        table_properties = TableProperties(
-            {"owner": "test-user", "department": "engineering"}
-        )
+        table_properties = {"owner": "test-user", "department": "engineering"}
 
         # Create namespace properties
-        namespace_properties = NamespaceProperties({"description": "Test Namespace"})
+        namespace_properties = {"description": "Test Namespace"}
 
         # Create the table
         table_definition = catalog.create_table(
@@ -401,9 +399,7 @@ class TestCatalogTableOperations:
 
         # Create initial schema and properties
         schema = Schema.of(schema=sample_arrow_schema)
-        initial_properties = TableProperties(
-            {"owner": "original-user", "department": "engineering"}
-        )
+        initial_properties = {"owner": "original-user", "department": "engineering"}
 
         # Create the table with initial properties
         table = catalog.create_table(
@@ -433,9 +429,11 @@ class TestCatalogTableOperations:
         )
 
         # Create updated properties
-        updated_properties = TableProperties(
-            {"owner": "new-user", "department": "data-science", "priority": "high"}
-        )
+        updated_properties = {
+            "owner": "new-user",
+            "department": "data-science",
+            "priority": "high",
+        }
 
         # Alter the table with new properties and schema updates
         catalog.alter_table(
@@ -443,7 +441,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             schema_updates=schema_updates,
             description="Updated description",
-            properties=updated_properties,
+            table_properties=updated_properties,
             inner=catalog_properties,
         )
 
@@ -1045,7 +1043,9 @@ class TestWriteToTable:
         )
 
         # Try to create again should fail
-        with pytest.raises(ValueError, match="already exists and mode is CREATE"):
+        with pytest.raises(
+            TableAlreadyExistsError, match="already exists and mode is CREATE"
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -1084,7 +1084,7 @@ class TestWriteToTable:
         table_name = "test_append_fail"
         data = self._create_test_pandas_data()
 
-        with pytest.raises(ValueError, match="does not exist and mode is"):
+        with pytest.raises(TableNotFoundError, match="does not exist and mode is"):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -1112,7 +1112,7 @@ class TestWriteToTable:
 
         # APPEND mode should fail since table has merge keys
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="APPEND mode cannot be used with tables that have merge keys",
         ):
             catalog.write_to_table(
@@ -1643,7 +1643,7 @@ class TestWriteToTable:
 
         # MERGE mode should fail since table has no merge keys
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="MERGE mode requires tables to have at least one merge key",
         ):
             catalog.write_to_table(

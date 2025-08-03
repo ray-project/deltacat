@@ -13,7 +13,10 @@ import pandas as pd
 import numpy as np
 
 from deltacat.constants import BYTES_PER_KIBIBYTE
-from deltacat.exceptions import SchemaCompatibilityError
+from deltacat.exceptions import (
+    SchemaCompatibilityError,
+    SchemaValidationError,
+)
 from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
@@ -24,10 +27,11 @@ from deltacat.types.tables import (
     to_pyarrow,
     from_pyarrow,
     get_dataset_type,
+    SchemaEvolutionMode,
 )
 
 if TYPE_CHECKING:
-    from deltacat.storage.model.types import SortKey
+    from deltacat.storage.model.sort_key import SortKey
 
 from deltacat import logs
 
@@ -544,7 +548,7 @@ class Field(dict):
         """
         # Check if the data type matches the field type
         if not column_data.type.equals(self.arrow.type):
-            raise ValueError(
+            raise SchemaValidationError(
                 f"Data type mismatch for field '{self.arrow.name}': "
                 f"expected {self.arrow.type}, got {column_data.type}"
             )
@@ -567,7 +571,7 @@ class Field(dict):
         try:
             return pa.compute.cast(column_data, self.arrow.type)
         except (pa.ArrowTypeError, pa.ArrowInvalid) as e:
-            raise ValueError(
+            raise SchemaValidationError(
                 f"Cannot coerce data for field '{self.arrow.name}' "
                 f"from {column_data.type} to {self.arrow.type}: {e}"
             )
@@ -1187,9 +1191,9 @@ class Schema(dict):
     def validate_and_coerce_table(
         self,
         table: pa.Table,
-        schema_evolution_mode: Optional[str] = None,
-        default_schema_consistency_type: Optional["SchemaConsistencyType"] = None,
-    ) -> Tuple[pa.Table, "Schema"]:
+        schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
+        default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
+    ) -> Tuple[pa.Table, Schema]:
         """Validate and coerce a PyArrow table to match this schema's field types and constraints.
 
         This method now uses SchemaUpdate for safe schema evolution, ensuring all field
@@ -1205,7 +1209,7 @@ class Schema(dict):
                                     and the (potentially updated) schema
 
         Raises:
-            ValueError: If validation fails or coercion is not possible
+            SchemaValidationError: If validation fails or coercion is not possible
             SchemaCompatibilityError: If schema evolution would break compatibility
         """
         if not self.field_ids_to_fields:
@@ -1286,7 +1290,7 @@ class Schema(dict):
             Dataset of the same type, coerced to match this schema
 
         Raises:
-            ValueError: If coercion fails
+            SchemaValidationError: If coercion fails
         """
         if not self.field_ids_to_fields:
             # No fields defined in schema, return original dataset
@@ -1677,10 +1681,10 @@ class Schema(dict):
         self,
         column_name: str,
         column_data: pa.Array,
-        field_name_to_field: Dict[str, "Field"],
-        schema_evolution_mode: Optional[str],
-        default_schema_consistency_type: Optional["SchemaConsistencyType"],
-    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
+        field_name_to_field: Dict[str, Field],
+        schema_evolution_mode: Optional[SchemaEvolutionMode],
+        default_schema_consistency_type: Optional[SchemaConsistencyType],
+    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field]]:
         """Process a column that exists in the table.
 
         Returns:
@@ -1762,11 +1766,11 @@ class Schema(dict):
         self,
         column_name: str,
         column_data: pa.Array,
-        schema_evolution_mode: Optional[str],
-        default_schema_consistency_type: Optional["SchemaConsistencyType"],
-    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
+        schema_evolution_mode: Optional[SchemaEvolutionMode],
+        default_schema_consistency_type: Optional[SchemaConsistencyType],
+    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field]]:
         """Handle a field that's not in the schema."""
-        if schema_evolution_mode == "AUTO":
+        if schema_evolution_mode == SchemaEvolutionMode.AUTO:
             # Create new field with default consistency type
             next_field_id = self.max_field_id + 1
             new_field = Field.of(
@@ -1778,7 +1782,9 @@ class Schema(dict):
             return column_data, new_field.arrow, None, new_field
         else:
             # MANUAL mode or not specified - raise error
-            raise ValueError(f"Field '{column_name}' is not present in the schema")
+            raise SchemaValidationError(
+                f"Field '{column_name}' is not present in the schema"
+            )
 
     def _add_missing_schema_fields(
         self,
@@ -1793,7 +1799,7 @@ class Schema(dict):
                 consistency_type = field.consistency_type
 
                 if consistency_type == SchemaConsistencyType.VALIDATE:
-                    raise ValueError(
+                    raise SchemaValidationError(
                         f"Field '{field.arrow.name}' is required but not present in the data"
                     )
                 elif consistency_type == SchemaConsistencyType.COERCE:
@@ -1813,7 +1819,7 @@ class Schema(dict):
                         new_columns.append(null_column)
                     else:
                         # Field is not nullable and no future_default - error
-                        raise ValueError(
+                        raise SchemaValidationError(
                             f"Field '{field.arrow.name}' is required (not nullable) but not present in the data and no future_default is set"
                         )
                     new_schema_fields.append(field.arrow)

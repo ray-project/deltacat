@@ -18,6 +18,10 @@ from deltacat.exceptions import (
     StreamNotFoundError,
     TableAlreadyExistsError,
     TableVersionNotFoundError,
+    TableNotFoundError,
+    TableVersionAlreadyExistsError,
+    TableValidationError,
+    SchemaValidationError,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
 from deltacat.storage.model.sort_key import SortScheme
@@ -56,6 +60,7 @@ from deltacat.types.media import (
     StorageType,
 )
 from deltacat.types.tables import (
+    SchemaEvolutionMode,
     TableProperty,
     TableReadOptimizationLevel,
     TableWriteMode,
@@ -121,13 +126,15 @@ def _validate_write_mode_and_table_existence(
     logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
 
     if mode == TableWriteMode.CREATE and table_exists_flag:
-        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
+        raise ValueError(
+            f"Table {namespace}.{table} already exists and mode is CREATE."
+        )
     elif (
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(
-            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}"
+        raise TableNotFoundError(
+            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}. Use CREATE or AUTO mode to create a new table."
         )
 
     return table_exists_flag
@@ -155,12 +162,14 @@ def _validate_write_mode_and_table_version_existence(
 
     # Validate table existence constraints
     if mode == TableWriteMode.CREATE and table_exists_flag and table_version is None:
-        raise ValueError(f"Table {namespace}.{table} already exists and mode is CREATE")
+        raise TableAlreadyExistsError(
+            f"Table {namespace}.{table} already exists and mode is CREATE"
+        )
     elif (
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
         and not table_exists_flag
     ):
-        raise ValueError(
+        raise TableNotFoundError(
             f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}"
         )
 
@@ -175,7 +184,7 @@ def _validate_write_mode_and_table_version_existence(
                 **kwargs,
             )
             table_version_exists_flag = existing_table_def is not None
-        except (TableVersionNotFoundError, Exception):
+        except (TableVersionNotFoundError, TableNotFoundError, StreamNotFoundError):
             table_version_exists_flag = False
 
         logger.info(
@@ -184,7 +193,7 @@ def _validate_write_mode_and_table_version_existence(
 
         # Validate table version constraints
         if mode == TableWriteMode.CREATE and table_version_exists_flag:
-            raise ValueError(
+            raise TableVersionAlreadyExistsError(
                 f"Table version {namespace}.{table}.{table_version} already exists and mode is CREATE"
             )
 
@@ -228,8 +237,8 @@ def _get_or_create_table_and_version(
             )
         else:
             # Table exists but version doesn't - create new version if allowed
-            if mode == TableWriteMode.CREATE:
-                # For CREATE mode, we want to create a new table version
+            if mode in (TableWriteMode.CREATE, TableWriteMode.AUTO):
+                # For CREATE/AUTO mode, we want to create a new table version
                 if "schema" not in kwargs:
                     kwargs["schema"] = infer_table_schema(data)
 
@@ -245,7 +254,8 @@ def _get_or_create_table_and_version(
                     schema=kwargs.get("schema"),
                     partition_scheme=kwargs.get("partition_scheme"),
                     sort_keys=kwargs.get("sort_keys"),
-                    table_version_description=kwargs.get("description"),
+                    table_version_description=kwargs.get("table_version_description"),
+                    table_version_properties=kwargs.get("table_version_properties"),
                     table_description=kwargs.get("description"),
                     table_properties=kwargs.get("table_properties"),
                     lifecycle_state=kwargs.get(
@@ -273,9 +283,9 @@ def _get_or_create_table_and_version(
                     stream=stream,
                 )
             else:
-                raise ValueError(
+                raise TableVersionNotFoundError(
                     f"Table version {namespace}.{table}.{table_version} does not exist. "
-                    f"Use CREATE mode to create a new table version or omit table_version "
+                    f"Use CREATE or AUTO mode to create a new table version, or omit table_version "
                     f"to use the latest version."
                 )
     else:
@@ -544,7 +554,7 @@ def _handle_append_mode(
 ) -> Tuple[Any, DeltaType]:
     """Handle APPEND mode by validating no merge keys and getting existing stream."""
     if table_schema and table_schema.merge_keys:
-        raise ValueError(
+        raise SchemaValidationError(
             f"APPEND mode cannot be used with tables that have merge keys. "
             f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
             f"Use MERGE mode instead."
@@ -569,10 +579,10 @@ def _handle_merge_delete_mode(
 ) -> Tuple[Any, DeltaType]:
     """Handle MERGE/DELETE modes by validating merge keys and getting existing stream."""
     if not table_schema or not table_schema.merge_keys:
-        raise ValueError(
+        raise TableValidationError(
             f"{mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()} mode requires tables to have at least one merge key. "
-            f"Table {namespace}.{table} has no merge keys. "
-            f"Use APPEND mode instead or specify merge keys in the schema."
+            f"Table {namespace}.{table}.{table_version_obj.table_version} has no merge keys. "
+            f"Use APPEND, AUTO, or REPLACE mode instead."
         )
 
     stream = _get_table_stream(
@@ -710,7 +720,7 @@ def _convert_data_if_needed(data: Dataset) -> Dataset:
 def _validate_and_coerce_data_against_schema(
     data: Dataset,
     schema: Optional[Schema],
-    schema_evolution_mode: Optional[str] = None,
+    schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
     default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
 ) -> Tuple[Dataset, bool, Optional[Schema]]:
     """Validate and coerce data against the table schema if schema consistency types are set.
@@ -1508,12 +1518,12 @@ def alter_table(
     sort_key_updates: Optional[SortScheme] = None,
     description: Optional[str] = None,
     table_version_description: Optional[str] = None,
-    properties: Optional[TableProperties] = None,
+    table_properties: Optional[TableProperties] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
-    """Alter DeltaCAT table/table_version definition.
+    """Alter deltacat table/table_version definition.
 
     Modifies various aspects of a table's metadata including lifecycle state,
     schema, partitioning, sort keys, description, and properties.
@@ -1521,14 +1531,14 @@ def alter_table(
     Args:
         table: Name of the table to alter.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
-        table_version: Optional version of the table to alter. Uses latest active version if not specified.
-        lifecycle_state: New lifecycle state for the table version.
-        schema_updates: List of schema update operations to apply (add, remove, update fields).
+        table_version: Optional specific version of the table to alter. Defaults to the latest active version.
+        lifecycle_state: New lifecycle state for the table.
+        schema_updates: Map of schema updates to apply.
         partition_updates: Map of partition scheme updates to apply.
-        sort_key_updates: New sort  scheme updates to apply.
+        sort_key_updates: New sort keys scheme.
         description: New description for the table.
-        table_version_description: New table version description.
-        properties: New table properties.
+        table_version_description: New description for the table version.
+        table_properties: New table properties.
         table_version_properties: New table version properties.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
@@ -1556,7 +1566,7 @@ def alter_table(
             namespace=namespace,
             table_name=table,
             description=description,
-            properties=properties,
+            properties=table_properties,
             **kwargs,
         )
 
@@ -1639,7 +1649,9 @@ def create_table(
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
     description: Optional[str] = None,
+    table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
+    table_version_properties: Optional[TableVersionProperties] = None,
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
@@ -1651,7 +1663,6 @@ def create_table(
     If a namespace isn't provided, the table will be created within the default deltacat namespace.
     Additionally if the provided namespace does not exist, it will be created for you.
 
-
     Args:
         table: Name of the table to create.
         namespace: Optional namespace for the table. Uses default namespace if not specified.
@@ -1661,7 +1672,9 @@ def create_table(
         partition_scheme: Optional partitioning scheme for the table.
         sort_keys: Optional sort keys for the table.
         description: Optional description of the table.
+        table_version_description: Optional description for the table version.
         table_properties: Optional properties for the table.
+        table_version_properties: Optional properties for the table version.
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
@@ -1715,9 +1728,14 @@ def create_table(
             schema=schema,
             partition_scheme=partition_scheme,
             sort_keys=sort_keys,
-            table_version_description=description,
+            table_version_description=table_version_description
+            if table_version_description is not None
+            else description,
             table_description=description,
             table_properties=table_properties,
+            table_version_properties=table_version_properties
+            if table_version_properties is not None
+            else table_properties,
             lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
             supported_content_types=content_types,
             *args,
@@ -1810,12 +1828,21 @@ def drop_table(
             drop_transaction.seal()
 
 
-def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) -> None:
+def refresh_table(
+    table: str,
+    *args,
+    namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
+) -> None:
     """Refresh metadata cached on the Ray cluster for the given table.
 
     Args:
         table: Name of the table to refresh.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        table_version: Optional specific version of the table to refresh.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         None
@@ -1826,6 +1853,7 @@ def refresh_table(table: str, *args, namespace: Optional[str] = None, **kwargs) 
 def list_tables(
     *args,
     namespace: Optional[str] = None,
+    table: Optional[str] = None,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> ListResult[TableDefinition]:
@@ -1833,6 +1861,7 @@ def list_tables(
 
     Args:
         namespace: Optional namespace to list tables from. Uses default namespace if not specified.
+        table: Optional table to list its table versions. If not specified, lists the latest active version of each table in the namespace.
         transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
 
     Returns:
@@ -1845,13 +1874,33 @@ def list_tables(
     kwargs["transaction"] = list_transaction
 
     try:
-        tables = _get_storage(**kwargs).list_tables(
-            *args, namespace=namespace, **kwargs
-        )
-        table_definitions = [
-            get_table(*args, table.table_name, namespace=namespace, **kwargs)
-            for table in tables.all_items()
-        ]
+        if not table:
+            tables = _get_storage(**kwargs).list_tables(
+                namespace=namespace,
+                *args,
+                **kwargs,
+            )
+            table_definitions = [
+                get_table(table.table_name, namespace=namespace, *args, **kwargs)
+                for table in tables.all_items()
+            ]
+        else:
+            table_versions = _get_storage(**kwargs).list_table_versions(
+                namespace=namespace,
+                table_name=table,
+                *args,
+                **kwargs,
+            )
+            table_definitions = [
+                get_table(
+                    table,
+                    namespace=namespace,
+                    table_version=table_version.id,
+                    *args,
+                    **kwargs,
+                )
+                for table_version in table_versions.all_items()
+            ]
 
         result = ListResult(items=table_definitions)
 
@@ -1880,19 +1929,17 @@ def get_table(
     """Get table definition metadata.
 
     Args:
-        table: Name of the table to retrieve.
+        name: Name of the table to retrieve.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
-        table_version: Optional specific version of the table to retrieve.
-            If not specified, the latest version is used.
-        stream_format: Optional stream format to retrieve. Uses the default Deltacat stream
-            format if not specified.
-        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
+        table_version: Optional specific version of the table to retrieve. Defaults to the latest active version.
+        stream_format: Optional stream format to retrieve. Defaults to DELTACAT.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         Deltacat TableDefinition if the table exists, None otherwise.
 
     Raises:
-        TableVersionNotFoundError: If the table version or latest active table version does not exist.
+        TableVersionNotFoundError: If the table version does not exist.
         StreamNotFoundError: If the stream does not exist.
     """
     namespace = namespace or default_namespace()
@@ -1964,6 +2011,7 @@ def truncate_table(
     table: str,
     *args,
     namespace: Optional[str] = None,
+    table_version: Optional[str] = None,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
@@ -1972,6 +2020,7 @@ def truncate_table(
     Args:
         table: Name of the table to truncate.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
+        table_version: Optional specific version of the table to truncate. Defaults to the latest active version.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -2042,9 +2091,9 @@ def table_exists(
     Args:
         table: Name of the table to check.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
-        table_version: Optional specific version of the table to check.
-            If not specified, the latest version is used.
-        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
+        table_version: Optional specific version of the table to check. Defaults to the latest active version.
+        stream_format: Optional stream format to check. Defaults to DELTACAT.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         True if the table exists, False otherwise.
@@ -2095,12 +2144,14 @@ def table_exists(
 
 
 def list_namespaces(
-    *args, transaction: Optional[Transaction] = None, **kwargs
+    *args,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
 ) -> ListResult[Namespace]:
     """List a page of table namespaces.
 
     Args:
-        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         ListResult containing Namespace objects.
@@ -2135,7 +2186,7 @@ def get_namespace(
 
     Args:
         namespace: Name of the namespace to retrieve.
-        transaction: Optional transaction to use for reading. If provided, will see uncommitted changes.
+        transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
         Namespace object if the namespace exists, None otherwise.
@@ -2337,9 +2388,9 @@ def default_namespace(*args, **kwargs) -> str:
     """Return the default namespace for the catalog.
 
     Returns:
-        String name of the default namespace.
+        Name of the default namespace.
     """
-    return DEFAULT_NAMESPACE  # table functions
+    return DEFAULT_NAMESPACE
 
 
 def _get_latest_active_or_given_table_version(
