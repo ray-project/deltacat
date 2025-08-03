@@ -1946,28 +1946,6 @@ def get_stream(
         *args,
         **kwargs,
     )
-
-    # If stream not found and we have a table version, try alternative approaches
-    # to handle the case where table was renamed
-    if stream is None:
-        # Try to find streams by looking in the table version's children directly
-        # This bypasses the table name resolution issue
-        try:
-            streams = list_streams(
-                namespace=namespace,
-                table_name=table_name,
-                table_version=table_version,
-                transaction=transaction,
-                *args,
-                **kwargs,
-            )
-            # Find the stream with the desired format
-            for candidate_stream in streams.all_items():
-                if candidate_stream.stream_format == stream_format:
-                    stream = candidate_stream
-                    break
-        except TableVersionNotFoundError:
-            stream = None
     if commit_transaction:
         transaction.seal()
     return stream
@@ -2017,28 +1995,6 @@ def stream_exists(
         *args,
         **kwargs,
     )
-
-    # If not found and we have a table version, try alternative approaches
-    # to handle the case where table was renamed
-    if not exists:
-        # Try to find streams by looking in the table version's children directly
-        # This bypasses the table name resolution issue
-        try:
-            streams = list_streams(
-                namespace=namespace,
-                table_name=table_name,
-                table_version=table_version,
-                transaction=transaction,
-                *args,
-                **kwargs,
-            )
-            # Find the stream with the desired format
-            for candidate_stream in streams.all_items():
-                if candidate_stream.stream_format == stream_format:
-                    exists = True
-                    break
-        except TableVersionNotFoundError:
-            exists = False
     if commit_transaction:
         transaction.seal()
     return exists

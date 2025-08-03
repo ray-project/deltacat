@@ -90,29 +90,23 @@ class Locator:
     def canonical_string(self, separator: str = DEFAULT_NAME_SEPARATOR) -> str:
         """
         Returns a unique string for the given locator that can be used
-        for equality checks (i.e. two locators are equal if they have
-        the same canonical string).
+        for equality checks between objects with the same parent.
         """
-        parts = []
-        parent_hexdigest = self.parent.hexdigest() if self.parent else None
-        if parent_hexdigest:
-            parts.append(parent_hexdigest)
-        parts.extend(self.name.parts())
-        return separator.join([str(part) for part in parts])
+        return separator.join([str(part) for part in self.name.parts()])
 
     def digest(self) -> bytes:
         """
         Return a digest of the given locator that can be used for
-        equality checks (i.e. two locators are equal if they have the
-        same digest) and uniform random hash distribution.
+        equality checks between objects with the same parent and uniform
+        random hash distribution.
         """
         return sha1_digest(self.canonical_string().encode("utf-8"))
 
     def hexdigest(self) -> str:
         """
         Returns a hexdigest of the given locator suitable
-        for use in equality (i.e. two locators are equal if they have the same
-        hexdigest) and inclusion in URLs.
+        equality checks between objects with the same parent and
+        inclusion in URLs.
         """
         return sha1_hexdigest(self.canonical_string().encode("utf-8"))
 

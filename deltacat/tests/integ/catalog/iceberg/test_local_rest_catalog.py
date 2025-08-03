@@ -29,7 +29,6 @@ from deltacat.experimental.storage.iceberg.model import (
     SortSchemeMapper,
     TableLocatorMapper,
 )
-from deltacat.utils.common import sha1_hexdigest
 
 logger = logs.configure_application_logger(logging.getLogger(__name__))
 
@@ -168,14 +167,10 @@ def test_create_table(
     assert table_definition
     assert table_definition.table.table_name == table_name
     assert table_definition.table.namespace == f"{catalog_name}.{namespace}"
-    namespace_digest = sha1_hexdigest(
-        table_definition.table.namespace_locator.canonical_string().encode("utf-8")
-    )
     iceberg_table = catalog.load_table(
         TableLocatorMapper.unmap(table_definition.table.locator, catalog.name)
     )
     assert table_definition.table.native_object == iceberg_table
     assert (
-        table_definition.table.locator.canonical_string()
-        == f"{namespace_digest}|{table_name}"
+        table_definition.table.locator.canonical_string() == table_name
     )

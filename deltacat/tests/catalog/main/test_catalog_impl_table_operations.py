@@ -265,6 +265,44 @@ class TestCatalogTableOperations:
                 inner=catalog_properties,
             )
 
+    def test_rename_namespace(self, test_namespace):
+        namespace_name, catalog_properties = test_namespace
+        original_name = "test_original_table"
+        new_name = "test_renamed_namespace"
+
+        # Create the table with original name
+        catalog.create_table(
+            table=original_name,
+            namespace=namespace_name,
+            description="Table to in namespace to be renamed",
+            inner=catalog_properties,
+        )
+
+        # Verify original table exists
+        assert catalog.table_exists(
+            original_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+
+        # Rename the namespace
+        catalog.alter_namespace(
+            namespace=namespace_name,
+            new_namespace=new_name,
+            inner=catalog_properties,
+        )
+
+        # Verify new namespace exists and old namespace doesn't
+        assert catalog.namespace_exists(new_name, inner=catalog_properties)
+        assert not catalog.namespace_exists(namespace_name, inner=catalog_properties)
+
+        # Verify we can still discover the table in the new namespace
+        assert catalog.table_exists(
+            original_name,
+            namespace=new_name,
+            inner=catalog_properties,
+        )
+
     def test_rename_table(self, test_namespace):
         namespace_name, catalog_properties = test_namespace
         original_name = "test_original_table"

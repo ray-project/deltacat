@@ -363,7 +363,7 @@ def test_compact_partition_incremental_main(
             == destination_partition_locator.partition_values
             and source_partition.locator.stream_id
             == destination_partition_locator.stream_id
-        ), f"The source partition: {source_partition.locator.canonical_string} should match the destination partition: {destination_partition_locator.canonical_string}"
+        ), f"The source partition: {source_partition.locator} should match the destination partition: {destination_partition_locator}"
         assert (
             compacted_delta_locator.stream_id == source_partition.locator.stream_id
         ), "The compacted delta should be in the same stream as the source"
