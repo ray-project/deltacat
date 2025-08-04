@@ -57,10 +57,16 @@ class CompactPartitionParams(dict):
         assert params.get("catalog") is not None, "catalog is a required arg"
 
         result = CompactPartitionParams(params)
-        assert result.destination_partition_locator.partition_id, "destination_partition_locator must have a globally unique partition_id"
-        assert result.source_partition_locator.partition_id, "source_partition_locator must have a globally unique partition_id"
+        assert (
+            result.destination_partition_locator.partition_id
+        ), "destination_partition_locator must have a globally unique partition_id"
+        assert (
+            result.source_partition_locator.partition_id
+        ), "source_partition_locator must have a globally unique partition_id"
         if result.rebase_source_partition_locator:
-            assert result.rebase_source_partition_locator.partition_id, "rebase_source_partition_locator must have a globally unique partition_id"
+            assert (
+                result.rebase_source_partition_locator.partition_id
+            ), "rebase_source_partition_locator must have a globally unique partition_id"
 
         result.records_per_compacted_file = params.get(
             "records_per_compacted_file", MAX_RECORDS_PER_COMPACTED_FILE

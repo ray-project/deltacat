@@ -378,7 +378,7 @@ class DeltaLocator(Locator, dict):
                 partition_values,
                 partition_id,
             )
-            if partition_values and partition_id
+            if partition_id or partition_values is not None
             else None
         )
         return DeltaLocator.of(

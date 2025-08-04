@@ -40,9 +40,10 @@ class TestDeltaCAT:
             DeltaCatUrl("dc://test_catalog_2/test_namespace"),
         )
         # Expect the catalog namespace created in each catalog
-        # method to be equivalent and equal to the source namespace.
+        # method to be equivalent but not equal to the source namespace
+        # (due to different metafile IDs).
         assert namespace_src.equivalent_to(namespace_dst)
-        assert namespace_src == namespace_dst
+        assert not namespace_src == namespace_dst
 
         # When each catalog namespace is fetched explicitly
         # Expect them to be equivalent but not equal
@@ -50,7 +51,9 @@ class TestDeltaCAT:
         actual_namespace_src = dc.get(DeltaCatUrl("dc://test_catalog_1/test_namespace"))
         actual_namespace_dst = dc.get(DeltaCatUrl("dc://test_catalog_2/test_namespace"))
         assert actual_namespace_src.equivalent_to(actual_namespace_dst)
+        assert actual_namespace_src == namespace_src
         assert not actual_namespace_src == actual_namespace_dst
+        assert namespace_dst == actual_namespace_dst
 
     def test_catalog_listing_shallow_local_metafiles(self):
         # Given two empty DeltaCAT catalogs.

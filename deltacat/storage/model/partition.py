@@ -394,7 +394,7 @@ class PartitionLocator(Locator, dict):
                 stream_id,
                 stream_format,
             )
-            if stream_id and stream_format
+            if stream_format or stream_id
             else None
         )
         return PartitionLocator.of(

@@ -753,7 +753,7 @@ class DeltaCatUrl:
             ):
                 self.stream = StreamFormat.DELTACAT
             else:
-                self.stream = StreamFormat(self.stream)
+                self.stream = StreamFormat(self.unresolved_stream)
 
     def __str__(self):
         return self.url
@@ -1108,7 +1108,9 @@ def _stage_and_commit_partition(
         namespace=partition.namespace,
         table_name=partition.table_name,
         table_version=partition.table_version,
-        stream_format=StreamFormat(partition.stream_format),
+        stream_format=StreamFormat(partition.stream_format or StreamFormat.DELTACAT.value),
+        *args,
+        **kwargs,
     )
     partition = metastore.stage_partition(
         stream=stream,
@@ -1133,6 +1135,7 @@ class DeltaCatUrlWriter:
     ):
         self._url = url
         self._metafile = metafile
+
         if url.is_deltacat_catalog_url():
             if url.path_elements:
                 url.resolve_catalog()
@@ -1201,6 +1204,7 @@ class DeltaCatUrlWriter:
                 stream_id=None,
                 stream_format=url.stream,
                 partition_values=json.loads(url.partition),
+                partition_id=None,
             )
             return functools.partial(
                 _stage_and_commit_partition,

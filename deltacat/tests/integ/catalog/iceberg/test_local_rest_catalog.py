@@ -171,6 +171,4 @@ def test_create_table(
         TableLocatorMapper.unmap(table_definition.table.locator, catalog.name)
     )
     assert table_definition.table.native_object == iceberg_table
-    assert (
-        table_definition.table.locator.canonical_string() == table_name
-    )
+    assert table_definition.table.locator.canonical_string() == table_name

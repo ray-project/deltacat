@@ -315,7 +315,7 @@ def put(
     *args,
     **kwargs,
 ) -> Union[Metafile, str]:
-    writer = DeltaCatUrlWriter(url, metafile)
+    writer = DeltaCatUrlWriter(url, metafile=metafile)
     return writer.write(*args, **kwargs)
 
 
