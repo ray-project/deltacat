@@ -178,6 +178,9 @@ class Stream(Metafile):
             return stream_locator.table_version
         return None
 
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/" if catalog_name else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/"
+
     def to_serializable(self) -> Stream:
         serializable = self
         if serializable.table_locator:

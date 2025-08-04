@@ -269,10 +269,12 @@ def _validate_partition_values_against_scheme(
         schema: The schema containing the field types to validate against
 
     Raises:
-        SchemaValidationError: If validation fails
+        TableValidationError: If validation fails
     """
     if not partition_values:
-        return
+        raise TableValidationError(
+            "Partition values cannot be empty"
+        )
 
     if not schema:
         raise TableValidationError(
@@ -2343,12 +2345,7 @@ def get_partition(
     Raises an error if the given stream locator does not exist.
     """
     transaction, commit_transaction = setup_transaction(transaction, **kwargs)
-    locator = PartitionLocator.of(
-        stream_locator=stream_locator,
-        partition_values=partition_values,
-        partition_id=None,
-    )
-    if not partition_scheme_id:
+    if not partition_scheme_id or not stream_locator.stream_id:
         # resolve latest partition scheme from the current
         # revision of its `deltacat` stream
         stream = get_stream(
@@ -2362,6 +2359,13 @@ def get_partition(
         if not stream:
             raise StreamNotFoundError(f"Stream {stream_locator} not found.")
         partition_scheme_id = stream.partition_scheme.id
+        # ensure that we always use a fully qualified stream locator
+        stream_locator = stream.locator
+    locator = PartitionLocator.of(
+        stream_locator=stream_locator,
+        partition_values=partition_values,
+        partition_id=None,
+    )
     partition = _latest(
         metafile=Partition.of(
             locator=locator,
@@ -2538,17 +2542,28 @@ def commit_delta(
     delta.type = resolved_delta_type
     delta.properties = kwargs.get("properties") or delta.properties
 
-    parent_partition = get_partition_by_id(
-        stream_locator=delta.stream_locator,
-        partition_id=delta.partition_id,
-        transaction=transaction,
-        *args,
-        **kwargs,
-    )
+    if delta.partition_id:
+        parent_partition = get_partition_by_id(
+            stream_locator=delta.stream_locator,
+            partition_id=delta.partition_id,
+            transaction=transaction,
+            *args,
+            **kwargs,
+        )
+    else:
+        parent_partition = get_partition(
+            stream_locator=delta.stream_locator,
+            partition_values=delta.partition_values,
+            transaction=transaction,
+            *args,
+            **kwargs,
+        )
     if not parent_partition:
         raise PartitionNotFoundError(
-            f"Partition not found: {delta.stream_locator} {delta.partition_id}"
+            f"Partition not found: {delta.locator}"
         )
+    # ensure that we always use a fully qualified partition locator
+    delta.locator.partition_locator = parent_partition.locator
     # resolve the delta's stream position
     delta.previous_stream_position = parent_partition.stream_position or 0
     if delta.stream_position is not None:

@@ -1,6 +1,7 @@
 import time
 from dataclasses import dataclass
 from typing import Any, Union, List, Optional, Dict, Callable, Tuple
+import logging
 
 import ray
 import deltacat as dc
@@ -15,6 +16,12 @@ from deltacat.io import (
     DeltacatReadType,
 )
 from deltacat.storage import (
+    Namespace,
+    Table,
+    TableVersion,
+    Stream,
+    Partition,
+    Delta,
     Dataset,
     DistributedDataset,
     ListResult,
@@ -44,6 +51,9 @@ from deltacat.utils.ray_utils.runtime import (
     other_live_node_resource_keys,
     find_max_single_node_resource_type,
 )
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 """
     # CLI Example of Copying from Source to Dest without file conversion
@@ -70,38 +80,6 @@ from deltacat.utils.ray_utils.runtime import (
     # Or, equivalently, we can do the write directly from the dataset:
     >>> ds.write_deltacat("dc://my_deltacat_catalog/log_manager/", type=ContentType.FEATHER)
 """
-
-
-def _copy_dc(
-    source: DeltaCatUrl,
-    destination: DeltaCatUrl,
-    recursive: bool = False,
-) -> Metafile:
-    if recursive:
-        src_obj = list(source, recursive=True)
-    else:
-        src_obj = get(source) if not source.url.endswith("/*") else list(source)
-    """
-    dc_dest_url = DeltacatUrl(destination)
-    # TODO(pdames): Add writer with support for Ray Dataset DeltaCAT Sink &
-    #  Recursive DeltaCAT source object copies. Ideally, the Ray Dataset read
-    #  is lazy, and only indexes metadata about the objects at source instead
-    #  of eagerly converting them to PyArrow-based Blocks.
-    dc_dest_url.writer(src_obj, recursive=recursive)
-    """
-
-    src_parts = source.url.split("/")
-    src_parts = [part for part in src_parts if part]
-    dst_parts = destination.url.split("/")
-    dst_parts = [part for part in dst_parts if part]
-    dc.raise_if_not_initialized()
-    if len(src_parts) != len(dst_parts):
-        # TODO(pdames): Better error message.
-        raise ValueError(
-            f"Cannot copy {source} to {destination}. "
-            f"Source and destination must share the same type."
-        )
-    return put(destination, metafile=src_obj)
 
 
 def copy(
@@ -188,6 +166,74 @@ def copy(
             writer_args=writer_args,
             filesystem=filesystem,
         )
+
+
+def _copy_dc(
+    source: DeltaCatUrl,
+    destination: DeltaCatUrl,
+    recursive: bool = False,
+) -> Union[Metafile, List[Metafile]]:
+    if recursive:
+        # Strip /** from source URL for listing - the /** pattern should not be passed to list()
+        # since it's interpreted as a literal namespace name rather than a glob pattern
+        clean_source_url_str = source.url.rstrip("/**")
+        clean_source_url = DeltaCatUrl(clean_source_url_str)
+        src_objects = list(clean_source_url, recursive=True)
+
+        # Strip /** from destination URL for destination construction
+        clean_dest_url_str = destination.url.rstrip("/**")
+        clean_dest_url = DeltaCatUrl(clean_dest_url_str)
+        catalog_name = clean_dest_url.catalog_name
+
+        copied_results = []
+
+        # Group objects by type for hierarchical copying
+        # Copy objects in strict hierarchical order
+        # Namespace -> TableVersion -> Stream -> Partition -> Delta
+        ordered_objects_by_type = {
+            Namespace: [],
+            Table: [],
+            TableVersion: [],
+            Stream: [],
+            Partition: [],
+            Delta: [],
+        }
+
+        for obj in src_objects:
+            obj_class = Metafile.get_class(obj.to_serializable())
+            ordered_objects_by_type[obj_class].append(obj)
+
+        for obj_class, objects in ordered_objects_by_type.items():
+            if objects:
+                logger.info(f"Copying {len(objects)} {obj_class} objects...")
+            if obj_class == Delta:
+                # sort deltas by ascending stream position
+                objects.sort(key=lambda x: x.stream_position)
+            for obj in objects:
+                # Skip Table objects to avoid duplicate create_table_version calls
+                # (TableVersion creation automatically creates parent Table objects)
+                if obj_class != Table:
+                    print(f"object: {obj}")
+                    dest_url = DeltaCatUrl(obj.url(catalog_name=catalog_name))
+                    result = put(dest_url, metafile=obj)
+                    copied_results.append(result)
+        return copied_results if copied_results else []
+
+    # Non-recursive case 
+    src_obj = get(source) if not source.url.endswith("/*") else list(source)
+
+    src_parts = source.url.split("/")
+    src_parts = [part for part in src_parts if part]
+    dst_parts = destination.url.split("/")
+    dst_parts = [part for part in dst_parts if part]
+    dc.raise_if_not_initialized()
+    if len(src_parts) != len(dst_parts):
+        # TODO(pdames): Better error message.
+        raise ValueError(
+            f"Cannot copy {source} to {destination}. "
+            f"Source and destination must share the same type."
+        )
+    return put(destination, metafile=src_obj)
 
 
 def concat(source, destination):
@@ -367,7 +413,7 @@ def _copy_external_ray(
     writer_args: Dict[str, Any] = {},
     filesystem: pafs.FileSystem = None,
 ) -> str:
-    print(f"DeltaCAT Copy Invocation Received at: {time.time_ns()}")
+    logger.info(f"DeltaCAT Copy Invocation Received at: {time.time_ns()}")
 
     if not isinstance(src, DeltaCatUrl):
         raise ValueError(f"Expected `src` to be a `DeltaCatUrl` but got `{src}`.")
@@ -375,30 +421,30 @@ def _copy_external_ray(
     #  wait for required resources
     head_cpu_count = int(current_node_resources()["CPU"])
     if minimum_worker_cpus > 0:
-        print(f"Waiting for {minimum_worker_cpus} worker CPUs...")
+        logger.info(f"Waiting for {minimum_worker_cpus} worker CPUs...")
         live_cpu_waiter(
             min_live_cpus=minimum_worker_cpus + head_cpu_count,
         )
-        print(f"{minimum_worker_cpus} worker CPUs found!")
+        logger.info(f"{minimum_worker_cpus} worker CPUs found!")
     # start job execution
     cluster_resources = ray.cluster_resources()
-    print(f"Cluster Resources: {cluster_resources}")
-    print(f"Available Cluster Resources: {ray.available_resources()}")
+    logger.info(f"Cluster Resources: {cluster_resources}")
+    logger.info(f"Available Cluster Resources: {ray.available_resources()}")
     cluster_cpus = int(cluster_resources["CPU"])
-    print(f"Cluster CPUs: {cluster_cpus}")
+    logger.info(f"Cluster CPUs: {cluster_cpus}")
     all_node_resource_keys = live_node_resource_keys()
-    print(f"Found {len(all_node_resource_keys)} live nodes: {all_node_resource_keys}")
+    logger.info(f"Found {len(all_node_resource_keys)} live nodes: {all_node_resource_keys}")
     worker_node_resource_keys = other_live_node_resource_keys()
-    print(
+    logger.info(
         f"Found {len(worker_node_resource_keys)} live worker nodes: {worker_node_resource_keys}"
     )
     worker_cpu_count = cluster_cpus - head_cpu_count
-    print(f"Total worker CPUs: {worker_cpu_count}")
+    logger.info(f"Total worker CPUs: {worker_cpu_count}")
 
     # estimate memory requirements based on file extension
     estimated_memory_bytes = 0
     if extension_to_memory_multiplier:
-        print(f"Resolving stats collection filesystem for: {src.url_path}.")
+        logger.info(f"Resolving stats collection filesystem for: {src.url_path}.")
         path, filesystem = resolve_path_and_filesystem(src.url_path, filesystem)
         if isinstance(filesystem, pafs.GcsFileSystem):
             from datetime import timedelta
@@ -410,7 +456,7 @@ def _copy_external_ray(
                 anonymous=True,
                 retry_time_limit=timedelta(seconds=10),
             )
-        print(f"Using filesystem {type(filesystem)} to get file size of: {path}")
+        logger.info(f"Using filesystem {type(filesystem)} to get file size of: {path}")
         file_info = get_file_info(path, filesystem)
         if file_info.type != FileType.File:
             raise ValueError(
@@ -421,11 +467,11 @@ def _copy_external_ray(
         if inflation_multiplier is None:
             inflation_multiplier = extension_to_memory_multiplier.get("*")
         estimated_memory_bytes = inflation_multiplier * file_info.size
-        print(
+        logger.info(
             f"Estimated Memory Required for Copy: "
             f"{estimated_memory_bytes/BYTES_PER_GIBIBYTE} GiB"
         )
-    print(f"Starting DeltaCAT Copy at: {time.time_ns()}")
+    logger.info(f"Starting DeltaCAT Copy at: {time.time_ns()}")
 
     index_result = None
     num_cpus = 1
@@ -444,31 +490,31 @@ def _copy_external_ray(
             reader_args=reader_args,
             writer_args=writer_args,
         )
-        print(f"Time to Launch Copy Task: {latency} seconds")
+        logger.info(f"Time to Launch Copy Task: {latency} seconds")
         try:
             index_result, latency = timed_invocation(
                 ray.get,
                 copy_task_pending,
             )
         except OutOfMemoryError as e:
-            print(f"Copy Task Ran Out of Memory: {e}")
+            logger.warning(f"Copy Task Ran Out of Memory: {e}")
             max_single_node_cpus = min(
                 max_allowed_cpus, find_max_single_node_resource_type("CPU")
             )
             num_cpus += 1
             if num_cpus > max_single_node_cpus:
                 raise e
-            print(f"Retrying Failed Copy Task with {num_cpus} dedicated CPUs")
+            logger.info(f"Retrying Failed Copy Task with {num_cpus} dedicated CPUs")
 
-    print(f"Time to Launch Copy Task: {latency} seconds")
-    print(f"Time to Complete Copy Task: {latency} seconds")
+    logger.info(f"Time to Launch Copy Task: {latency} seconds")
+    logger.info(f"Time to Complete Copy Task: {latency} seconds")
 
     total_gib_indexed = index_result.table_size / BYTES_PER_GIBIBYTE
 
-    print(f"Records Copied: {index_result.table_length}")
-    print(f"Bytes Copied: {total_gib_indexed} GiB")
-    print(f"Conversion Rate: {total_gib_indexed/latency} GiB/s")
-    print(f"Finished Copy at: {time.time_ns()}")
+    logger.info(f"Records Copied: {index_result.table_length}")
+    logger.info(f"Bytes Copied: {total_gib_indexed} GiB")
+    logger.info(f"Conversion Rate: {total_gib_indexed/latency} GiB/s")
+    logger.info(f"Finished Copy at: {time.time_ns()}")
 
     return dst.url
 
@@ -492,13 +538,13 @@ def copy_task(
         transforms=transforms,
         reader_args=reader_args,
     )
-    print(f"Time to read {src.url_path}: {latency} seconds")
+    logger.debug(f"Time to read {src.url_path}: {latency} seconds")
 
     table_size = get_table_size(table)
-    print(f"Table Size: {table_size/BYTES_PER_GIBIBYTE} GiB")
+    logger.debug(f"Table Size: {table_size/BYTES_PER_GIBIBYTE} GiB")
 
     table_length = get_table_length(table)
-    print(f"Table Records: {table_length}")
+    logger.debug(f"Table Records: {table_length}")
 
     writer = DeltaCatUrlWriter(dest, dataset_type)
     written_file_path, latency = timed_invocation(
@@ -507,7 +553,7 @@ def copy_task(
         table,
         **writer_args,
     )
-    print(f"Time to write {written_file_path}: {latency}")
+    logger.debug(f"Time to write {written_file_path}: {latency}")
 
     return CopyResult(table_size, table_length)
 

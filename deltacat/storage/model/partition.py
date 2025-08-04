@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import posixpath
 
 import pyarrow
@@ -213,6 +214,11 @@ class Partition(Metafile):
         return None
 
     @property
+    def partition_values_json(self) -> Optional[str]:
+        partition_values = self.partition_values if self.partition_values is not None else []
+        return json.dumps(partition_values)
+
+    @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
         partition_locator = self.locator
         if partition_locator:
@@ -267,6 +273,9 @@ class Partition(Metafile):
         if partition_locator:
             return partition_locator.table_version
         return None
+
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/" if catalog_name else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/"
 
     def is_supported_content_type(self, content_type: ContentType) -> bool:
         supported_content_types = self.content_types
