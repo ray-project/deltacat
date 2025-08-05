@@ -278,7 +278,9 @@ class Delta(Metafile):
 
     @property
     def partition_values_json(self) -> Optional[str]:
-        partition_values = self.partition_values if self.partition_values is not None else []
+        partition_values = (
+            self.partition_values if self.partition_values is not None else []
+        )
         return json.dumps(partition_values)
 
     @property
@@ -289,7 +291,11 @@ class Delta(Metafile):
         return None
 
     def url(self, catalog_name: Optional[str] = None) -> str:
-        return f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/" if catalog_name else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+        )
 
     def to_serializable(self) -> Delta:
         serializable = self

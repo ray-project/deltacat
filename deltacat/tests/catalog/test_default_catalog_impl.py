@@ -696,7 +696,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,  # Specify content types
-            properties=table_properties,  # Enable automatic compaction
+            table_properties=table_properties,  # Enable automatic compaction
             catalog=self.catalog_name,
         )
 
@@ -1020,7 +1020,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
-            properties=table_properties,
+            table_properties=table_properties,
             catalog=self.catalog_name,
         )
 
@@ -1241,7 +1241,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
-            properties=table_properties,
+            table_properties=table_properties,
             catalog=self.catalog_name,
         )
 
@@ -1630,7 +1630,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
-            properties=table_properties,
+            table_properties=table_properties,
             catalog=self.catalog_name,
         )
 
@@ -1728,7 +1728,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
-            properties=table_properties,
+            table_properties=table_properties,
             catalog=self.catalog_name,
         )
 
@@ -1826,7 +1826,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
-            properties=table_properties,
+            table_properties=table_properties,
             catalog=self.catalog_name,
         )
 
@@ -1927,7 +1927,7 @@ class TestCopyOnWrite:
             namespace=self.test_namespace,
             schema=schema,
             content_types=DEFAULT_CONTENT_TYPES,
-            properties=table_properties,
+            table_properties=table_properties,
             catalog=self.catalog_name,
         )
 
@@ -5401,7 +5401,7 @@ class TestAlterTable:
             namespace=namespace,
             catalog=catalog_name,
             schema_updates=schema_updates,
-            description="Added email field",
+            table_description="Added email field",
         )
 
         # Verify the schema was updated
@@ -5482,7 +5482,7 @@ class TestAlterTable:
             namespace=namespace,
             catalog=catalog_name,
             schema_updates=schema_updates,
-            description="Added multiple fields",
+            table_description="Added multiple fields",
         )
 
         # Verify both fields were added
@@ -5557,7 +5557,7 @@ class TestAlterTable:
             namespace=namespace,
             catalog=catalog_name,
             schema_updates=schema_updates,
-            description="Made age field nullable",
+            table_description="Made age field nullable",
         )
 
         # Verify the field was updated
@@ -5604,7 +5604,7 @@ class TestAlterTable:
                 namespace=namespace,
                 catalog=catalog_name,
                 schema_updates=schema_updates,
-                description="Should fail",
+                table_description="Should fail",
             )
 
     def test_alter_table_invalid_table_version_raises_error(
@@ -5649,7 +5649,7 @@ class TestAlterTable:
                 catalog=catalog_name,
                 table_version="invalid_version",  # not a valid table version identifier
                 schema_updates=schema_updates,
-                description="Should fail",
+                table_description="Should fail",
             )
 
         # Try to alter with a non-existent table version - should raise an error
@@ -5660,5 +5660,5 @@ class TestAlterTable:
                 catalog=catalog_name,
                 table_version="invalid_version.1",  # does not exist
                 schema_updates=schema_updates,
-                description="Should fail",
+                table_description="Should fail",
             )

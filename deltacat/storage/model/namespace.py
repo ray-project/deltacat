@@ -47,7 +47,11 @@ class Namespace(Metafile):
         self["properties"] = properties
 
     def url(self, catalog_name: Optional[str] = None) -> str:
-        return f"dc://{catalog_name}/{self.namespace}/" if catalog_name else f"namespace://{self.namespace}/"
+        return (
+            f"dc://{catalog_name}/{self.namespace}/"
+            if catalog_name
+            else f"namespace://{self.namespace}/"
+        )
 
 
 class NamespaceLocatorName(LocatorName):

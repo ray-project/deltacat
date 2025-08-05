@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, List, Union, Set
 
 import base64
 import json
@@ -694,22 +694,58 @@ class Metafile(dict):
         with filesystem.open_output_stream(path) as file:
             file.write(serialized)
 
+    @staticmethod
+    def _equivalent_minus_exclusions(d1: dict, d2: dict, exclusions: Set[str]) -> bool:
+        if "streamLocator" in d1 and "streamLocator" in d2:
+            # stream locators should be equivalent minus streamId
+            exclusions.add("streamId")
+            if not Metafile._equivalent_minus_exclusions(
+                d1["streamLocator"], d2["streamLocator"], exclusions
+            ):
+                return False
+        if "partitionLocator" in d1 and "partitionLocator" in d2:
+            # partition locators should be equivalent minus partitionId and parent stream locator streamId
+            exclusions.add("partitionId")
+            if not Metafile._equivalent_minus_exclusions(
+                d1["partitionLocator"], d2["partitionLocator"], exclusions
+            ):
+                return False
+        if "deltaLocator" in d1 and "deltaLocator" in d2:
+            # delta locators should be equivalent minus parent partition/stream locator partitionId and streamId
+            if not Metafile._equivalent_minus_exclusions(
+                d1["deltaLocator"], d2["deltaLocator"], exclusions
+            ):
+                return False
+        for k, v in d1.items():
+            if k == "partitionValues" and not d2.get(k):
+                # consider [] and None equivalent unpartitioned values
+                v = v or d2.get(k)
+            if k not in exclusions and (k not in d2 or d2[k] != v):
+                return False
+        for k in d2.keys():
+            if k not in exclusions and k not in d1:
+                return False
+        return True
+
     def equivalent_to(self, other: Metafile) -> bool:
         """
         True if this Metafile is equivalent to the other Metafile minus its
-        unique ID and ancestor IDs.
+        unique ID, ancestor IDs, and other internal system properties.
 
         :param other: Metafile to compare to.
         :return: True if the other metafile is equivalent, false if not.
         """
-        identifiers = {"id", "ancestor_ids"}
-        for k, v in self.items():
-            if k not in identifiers and (k not in other or other[k] != v):
-                return False
-        for k in other.keys():
-            if k not in identifiers and k not in self:
-                return False
-        return True
+        identifiers = {
+            "id",
+            "ancestor_ids",
+            "previousStreamId",
+            "previousPartitionId",
+            "streamLocator",
+            "partitionLocator",
+            "deltaLocator",
+            "compactionRoundCompletionInfo",
+        }
+        return Metafile._equivalent_minus_exclusions(self, other, identifiers)
 
     @property
     def named_immutable_id(self) -> Optional[str]:
@@ -753,6 +789,20 @@ class Metafile(dict):
         if not _id:
             _id = self["id"] = str(uuid.uuid4())
         return _id
+
+    @property
+    def name(self) -> Optional[str]:
+        """
+        Returns the common name of this metafile. Used as a human
+        readable name for this metafile that is unique amongst its
+        siblings (e.g., namespace/table name, table version, stream
+        format, partition values + scheme ID, delta stream position).
+        """
+        return (
+            self.locator_alias.name.join()
+            if self.locator_alias
+            else self.locator.name.join()
+        )
 
     @property
     def locator(self) -> Optional[Locator]:

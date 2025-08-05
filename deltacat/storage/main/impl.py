@@ -272,9 +272,7 @@ def _validate_partition_values_against_scheme(
         TableValidationError: If validation fails
     """
     if not partition_values:
-        raise TableValidationError(
-            "Partition values cannot be empty"
-        )
+        raise TableValidationError("Partition values cannot be empty")
 
     if not schema:
         raise TableValidationError(
@@ -378,6 +376,7 @@ def list_streams(
     Lists a page of streams for the given table version.
     Raises an error if the table version does not exist.
     """
+    # TODO(pdames): Support listing uncommitted streams.
     locator = StreamLocator.at(
         namespace=namespace,
         table_name=table_name,
@@ -468,6 +467,7 @@ def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partit
     """
     Lists all partitions committed to the given stream.
     """
+    # TODO(pdames): Support listing uncommitted partitions.
     if stream.stream_format != StreamFormat.DELTACAT:
         raise ValueError(
             f"Unsupported stream format: {stream.stream_format}"
@@ -1350,6 +1350,42 @@ def create_table_version(
     if commit_transaction:
         transaction.seal()
     return new_table, table_version, stream
+
+
+def create_table(
+    namespace: str,
+    table_name: str,
+    description: Optional[str] = None,
+    properties: Optional[TableProperties] = None,
+    *args,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
+) -> Table:
+    """
+    Create a new table. Raises an error if the given table already exists.
+    """
+    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
+
+    new_table: Table = Table.of(
+        locator=TableLocator.at(namespace=namespace, table_name=table_name),
+        description=description,
+        properties=properties,
+    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=new_table,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise TableAlreadyExistsError(
+            f"Table {namespace}.{table_name} already exists"
+        ) from e
+
+    if commit_transaction:
+        transaction.seal()
+    return new_table
 
 
 def update_table(
@@ -2559,9 +2595,7 @@ def commit_delta(
             **kwargs,
         )
     if not parent_partition:
-        raise PartitionNotFoundError(
-            f"Partition not found: {delta.locator}"
-        )
+        raise PartitionNotFoundError(f"Partition not found: {delta.locator}")
     # ensure that we always use a fully qualified partition locator
     delta.locator.partition_locator = parent_partition.locator
     # resolve the delta's stream position

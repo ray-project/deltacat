@@ -197,7 +197,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         name=f"{table_name}_compacted",
         namespace=dest_namespace,
         schema=source_table_def.table_version.schema,
-        description="Compacted events table (destination)",
+        table_description="Compacted events table (destination)",
         fail_if_exists=False,  # Allow overwriting for idempotency
         catalog="default",
     )

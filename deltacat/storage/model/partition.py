@@ -215,7 +215,9 @@ class Partition(Metafile):
 
     @property
     def partition_values_json(self) -> Optional[str]:
-        partition_values = self.partition_values if self.partition_values is not None else []
+        partition_values = (
+            self.partition_values if self.partition_values is not None else []
+        )
         return json.dumps(partition_values)
 
     @property
@@ -275,7 +277,11 @@ class Partition(Metafile):
         return None
 
     def url(self, catalog_name: Optional[str] = None) -> str:
-        return f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/" if catalog_name else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/"
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/"
+        )
 
     def is_supported_content_type(self, content_type: ContentType) -> bool:
         supported_content_types = self.content_types

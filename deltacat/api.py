@@ -168,72 +168,71 @@ def copy(
         )
 
 
+def _copy_objects_in_order(
+    src_objects: List[Metafile],
+    destination: DeltaCatUrl,
+) -> Union[Metafile, List[Metafile]]:
+    dc_dest_url = DeltaCatUrl(destination.url)
+    catalog_name = dc_dest_url.catalog_name
+
+    copied_results = []
+
+    # Group objects by type for hierarchical copying
+    # Copy objects in strict hierarchical order
+    # Namespace -> TableVersion -> Stream -> Partition -> Delta
+    ordered_objects_by_type = {
+        Namespace: [],
+        Table: [],
+        TableVersion: [],
+        Stream: [],
+        Partition: [],
+        Delta: [],
+    }
+
+    for obj in src_objects:
+        obj_class = Metafile.get_class(obj.to_serializable())
+        ordered_objects_by_type[obj_class].append(obj)
+
+    # TODO(pdames): Support copying uncommitted streams/partitions.
+    # TODO(pdames): Support parallel/distributed copies.
+    for obj_class, objects in ordered_objects_by_type.items():
+        if objects:
+            logger.info(f"Copying {len(objects)} {obj_class} objects...")
+        if obj_class == TableVersion:
+            # sort table versions by ascending table version
+            objects.sort(key=lambda x: x.current_version_number())
+        if obj_class == Delta:
+            # sort deltas by ascending stream position
+            objects.sort(key=lambda x: x.stream_position)
+        for i, obj in enumerate(objects):
+            logger.info(f"Copying object {i+1}/{len(objects)}: {obj.url}")
+            dest_url = DeltaCatUrl(obj.url(catalog_name=catalog_name))
+            logger.info(f"Destination URL for object {i+1}/{len(objects)}: {dest_url}")
+            result = put(dest_url, metafile=obj)
+            copied_results.append(result)
+            logger.info(f"Successfully copied object {i+1}/{len(objects)}")
+    return copied_results[0] if len(copied_results) == 1 else copied_results
+
+
 def _copy_dc(
     source: DeltaCatUrl,
     destination: DeltaCatUrl,
     recursive: bool = False,
 ) -> Union[Metafile, List[Metafile]]:
-    if recursive:
-        # Strip /** from source URL for listing - the /** pattern should not be passed to list()
-        # since it's interpreted as a literal namespace name rather than a glob pattern
-        clean_source_url_str = source.url.rstrip("/**")
-        clean_source_url = DeltaCatUrl(clean_source_url_str)
-        src_objects = list(clean_source_url, recursive=True)
-
-        # Strip /** from destination URL for destination construction
-        clean_dest_url_str = destination.url.rstrip("/**")
-        clean_dest_url = DeltaCatUrl(clean_dest_url_str)
-        catalog_name = clean_dest_url.catalog_name
-
-        copied_results = []
-
-        # Group objects by type for hierarchical copying
-        # Copy objects in strict hierarchical order
-        # Namespace -> TableVersion -> Stream -> Partition -> Delta
-        ordered_objects_by_type = {
-            Namespace: [],
-            Table: [],
-            TableVersion: [],
-            Stream: [],
-            Partition: [],
-            Delta: [],
-        }
-
-        for obj in src_objects:
-            obj_class = Metafile.get_class(obj.to_serializable())
-            ordered_objects_by_type[obj_class].append(obj)
-
-        for obj_class, objects in ordered_objects_by_type.items():
-            if objects:
-                logger.info(f"Copying {len(objects)} {obj_class} objects...")
-            if obj_class == Delta:
-                # sort deltas by ascending stream position
-                objects.sort(key=lambda x: x.stream_position)
-            for obj in objects:
-                # Skip Table objects to avoid duplicate create_table_version calls
-                # (TableVersion creation automatically creates parent Table objects)
-                if obj_class != Table:
-                    print(f"object: {obj}")
-                    dest_url = DeltaCatUrl(obj.url(catalog_name=catalog_name))
-                    result = put(dest_url, metafile=obj)
-                    copied_results.append(result)
-        return copied_results if copied_results else []
-
-    # Non-recursive case 
-    src_obj = get(source) if not source.url.endswith("/*") else list(source)
-
-    src_parts = source.url.split("/")
-    src_parts = [part for part in src_parts if part]
-    dst_parts = destination.url.split("/")
-    dst_parts = [part for part in dst_parts if part]
     dc.raise_if_not_initialized()
-    if len(src_parts) != len(dst_parts):
+    if len(source.url.split("/")) != len(destination.url.split("/")):
         # TODO(pdames): Better error message.
         raise ValueError(
             f"Cannot copy {source} to {destination}. "
             f"Source and destination must share the same type."
         )
-    return put(destination, metafile=src_obj)
+    if recursive:
+        src_objects = list(DeltaCatUrl(source.url.rstrip("/**")), recursive=True)
+    elif source.url.endswith("/*"):
+        src_objects = list(DeltaCatUrl(source.url.rstrip("/*")))
+    else:
+        src_objects = [get(source)]
+    return _copy_objects_in_order(src_objects, destination)
 
 
 def concat(source, destination):
@@ -433,7 +432,9 @@ def _copy_external_ray(
     cluster_cpus = int(cluster_resources["CPU"])
     logger.info(f"Cluster CPUs: {cluster_cpus}")
     all_node_resource_keys = live_node_resource_keys()
-    logger.info(f"Found {len(all_node_resource_keys)} live nodes: {all_node_resource_keys}")
+    logger.info(
+        f"Found {len(all_node_resource_keys)} live nodes: {all_node_resource_keys}"
+    )
     worker_node_resource_keys = other_live_node_resource_keys()
     logger.info(
         f"Found {len(worker_node_resource_keys)} live worker nodes: {worker_node_resource_keys}"

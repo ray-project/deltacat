@@ -316,6 +316,20 @@ def create_table_version(
     raise NotImplementedError("create_table_version not implemented")
 
 
+def create_table(
+    namespace: str,
+    table_name: str,
+    description: Optional[str] = None,
+    properties: Optional[TableProperties] = None,
+    *args,
+    **kwargs,
+) -> Table:
+    """
+    Create a new table. Raises an error if the given table already exists.
+    """
+    raise NotImplementedError("create_table not implemented")
+
+
 def update_table(
     namespace: str,
     table_name: str,

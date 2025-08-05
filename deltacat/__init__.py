@@ -59,6 +59,7 @@ from deltacat.storage import (
     SortKey,
     SortOrder,
     SortScheme,
+    TableProperties,
     NullOrder,
 )
 from deltacat.types.media import (
@@ -67,8 +68,12 @@ from deltacat.types.media import (
     DatasetType,
     DatastoreType,
 )
-
-from deltacat.types.tables import TableWriteMode
+from deltacat.types.tables import (
+    TableWriteMode,
+    TableProperty,
+    TableReadOptimizationLevel,
+    SchemaEvolutionMode,
+)
 from deltacat.utils.url import DeltaCatUrl
 
 __iceberg__ = []
@@ -145,6 +150,10 @@ __all__ = [
     "SortScheme",
     "TableDefinition",
     "TableWriteMode",
+    "TableProperties",
+    "TableProperty",
+    "TableReadOptimizationLevel",
+    "SchemaEvolutionMode",
 ]
 
 __all__ += __iceberg__

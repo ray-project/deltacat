@@ -246,7 +246,7 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
     else:
         catalog = ray.get(all_catalogs.default.remote())
         if not catalog:
-            available_catalogs = ray.get(all_catalogs.all.remote()).values()
+            available_catalogs = list(ray.get(all_catalogs.all.remote()).keys())
             raise ValueError(
                 f"Call to get_catalog without name set failed because there "
                 f"is no default Catalog set. Available catalogs: "

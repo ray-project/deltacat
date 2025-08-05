@@ -127,7 +127,11 @@ class Table(Metafile):
             table_locator.table_name = table_name
 
     def url(self, catalog_name: Optional[str] = None) -> str:
-        return f"dc://{catalog_name}/{self.namespace}/{self.table_name}/" if catalog_name else f"table://{self.namespace}/{self.table_name}/"
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/"
+        )
 
     def to_serializable(self) -> Table:
         serializable = self

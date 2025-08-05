@@ -121,7 +121,7 @@ def alter_table(
     schema_updates: Optional[SchemaUpdateOperations] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
     sort_key_updates: Optional[SortScheme] = None,
-    description: Optional[str] = None,
+    table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -141,7 +141,7 @@ def alter_table(
         schema_updates: Map of schema updates to apply.
         partition_updates: Map of partition scheme updates to apply.
         sort_key_updates: New sort keys scheme.
-        description: New description for the table.
+        table_description: New description for the table.
         table_version_description: New description for the table version.
         table_properties: New table properties.
         table_version_properties: New table version properties.
@@ -166,7 +166,7 @@ def create_table(
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
-    description: Optional[str] = None,
+    table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -189,7 +189,7 @@ def create_table(
         schema: Schema definition for the table.
         partition_scheme: Optional partitioning scheme for the table.
         sort_keys: Optional sort keys for the table.
-        description: Optional description of the table.
+        table_description: Optional description of the table.
         table_version_description: Optional description for the table version.
         table_properties: Optional properties for the table.
         table_version_properties: Optional properties for the table version.

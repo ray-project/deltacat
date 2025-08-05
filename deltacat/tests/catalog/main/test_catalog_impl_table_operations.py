@@ -120,7 +120,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             schema=schema,
             sort_keys=sample_sort_keys,
-            description="Test table for unit tests",
+            table_description="Test table for unit tests",
             table_properties=table_properties,
             namespace_properties=namespace_properties,
             inner=catalog_properties,
@@ -156,7 +156,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=table_name,
             namespace=namespace_name,
-            description="First creation",
+            table_description="First creation",
             inner=catalog_properties,
         )
 
@@ -175,7 +175,7 @@ class TestCatalogTableOperations:
             catalog.create_table(
                 table=table_name,
                 namespace=namespace_name,
-                description="Second creation attempt",
+                table_description="Second creation attempt",
                 inner=catalog_properties,
             )
 
@@ -188,7 +188,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=table_name,
             namespace=namespace_name,
-            description="Original description",
+            table_description="Original description",
             inner=catalog_properties,
         )
 
@@ -202,7 +202,7 @@ class TestCatalogTableOperations:
         table_definition = catalog.create_table(
             table=table_name,
             namespace=namespace_name,
-            description="Updated description",
+            table_description="Updated description",
             fail_if_exists=False,
             inner=catalog_properties,
         )
@@ -274,7 +274,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=original_name,
             namespace=namespace_name,
-            description="Table to in namespace to be renamed",
+            table_description="Table to in namespace to be renamed",
             inner=catalog_properties,
         )
 
@@ -312,7 +312,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=original_name,
             namespace=namespace_name,
-            description="Table to be renamed",
+            table_description="Table to be renamed",
             inner=catalog_properties,
         )
 
@@ -445,7 +445,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             schema=schema,
             sort_keys=sample_sort_keys,
-            description="Initial description",
+            table_description="Initial description",
             table_properties=initial_properties,
             inner=catalog_properties,
         )
@@ -478,7 +478,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             schema_updates=schema_updates,
-            description="Updated description",
+            table_description="Updated description",
             table_properties=updated_properties,
             inner=catalog_properties,
         )
@@ -527,7 +527,7 @@ class TestCatalogTableOperations:
             catalog.alter_table(
                 table=nonexistent_table,
                 namespace=namespace_name,
-                description="Updated description",
+                table_description="Updated description",
                 inner=catalog_properties,
             )
 
@@ -546,7 +546,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             schema=schema,
-            description="Initial description",
+            table_description="Initial description",
             inner=catalog_properties,
         )
 
@@ -574,7 +574,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             schema_updates=schema_updates,
-            description="Updated with multiple fields",
+            table_description="Updated with multiple fields",
             inner=catalog_properties,
         )
 

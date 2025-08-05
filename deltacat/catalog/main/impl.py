@@ -1014,6 +1014,22 @@ def _create_compaction_params(
         CompactPartitionParams,
     )
 
+    # Remove create_table/alter_table kwargs not needed for compaction
+    kwargs.pop("lifecycle_state", None)
+    kwargs.pop("schema", None)
+    kwargs.pop("partition_scheme", None)
+    kwargs.pop("sort_keys", None)
+    kwargs.pop("table_description", None)
+    kwargs.pop("table_version_description", None)
+    kwargs.pop("table_properties", None)
+    kwargs.pop("table_version_properties", None)
+    kwargs.pop("namespace_properties", None)
+    kwargs.pop("content_types", None)
+    kwargs.pop("fail_if_exists", None)
+    kwargs.pop("schema_updates", None)
+    kwargs.pop("partition_updates", None)
+    kwargs.pop("sort_key_updates", None)
+
     return CompactPartitionParams.of(
         {
             "catalog": kwargs.get("inner", kwargs.get("catalog")),
@@ -1516,7 +1532,7 @@ def alter_table(
     schema_updates: Optional[SchemaUpdateOperations] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
     sort_key_updates: Optional[SortScheme] = None,
-    description: Optional[str] = None,
+    table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -1536,7 +1552,7 @@ def alter_table(
         schema_updates: Map of schema updates to apply.
         partition_updates: Map of partition scheme updates to apply.
         sort_key_updates: New sort keys scheme.
-        description: New description for the table.
+        table_description: New description for the table.
         table_version_description: New description for the table version.
         table_properties: New table properties.
         table_version_properties: New table version properties.
@@ -1565,7 +1581,7 @@ def alter_table(
             *args,
             namespace=namespace,
             table_name=table,
-            description=description,
+            description=table_description,
             properties=table_properties,
             **kwargs,
         )
@@ -1622,7 +1638,7 @@ def alter_table(
             table_name=table,
             table_version=table_version.id,
             lifecycle_state=lifecycle_state,
-            description=table_version_description or description,
+            description=table_version_description or table_description,
             schema=updated_schema,
             properties=table_version_properties,
             **kwargs,
@@ -1648,7 +1664,7 @@ def create_table(
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
     sort_keys: Optional[SortScheme] = None,
-    description: Optional[str] = None,
+    table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -1671,7 +1687,7 @@ def create_table(
         schema: Schema definition for the table.
         partition_scheme: Optional partitioning scheme for the table.
         sort_keys: Optional sort keys for the table.
-        description: Optional description of the table.
+        table_description: Optional description of the table.
         table_version_description: Optional description for the table version.
         table_properties: Optional properties for the table.
         table_version_properties: Optional properties for the table version.
@@ -1730,8 +1746,8 @@ def create_table(
             sort_keys=sort_keys,
             table_version_description=table_version_description
             if table_version_description is not None
-            else description,
-            table_description=description,
+            else table_description,
+            table_description=table_description,
             table_properties=table_properties,
             table_version_properties=table_version_properties
             if table_version_properties is not None
@@ -2114,6 +2130,8 @@ def table_exists(
         if table_obj is None:
             return False
         table_version = table_version or table_obj.latest_active_table_version
+        if not table_version:
+            return False
         table_version_exists = _get_storage(**kwargs).table_version_exists(
             namespace,
             table,
@@ -2471,7 +2489,7 @@ def _validate_partition_uniqueness(
     """Validate that there are no duplicate committed partitions for the same partition values."""
     commit_count_per_partition_value = defaultdict(int)
     for partition in partitions:
-        commit_count_per_partition_value[partition.partition_values] += 1
+        commit_count_per_partition_value[partition.partition_values or None] += 1
 
     # Check for multiple committed partitions for the same partition values
     for partition_values, commit_count in commit_count_per_partition_value.items():

@@ -1108,7 +1108,9 @@ def _stage_and_commit_partition(
         namespace=partition.namespace,
         table_name=partition.table_name,
         table_version=partition.table_version,
-        stream_format=StreamFormat(partition.stream_format or StreamFormat.DELTACAT.value),
+        stream_format=StreamFormat(
+            partition.stream_format or StreamFormat.DELTACAT.value
+        ),
         *args,
         **kwargs,
     )
@@ -1187,7 +1189,7 @@ class DeltaCatUrlWriter:
             # TODO(pdames): Honor deep vs. shallow copies. Deep copies require
             #  first ensuring that all files in the source delta manifest are
             #  staged to the target catalog before commit. For deltas whose
-            #  manifests reference local files, shallow delta copies will be
+            #  manifests reference local files, shallow delta copies may be
             #  invalid in the target catalog, and should be blocked or
             #  converted to a deep copy automatically.
             return functools.partial(
@@ -1237,13 +1239,12 @@ class DeltaCatUrlWriter:
                 namespace=table_version.namespace,
                 table_name=table_version.table_name,
                 table_version=table_version.table_version,
+                lifecycle_state=table_version.state,
                 schema=table_version.schema,
                 partition_scheme=table_version.partition_scheme,
                 sort_keys=table_version.sort_scheme,
                 table_version_description=table_version.description,
                 table_version_properties=table_version.properties,
-                table_description=table_version.description,
-                table_properties=table_version.properties,
                 supported_content_types=table_version.content_types,
                 catalog=url.catalog,
             )
@@ -1254,11 +1255,11 @@ class DeltaCatUrlWriter:
                 table_name=url.table,
             )
             return functools.partial(
-                metastore.create_table_version,
+                metastore.create_table,
                 namespace=table.namespace,
                 table_name=table.table_name,
-                table_description=table.description,
-                table_properties=table.properties,
+                description=table.description,
+                properties=table.properties,
                 catalog=url.catalog,
             )
         if url.unresolved_namespace:
