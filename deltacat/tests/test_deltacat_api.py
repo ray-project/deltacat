@@ -984,19 +984,83 @@ class TestDeltaCAT:
             ), f"Column mismatch for {namespace}.{table}"
 
             # Sort both dataframes by first column for comparison (to handle potential row ordering differences)
-            if len(source_df) > 0:
-                first_col = source_df.columns[0]
-                # Handle sorting with potential complex data types
-                source_sorted = source_df.sort_values(first_col).reset_index(drop=True)
-                dest_sorted = dest_df.sort_values(first_col).reset_index(drop=True)
+            _assert_data_equivalence(source_df, dest_df)
 
-                # Compare data values using pandas testing
-                pd.testing.assert_frame_equal(
-                    source_sorted,
-                    dest_sorted,
-                )
+            # Verify that writing to the source table doesn't affect the destination table
+            dc.write_to_table(
+                data=source_df,
+                table=table,
+                namespace=namespace,
+                catalog="test_catalog_1",
+                mode=TableWriteMode.APPEND,
+            )
+
+            # Verify that the destination table's data hasn't changed
+            dest_df = dc.read_table(
+                table=table,
+                namespace=namespace,
+                catalog="test_catalog_2",
+                read_as=DatasetType.PANDAS,
+                distributed_dataset_type=None,
+            )
+            _assert_data_equivalence(source_df, dest_df)
+
+            # Verify that the source table has source_df repeated twice
+            source_df_repeated = dc.read_table(
+                table=table,
+                namespace=namespace,
+                catalog="test_catalog_1",
+                read_as=DatasetType.PANDAS,
+                distributed_dataset_type=None,
+            )
+            assert len(source_df_repeated) == len(source_df) * 2, f"Source table {namespace}.{table} should have {len(source_df) * 2} rows"
+
+            # Verify that writing to the destination table doesn't affect the source table
+            dc.write_to_table(
+                data=dest_df,
+                table=table,
+                namespace=namespace,
+                catalog="test_catalog_2",
+                mode=TableWriteMode.APPEND,
+            )
+
+            # Verify that the source table's data hasn't changed
+            source_df_unchanged = dc.read_table(
+                table=table,
+                namespace=namespace,
+                catalog="test_catalog_1",
+                read_as=DatasetType.PANDAS,
+                distributed_dataset_type=None,
+            )
+            _assert_data_equivalence(source_df_repeated, source_df_unchanged)
+
+            # Verify that the destination table's data has dest_df repeated twice
+            dest_df_repeated = dc.read_table(
+                table=table,
+                namespace=namespace,
+                catalog="test_catalog_2",
+                read_as=DatasetType.PANDAS,
+                distributed_dataset_type=None,
+            )
+            assert len(dest_df_repeated) == len(dest_df) * 2, f"Destination table {namespace}.{table} should have {len(dest_df) * 2} rows"
+
         # Verify empty namespace was copied correctly
         assert dc.namespace_exists(
             namespace="empty_data",
             catalog="test_catalog_2",
         ), "Empty namespace should exist in destination catalog"
+
+
+def _assert_data_equivalence(source_df: pd.DataFrame, dest_df: pd.DataFrame):
+    # Sort both dataframes by first column for comparison (to handle potential row ordering differences)
+    if len(source_df) > 0:
+        first_col = source_df.columns[0]
+        # Handle sorting with potential complex data types
+        source_sorted = source_df.sort_values(first_col).reset_index(drop=True)
+        dest_sorted = dest_df.sort_values(first_col).reset_index(drop=True)
+
+        # Compare data values using pandas testing
+        pd.testing.assert_frame_equal(
+            source_sorted,
+            dest_sorted,
+        )

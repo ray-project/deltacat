@@ -279,7 +279,7 @@ class Delta(Metafile):
     @property
     def partition_values_json(self) -> Optional[str]:
         partition_values = (
-            self.partition_values if self.partition_values is not None else []
+            self.partition_values if self.partition_values is not None else None
         )
         return json.dumps(partition_values)
 
@@ -383,18 +383,14 @@ class DeltaLocator(Locator, dict):
         partition_id: Optional[str],
         stream_position: Optional[int],
     ) -> DeltaLocator:
-        partition_locator = (
-            PartitionLocator.at(
-                namespace,
-                table_name,
-                table_version,
-                stream_id,
-                stream_format,
-                partition_values,
-                partition_id,
-            )
-            if partition_id or partition_values is not None
-            else None
+        partition_locator = PartitionLocator.at(
+            namespace,
+            table_name,
+            table_version,
+            stream_id,
+            stream_format,
+            partition_values,
+            partition_id,
         )
         return DeltaLocator.of(
             partition_locator,

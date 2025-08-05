@@ -2489,7 +2489,10 @@ def _validate_partition_uniqueness(
     """Validate that there are no duplicate committed partitions for the same partition values."""
     commit_count_per_partition_value = defaultdict(int)
     for partition in partitions:
-        commit_count_per_partition_value[partition.partition_values or None] += 1
+        # Normalize partition values: both None and [] represent unpartitioned data
+        normalized_values = None if (partition.partition_values is None or
+                                   (isinstance(partition.partition_values, list) and len(partition.partition_values) == 0)) else partition.partition_values
+        commit_count_per_partition_value[normalized_values] += 1
 
     # Check for multiple committed partitions for the same partition values
     for partition_values, commit_count in commit_count_per_partition_value.items():

@@ -43,6 +43,26 @@ from deltacat.storage import (
     TableVersionLocator,
 )
 
+
+def _normalize_partition_values_from_json(partition_values):
+    """
+    Normalize partition values parsed from JSON URLs.
+
+    Both None and empty list [] represent unpartitioned data, but they should be
+    normalized to None for consistent lookup and validation.
+
+    Args:
+        partition_values: Partition values parsed from JSON
+
+    Returns:
+        None for unpartitioned data (both None and [] inputs),
+        original value for partitioned data
+    """
+    if partition_values is None or (isinstance(partition_values, list) and len(partition_values) == 0):
+        return None
+    return partition_values
+
+
 RAY_DATASTORE_TYPE_TO_READER = {
     DatastoreType.AUDIO: lambda url: functools.partial(
         ray.data.read_audio,

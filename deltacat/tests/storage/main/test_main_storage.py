@@ -2669,7 +2669,7 @@ class TestPartition:
         # Then the partition should be staged with empty values and
         # UNPARTITIONED_SCHEME_ID
         assert staged_partition is not None
-        assert staged_partition.partition_values == []
+        assert staged_partition.partition_values == None
         assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
 
     def test_stage_partition_type_validation(self):
@@ -3163,26 +3163,18 @@ class TestPartition:
         )
         partitions_list = list_result.all_items()
 
-        # Then we should get both partitions
-        assert len(partitions_list) == 2
+        # Then we should get only one committed unpartitioned partition
+        assert len(partitions_list) == 1
 
-        # Verify both partitions are committed and have the right scheme ID
-        for p in partitions_list:
-            assert p.state == CommitState.COMMITTED
-            assert p.partition_scheme_id == UNPARTITIONED_SCHEME_ID
-            assert p.locator.stream_locator == self.unpartitioned_stream.locator
+        # Verify the committed unpartitioned partition is committed and has the right scheme ID
+        assert partitions_list[0].state == CommitState.COMMITTED
+        assert partitions_list[0].partition_scheme_id == UNPARTITIONED_SCHEME_ID
+        assert partitions_list[0].locator.stream_locator == self.unpartitioned_stream.locator
 
         # Verify we have one with empty list and one with None
-        partition_values_set = {
-            tuple(p.partition_values) if p.partition_values is not None else None
-            for p in partitions_list
-        }
-        assert None in partition_values_set  # None values
-        assert (
-            () in partition_values_set
-        )  # Empty list (converted to empty tuple for set membership)
+        assert partitions_list[0].partition_values is None
 
-        # Verify we can retrieve each partition individually
+        # Verify we can retrieve the partition either by empty list or none partition values
         retrieved_empty_list = metastore.get_partition(
             stream_locator=self.unpartitioned_stream.locator,
             partition_values=[],
@@ -3190,7 +3182,7 @@ class TestPartition:
             catalog=self.catalog,
         )
         assert retrieved_empty_list is not None
-        assert retrieved_empty_list.partition_values == []
+        assert retrieved_empty_list.partition_values is None
 
         retrieved_none_values = metastore.get_partition(
             stream_locator=self.unpartitioned_stream.locator,

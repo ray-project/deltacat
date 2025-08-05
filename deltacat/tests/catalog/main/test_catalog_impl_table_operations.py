@@ -1561,7 +1561,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
-            description="Test table with properties",
+            table_description="Test table with properties",
             lifecycle_state=LifecycleState.ACTIVE,
             inner=self.catalog_properties,
         )

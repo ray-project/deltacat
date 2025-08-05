@@ -214,13 +214,6 @@ class Partition(Metafile):
         return None
 
     @property
-    def partition_values_json(self) -> Optional[str]:
-        partition_values = (
-            self.partition_values if self.partition_values is not None else []
-        )
-        return json.dumps(partition_values)
-
-    @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
         partition_locator = self.locator
         if partition_locator:
@@ -278,9 +271,9 @@ class Partition(Metafile):
 
     def url(self, catalog_name: Optional[str] = None) -> str:
         return (
-            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/"
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
             if catalog_name
-            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/"
+            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
         )
 
     def is_supported_content_type(self, content_type: ContentType) -> bool:
@@ -443,7 +436,7 @@ class PartitionLocator(Locator, dict):
 
     @partition_values.setter
     def partition_values(self, partition_values: Optional[PartitionValues]) -> None:
-        self["partitionValues"] = partition_values
+        self["partitionValues"] = partition_values or None  # normalize empty partition values to None
 
     @property
     def partition_id(self) -> Optional[str]:
