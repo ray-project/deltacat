@@ -1013,7 +1013,9 @@ class TestDeltaCAT:
                 read_as=DatasetType.PANDAS,
                 distributed_dataset_type=None,
             )
-            assert len(source_df_repeated) == len(source_df) * 2, f"Source table {namespace}.{table} should have {len(source_df) * 2} rows"
+            assert (
+                len(source_df_repeated) == len(source_df) * 2
+            ), f"Source table {namespace}.{table} should have {len(source_df) * 2} rows"
 
             # Verify that writing to the destination table doesn't affect the source table
             dc.write_to_table(
@@ -1042,7 +1044,9 @@ class TestDeltaCAT:
                 read_as=DatasetType.PANDAS,
                 distributed_dataset_type=None,
             )
-            assert len(dest_df_repeated) == len(dest_df) * 2, f"Destination table {namespace}.{table} should have {len(dest_df) * 2} rows"
+            assert (
+                len(dest_df_repeated) == len(dest_df) * 2
+            ), f"Destination table {namespace}.{table} should have {len(dest_df) * 2} rows"
 
         # Verify empty namespace was copied correctly
         assert dc.namespace_exists(

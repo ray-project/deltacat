@@ -58,7 +58,9 @@ def _normalize_partition_values_from_json(partition_values):
         None for unpartitioned data (both None and [] inputs),
         original value for partitioned data
     """
-    if partition_values is None or (isinstance(partition_values, list) and len(partition_values) == 0):
+    if partition_values is None or (
+        isinstance(partition_values, list) and len(partition_values) == 0
+    ):
         return None
     return partition_values
 

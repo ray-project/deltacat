@@ -115,7 +115,9 @@ from deltacat import logs
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-def _normalize_partition_values(partition_values: Optional[PartitionValues]) -> Optional[PartitionValues]:
+def _normalize_partition_values(
+    partition_values: Optional[PartitionValues],
+) -> Optional[PartitionValues]:
     """
     Normalize partition values to ensure consistent representation of unpartitioned data.
 
@@ -129,7 +131,9 @@ def _normalize_partition_values(partition_values: Optional[PartitionValues]) -> 
         None for unpartitioned data (both None and [] inputs),
         original value for partitioned data
     """
-    if partition_values is None or (isinstance(partition_values, list) and len(partition_values) == 0):
+    if partition_values is None or (
+        isinstance(partition_values, list) and len(partition_values) == 0
+    ):
         return None
     return partition_values
 

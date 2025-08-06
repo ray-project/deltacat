@@ -2669,7 +2669,7 @@ class TestPartition:
         # Then the partition should be staged with empty values and
         # UNPARTITIONED_SCHEME_ID
         assert staged_partition is not None
-        assert staged_partition.partition_values == None
+        assert staged_partition.partition_values is None
         assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
 
     def test_stage_partition_type_validation(self):
@@ -3169,7 +3169,10 @@ class TestPartition:
         # Verify the committed unpartitioned partition is committed and has the right scheme ID
         assert partitions_list[0].state == CommitState.COMMITTED
         assert partitions_list[0].partition_scheme_id == UNPARTITIONED_SCHEME_ID
-        assert partitions_list[0].locator.stream_locator == self.unpartitioned_stream.locator
+        assert (
+            partitions_list[0].locator.stream_locator
+            == self.unpartitioned_stream.locator
+        )
 
         # Verify we have one with empty list and one with None
         assert partitions_list[0].partition_values is None

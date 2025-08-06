@@ -2814,112 +2814,203 @@ class TestTableVersionWriteModes:
                     mode=TableWriteMode.REPLACE,
                 )
 
-    def test_merge_delete_modes_with_schema(self):
-        """Test MERGE and DELETE modes with schema requirements."""
-
-        # Create table with merge keys using the same pattern as existing tests
-        merge_schema = create_simple_merge_schema()
-
-        table_name = "merge_test_table"
-        namespace = "test_ns"
-
-        # Create table with merge keys
-        dc.write_to_table(
-            self.test_data["initial"],
-            table_name,
-            catalog=self.catalog_name,
-            namespace=namespace,
-            table_version="1",
-            mode=TableWriteMode.CREATE,
-            schema=merge_schema,
-        )
-
-        # Create table without merge keys for negative testing
-        no_merge_table = "no_merge_table"
-        dc.write_to_table(
-            self.test_data["initial"],
-            no_merge_table,
-            catalog=self.catalog_name,
-            namespace=namespace,
-            table_version="1",
-            mode=TableWriteMode.CREATE,
-        )
-
-        # Test MERGE mode
-        test_cases = [
-            # (table, table_version, expected_exception_type, mode, description)
+    @pytest.mark.parametrize(
+        "table_suffix,setup_versions,test_version,expected_exception_type,description",
+        [
             (
-                table_name,
+                "with_merge_keys",
+                ["1"],
                 "1",
                 None,
-                TableWriteMode.MERGE,
-                "MERGE on table with merge keys",
+                "MERGE on existing table with merge keys",
             ),
             (
-                table_name,
+                "with_merge_keys",
+                ["1"],
                 "2",
                 TableVersionNotFoundError,
-                TableWriteMode.MERGE,
-                "MERGE on non-existent version",
+                "MERGE on non-existent version with merge keys",
             ),
             (
-                no_merge_table,
+                "no_merge_keys",
+                ["1"],
                 "1",
                 TableValidationError,
-                TableWriteMode.MERGE,
                 "MERGE on table without merge keys",
             ),
             (
-                table_name,
+                "multi_version",
+                ["1", "2"],
                 "1",
                 None,
-                TableWriteMode.DELETE,
-                "DELETE on table with merge keys",
+                "MERGE on existing version 1 with multiple versions",
             ),
             (
-                table_name,
+                "multi_version",
+                ["1", "2"],
                 "2",
-                TableVersionNotFoundError,
-                TableWriteMode.DELETE,
-                "DELETE on non-existent version",
+                None,
+                "MERGE on existing version 2 with multiple versions",
             ),
             (
-                no_merge_table,
-                "1",
-                TableValidationError,
-                TableWriteMode.DELETE,
-                "DELETE on table without merge keys",
+                "multi_version",
+                ["1", "2"],
+                "3",
+                TableVersionNotFoundError,
+                "MERGE on non-existent version 3",
             ),
-        ]
+        ],
+    )
+    def test_merge_mode_with_schema(
+        self,
+        table_suffix,
+        setup_versions,
+        test_version,
+        expected_exception_type,
+        description,
+    ):
+        """Test MERGE mode with schema requirements and various table/version combinations."""
+        namespace = "test_ns"
+        table_name = f"merge_test_{table_suffix}"
 
-        for (
-            table,
-            table_version,
-            expected_exception_type,
-            mode,
-            description,
-        ) in test_cases:
-            if expected_exception_type is None:
-                # Should succeed - entry_params will be automatically set from schema merge keys
+        # Determine if this table should have merge keys based on suffix
+        has_merge_keys = (
+            "with_merge_keys" in table_suffix or "multi_version" in table_suffix
+        )
+        schema = create_simple_merge_schema() if has_merge_keys else None
+
+        # Set up existing versions if needed
+        for version in setup_versions:
+            dc.write_to_table(
+                self.test_data["initial"],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=version,
+                mode=TableWriteMode.CREATE,
+                schema=schema,
+            )
+
+        if expected_exception_type is None:
+            # Should succeed - entry_params will be automatically set from schema merge keys
+            dc.write_to_table(
+                self.test_data["merge_data"],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=test_version,
+                mode=TableWriteMode.MERGE,
+            )
+        else:
+            # Should fail
+            with pytest.raises(expected_exception_type):
                 dc.write_to_table(
                     self.test_data["merge_data"],
-                    table,
+                    table_name,
                     catalog=self.catalog_name,
                     namespace=namespace,
-                    table_version=table_version,
-                    mode=mode,
+                    table_version=test_version,
+                    mode=TableWriteMode.MERGE,
                 )
-            else:
-                # Should fail
-                with pytest.raises(expected_exception_type):
-                    dc.write_to_table(
-                        self.test_data["merge_data"],
-                        table,
-                        catalog=self.catalog_name,
-                        namespace=namespace,
-                        table_version=table_version,
-                        mode=mode,
-                    )
+
+    @pytest.mark.parametrize(
+        "table_suffix,setup_versions,test_version,expected_exception_type,description",
+        [
+            (
+                "with_merge_keys",
+                ["1"],
+                "1",
+                None,
+                "DELETE on existing table with merge keys",
+            ),
+            (
+                "with_merge_keys",
+                ["1"],
+                "2",
+                TableVersionNotFoundError,
+                "DELETE on non-existent version with merge keys",
+            ),
+            (
+                "no_merge_keys",
+                ["1"],
+                "1",
+                TableValidationError,
+                "DELETE on table without merge keys",
+            ),
+            (
+                "multi_version",
+                ["1", "2"],
+                "1",
+                None,
+                "DELETE on existing version 1 with multiple versions",
+            ),
+            (
+                "multi_version",
+                ["1", "2"],
+                "2",
+                None,
+                "DELETE on existing version 2 with multiple versions",
+            ),
+            (
+                "multi_version",
+                ["1", "2"],
+                "3",
+                TableVersionNotFoundError,
+                "DELETE on non-existent version 3",
+            ),
+        ],
+    )
+    def test_delete_mode_with_schema(
+        self,
+        table_suffix,
+        setup_versions,
+        test_version,
+        expected_exception_type,
+        description,
+    ):
+        """Test DELETE mode with schema requirements and various table/version combinations."""
+        namespace = "test_ns"
+        table_name = f"delete_test_{table_suffix}"
+
+        # Determine if this table should have merge keys based on suffix
+        has_merge_keys = (
+            "with_merge_keys" in table_suffix or "multi_version" in table_suffix
+        )
+        schema = create_simple_merge_schema() if has_merge_keys else None
+
+        # Set up existing versions if needed
+        for version in setup_versions:
+            dc.write_to_table(
+                self.test_data["initial"],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=version,
+                mode=TableWriteMode.CREATE,
+                schema=schema,
+            )
+
+        if expected_exception_type is None:
+            # Should succeed - entry_params will be automatically set from schema merge keys
+            dc.write_to_table(
+                self.test_data["merge_data"],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=test_version,
+                mode=TableWriteMode.DELETE,
+            )
+        else:
+            # Should fail
+            with pytest.raises(expected_exception_type):
+                dc.write_to_table(
+                    self.test_data["merge_data"],
+                    table_name,
+                    catalog=self.catalog_name,
+                    namespace=namespace,
+                    table_version=test_version,
+                    mode=TableWriteMode.DELETE,
+                )
 
     def test_schema_validation_and_coercion(self):
         """Test schema validation and coercion functionality with different consistency types."""
@@ -3115,67 +3206,92 @@ class TestTableVersionWriteModes:
             mode=TableWriteMode.REPLACE,
         )
 
-    def test_error_messages_quality(self):
+    @pytest.mark.parametrize(
+        "table_name,table_version,mode,expected_keywords,description",
+        [
+            (
+                "error_test_table",
+                "1",
+                TableWriteMode.CREATE,
+                ["version", "already exists", "CREATE"],
+                "CREATE existing version error",
+            ),
+            (
+                "error_test_table",
+                "99",
+                TableWriteMode.APPEND,
+                ["version", "does not exist"],
+                "APPEND to non-existent version error",
+            ),
+            (
+                "nonexistent_table",
+                None,
+                TableWriteMode.APPEND,
+                ["does not exist", "APPEND"],
+                "APPEND to non-existent table error",
+            ),
+            (
+                "error_test_table",
+                "99",
+                TableWriteMode.REPLACE,
+                ["version", "does not exist"],
+                "REPLACE non-existent version error",
+            ),
+            (
+                "nonexistent_table",
+                None,
+                TableWriteMode.REPLACE,
+                ["does not exist", "REPLACE"],
+                "REPLACE non-existent table error",
+            ),
+            (
+                "error_test_table",
+                "99",
+                TableWriteMode.MERGE,
+                ["version", "does not exist"],
+                "MERGE non-existent version error",
+            ),
+        ],
+    )
+    def test_error_messages_quality(
+        self,
+        table_name,
+        table_version,
+        mode,
+        expected_keywords,
+        description,
+    ):
         """Test that error messages are clear and helpful."""
         namespace = "test_ns"
 
-        # Create a table for testing
-        dc.write_to_table(
-            self.test_data["initial"],
-            "error_test_table",
-            catalog=self.catalog_name,
-            namespace=namespace,
-            table_version="1",
-            mode=TableWriteMode.CREATE,
-        )
+        # Create a table for testing (only if we're testing with existing table)
+        if table_name == "error_test_table":
+            dc.write_to_table(
+                self.test_data["initial"],
+                "error_test_table",
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version="1",
+                mode=TableWriteMode.CREATE,
+            )
 
-        error_cases = [
-            {
-                "operation": lambda: dc.write_to_table(
-                    self.test_data["initial"],
-                    "error_test_table",
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version="1",
-                    mode=TableWriteMode.CREATE,
-                ),
-                "expected_keywords": ["version", "already exists", "CREATE"],
-                "description": "CREATE existing version error",
-            },
-            {
-                "operation": lambda: dc.write_to_table(
-                    self.test_data["initial"],
-                    "error_test_table",
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    table_version="99",
-                    mode=TableWriteMode.APPEND,
-                ),
-                "expected_keywords": ["version", "does not exist"],
-                "description": "APPEND to non-existent version error",
-            },
-            {
-                "operation": lambda: dc.write_to_table(
-                    self.test_data["initial"],
-                    "nonexistent_table",
-                    catalog=self.catalog_name,
-                    namespace=namespace,
-                    mode=TableWriteMode.APPEND,
-                ),
-                "expected_keywords": ["does not exist", "APPEND"],
-                "description": "APPEND to non-existent table error",
-            },
-        ]
+        # Execute the operation that should fail
+        with pytest.raises(Exception) as exc_info:
+            dc.write_to_table(
+                self.test_data["initial"],
+                table_name,
+                catalog=self.catalog_name,
+                namespace=namespace,
+                table_version=table_version,
+                mode=mode,
+            )
 
-        for case in error_cases:
-            with pytest.raises(Exception) as exc_info:
-                case["operation"]()
-
-            error_message = str(exc_info.value)
-            for keyword in case["expected_keywords"]:
-                assert (
-                    keyword.lower() in error_message.lower()
-                ), f"Error message for {case['description']} should contain '{keyword}'. Got: {error_message}"
+        # Check that error message contains expected keywords
+        error_message = str(exc_info.value)
+        for keyword in expected_keywords:
+            assert (
+                keyword.lower() in error_message.lower()
+            ), f"Error message for {description} should contain '{keyword}'. Got: {error_message}"
 
     def test_past_default_enforcement_basic(self):
         """Test that past_default values are enforced when fields are missing from file schema."""

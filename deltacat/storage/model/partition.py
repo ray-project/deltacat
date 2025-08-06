@@ -436,7 +436,9 @@ class PartitionLocator(Locator, dict):
 
     @partition_values.setter
     def partition_values(self, partition_values: Optional[PartitionValues]) -> None:
-        self["partitionValues"] = partition_values or None  # normalize empty partition values to None
+        self["partitionValues"] = (
+            partition_values or None
+        )  # normalize empty partition values to None
 
     @property
     def partition_id(self) -> Optional[str]:

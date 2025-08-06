@@ -2490,8 +2490,17 @@ def _validate_partition_uniqueness(
     commit_count_per_partition_value = defaultdict(int)
     for partition in partitions:
         # Normalize partition values: both None and [] represent unpartitioned data
-        normalized_values = None if (partition.partition_values is None or
-                                   (isinstance(partition.partition_values, list) and len(partition.partition_values) == 0)) else partition.partition_values
+        normalized_values = (
+            None
+            if (
+                partition.partition_values is None
+                or (
+                    isinstance(partition.partition_values, list)
+                    and len(partition.partition_values) == 0
+                )
+            )
+            else partition.partition_values
+        )
         commit_count_per_partition_value[normalized_values] += 1
 
     # Check for multiple committed partitions for the same partition values
