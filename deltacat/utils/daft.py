@@ -377,7 +377,7 @@ def files_to_dataframe(
     logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
     logger.debug(f"Final read_kwargs for daft.read_parquet: {read_kwargs}")
 
-    # Optimized approach: Use actual PyArrow schema for efficient schema evolution
+    # Use our latest PyArrow table version schema for efficient schema evolution
     # When we have the actual table schema, provide it to Daft for automatic null handling
     table_version_schema = kwargs.get("table_version_schema")
     if len(uris) > 1 and table_version_schema is not None:
@@ -391,20 +391,19 @@ def files_to_dataframe(
             schema_dict = {field.name: field.dtype for field in daft_schema}
             
             # Use explicit schema with infer_schema=False for optimal performance
-            explicit_kwargs = read_kwargs.copy()
             # Remove table_version_schema from kwargs since daft.read_parquet doesn't recognize it
-            explicit_kwargs.pop("table_version_schema", None)
-            explicit_kwargs.update({
+            read_kwargs.pop("table_version_schema", None)
+            read_kwargs.update({
                 "infer_schema": False,
                 "schema": schema_dict
             })
             
             if io_config is not None:
                 df, latency = timed_invocation(
-                    daft.read_parquet, path=uris, io_config=io_config, **explicit_kwargs
+                    daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
                 )
             else:
-                df, latency = timed_invocation(daft.read_parquet, path=uris, **explicit_kwargs)
+                df, latency = timed_invocation(daft.read_parquet, path=uris, **read_kwargs)
             
             logger.debug(f"PyArrow schema evolution succeeded in {latency}s with columns: {df.column_names}")
             

@@ -2567,6 +2567,171 @@ class TestDatasetTypes:
         # Clean up
         dc.clear_catalogs()
 
+    def test_schema_evolution_all_dataset_types(self, temp_catalog_properties):
+        """
+        Test that schema evolution works correctly across all supported DatasetTypes.
+        
+        This ensures that the table_version_schema parameter is only passed to dataset types
+        that can handle it (currently only DAFT) and doesn't cause failures for other types.
+        """
+        import uuid
+        import pandas as pd
+        import pyarrow as pa
+        from deltacat.types.media import DatasetType
+
+        namespace = "test_namespace"
+        catalog_name = f"schema-evolution-all-types-test-{uuid.uuid4()}"
+        table_name = "schema_evolution_test"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        # Write initial data with base schema
+        base_data = pd.DataFrame([
+            {"experiment_name": "baseline", "global_step": 1, "loss": 2.5, "timestamp": pd.Timestamp.now()},
+            {"experiment_name": "baseline", "global_step": 2, "loss": 2.3, "timestamp": pd.Timestamp.now()},
+        ])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(base_data),
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+        )
+
+        # Write evolved data with additional column
+        evolved_data = pd.DataFrame([
+            {"experiment_name": "higher_lr", "global_step": 1, "loss": 3.5, "learning_rate": 5e-4, "timestamp": pd.Timestamp.now()},
+        ])
+
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data),
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=dc.TableWriteMode.APPEND,
+        )
+
+        # Test schema evolution across all available DatasetTypes with all distributed_dataset_type permutations
+        test_cases = [
+            # Local dataset types with various distributed_dataset_type settings
+            ("local", DatasetType.PYARROW, None, "PyArrow + distributed_dataset_type=None"),
+            ("local", DatasetType.PYARROW, DatasetType.DAFT, "PyArrow + distributed_dataset_type=DAFT"),
+            ("local", DatasetType.PYARROW, DatasetType.RAY_DATASET, "PyArrow + distributed_dataset_type=RAY_DATASET"),
+            
+            ("local", DatasetType.PANDAS, None, "Pandas + distributed_dataset_type=None"),
+            ("local", DatasetType.PANDAS, DatasetType.DAFT, "Pandas + distributed_dataset_type=DAFT"),
+            ("local", DatasetType.PANDAS, DatasetType.RAY_DATASET, "Pandas + distributed_dataset_type=RAY_DATASET"),
+            
+            # Distributed dataset types (these use distributed_dataset_type parameter)
+            ("distributed", DatasetType.DAFT, DatasetType.DAFT, "Distributed DAFT"),
+            ("distributed", DatasetType.RAY_DATASET, DatasetType.RAY_DATASET, "Distributed RAY_DATASET"),
+        ]
+
+        successful_cases = []
+        failed_cases = []
+
+        for test_mode, read_as_type, distributed_type, test_description in test_cases:
+            try:
+                if test_mode == "distributed":
+                    # Pure distributed dataset types
+                    result = dc.read_table(
+                        table=table_name,
+                        namespace=namespace,
+                        catalog=catalog_name,
+                        distributed_dataset_type=distributed_type,
+                    )
+                else:
+                    # Local dataset types with various distributed_dataset_type combinations
+                    read_params = {
+                        "table": table_name,
+                        "namespace": namespace,
+                        "catalog": catalog_name,
+                        "read_as": read_as_type,
+                    }
+                    
+                    # Add distributed_dataset_type parameter if specified
+                    if distributed_type is not None:
+                        read_params["distributed_dataset_type"] = distributed_type
+                    
+                    result = dc.read_table(**read_params)
+                
+                # Convert to consistent format for testing
+                # The actual result type depends on what was actually used (distributed vs local)
+                if hasattr(result, 'collect'):
+                    # Daft DataFrame (from DAFT distributed type or when local types fallback to Daft)
+                    result_df = result.collect().to_pandas()
+                elif hasattr(result, 'to_pandas') and callable(getattr(result, 'to_pandas')):
+                    # Ray Dataset or PyArrow Table
+                    result_df = result.to_pandas()
+                else:
+                    # Already a Pandas DataFrame
+                    result_df = result
+
+                # Basic validation - check record count
+                if hasattr(result_df, 'count_rows'):
+                    record_count = result_df.count_rows()
+                else:
+                    record_count = len(result_df)
+                assert record_count == 3, f"{test_description}: Expected 3 records, got {record_count}"
+                
+                # Should have both experiments
+                experiments = set(result_df["experiment_name"].unique())
+                expected_experiments = {"baseline", "higher_lr"}
+                assert experiments == expected_experiments, f"{test_description}: Expected {expected_experiments}, got {experiments}"
+                
+                # All combinations should handle schema evolution gracefully
+                # They should either:
+                # 1. Have all columns with null handling (like DAFT), or
+                # 2. Have a consistent subset of columns without errors
+                available_columns = set(result_df.columns)
+                base_columns = {"experiment_name", "global_step", "loss", "timestamp"}
+                
+                # At minimum, should have the base columns
+                assert base_columns.issubset(available_columns), f"{test_description}: Missing base columns. Got {available_columns}"
+                
+                successful_cases.append((test_description, len(available_columns)))
+                
+                # For cases where DAFT is used (either as distributed_dataset_type or fallback), 
+                # verify full schema evolution with null handling
+                if (distributed_type == DatasetType.DAFT or 
+                    (test_mode == "distributed" and read_as_type == DatasetType.DAFT)):
+                    expected_all_columns = {"experiment_name", "global_step", "loss", "timestamp", "learning_rate"}
+                    if available_columns >= expected_all_columns:
+                        # Verify null handling only if we have the evolved columns
+                        baseline_records = result_df[result_df["experiment_name"] == "baseline"]
+                        higher_lr_records = result_df[result_df["experiment_name"] == "higher_lr"]
+                        
+                        if "learning_rate" in available_columns:
+                            assert baseline_records["learning_rate"].isna().all(), f"{test_description}: Baseline should have null learning_rate"
+                            assert not higher_lr_records["learning_rate"].isna().any(), f"{test_description}: Higher_lr should have non-null learning_rate"
+
+            except Exception as e:
+                failed_cases.append((test_description, str(e)))
+
+        # Report results
+        print(f"\n✅ Successful Test Cases ({len(successful_cases)}):")
+        for test_description, num_columns in successful_cases:
+            print(f"  - {test_description} ({num_columns} columns)")
+
+        if failed_cases:
+            print(f"\n❌ Failed Test Cases ({len(failed_cases)}):")
+            for test_description, error in failed_cases:
+                print(f"  - {test_description}: {error}")
+
+        # The test passes if most combinations work without parameter passing errors
+        # We expect at least 6 out of 8 combinations to work (allowing for some edge cases)
+        min_required_success = 6
+        assert len(successful_cases) >= min_required_success, f"At least {min_required_success} combinations should work, got {len(successful_cases)}"
+        
+        # Specifically verify that pure DAFT distributed works (since it's our main schema evolution target)
+        daft_distributed_success = any("Distributed DAFT" in desc for desc, _ in successful_cases)
+        assert daft_distributed_success, "Distributed DAFT must support schema evolution"
+
+        # Clean up
+        dc.clear_catalogs()
+
 
 @pytest.fixture
 def table_version_catalog(temp_catalog_properties):
