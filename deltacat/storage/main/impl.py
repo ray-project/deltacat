@@ -957,7 +957,7 @@ def download_delta(
             *args,
             **kwargs,
         )
-    all_column_names = get_table_version_column_names(
+    table_version_schema = get_table_version_schema(
         delta_locator.namespace,
         delta_locator.table_name,
         delta_locator.table_version,
@@ -965,6 +965,9 @@ def download_delta(
         *args,
         **kwargs,
     )
+    all_column_names = None
+    if table_version_schema and table_version_schema.arrow:
+        all_column_names = [field.name for field in table_version_schema.arrow]
     if columns:
         # Extract file_path_column since it's appended after reading each file
         columns_to_validate = (
@@ -988,6 +991,10 @@ def download_delta(
         f"Reading {columns or 'all'} columns from table version column "
         f"names: {all_column_names}. "
     )
+    # Pass the actual schema for proper schema evolution handling
+    if table_version_schema and table_version_schema.arrow:
+        kwargs["table_version_schema"] = table_version_schema.arrow
+
     return storage_type_to_download_func[storage_type](
         manifest,
         table_type,
