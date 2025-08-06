@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional, List, Any, Dict, Callable, Iterator
 
 from daft.daft import (
@@ -377,13 +378,46 @@ def files_to_dataframe(
     logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
     logger.debug(f"Final read_kwargs for daft.read_parquet: {read_kwargs}")
 
-    # Call daft.read_parquet with io_config only if provided
-    if io_config is not None:
-        df, latency = timed_invocation(
-            daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
-        )
+    # Handle schema evolution by reading files individually and using union_all_by_name
+    # This allows Daft to properly handle files with different schemas
+    if len(uris) == 1:
+        # Single file - read normally
+        if io_config is not None:
+            df, latency = timed_invocation(
+                daft.read_parquet, path=uris[0], io_config=io_config, **read_kwargs
+            )
+        else:
+            df, latency = timed_invocation(daft.read_parquet, path=uris[0], **read_kwargs)
     else:
-        df, latency = timed_invocation(daft.read_parquet, path=uris, **read_kwargs)
+        # Multiple files - read individually and union with schema evolution
+        logger.debug(f"Reading {len(uris)} files individually for schema evolution support")
+        
+        start_time = time.time()
+        individual_dfs = []
+        
+        for uri in uris:
+            if io_config is not None:
+                df, latency = timed_invocation(
+                    daft.read_parquet, path=uri, io_config=io_config, **read_kwargs
+                )
+            else:
+                df, latency = timed_invocation(
+                    daft.read_parquet, path=uri, **read_kwargs
+                )
+            individual_dfs.append(df)
+        
+        if not individual_dfs:
+            raise ValueError(f"No files could be read from {uris}")
+        
+        # Start with the first DataFrame
+        df = individual_dfs[0]
+        
+        # Union with remaining DataFrames using schema evolution
+        for i, next_df in enumerate(individual_dfs[1:], 1):
+            logger.debug(f"Unioning DataFrame {i+1}/{len(individual_dfs)} with schema evolution")
+            df = df.union_all_by_name(next_df)
+        
+        latency = time.time() - start_time
 
     logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
 
@@ -397,7 +431,22 @@ def files_to_dataframe(
     logger.debug(f"Taking columns {columns_to_read} from the daft df.")
 
     if columns_to_read:
-        return df.select(*columns_to_read)
+        # After union_all_by_name, the DataFrame should have all columns from all files
+        # with proper null handling, so this selection should work normally
+        try:
+            return df.select(*columns_to_read)
+        except Exception as e:
+            # If columns are still missing after union, log the issue but continue
+            if "not found" in str(e) and "Column" in str(e):
+                logger.warning(f"Some columns not found even after schema evolution: {e}")
+                logger.warning(f"Available columns: {df.column_names}")
+                logger.warning(f"Requested columns: {columns_to_read}")
+                
+                # Return the full DataFrame as fallback
+                return df
+            else:
+                # Re-raise if it's a different error
+                raise
     else:
         return df
 

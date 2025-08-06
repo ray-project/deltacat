@@ -1346,7 +1346,7 @@ def _build_target_schema(
 
 
 def _coerce_results_to_schema(
-    results: List[Dataset], target_schema: pa.Schema
+    results: Dataset, target_schema: pa.Schema
 ) -> List[Dataset]:
     """Coerce all table results to match the target schema."""
     coerced_results = []
@@ -1362,7 +1362,7 @@ def _coerce_results_to_schema(
 
 
 def _handle_local_table_concatenation(
-    results: List[Dataset], table_type: DatasetType, table_schema: Optional[Schema]
+    results: Dataset, table_type: DatasetType, table_schema: Optional[Schema]
 ) -> Dataset:
     """Handle concatenation of local table results with schema coercion."""
     if table_schema is None:

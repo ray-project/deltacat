@@ -2455,6 +2455,118 @@ class TestDatasetTypes:
         # Clean up
         dc.clear_catalogs()
 
+    def test_daft_schema_evolution_with_missing_columns(self, temp_catalog_properties):
+        """
+        Test that Daft properly handles schema evolution when reading tables
+        where some files have columns that others don't have.
+        
+        This is a regression test for the issue where Daft would fail with:
+        DaftCoreException: Column col(batch_size) not found
+        """
+        import uuid
+        import pandas as pd
+        import pyarrow as pa
+        from deltacat.types.tables import DatasetType
+        
+        namespace = "test_namespace"
+        catalog_name = f"daft-schema-evolution-test-{uuid.uuid4()}"
+        table_name = "schema_evolution_test"
+        
+        # Setup catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+        
+        # Write initial data with base schema
+        base_data = pd.DataFrame([
+            {"experiment_name": "baseline", "global_step": 1, "loss": 2.5, "timestamp": pd.Timestamp.now()},
+            {"experiment_name": "baseline", "global_step": 2, "loss": 2.3, "timestamp": pd.Timestamp.now()},
+        ])
+        
+        dc.write_to_table(
+            data=pa.Table.from_pandas(base_data),
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+        )
+        
+        # Write evolved data with additional columns - add one column at a time to avoid field ID collisions
+        evolved_data_step1 = pd.DataFrame([
+            {"experiment_name": "higher_lr", "global_step": 1, "loss": 3.5, "learning_rate": 5e-4, "timestamp": pd.Timestamp.now()},
+        ])
+        
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data_step1),
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=dc.TableWriteMode.APPEND,
+        )
+        
+        # Add one more column 
+        evolved_data_step2 = pd.DataFrame([
+            {"experiment_name": "higher_lr", "global_step": 2, "loss": 3.2, "learning_rate": 5e-4, "batch_size": 64, "timestamp": pd.Timestamp.now()},
+        ])
+        
+        dc.write_to_table(
+            data=pa.Table.from_pandas(evolved_data_step2),
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=dc.TableWriteMode.APPEND,
+        )
+        
+        # This should not fail - the fix should handle missing columns gracefully
+        # Previously this would fail with: DaftCoreException: Column col(batch_size) not found
+        result = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+        
+        # Verify the result
+        assert result is not None, "Result should not be None"
+        
+        # Convert to pandas for easier testing
+        result_df = result.collect().to_pandas()
+        
+        # Should have all 4 records (2 baseline + 1 higher_lr step1 + 1 higher_lr step2)
+        assert len(result_df) == 4, f"Expected 4 records, got {len(result_df)}"
+        
+        # Should have all experiments
+        experiments = set(result_df["experiment_name"].unique())
+        expected_experiments = {"baseline", "higher_lr"}
+        assert experiments == expected_experiments, f"Expected {expected_experiments}, got {experiments}"
+        
+        # SUCCESS: Schema evolution now works properly with Daft's union_all_by_name!
+        # All columns from the evolved schema are present with proper null handling
+        available_columns = set(result_df.columns)
+        expected_all_columns = {"experiment_name", "global_step", "loss", "timestamp", "learning_rate", "batch_size"}
+        assert available_columns == expected_all_columns, f"Expected all evolved columns {expected_all_columns}, got {available_columns}"
+        
+        # Verify proper null handling for evolved columns
+        baseline_records = result_df[result_df["experiment_name"] == "baseline"]
+        higher_lr_records = result_df[result_df["experiment_name"] == "higher_lr"]
+        
+        # Baseline records should have nulls for evolved columns they never had
+        assert baseline_records["learning_rate"].isna().all(), "Baseline records should have null learning_rate"
+        assert baseline_records["batch_size"].isna().all(), "Baseline records should have null batch_size"
+        
+        # Higher_lr records should have actual values for learning_rate
+        assert not higher_lr_records["learning_rate"].isna().any(), "Higher_lr records should have non-null learning_rate"
+        assert (higher_lr_records["learning_rate"] == 0.0005).all(), "Learning rate should be 0.0005"
+        
+        # Only step 2 should have batch_size, step 1 should have null
+        step1_record = higher_lr_records[higher_lr_records["global_step"] == 1]
+        step2_record = higher_lr_records[higher_lr_records["global_step"] == 2]
+        
+        assert step1_record["batch_size"].isna().iloc[0], "Step 1 should have null batch_size"
+        assert not step2_record["batch_size"].isna().iloc[0], "Step 2 should have non-null batch_size"
+        assert step2_record["batch_size"].iloc[0] == 64, "Batch size should be 64"
+        
+        # Clean up
+        dc.clear_catalogs()
+
 
 @pytest.fixture
 def table_version_catalog(temp_catalog_properties):
