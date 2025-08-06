@@ -2101,7 +2101,47 @@ class TestDatasetTypes:
         # Clean up
         dc.clear_catalogs()
 
-    def test_custom_kwargs_comprehensive_local_storage(self, temp_catalog_properties):
+    @pytest.mark.parametrize(
+        "read_as,dataset_name,custom_kwargs",
+        [
+            (
+                DatasetType.PYARROW,
+                "PyArrow",
+                {
+                    "pre_buffer": True,
+                    "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",
+                },
+            ),
+            (
+                DatasetType.PANDAS,
+                "Pandas",
+                {
+                    "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",
+                },
+            ),
+            (
+                DatasetType.POLARS,
+                "Polars",
+                {
+                    "use_pyarrow": True,
+                    "file_path_column": "_source_path",
+                },
+            ),
+            (
+                DatasetType.NUMPY,
+                "NumPy",
+                {
+                    "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",
+                },
+            ),
+        ],
+    )
+    def test_custom_kwargs_comprehensive_local_storage(
+        self, temp_catalog_properties, read_as, dataset_name, custom_kwargs
+    ):
         """Test custom kwargs propagation with all storage types using local filesystem."""
         namespace = "test_namespace"
         catalog_name = f"kwargs-comprehensive-test-{uuid.uuid4()}"
@@ -2127,178 +2167,224 @@ class TestDatasetTypes:
             mode=TableWriteMode.CREATE,
         )
 
-        # Test LOCAL storage types with custom kwargs
-        local_test_cases = [
-            {
-                "read_as": DatasetType.PYARROW,
-                "name": "PyArrow",
-                "custom_kwargs": {
-                    "pre_buffer": True,
-                    "use_pandas_metadata": True,
-                    "file_path_column": "_source_path",  # Test standardized file path column
-                },
-            },
-            {
-                "read_as": DatasetType.PANDAS,
-                "name": "Pandas",
-                "custom_kwargs": {
-                    "use_pandas_metadata": True,
-                    "file_path_column": "_source_path",  # Test standardized file path column
-                },
-            },
-            {
-                "read_as": DatasetType.POLARS,
-                "name": "Polars",
-                "custom_kwargs": {
-                    "use_pyarrow": True,
-                    "file_path_column": "_source_path",  # Test standardized file path column
-                },
-            },
-            {
-                "read_as": DatasetType.NUMPY,
-                "name": "NumPy",
-                "custom_kwargs": {
-                    "use_pandas_metadata": True,
-                    "file_path_column": "_source_path",  # Test standardized file path column
-                    # Note: NumPy doesn't support named columns, so no file_path_column
-                },
-            },
-        ]
+        # Test the local storage type with custom kwargs
+        result_table = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            distributed_dataset_type=None,
+            read_as=read_as,
+            **custom_kwargs,
+        )
 
-        for test_case in local_test_cases:
-            result_table = dc.read_table(
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                distributed_dataset_type=None,
-                read_as=test_case["read_as"],
-                **test_case["custom_kwargs"],
-            )
+        # Verify the data was read correctly
+        file_path_column = custom_kwargs.get("file_path_column")
 
-            # Verify the data was read correctly
-            file_path_column = test_case["custom_kwargs"].get("file_path_column")
+        assert get_table_length(result_table) == 5
+        if read_as == DatasetType.PYARROW:
+            assert isinstance(result_table, pa.Table)
+            expected_cols = 5 if file_path_column else 4
+            assert len(result_table.column_names) == expected_cols
+            if file_path_column:
+                assert file_path_column in result_table.column_names
 
-            assert get_table_length(result_table) == 5
-            if test_case["read_as"] == DatasetType.PYARROW:
-                assert isinstance(result_table, pa.Table)
-                expected_cols = 5 if file_path_column else 4
-                assert len(result_table.column_names) == expected_cols
-                if file_path_column:
-                    assert file_path_column in result_table.column_names
+        elif read_as == DatasetType.PANDAS:
+            assert isinstance(result_table, pd.DataFrame)
+            expected_cols = 5 if file_path_column else 4
+            assert len(result_table.columns) == expected_cols
+            if file_path_column:
+                assert file_path_column in result_table.columns
 
-            elif test_case["read_as"] == DatasetType.PANDAS:
-                assert isinstance(result_table, pd.DataFrame)
-                expected_cols = 5 if file_path_column else 4
-                assert len(result_table.columns) == expected_cols
-                if file_path_column:
-                    assert file_path_column in result_table.columns
+        elif read_as == DatasetType.POLARS:
+            assert isinstance(result_table, pl.DataFrame)
+            expected_cols = 5 if file_path_column else 4
+            assert result_table.shape[1] == expected_cols
+            if file_path_column:
+                assert file_path_column in result_table.columns
 
-            elif test_case["read_as"] == DatasetType.POLARS:
-                assert isinstance(result_table, pl.DataFrame)
-                expected_cols = 5 if file_path_column else 4
-                assert result_table.shape[1] == expected_cols
-                if file_path_column:
-                    assert file_path_column in result_table.columns
-
-            elif test_case["read_as"] == DatasetType.NUMPY:
-                assert isinstance(result_table, np.ndarray)
-                expected_cols = 5 if file_path_column else 4
-                assert result_table.shape[1] == expected_cols
-                # NumPy doesn't support named columns, so we just validate column count
-
-        # Test DISTRIBUTED storage types with custom kwargs
-        distributed_test_cases = [
-            {
-                "distributed_dataset_type": DatasetType.RAY_DATASET,
-                "name": "RAY_DATASET",
-                "custom_kwargs": {
-                    "file_path_column": "path",  # Standardized file path column parameter
-                },
-            },
-            {
-                "distributed_dataset_type": DatasetType.DAFT,
-                "name": "DAFT",
-                "custom_kwargs": {
-                    "io_config": None,  # Daft IOConfig - None means use default local filesystem
-                    "ray_init_options": {
-                        "num_cpus": 1
-                    },  # Ray options for Daft's Ray backend
-                    "file_path_column": "_source_file_path",  # Add source file path column
-                },
-            },
-        ]
-
-        for test_case in distributed_test_cases:
-            result_table = dc.read_table(
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                distributed_dataset_type=test_case["distributed_dataset_type"],
-                **test_case["custom_kwargs"],
-            )
-            assert result_table is not None
-
-            # Additional validation based on type
-            if test_case["distributed_dataset_type"] == DatasetType.RAY_DATASET:
-                # Ray dataset should be materialized as MaterializedDataset
-                assert isinstance(
-                    result_table, MaterializedDataset
-                ), f"Expected MaterializedDataset, got {type(result_table)}"
-
-                # Special validation for file_path_column if it was specified
-                if test_case["custom_kwargs"].get("file_path_column"):
-                    file_path_column_name = test_case["custom_kwargs"][
-                        "file_path_column"
-                    ]
-
-                    # Ray dataset should have the file path column
-                    sample_data = result_table.take(2)
-                    assert (
-                        sample_data and file_path_column_name in sample_data[0]
-                    ), f"File path column '{file_path_column_name}' not found in data!"
-                    paths = [row[file_path_column_name] for row in sample_data]
-                    assert all(
-                        path is not None and len(str(path)) > 0 for path in paths
-                    ), "Ray paths should not be empty"
-                    assert any(
-                        "/" in str(path) for path in paths
-                    ), "Ray paths should contain valid file system paths"
-            elif test_case["distributed_dataset_type"] == DatasetType.DAFT:
-                # Daft dataframe should be a proper daft DataFrame
-                assert isinstance(
-                    result_table, daft.DataFrame
-                ), f"Expected daft.DataFrame, got {type(result_table)}"
-
-                # Special validation for file_path_column if it was specified
-                if "file_path_column" in test_case["custom_kwargs"]:
-                    file_path_column_name = test_case["custom_kwargs"][
-                        "file_path_column"
-                    ]
-
-                    # Get the column names from the Daft DataFrame
-                    column_names = result_table.column_names
-
-                    # Verify the file path column exists
-                    assert (
-                        file_path_column_name in column_names
-                    ), f"File path column '{file_path_column_name}' not found in columns: {column_names}"
-
-                    # Collect a sample to verify the file paths are populated
-                    sample_data = result_table.limit(3).collect()
-                    file_paths = sample_data.to_pydict()[file_path_column_name]
-
-                    # Verify file paths are not None/empty and contain actual paths
-                    assert all(
-                        path is not None and len(str(path)) > 0 for path in file_paths
-                    ), "File paths should not be empty"
-                    assert any(
-                        "/" in str(path) for path in file_paths
-                    ), "File paths should contain valid file system paths"
+        elif read_as == DatasetType.NUMPY:
+            assert isinstance(result_table, np.ndarray)
+            expected_cols = 5 if file_path_column else 4
+            assert result_table.shape[1] == expected_cols
+            # NumPy doesn't support named columns, so we just validate column count
 
         # Clean up
         dc.clear_catalogs()
 
-    def test_file_path_column_with_column_selection(self, temp_catalog_properties):
+    @pytest.mark.parametrize(
+        "distributed_dataset_type,dataset_name,custom_kwargs",
+        [
+            (
+                DatasetType.RAY_DATASET,
+                "RAY_DATASET",
+                {
+                    "file_path_column": "path",
+                },
+            ),
+            (
+                DatasetType.DAFT,
+                "DAFT",
+                {
+                    "io_config": None,
+                    "ray_init_options": {"num_cpus": 1},
+                    "file_path_column": "_source_file_path",
+                },
+            ),
+        ],
+    )
+    def test_custom_kwargs_comprehensive_distributed_storage(
+        self,
+        temp_catalog_properties,
+        distributed_dataset_type,
+        dataset_name,
+        custom_kwargs,
+    ):
+        """Test custom kwargs propagation with distributed storage types."""
+        namespace = "test_namespace"
+        catalog_name = f"kwargs-distributed-test-{uuid.uuid4()}"
+        table_name = "kwargs_distributed_test_table"
+
+        # Test data
+        test_data = pa.table(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+                "value": [10.1, 20.2, 30.3, 40.4, 50.5],
+                "category": ["A", "B", "A", "C", "B"],
+            }
+        )
+
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Test the distributed storage type with custom kwargs (parametrized above)
+        result_table = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            distributed_dataset_type=distributed_dataset_type,
+            **custom_kwargs,
+        )
+        assert result_table is not None
+
+        # Additional validation based on type
+        if distributed_dataset_type == DatasetType.RAY_DATASET:
+            # Ray dataset should be materialized as MaterializedDataset
+            assert isinstance(
+                result_table, MaterializedDataset
+            ), f"Expected MaterializedDataset, got {type(result_table)}"
+
+            # Special validation for file_path_column if it was specified
+            if custom_kwargs.get("file_path_column"):
+                file_path_column_name = custom_kwargs["file_path_column"]
+
+                # Ray dataset should have the file path column
+                sample_data = result_table.take(2)
+                assert (
+                    sample_data and file_path_column_name in sample_data[0]
+                ), f"File path column '{file_path_column_name}' not found in data!"
+                paths = [row[file_path_column_name] for row in sample_data]
+                assert all(
+                    path is not None and len(str(path)) > 0 for path in paths
+                ), "Ray paths should not be empty"
+                assert any(
+                    "/" in str(path) for path in paths
+                ), "Ray paths should contain valid file system paths"
+        elif distributed_dataset_type == DatasetType.DAFT:
+            # Daft dataframe should be a proper daft DataFrame
+            assert isinstance(
+                result_table, daft.DataFrame
+            ), f"Expected daft.DataFrame, got {type(result_table)}"
+
+            # Special validation for file_path_column if it was specified
+            if "file_path_column" in custom_kwargs:
+                file_path_column_name = custom_kwargs["file_path_column"]
+
+                # Get the column names from the Daft DataFrame
+                column_names = result_table.column_names
+
+                # Verify the file path column exists
+                assert (
+                    file_path_column_name in column_names
+                ), f"File path column '{file_path_column_name}' not found in columns: {column_names}"
+
+                # Collect a sample to verify the file paths are populated
+                sample_data = result_table.limit(3).collect()
+                file_paths = sample_data.to_pydict()[file_path_column_name]
+
+                # Verify file paths are not None/empty and contain actual paths
+                assert all(
+                    path is not None and len(str(path)) > 0 for path in file_paths
+                ), "File paths should not be empty"
+                assert any(
+                    "/" in str(path) for path in file_paths
+                ), "File paths should contain valid file system paths"
+
+        # Clean up
+        dc.clear_catalogs()
+
+    @pytest.mark.parametrize(
+        "test_name,read_as,distributed_dataset_type,include_columns,file_path_column,expected_columns",
+        [
+            (
+                "PyArrow LOCAL with file_path_column + include_columns (path NOT in include)",
+                DatasetType.PYARROW,
+                None,
+                ["id", "name"],
+                "_file_source",
+                {"id", "name", "_file_source"},
+            ),
+            (
+                "PyArrow LOCAL with file_path_column + include_columns (path IN include)",
+                DatasetType.PYARROW,
+                None,
+                ["id", "name", "_file_source"],
+                "_file_source",
+                {"id", "name", "_file_source"},
+            ),
+            (
+                "Pandas LOCAL with file_path_column + include_columns (path NOT in include)",
+                DatasetType.PANDAS,
+                None,
+                ["value", "category"],
+                "_source_file",
+                {"value", "category", "_source_file"},
+            ),
+            (
+                "RAY_DATASET with file_path_column + include_columns (path NOT in include)",
+                None,
+                DatasetType.RAY_DATASET,
+                ["id", "category"],
+                "ray_path",
+                {"id", "category", "ray_path"},
+            ),
+            (
+                "DAFT with file_path_column + include_columns (path NOT in include)",
+                None,
+                DatasetType.DAFT,
+                ["name", "value"],
+                "daft_source",
+                {"name", "value", "daft_source"},
+            ),
+        ],
+    )
+    def test_file_path_column_with_column_selection(
+        self,
+        temp_catalog_properties,
+        test_name,
+        read_as,
+        distributed_dataset_type,
+        include_columns,
+        file_path_column,
+        expected_columns,
+    ):
         """
         Test that file_path_column is always included when used with column selection.
 
@@ -2331,126 +2417,46 @@ class TestDatasetTypes:
             mode=TableWriteMode.CREATE,
         )
 
-        # Test cases for different combinations of file_path_column and column selection
-        test_cases = [
-            {
-                "name": "PyArrow LOCAL with file_path_column + include_columns (path NOT in include)",
-                "read_as": DatasetType.PYARROW,
-                "distributed_dataset_type": None,
-                "include_columns": [
-                    "id",
-                    "name",
-                ],  # Deliberately exclude file path column
-                "file_path_column": "_file_source",
-                "expected_columns": {
-                    "id",
-                    "name",
-                    "_file_source",
-                },  # Should include path column anyway
-            },
-            {
-                "name": "PyArrow LOCAL with file_path_column + include_columns (path IN include)",
-                "read_as": DatasetType.PYARROW,
-                "distributed_dataset_type": None,
-                "include_columns": [
-                    "id",
-                    "name",
-                    "_file_source",
-                ],  # Explicitly include file path column
-                "file_path_column": "_file_source",
-                "expected_columns": {"id", "name", "_file_source"},
-            },
-            {
-                "name": "Pandas LOCAL with file_path_column + include_columns (path NOT in include)",
-                "read_as": DatasetType.PANDAS,
-                "distributed_dataset_type": None,
-                "include_columns": [
-                    "value",
-                    "category",
-                ],  # Deliberately exclude file path column
-                "file_path_column": "_source_file",
-                "expected_columns": {
-                    "value",
-                    "category",
-                    "_source_file",
-                },  # Should include path column anyway
-            },
-            {
-                "name": "RAY_DATASET with file_path_column + include_columns (path NOT in include)",
-                "read_as": None,
-                "distributed_dataset_type": DatasetType.RAY_DATASET,
-                "include_columns": [
-                    "id",
-                    "category",
-                ],  # Deliberately exclude file path column
-                "file_path_column": "ray_path",
-                "expected_columns": {
-                    "id",
-                    "category",
-                    "ray_path",
-                },  # Should include path column anyway
-            },
-            {
-                "name": "DAFT with file_path_column + include_columns (path NOT in include)",
-                "read_as": None,
-                "distributed_dataset_type": DatasetType.DAFT,
-                "include_columns": [
-                    "name",
-                    "value",
-                ],  # Deliberately exclude file path column
-                "file_path_column": "daft_source",
-                "expected_columns": {
-                    "name",
-                    "value",
-                    "daft_source",
-                },  # Should include path column anyway
-            },
-        ]
+        # Test the file_path_column behavior with column selection (parametrized above)
+        # Prepare arguments
+        read_args = {
+            "table": table_name,
+            "namespace": namespace,
+            "catalog": catalog_name,
+            "columns": include_columns,  # Use 'columns' not 'include_columns'
+            "file_path_column": file_path_column,
+        }
 
-        for test_case in test_cases:
-            # Prepare arguments
-            read_args = {
-                "table": table_name,
-                "namespace": namespace,
-                "catalog": catalog_name,
-                "columns": test_case[
-                    "include_columns"
-                ],  # Use 'columns' not 'include_columns'
-                "file_path_column": test_case["file_path_column"],
-            }
+        if read_as:
+            read_args["read_as"] = read_as
+            read_args["distributed_dataset_type"] = None
+        else:
+            read_args["distributed_dataset_type"] = distributed_dataset_type
 
-            if test_case["read_as"]:
-                read_args["read_as"] = test_case["read_as"]
-                read_args["distributed_dataset_type"] = None
-            else:
-                read_args["distributed_dataset_type"] = test_case[
-                    "distributed_dataset_type"
-                ]
+        # Read the table
+        result = dc.read_table(**read_args)
 
-            # Read the table
-            result = dc.read_table(**read_args)
+        # Get column names based on result type
+        if read_as == DatasetType.PYARROW:
+            actual_columns = set(result.column_names)
+        elif read_as == DatasetType.PANDAS:
+            actual_columns = set(result.columns)
+        elif distributed_dataset_type == DatasetType.RAY_DATASET:
+            actual_columns = set(result.schema().names)
+        elif distributed_dataset_type == DatasetType.DAFT:
+            actual_columns = set(result.column_names)
+        else:
+            raise ValueError(f"Unsupported test case: {test_name}")
 
-            # Get column names based on result type
-            if test_case["read_as"] == DatasetType.PYARROW:
-                actual_columns = set(result.column_names)
-            elif test_case["read_as"] == DatasetType.PANDAS:
-                actual_columns = set(result.columns)
-            elif test_case["distributed_dataset_type"] == DatasetType.RAY_DATASET:
-                actual_columns = set(result.schema().names)
-            elif test_case["distributed_dataset_type"] == DatasetType.DAFT:
-                actual_columns = set(result.column_names)
-            else:
-                raise ValueError(f"Unsupported test case: {test_case}")
+        # Verify that we got exactly the expected columns
+        assert (
+            actual_columns == expected_columns
+        ), f"Column mismatch in test '{test_name}'. Expected: {expected_columns}, Got: {actual_columns}"
 
-            # Verify that we got exactly the expected columns
-            assert (
-                actual_columns == test_case["expected_columns"]
-            ), f"Column mismatch. Expected: {test_case['expected_columns']}, Got: {actual_columns}"
-
-            # Specifically verify that the file path column is present
-            assert (
-                test_case["file_path_column"] in actual_columns
-            ), f"File path column '{test_case['file_path_column']}' missing from result"
+        # Specifically verify that the file path column is present
+        assert (
+            file_path_column in actual_columns
+        ), f"File path column '{file_path_column}' missing from result in test '{test_name}'"
 
         # Clean up
         dc.clear_catalogs()
@@ -2459,7 +2465,7 @@ class TestDatasetTypes:
         """
         Test that Daft properly handles schema evolution when reading tables
         where some files have columns that others don't have.
-        
+
         This is a regression test for the issue where Daft would fail with:
         DaftCoreException: Column col(batch_size) not found
         """
@@ -2467,33 +2473,53 @@ class TestDatasetTypes:
         import pandas as pd
         import pyarrow as pa
         from deltacat.types.tables import DatasetType
-        
+
         namespace = "test_namespace"
         catalog_name = f"daft-schema-evolution-test-{uuid.uuid4()}"
         table_name = "schema_evolution_test"
-        
+
         # Setup catalog
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
         dc.create_namespace(namespace, catalog=catalog_name)
-        
+
         # Write initial data with base schema
-        base_data = pd.DataFrame([
-            {"experiment_name": "baseline", "global_step": 1, "loss": 2.5, "timestamp": pd.Timestamp.now()},
-            {"experiment_name": "baseline", "global_step": 2, "loss": 2.3, "timestamp": pd.Timestamp.now()},
-        ])
-        
+        base_data = pd.DataFrame(
+            [
+                {
+                    "experiment_name": "baseline",
+                    "global_step": 1,
+                    "loss": 2.5,
+                    "timestamp": pd.Timestamp.now(),
+                },
+                {
+                    "experiment_name": "baseline",
+                    "global_step": 2,
+                    "loss": 2.3,
+                    "timestamp": pd.Timestamp.now(),
+                },
+            ]
+        )
+
         dc.write_to_table(
             data=pa.Table.from_pandas(base_data),
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
         )
-        
+
         # Write evolved data with additional columns - add one column at a time to avoid field ID collisions
-        evolved_data_step1 = pd.DataFrame([
-            {"experiment_name": "higher_lr", "global_step": 1, "loss": 3.5, "learning_rate": 5e-4, "timestamp": pd.Timestamp.now()},
-        ])
-        
+        evolved_data_step1 = pd.DataFrame(
+            [
+                {
+                    "experiment_name": "higher_lr",
+                    "global_step": 1,
+                    "loss": 3.5,
+                    "learning_rate": 5e-4,
+                    "timestamp": pd.Timestamp.now(),
+                },
+            ]
+        )
+
         dc.write_to_table(
             data=pa.Table.from_pandas(evolved_data_step1),
             table=table_name,
@@ -2501,12 +2527,21 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=dc.TableWriteMode.APPEND,
         )
-        
-        # Add one more column 
-        evolved_data_step2 = pd.DataFrame([
-            {"experiment_name": "higher_lr", "global_step": 2, "loss": 3.2, "learning_rate": 5e-4, "batch_size": 64, "timestamp": pd.Timestamp.now()},
-        ])
-        
+
+        # Add one more column
+        evolved_data_step2 = pd.DataFrame(
+            [
+                {
+                    "experiment_name": "higher_lr",
+                    "global_step": 2,
+                    "loss": 3.2,
+                    "learning_rate": 5e-4,
+                    "batch_size": 64,
+                    "timestamp": pd.Timestamp.now(),
+                },
+            ]
+        )
+
         dc.write_to_table(
             data=pa.Table.from_pandas(evolved_data_step2),
             table=table_name,
@@ -2514,7 +2549,7 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=dc.TableWriteMode.APPEND,
         )
-        
+
         # This should not fail - the fix should handle missing columns gracefully
         # Previously this would fail with: DaftCoreException: Column col(batch_size) not found
         result = dc.read_table(
@@ -2523,54 +2558,134 @@ class TestDatasetTypes:
             catalog=catalog_name,
             distributed_dataset_type=DatasetType.DAFT,
         )
-        
+
         # Verify the result
         assert result is not None, "Result should not be None"
-        
+
         # Convert to pandas for easier testing
         result_df = result.collect().to_pandas()
-        
+
         # Should have all 4 records (2 baseline + 1 higher_lr step1 + 1 higher_lr step2)
         assert len(result_df) == 4, f"Expected 4 records, got {len(result_df)}"
-        
+
         # Should have all experiments
         experiments = set(result_df["experiment_name"].unique())
         expected_experiments = {"baseline", "higher_lr"}
-        assert experiments == expected_experiments, f"Expected {expected_experiments}, got {experiments}"
-        
+        assert (
+            experiments == expected_experiments
+        ), f"Expected {expected_experiments}, got {experiments}"
+
         # SUCCESS: Schema evolution now works properly with Daft's union_all_by_name!
         # All columns from the evolved schema are present with proper null handling
         available_columns = set(result_df.columns)
-        expected_all_columns = {"experiment_name", "global_step", "loss", "timestamp", "learning_rate", "batch_size"}
-        assert available_columns == expected_all_columns, f"Expected all evolved columns {expected_all_columns}, got {available_columns}"
-        
+        expected_all_columns = {
+            "experiment_name",
+            "global_step",
+            "loss",
+            "timestamp",
+            "learning_rate",
+            "batch_size",
+        }
+        assert (
+            available_columns == expected_all_columns
+        ), f"Expected all evolved columns {expected_all_columns}, got {available_columns}"
+
         # Verify proper null handling for evolved columns
         baseline_records = result_df[result_df["experiment_name"] == "baseline"]
         higher_lr_records = result_df[result_df["experiment_name"] == "higher_lr"]
-        
+
         # Baseline records should have nulls for evolved columns they never had
-        assert baseline_records["learning_rate"].isna().all(), "Baseline records should have null learning_rate"
-        assert baseline_records["batch_size"].isna().all(), "Baseline records should have null batch_size"
-        
+        assert (
+            baseline_records["learning_rate"].isna().all()
+        ), "Baseline records should have null learning_rate"
+        assert (
+            baseline_records["batch_size"].isna().all()
+        ), "Baseline records should have null batch_size"
+
         # Higher_lr records should have actual values for learning_rate
-        assert not higher_lr_records["learning_rate"].isna().any(), "Higher_lr records should have non-null learning_rate"
-        assert (higher_lr_records["learning_rate"] == 0.0005).all(), "Learning rate should be 0.0005"
-        
+        assert (
+            not higher_lr_records["learning_rate"].isna().any()
+        ), "Higher_lr records should have non-null learning_rate"
+        assert (
+            higher_lr_records["learning_rate"] == 0.0005
+        ).all(), "Learning rate should be 0.0005"
+
         # Only step 2 should have batch_size, step 1 should have null
         step1_record = higher_lr_records[higher_lr_records["global_step"] == 1]
         step2_record = higher_lr_records[higher_lr_records["global_step"] == 2]
-        
-        assert step1_record["batch_size"].isna().iloc[0], "Step 1 should have null batch_size"
-        assert not step2_record["batch_size"].isna().iloc[0], "Step 2 should have non-null batch_size"
+
+        assert (
+            step1_record["batch_size"].isna().iloc[0]
+        ), "Step 1 should have null batch_size"
+        assert (
+            not step2_record["batch_size"].isna().iloc[0]
+        ), "Step 2 should have non-null batch_size"
         assert step2_record["batch_size"].iloc[0] == 64, "Batch size should be 64"
-        
+
         # Clean up
         dc.clear_catalogs()
 
-    def test_schema_evolution_all_dataset_types(self, temp_catalog_properties):
+    @pytest.mark.parametrize(
+        "test_mode,read_as_type,distributed_type,test_description",
+        [
+            # Local dataset types with various distributed_dataset_type settings
+            (
+                "local",
+                DatasetType.PYARROW,
+                None,
+                "PyArrow + distributed_dataset_type=None",
+            ),
+            (
+                "local",
+                DatasetType.PYARROW,
+                DatasetType.DAFT,
+                "PyArrow + distributed_dataset_type=DAFT",
+            ),
+            (
+                "local",
+                DatasetType.PYARROW,
+                DatasetType.RAY_DATASET,
+                "PyArrow + distributed_dataset_type=RAY_DATASET",
+            ),
+            (
+                "local",
+                DatasetType.PANDAS,
+                None,
+                "Pandas + distributed_dataset_type=None",
+            ),
+            (
+                "local",
+                DatasetType.PANDAS,
+                DatasetType.DAFT,
+                "Pandas + distributed_dataset_type=DAFT",
+            ),
+            (
+                "local",
+                DatasetType.PANDAS,
+                DatasetType.RAY_DATASET,
+                "Pandas + distributed_dataset_type=RAY_DATASET",
+            ),
+            # Distributed dataset types (these use distributed_dataset_type parameter)
+            ("distributed", DatasetType.DAFT, DatasetType.DAFT, "Distributed DAFT"),
+            (
+                "distributed",
+                DatasetType.RAY_DATASET,
+                DatasetType.RAY_DATASET,
+                "Distributed RAY_DATASET",
+            ),
+        ],
+    )
+    def test_schema_evolution_all_dataset_types(
+        self,
+        temp_catalog_properties,
+        test_mode,
+        read_as_type,
+        distributed_type,
+        test_description,
+    ):
         """
         Test that schema evolution works correctly across all supported DatasetTypes.
-        
+
         This ensures that the table_version_schema parameter is only passed to dataset types
         that can handle it (currently only DAFT) and doesn't cause failures for other types.
         """
@@ -2588,10 +2703,22 @@ class TestDatasetTypes:
         dc.create_namespace(namespace, catalog=catalog_name)
 
         # Write initial data with base schema
-        base_data = pd.DataFrame([
-            {"experiment_name": "baseline", "global_step": 1, "loss": 2.5, "timestamp": pd.Timestamp.now()},
-            {"experiment_name": "baseline", "global_step": 2, "loss": 2.3, "timestamp": pd.Timestamp.now()},
-        ])
+        base_data = pd.DataFrame(
+            [
+                {
+                    "experiment_name": "baseline",
+                    "global_step": 1,
+                    "loss": 2.5,
+                    "timestamp": pd.Timestamp.now(),
+                },
+                {
+                    "experiment_name": "baseline",
+                    "global_step": 2,
+                    "loss": 2.3,
+                    "timestamp": pd.Timestamp.now(),
+                },
+            ]
+        )
 
         dc.write_to_table(
             data=pa.Table.from_pandas(base_data),
@@ -2601,9 +2728,17 @@ class TestDatasetTypes:
         )
 
         # Write evolved data with additional column
-        evolved_data = pd.DataFrame([
-            {"experiment_name": "higher_lr", "global_step": 1, "loss": 3.5, "learning_rate": 5e-4, "timestamp": pd.Timestamp.now()},
-        ])
+        evolved_data = pd.DataFrame(
+            [
+                {
+                    "experiment_name": "higher_lr",
+                    "global_step": 1,
+                    "loss": 3.5,
+                    "learning_rate": 5e-4,
+                    "timestamp": pd.Timestamp.now(),
+                },
+            ]
+        )
 
         dc.write_to_table(
             data=pa.Table.from_pandas(evolved_data),
@@ -2613,121 +2748,96 @@ class TestDatasetTypes:
             mode=dc.TableWriteMode.APPEND,
         )
 
-        # Test schema evolution across all available DatasetTypes with all distributed_dataset_type permutations
-        test_cases = [
-            # Local dataset types with various distributed_dataset_type settings
-            ("local", DatasetType.PYARROW, None, "PyArrow + distributed_dataset_type=None"),
-            ("local", DatasetType.PYARROW, DatasetType.DAFT, "PyArrow + distributed_dataset_type=DAFT"),
-            ("local", DatasetType.PYARROW, DatasetType.RAY_DATASET, "PyArrow + distributed_dataset_type=RAY_DATASET"),
-            
-            ("local", DatasetType.PANDAS, None, "Pandas + distributed_dataset_type=None"),
-            ("local", DatasetType.PANDAS, DatasetType.DAFT, "Pandas + distributed_dataset_type=DAFT"),
-            ("local", DatasetType.PANDAS, DatasetType.RAY_DATASET, "Pandas + distributed_dataset_type=RAY_DATASET"),
-            
-            # Distributed dataset types (these use distributed_dataset_type parameter)
-            ("distributed", DatasetType.DAFT, DatasetType.DAFT, "Distributed DAFT"),
-            ("distributed", DatasetType.RAY_DATASET, DatasetType.RAY_DATASET, "Distributed RAY_DATASET"),
-        ]
+        # Test schema evolution for the specific dataset type combination (parametrized above)
+        if test_mode == "distributed":
+            # Pure distributed dataset types
+            result = dc.read_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                distributed_dataset_type=distributed_type,
+            )
+        else:
+            # Local dataset types with various distributed_dataset_type combinations
+            read_params = {
+                "table": table_name,
+                "namespace": namespace,
+                "catalog": catalog_name,
+                "read_as": read_as_type,
+            }
 
-        successful_cases = []
-        failed_cases = []
+            # Add distributed_dataset_type parameter if specified
+            if distributed_type is not None:
+                read_params["distributed_dataset_type"] = distributed_type
 
-        for test_mode, read_as_type, distributed_type, test_description in test_cases:
-            try:
-                if test_mode == "distributed":
-                    # Pure distributed dataset types
-                    result = dc.read_table(
-                        table=table_name,
-                        namespace=namespace,
-                        catalog=catalog_name,
-                        distributed_dataset_type=distributed_type,
-                    )
-                else:
-                    # Local dataset types with various distributed_dataset_type combinations
-                    read_params = {
-                        "table": table_name,
-                        "namespace": namespace,
-                        "catalog": catalog_name,
-                        "read_as": read_as_type,
-                    }
-                    
-                    # Add distributed_dataset_type parameter if specified
-                    if distributed_type is not None:
-                        read_params["distributed_dataset_type"] = distributed_type
-                    
-                    result = dc.read_table(**read_params)
-                
-                # Convert to consistent format for testing
-                # The actual result type depends on what was actually used (distributed vs local)
-                if hasattr(result, 'collect'):
-                    # Daft DataFrame (from DAFT distributed type or when local types fallback to Daft)
-                    result_df = result.collect().to_pandas()
-                elif hasattr(result, 'to_pandas') and callable(getattr(result, 'to_pandas')):
-                    # Ray Dataset or PyArrow Table
-                    result_df = result.to_pandas()
-                else:
-                    # Already a Pandas DataFrame
-                    result_df = result
+            result = dc.read_table(**read_params)
 
-                # Basic validation - check record count
-                if hasattr(result_df, 'count_rows'):
-                    record_count = result_df.count_rows()
-                else:
-                    record_count = len(result_df)
-                assert record_count == 3, f"{test_description}: Expected 3 records, got {record_count}"
-                
-                # Should have both experiments
-                experiments = set(result_df["experiment_name"].unique())
-                expected_experiments = {"baseline", "higher_lr"}
-                assert experiments == expected_experiments, f"{test_description}: Expected {expected_experiments}, got {experiments}"
-                
-                # All combinations should handle schema evolution gracefully
-                # They should either:
-                # 1. Have all columns with null handling (like DAFT), or
-                # 2. Have a consistent subset of columns without errors
-                available_columns = set(result_df.columns)
-                base_columns = {"experiment_name", "global_step", "loss", "timestamp"}
-                
-                # At minimum, should have the base columns
-                assert base_columns.issubset(available_columns), f"{test_description}: Missing base columns. Got {available_columns}"
-                
-                successful_cases.append((test_description, len(available_columns)))
-                
-                # For cases where DAFT is used (either as distributed_dataset_type or fallback), 
-                # verify full schema evolution with null handling
-                if (distributed_type == DatasetType.DAFT or 
-                    (test_mode == "distributed" and read_as_type == DatasetType.DAFT)):
-                    expected_all_columns = {"experiment_name", "global_step", "loss", "timestamp", "learning_rate"}
-                    if available_columns >= expected_all_columns:
-                        # Verify null handling only if we have the evolved columns
-                        baseline_records = result_df[result_df["experiment_name"] == "baseline"]
-                        higher_lr_records = result_df[result_df["experiment_name"] == "higher_lr"]
-                        
-                        if "learning_rate" in available_columns:
-                            assert baseline_records["learning_rate"].isna().all(), f"{test_description}: Baseline should have null learning_rate"
-                            assert not higher_lr_records["learning_rate"].isna().any(), f"{test_description}: Higher_lr should have non-null learning_rate"
+        # Convert to consistent format for testing
+        # The actual result type depends on what was actually used (distributed vs local)
+        if hasattr(result, "collect"):
+            # Daft DataFrame (from DAFT distributed type or when local types fallback to Daft)
+            result_df = result.collect().to_pandas()
+        elif hasattr(result, "to_pandas") and callable(getattr(result, "to_pandas")):
+            # Ray Dataset or PyArrow Table
+            result_df = result.to_pandas()
+        else:
+            # Already a Pandas DataFrame
+            result_df = result
 
-            except Exception as e:
-                failed_cases.append((test_description, str(e)))
+        # Basic validation - check record count
+        if hasattr(result_df, "count_rows"):
+            record_count = result_df.count_rows()
+        else:
+            record_count = len(result_df)
+        assert (
+            record_count == 3
+        ), f"{test_description}: Expected 3 records, got {record_count}"
 
-        # Report results
-        print(f"\n✅ Successful Test Cases ({len(successful_cases)}):")
-        for test_description, num_columns in successful_cases:
-            print(f"  - {test_description} ({num_columns} columns)")
+        # Should have both experiments
+        experiments = set(result_df["experiment_name"].unique())
+        expected_experiments = {"baseline", "higher_lr"}
+        assert (
+            experiments == expected_experiments
+        ), f"{test_description}: Expected {expected_experiments}, got {experiments}"
 
-        if failed_cases:
-            print(f"\n❌ Failed Test Cases ({len(failed_cases)}):")
-            for test_description, error in failed_cases:
-                print(f"  - {test_description}: {error}")
+        # All combinations should handle schema evolution gracefully
+        # They should either:
+        # 1. Have all columns with null handling (like DAFT), or
+        # 2. Have a consistent subset of columns without errors
+        available_columns = set(result_df.columns)
+        base_columns = {"experiment_name", "global_step", "loss", "timestamp"}
 
-        # The test passes if most combinations work without parameter passing errors
-        # We expect at least 6 out of 8 combinations to work (allowing for some edge cases)
-        min_required_success = 6
-        assert len(successful_cases) >= min_required_success, f"At least {min_required_success} combinations should work, got {len(successful_cases)}"
-        
-        # Specifically verify that pure DAFT distributed works (since it's our main schema evolution target)
-        daft_distributed_success = any("Distributed DAFT" in desc for desc, _ in successful_cases)
-        assert daft_distributed_success, "Distributed DAFT must support schema evolution"
+        # At minimum, should have the base columns
+        assert base_columns.issubset(
+            available_columns
+        ), f"{test_description}: Missing base columns. Got {available_columns}"
+
+        # For cases where DAFT is used (either as distributed_dataset_type or fallback),
+        # verify full schema evolution with null handling
+        if distributed_type == DatasetType.DAFT or (
+            test_mode == "distributed" and read_as_type == DatasetType.DAFT
+        ):
+            expected_all_columns = {
+                "experiment_name",
+                "global_step",
+                "loss",
+                "timestamp",
+                "learning_rate",
+            }
+            if available_columns >= expected_all_columns:
+                # Verify null handling only if we have the evolved columns
+                baseline_records = result_df[result_df["experiment_name"] == "baseline"]
+                higher_lr_records = result_df[
+                    result_df["experiment_name"] == "higher_lr"
+                ]
+
+                if "learning_rate" in available_columns:
+                    assert (
+                        baseline_records["learning_rate"].isna().all()
+                    ), f"{test_description}: Baseline should have null learning_rate"
+                    assert (
+                        not higher_lr_records["learning_rate"].isna().any()
+                    ), f"{test_description}: Higher_lr should have non-null learning_rate"
 
         # Clean up
         dc.clear_catalogs()

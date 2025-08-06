@@ -381,77 +381,95 @@ def files_to_dataframe(
     # When we have the actual table schema, provide it to Daft for automatic null handling
     table_version_schema = kwargs.get("table_version_schema")
     if len(uris) > 1 and table_version_schema is not None:
-        logger.debug(f"Using actual PyArrow schema for schema evolution with {len(uris)} files")
-        
+        logger.debug(
+            f"Using actual PyArrow schema for schema evolution with {len(uris)} files"
+        )
+
         try:
             # Convert PyArrow schema to Daft schema using the official API
             daft_schema = daft.Schema.from_pyarrow_schema(table_version_schema)
-            
+
             # Convert DaftSchema to dictionary format required by read_parquet
             schema_dict = {field.name: field.dtype for field in daft_schema}
-            
+
             # Use explicit schema with infer_schema=False for optimal performance
             # Remove table_version_schema from kwargs since daft.read_parquet doesn't recognize it
             read_kwargs.pop("table_version_schema", None)
-            read_kwargs.update({
-                "infer_schema": False,
-                "schema": schema_dict
-            })
-            
+            read_kwargs.update({"infer_schema": False, "schema": schema_dict})
+
             if io_config is not None:
                 df, latency = timed_invocation(
                     daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
                 )
             else:
-                df, latency = timed_invocation(daft.read_parquet, path=uris, **read_kwargs)
-            
-            logger.debug(f"PyArrow schema evolution succeeded in {latency}s with columns: {df.column_names}")
-            
+                df, latency = timed_invocation(
+                    daft.read_parquet, path=uris, **read_kwargs
+                )
+
+            logger.debug(
+                f"PyArrow schema evolution succeeded in {latency}s with columns: {df.column_names}"
+            )
+
             # Continue with normal column selection
             columns_to_read = include_columns or column_names
             file_path_column = read_kwargs.get("file_path_column")
-            if file_path_column and columns_to_read and file_path_column not in columns_to_read:
+            if (
+                file_path_column
+                and columns_to_read
+                and file_path_column not in columns_to_read
+            ):
                 columns_to_read = list(columns_to_read) + [file_path_column]
-            
+
             logger.debug(f"Taking columns {columns_to_read} from the daft df.")
-            
+
             if columns_to_read:
                 return df.select(*columns_to_read)
             else:
                 return df
-        
+
         except Exception as e:
-            logger.debug(f"PyArrow schema approach failed ({e}), falling back to union method")
+            logger.debug(
+                f"PyArrow schema approach failed ({e}), falling back to union method"
+            )
             # Continue with fallback approach
-    
+
     # For multiple files, use individual reads + union_all_by_name for proper schema evolution
     # Native daft.read_parquet(multiple_files) only returns intersection of schemas, not union
     if len(uris) == 1:
         # Single file - read normally
         clean_read_kwargs = read_kwargs.copy()
         clean_read_kwargs.pop("table_version_schema", None)
-        
+
         if io_config is not None:
             df, latency = timed_invocation(
-                daft.read_parquet, path=uris[0], io_config=io_config, **clean_read_kwargs
+                daft.read_parquet,
+                path=uris[0],
+                io_config=io_config,
+                **clean_read_kwargs,
             )
         else:
-            df, latency = timed_invocation(daft.read_parquet, path=uris[0], **clean_read_kwargs)
+            df, latency = timed_invocation(
+                daft.read_parquet, path=uris[0], **clean_read_kwargs
+            )
     else:
         # Multiple files - read individually and union with schema evolution
-        logger.debug(f"Reading {len(uris)} files individually for schema evolution support")
-        
+        logger.debug(
+            f"Reading {len(uris)} files individually for schema evolution support"
+        )
+
         def read_and_union_with_schema_evolution():
             individual_dfs = []
-            
+
             # Remove table_version_schema from kwargs for daft.read_parquet
             clean_read_kwargs = read_kwargs.copy()
             clean_read_kwargs.pop("table_version_schema", None)
-            
+
             for uri in uris:
                 try:
                     if io_config is not None:
-                        file_df = daft.read_parquet(path=uri, io_config=io_config, **clean_read_kwargs)
+                        file_df = daft.read_parquet(
+                            path=uri, io_config=io_config, **clean_read_kwargs
+                        )
                     else:
                         file_df = daft.read_parquet(path=uri, **clean_read_kwargs)
                     individual_dfs.append(file_df)
@@ -459,20 +477,22 @@ def files_to_dataframe(
                     logger.warning(f"Failed to read file {uri}: {e}")
                     # Continue with other files rather than failing completely
                     continue
-            
+
             if not individual_dfs:
                 raise ValueError(f"No files could be read from {uris}")
-            
+
             # Start with the first DataFrame
             result_df = individual_dfs[0]
-            
+
             # Union with remaining DataFrames using schema evolution
             for i, next_df in enumerate(individual_dfs[1:], 1):
-                logger.debug(f"Unioning DataFrame {i+1}/{len(individual_dfs)} with schema evolution")
+                logger.debug(
+                    f"Unioning DataFrame {i+1}/{len(individual_dfs)} with schema evolution"
+                )
                 result_df = result_df.union_all_by_name(next_df)
-            
+
             return result_df
-        
+
         # Use timed_invocation for the entire operation
         df, latency = timed_invocation(read_and_union_with_schema_evolution)
 
@@ -495,10 +515,12 @@ def files_to_dataframe(
         except Exception as e:
             # If columns are still missing after union, log the issue but continue
             if "not found" in str(e) and "Column" in str(e):
-                logger.warning(f"Some columns not found even after schema evolution: {e}")
+                logger.warning(
+                    f"Some columns not found even after schema evolution: {e}"
+                )
                 logger.warning(f"Available columns: {df.column_names}")
                 logger.warning(f"Requested columns: {columns_to_read}")
-                
+
                 # Return the full DataFrame as fallback
                 return df
             else:
