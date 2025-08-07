@@ -1011,8 +1011,6 @@ def _reconstruct_manifest_entry_uri(
     reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
     if original_uri != reconstructed_uri:
         # Create a copy of the manifest entry with the reconstructed URI
-        from deltacat.storage.model.manifest import ManifestEntry
-
         reconstructed_entry = ManifestEntry(
             uri=reconstructed_uri, url=manifest_entry.url, meta=manifest_entry.meta
         )

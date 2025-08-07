@@ -41,6 +41,18 @@ class BucketingStrategy(str, Enum):
     ICEBERG = "iceberg"
 
 
+class TruncateStrategy(str, Enum):
+    """
+    A bucketing strategy for the transform
+    """
+
+    # Default DeltaCAT truncate strategy.
+    DEFAULT = "default"
+
+    # Iceberg-compliant truncate strategy.
+    ICEBERG = "iceberg"
+
+
 class BucketTransformParameters(TransformParameters):
     """
     Parameters for the bucket transform.
@@ -49,7 +61,7 @@ class BucketTransformParameters(TransformParameters):
     @staticmethod
     def of(
         num_buckets: int,
-        bucketing_strategy: BucketingStrategy,
+        bucketing_strategy: BucketingStrategy = BucketingStrategy.DEFAULT,
     ) -> BucketTransformParameters:
         bucket_transform_parameters = BucketTransformParameters()
         bucket_transform_parameters["numBuckets"] = num_buckets
@@ -78,9 +90,13 @@ class TruncateTransformParameters(TransformParameters):
     """
 
     @staticmethod
-    def of(width: int) -> TruncateTransformParameters:
+    def of(
+        width: int,
+        truncate_strategy: TruncateStrategy = TruncateStrategy.DEFAULT,
+    ) -> TruncateTransformParameters:
         truncate_transform_parameters = TruncateTransformParameters()
         truncate_transform_parameters["width"] = width
+        truncate_transform_parameters["truncateStrategy"] = truncate_strategy
         return truncate_transform_parameters
 
     @property
@@ -89,6 +105,13 @@ class TruncateTransformParameters(TransformParameters):
         The width to truncate the field to.
         """
         return self["width"]
+
+    @property
+    def truncate_strategy(self) -> TruncateStrategy:
+        """
+        The truncate strategy to use.
+        """
+        return TruncateStrategy(self["truncateStrategy"])
 
 
 class Transform(dict):
@@ -154,7 +177,7 @@ class Transform(dict):
 class BucketTransform(Transform):
     """
     A transform that hashes field values into a fixed number of buckets.
-    Returns a PyArrow decimal128(38, 0) type.
+    Returns a PyArrow int32() type.
     """
 
     @staticmethod
@@ -162,7 +185,7 @@ class BucketTransform(Transform):
         transform = BucketTransform()
         transform.name = TransformName.BUCKET
         transform.parameters = parameters
-        transform.return_type = pa.schema([("return_type", pa.decimal128(38, 0))])
+        transform.return_type = pa.schema([("return_type", pa.int32())])
         return transform
 
     @property
@@ -235,7 +258,7 @@ class HourTransform(Transform):
     def of() -> HourTransform:
         transform = HourTransform()
         transform.name = TransformName.HOUR
-        transform.return_type = pa.schema([("return_type", pa.int64())])
+        transform.return_type = pa.schema([("return_type", pa.int32())])
         return transform
 
 
@@ -249,7 +272,7 @@ class DayTransform(Transform):
     def of() -> DayTransform:
         transform = DayTransform()
         transform.name = TransformName.DAY
-        transform.return_type = pa.schema([("return_type", pa.int64())])
+        transform.return_type = pa.schema([("return_type", pa.int32())])
         return transform
 
 
@@ -263,7 +286,7 @@ class MonthTransform(Transform):
     def of() -> MonthTransform:
         transform = MonthTransform()
         transform.name = TransformName.MONTH
-        transform.return_type = pa.schema([("return_type", pa.int64())])
+        transform.return_type = pa.schema([("return_type", pa.int32())])
         return transform
 
 
@@ -277,7 +300,7 @@ class YearTransform(Transform):
     def of() -> YearTransform:
         transform = YearTransform()
         transform.name = TransformName.YEAR
-        transform.return_type = pa.schema([("return_type", pa.int64())])
+        transform.return_type = pa.schema([("return_type", pa.int32())])
         return transform
 
 

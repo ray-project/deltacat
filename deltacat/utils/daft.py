@@ -62,6 +62,7 @@ from deltacat.storage.model.transform import (
     BucketTransform,
     BucketingStrategy,
     TruncateTransform,
+    TruncateStrategy,
 )
 from deltacat.storage.model.partition import PartitionKey
 from deltacat.storage.model.schema import Schema
@@ -224,394 +225,6 @@ class DaftToDeltacatVisitor(PredicateVisitor[Expression]):
         """Visit an 'not_null' predicate."""
         # NOT NULL is implemented as NOT(IS NULL)
         return Not.of(IsNull.of(self.visit(expr)))
-
-
-def s3_files_to_dataframe(
-    uris: List[str],
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
-    s3_client_kwargs: Optional[Any] = None,
-    ray_init_options: Optional[Dict[str, Any]] = None,
-) -> DataFrame:
-
-    if ray_init_options is None:
-        ray_init_options = {}
-
-    assert (
-        content_type == ContentType.PARQUET.value
-    ), f"daft native reader currently only supports parquet, got {content_type}"
-
-    assert (
-        content_encoding == ContentEncoding.IDENTITY.value
-    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
-
-    if not ray.is_initialized():
-        ray.init(**ray_init_options)
-
-    daft.context.set_runner_ray(noop_if_initialized=True)
-
-    if s3_client_kwargs is None:
-        s3_client_kwargs = {}
-
-    kwargs = {}
-    if read_func_kwargs_provider is not None:
-        kwargs = read_func_kwargs_provider(content_type, kwargs)
-
-    # TODO(raghumdani): pass in coerce_int96_timestamp arg
-    # https://github.com/Eventual-Inc/Daft/issues/1894
-
-    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
-
-    logger.debug(
-        f"Preparing to read S3 object from {len(uris)} files into daft dataframe"
-    )
-
-    df, latency = timed_invocation(daft.read_parquet, path=uris, io_config=io_config)
-
-    logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
-
-    columns_to_read = include_columns or column_names
-
-    logger.debug(f"Taking columns {columns_to_read} from the daft df.")
-
-    if columns_to_read:
-        return df.select(*columns_to_read)
-    else:
-        return df
-
-
-def files_to_dataframe(
-    uris: List[str],
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
-    ray_init_options: Optional[Dict[str, Any]] = None,
-    **kwargs,
-) -> DataFrame:
-    """
-    Read multiple files into a Daft DataFrame using any filesystem.
-
-    This function is equivalent to s3_files_to_dataframe but works with any filesystem
-    by allowing users to provide their own IOConfig through kwargs.
-
-    Args:
-        uris: List of file URIs to read
-        content_type: The content type (currently only PARQUET is supported)
-        content_encoding: The content encoding (currently only IDENTITY is supported)
-        column_names: Optional column names to assign
-        include_columns: Optional columns to include in the result
-        read_func_kwargs_provider: Optional kwargs provider for customization
-        ray_options_provider: Optional Ray options provider
-        ray_init_options: Optional Ray initialization options
-        **kwargs: Additional kwargs, including optional 'io_config' for filesystem configuration
-
-    Returns:
-        DataFrame: The Daft DataFrame
-
-    Raises:
-        AssertionError: If content_type is not PARQUET or content_encoding is not IDENTITY
-
-    Examples:
-        # Read local files (filesystem auto-inferred)
-        df = files_to_dataframe(
-            uris=["file1.parquet", "file2.parquet"],
-            content_type=ContentType.PARQUET.value,
-            content_encoding=ContentEncoding.IDENTITY.value
-        )
-
-        # Read S3 files with custom IOConfig
-        from daft.io import IOConfig, S3Config
-        s3_config = IOConfig(s3=S3Config(...))
-        df = files_to_dataframe(
-            uris=["s3://bucket/file1.parquet", "s3://bucket/file2.parquet"],
-            content_type=ContentType.PARQUET.value,
-            content_encoding=ContentEncoding.IDENTITY.value,
-            io_config=s3_config
-        )
-
-        # Read with custom daft.read_parquet parameters
-        df = files_to_dataframe(
-            uris=["file1.parquet"],
-            content_type=ContentType.PARQUET.value,
-            content_encoding=ContentEncoding.IDENTITY.value,
-            coerce_int96_timestamp_unit="ns",
-            hive_partitioning=True
-        )
-    """
-    if ray_init_options is None:
-        ray_init_options = {}
-
-    assert (
-        content_type == ContentType.PARQUET.value
-    ), f"daft native reader currently only supports parquet, got {content_type}"
-
-    assert (
-        content_encoding == ContentEncoding.IDENTITY.value
-    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
-
-    if not ray.is_initialized():
-        ray.init(**ray_init_options)
-
-    daft.context.set_runner_ray(noop_if_initialized=True)
-
-    read_kwargs = {}
-    if read_func_kwargs_provider is not None:
-        read_kwargs = read_func_kwargs_provider(content_type, read_kwargs)
-
-    # TODO(raghumdani): pass in coerce_int96_timestamp arg
-    # https://github.com/Eventual-Inc/Daft/issues/1894
-
-    # Extract io_config from kwargs if provided, otherwise use None
-    io_config = kwargs.pop("io_config", None)
-
-    # Merge any remaining kwargs into read_kwargs (including file_path_column for native Daft support)
-    read_kwargs.update(kwargs)
-
-    logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
-    logger.debug(f"Final read_kwargs for daft.read_parquet: {read_kwargs}")
-
-    # Use our latest PyArrow table version schema for efficient schema evolution
-    # When we have the actual table schema, provide it to Daft for automatic null handling
-    table_version_schema = kwargs.get("table_version_schema")
-    if len(uris) > 1 and table_version_schema is not None:
-        logger.debug(
-            f"Using actual PyArrow schema for schema evolution with {len(uris)} files"
-        )
-
-        try:
-            # Convert PyArrow schema to Daft schema using the official API
-            daft_schema = daft.Schema.from_pyarrow_schema(table_version_schema)
-
-            # Convert DaftSchema to dictionary format required by read_parquet
-            schema_dict = {field.name: field.dtype for field in daft_schema}
-
-            # Use explicit schema with infer_schema=False for optimal performance
-            # Remove table_version_schema from kwargs since daft.read_parquet doesn't recognize it
-            read_kwargs.pop("table_version_schema", None)
-            read_kwargs.update({"infer_schema": False, "schema": schema_dict})
-
-            if io_config is not None:
-                df, latency = timed_invocation(
-                    daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
-                )
-            else:
-                df, latency = timed_invocation(
-                    daft.read_parquet, path=uris, **read_kwargs
-                )
-
-            logger.debug(
-                f"PyArrow schema evolution succeeded in {latency}s with columns: {df.column_names}"
-            )
-
-            # Continue with normal column selection
-            columns_to_read = include_columns or column_names
-            file_path_column = read_kwargs.get("file_path_column")
-            if (
-                file_path_column
-                and columns_to_read
-                and file_path_column not in columns_to_read
-            ):
-                columns_to_read = list(columns_to_read) + [file_path_column]
-
-            logger.debug(f"Taking columns {columns_to_read} from the daft df.")
-
-            if columns_to_read:
-                return df.select(*columns_to_read)
-            else:
-                return df
-
-        except Exception as e:
-            logger.debug(
-                f"PyArrow schema approach failed ({e}), falling back to union method"
-            )
-            # Continue with fallback approach
-
-    # For multiple files, use individual reads + union_all_by_name for proper schema evolution
-    # Native daft.read_parquet(multiple_files) only returns intersection of schemas, not union
-    if len(uris) == 1:
-        # Single file - read normally
-        clean_read_kwargs = read_kwargs.copy()
-        clean_read_kwargs.pop("table_version_schema", None)
-
-        if io_config is not None:
-            df, latency = timed_invocation(
-                daft.read_parquet,
-                path=uris[0],
-                io_config=io_config,
-                **clean_read_kwargs,
-            )
-        else:
-            df, latency = timed_invocation(
-                daft.read_parquet, path=uris[0], **clean_read_kwargs
-            )
-    else:
-        # Multiple files - read individually and union with schema evolution
-        logger.debug(
-            f"Reading {len(uris)} files individually for schema evolution support"
-        )
-
-        def read_and_union_with_schema_evolution():
-            individual_dfs = []
-
-            # Remove table_version_schema from kwargs for daft.read_parquet
-            clean_read_kwargs = read_kwargs.copy()
-            clean_read_kwargs.pop("table_version_schema", None)
-
-            for uri in uris:
-                try:
-                    if io_config is not None:
-                        file_df = daft.read_parquet(
-                            path=uri, io_config=io_config, **clean_read_kwargs
-                        )
-                    else:
-                        file_df = daft.read_parquet(path=uri, **clean_read_kwargs)
-                    individual_dfs.append(file_df)
-                except Exception as e:
-                    logger.warning(f"Failed to read file {uri}: {e}")
-                    # Continue with other files rather than failing completely
-                    continue
-
-            if not individual_dfs:
-                raise ValueError(f"No files could be read from {uris}")
-
-            # Start with the first DataFrame
-            result_df = individual_dfs[0]
-
-            # Union with remaining DataFrames using schema evolution
-            for i, next_df in enumerate(individual_dfs[1:], 1):
-                logger.debug(
-                    f"Unioning DataFrame {i+1}/{len(individual_dfs)} with schema evolution"
-                )
-                result_df = result_df.union_all_by_name(next_df)
-
-            return result_df
-
-        # Use timed_invocation for the entire operation
-        df, latency = timed_invocation(read_and_union_with_schema_evolution)
-
-    logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
-
-    columns_to_read = include_columns or column_names
-
-    # Add file_path_column to selection if it was specified
-    file_path_column = read_kwargs.get("file_path_column")
-    if file_path_column and columns_to_read and file_path_column not in columns_to_read:
-        columns_to_read = list(columns_to_read) + [file_path_column]
-
-    logger.debug(f"Taking columns {columns_to_read} from the daft df.")
-
-    if columns_to_read:
-        # After union_all_by_name, the DataFrame should have all columns from all files
-        # with proper null handling, so this selection should work normally
-        try:
-            return df.select(*columns_to_read)
-        except Exception as e:
-            # If columns are still missing after union, log the issue but continue
-            if "not found" in str(e) and "Column" in str(e):
-                logger.warning(
-                    f"Some columns not found even after schema evolution: {e}"
-                )
-                logger.warning(f"Available columns: {df.column_names}")
-                logger.warning(f"Requested columns: {columns_to_read}")
-
-                # Return the full DataFrame as fallback
-                return df
-            else:
-                # Re-raise if it's a different error
-                raise
-    else:
-        return df
-
-
-def daft_s3_file_to_table(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
-    **s3_client_kwargs,
-):
-    assert (
-        content_type == ContentType.PARQUET.value
-    ), f"daft native reader currently only supports parquet, got {content_type}"
-
-    assert (
-        content_encoding == ContentEncoding.IDENTITY.value
-    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
-
-    kwargs = {}
-    if pa_read_func_kwargs_provider is not None:
-        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
-
-    coerce_int96_timestamp_unit = TimeUnit.from_str(
-        kwargs.get("coerce_int96_timestamp_unit", "ms")
-    )
-    file_timeout_ms = kwargs.get("file_timeout_ms", DEFAULT_FILE_READ_TIMEOUT_MS)
-
-    row_groups = None
-    if (
-        partial_file_download_params is not None
-        and partial_file_download_params.row_groups_to_download is not None
-    ):
-        row_groups = partial_file_download_params.row_groups_to_download
-
-    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
-
-    logger.debug(f"Preparing to read S3 object from {s3_url} into daft table")
-
-    pa_table, latency = timed_invocation(
-        read_parquet_into_pyarrow,
-        path=s3_url,
-        columns=include_columns or column_names,
-        row_groups=row_groups,
-        io_config=io_config,
-        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
-        multithreaded_io=False,
-        file_timeout_ms=file_timeout_ms,
-    )
-
-    logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")
-
-    if kwargs.get("schema") is not None:
-        input_schema = kwargs["schema"]
-        if include_columns is not None:
-            input_schema = pa.schema(
-                [input_schema.field(col) for col in include_columns],
-                metadata=input_schema.metadata,
-            )
-        elif column_names is not None:
-            input_schema = pa.schema(
-                [input_schema.field(col) for col in column_names],
-                metadata=input_schema.metadata,
-            )
-        return coerce_pyarrow_table_to_schema(pa_table, input_schema)
-    else:
-        return pa_table
-
-
-def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
-    return IOConfig(
-        s3=S3Config(
-            key_id=s3_client_kwargs.get("aws_access_key_id"),
-            access_key=s3_client_kwargs.get("aws_secret_access_key"),
-            session_token=s3_client_kwargs.get("aws_session_token"),
-            region_name=AWS_REGION,
-            retry_mode="adaptive",
-            num_tries=BOTO_MAX_RETRIES,
-            max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
-            connect_timeout_ms=5_000,  # Timeout to connect to server
-            read_timeout_ms=10_000,  # Timeout for first byte from server
-        )
-    )
 
 
 class DeltaCatScanOperator(ScanOperator):
@@ -821,7 +434,12 @@ class DaftTransformMapper(ModelMapper[DaftTransform, Transform]):
                     f"Unsupported Bucketing Strategy: {obj.parameters.bucketing_strategy}"
                 )
         elif isinstance(obj, TruncateTransform):
-            return DaftTransform.iceberg_truncate(obj.parameters.width)
+            if obj.parameters.truncate_strategy == TruncateStrategy.ICEBERG:
+                return DaftTransform.iceberg_truncate(obj.parameters.width)
+            else:
+                raise ValueError(
+                    f"Unsupported Truncate Strategy: {obj.parameters.truncate_strategy}"
+                )
 
         raise ValueError(f"Unsupported Transform: {obj}")
 
@@ -945,3 +563,281 @@ class DaftPartitionKeyMapper(ModelMapper[DaftPartitionField, PartitionKey]):
             name=partition_field_name,
             dtype=result_type,
         )
+
+
+def s3_files_to_dataframe(
+    uris: List[str],
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
+    s3_client_kwargs: Optional[Any] = None,
+    ray_init_options: Optional[Dict[str, Any]] = None,
+) -> DataFrame:
+
+    if ray_init_options is None:
+        ray_init_options = {}
+
+    assert (
+        content_type == ContentType.PARQUET.value
+    ), f"daft native reader currently only supports parquet, got {content_type}"
+
+    assert (
+        content_encoding == ContentEncoding.IDENTITY.value
+    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
+
+    if not ray.is_initialized():
+        ray.init(**ray_init_options)
+
+    daft.context.set_runner_ray(noop_if_initialized=True)
+
+    if s3_client_kwargs is None:
+        s3_client_kwargs = {}
+
+    kwargs = {}
+    if read_func_kwargs_provider is not None:
+        kwargs = read_func_kwargs_provider(content_type, kwargs)
+
+    # TODO(raghumdani): pass in coerce_int96_timestamp arg
+    # https://github.com/Eventual-Inc/Daft/issues/1894
+
+    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
+
+    logger.debug(
+        f"Preparing to read S3 object from {len(uris)} files into daft dataframe"
+    )
+
+    df, latency = timed_invocation(daft.read_parquet, path=uris, io_config=io_config)
+
+    logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
+
+    columns_to_read = include_columns or column_names
+
+    logger.debug(f"Taking columns {columns_to_read} from the daft df.")
+
+    if columns_to_read:
+        return df.select(*columns_to_read)
+    else:
+        return df
+
+
+def files_to_dataframe(
+    uris: List[str],
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
+    ray_init_options: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> DataFrame:
+    """
+    Read multiple files into a Daft DataFrame using any filesystem.
+
+    This function is equivalent to s3_files_to_dataframe but works with any filesystem
+    by allowing users to provide their own IOConfig through kwargs.
+
+    Args:
+        uris: List of file URIs to read
+        content_type: The content type (currently only PARQUET is supported)
+        content_encoding: The content encoding (currently only IDENTITY is supported)
+        column_names: Optional column names to assign
+        include_columns: Optional columns to include in the result
+        read_func_kwargs_provider: Optional kwargs provider for customization
+        ray_options_provider: Optional Ray options provider
+        ray_init_options: Optional Ray initialization options
+        **kwargs: Additional kwargs, including optional 'io_config' for filesystem configuration
+
+    Returns:
+        DataFrame: The Daft DataFrame
+
+    Raises:
+        AssertionError: If content_type is not PARQUET or content_encoding is not IDENTITY
+
+    Examples:
+        # Read local files (filesystem auto-inferred)
+        df = files_to_dataframe(
+            uris=["file1.parquet", "file2.parquet"],
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+
+        # Read S3 files with custom IOConfig
+        from daft.io import IOConfig, S3Config
+        s3_config = IOConfig(s3=S3Config(...))
+        df = files_to_dataframe(
+            uris=["s3://bucket/file1.parquet", "s3://bucket/file2.parquet"],
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            io_config=s3_config
+        )
+
+        # Read with custom daft.read_parquet parameters
+        df = files_to_dataframe(
+            uris=["file1.parquet"],
+            content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value,
+            coerce_int96_timestamp_unit="ns",
+            hive_partitioning=True
+        )
+    """
+    if ray_init_options is None:
+        ray_init_options = {}
+
+    assert (
+        content_type == ContentType.PARQUET.value
+    ), f"daft native reader currently only supports parquet, got {content_type}"
+
+    assert (
+        content_encoding == ContentEncoding.IDENTITY.value
+    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
+
+    if not ray.is_initialized():
+        ray.init(**ray_init_options)
+
+    daft.context.set_runner_ray(noop_if_initialized=True)
+
+    read_kwargs = {}
+    if read_func_kwargs_provider is not None:
+        read_kwargs = read_func_kwargs_provider(content_type, read_kwargs)
+
+    # TODO(raghumdani): pass in coerce_int96_timestamp arg
+    # https://github.com/Eventual-Inc/Daft/issues/1894
+
+    # Extract io_config from kwargs if provided, otherwise use None
+    io_config = kwargs.pop("io_config", None)
+
+    # Merge any remaining kwargs into read_kwargs (including file_path_column for native Daft support)
+    read_kwargs.update(kwargs)
+
+    logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
+    logger.debug(f"Final read_kwargs for daft.read_parquet: {read_kwargs}")
+
+    # Use our latest PyArrow table version schema for efficient schema evolution
+    # When we have the actual table schema, provide it to Daft for automatic null handling
+    logger.debug(f"Reading {len(uris)} files with Daft.")
+    table_version_schema = kwargs.get("table_version_schema")
+    if table_version_schema is not None:
+        # Convert PyArrow schema to Daft schema using the official API
+        daft_schema = daft.Schema.from_pyarrow_schema(table_version_schema)
+        # Convert DaftSchema to dictionary format required by read_parquet
+        schema_dict = {field.name: field.dtype for field in daft_schema}
+        # Use explicit schema with infer_schema=False for optimal performance
+        # Remove table_version_schema from kwargs since daft.read_parquet doesn't recognize it
+        read_kwargs.pop("table_version_schema", None)
+        read_kwargs.update({"infer_schema": False, "schema": schema_dict})
+
+    if io_config is not None:
+        df, latency = timed_invocation(
+            daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
+        )
+    else:
+        df, latency = timed_invocation(
+            daft.read_parquet, path=uris, **read_kwargs
+        )
+
+    logger.debug(f"Daft read {len(uris)} files in {latency}s.")
+
+    # Limit the read to only the specified columns
+    columns_to_read = include_columns or column_names
+    file_path_column = read_kwargs.get("file_path_column")
+    if (
+        file_path_column
+        and columns_to_read
+        and file_path_column not in columns_to_read
+    ):
+        # Add file_path_column to selection if it was specified
+        columns_to_read.append(file_path_column)
+
+    if columns_to_read:
+        logger.debug(f"Selecting columns {columns_to_read} with Daft.")
+        return df.select(*columns_to_read)
+    else:
+        return df
+
+
+def daft_s3_file_to_table(
+    s3_url: str,
+    content_type: str,
+    content_encoding: str,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
+    **s3_client_kwargs,
+):
+    assert (
+        content_type == ContentType.PARQUET.value
+    ), f"daft native reader currently only supports parquet, got {content_type}"
+
+    assert (
+        content_encoding == ContentEncoding.IDENTITY.value
+    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
+
+    kwargs = {}
+    if pa_read_func_kwargs_provider is not None:
+        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
+
+    coerce_int96_timestamp_unit = TimeUnit.from_str(
+        kwargs.get("coerce_int96_timestamp_unit", "ms")
+    )
+    file_timeout_ms = kwargs.get("file_timeout_ms", DEFAULT_FILE_READ_TIMEOUT_MS)
+
+    row_groups = None
+    if (
+        partial_file_download_params is not None
+        and partial_file_download_params.row_groups_to_download is not None
+    ):
+        row_groups = partial_file_download_params.row_groups_to_download
+
+    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
+
+    logger.debug(f"Preparing to read S3 object from {s3_url} into daft table")
+
+    pa_table, latency = timed_invocation(
+        read_parquet_into_pyarrow,
+        path=s3_url,
+        columns=include_columns or column_names,
+        row_groups=row_groups,
+        io_config=io_config,
+        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+        multithreaded_io=False,
+        file_timeout_ms=file_timeout_ms,
+    )
+
+    logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")
+
+    if kwargs.get("schema") is not None:
+        input_schema = kwargs["schema"]
+        if include_columns is not None:
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in include_columns],
+                metadata=input_schema.metadata,
+            )
+        elif column_names is not None:
+            input_schema = pa.schema(
+                [input_schema.field(col) for col in column_names],
+                metadata=input_schema.metadata,
+            )
+        return coerce_pyarrow_table_to_schema(pa_table, input_schema)
+    else:
+        return pa_table
+
+
+def _get_s3_io_config(s3_client_kwargs) -> IOConfig:
+    return IOConfig(
+        s3=S3Config(
+            key_id=s3_client_kwargs.get("aws_access_key_id"),
+            access_key=s3_client_kwargs.get("aws_secret_access_key"),
+            session_token=s3_client_kwargs.get("aws_session_token"),
+            region_name=AWS_REGION,
+            retry_mode="adaptive",
+            num_tries=BOTO_MAX_RETRIES,
+            max_connections=DAFT_MAX_S3_CONNECTIONS_PER_FILE,
+            connect_timeout_ms=5_000,  # Timeout to connect to server
+            read_timeout_ms=10_000,  # Timeout for first byte from server
+        )
+    )

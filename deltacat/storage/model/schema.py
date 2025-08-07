@@ -12,6 +12,10 @@ from pyarrow import ArrowInvalid
 import pandas as pd
 import numpy as np
 
+# Daft DataFrame support - required for core functionality
+import daft
+from daft import DataFrame as DaftDataFrame
+
 from deltacat.constants import BYTES_PER_KIBIBYTE
 from deltacat.exceptions import (
     SchemaCompatibilityError,
@@ -29,6 +33,7 @@ from deltacat.types.tables import (
     get_dataset_type,
     SchemaEvolutionMode,
 )
+from deltacat.types.media import DatasetType
 
 if TYPE_CHECKING:
     from deltacat.storage.model.sort_key import SortKey
@@ -536,21 +541,21 @@ class Field(dict):
 
     def validate(
         self,
-        column_data: pa.Array,
+        column_type: pa.DataType,
     ) -> None:
         """Validate that data in a column matches this field's type and constraints.
 
         Args:
-            column_data: PyArrow Array containing the column data to validate
+            column_datatype: PyArrow DataType containing the column data to validate
 
         Raises:
             ValueError: If data doesn't match field requirements.
         """
         # Check if the data type matches the field type
-        if not column_data.type.equals(self.arrow.type):
+        if not column_type.equals(self.arrow.type):
             raise SchemaValidationError(
                 f"Data type mismatch for field '{self.arrow.name}': "
-                f"expected {self.arrow.type}, got {column_data.type}"
+                f"expected {self.arrow.type}, got {column_type}"
             )
 
     def coerce(
@@ -574,6 +579,40 @@ class Field(dict):
             raise SchemaValidationError(
                 f"Cannot coerce data for field '{self.arrow.name}' "
                 f"from {column_data.type} to {self.arrow.type}: {e}"
+            )
+
+    def coerce_daft(
+        self,
+        dataframe: DaftDataFrame,
+        column_name: str,
+        target_type: Optional[pa.DataType] = None,
+    ) -> DaftDataFrame:
+        """Coerce a Daft DataFrame column to match this field's type.
+
+        Args:
+            dataframe: Daft DataFrame containing the column to coerce
+            column_name: Name of the column to coerce
+            target_type: Optional target type to coerce to (defaults to self.arrow.type)
+
+        Returns:
+            DaftDataFrame: DataFrame with the coerced column
+
+        Raises:
+            SchemaValidationError: If data cannot be coerced to the field type
+        """
+        target_arrow_type = target_type or self.arrow.type
+        target_daft_type = daft.DataType.from_arrow_type(target_arrow_type)
+
+        try:
+            # Use Daft's cast expression to coerce the column
+            coerced_dataframe = dataframe.with_column(
+                column_name, daft.col(column_name).cast(target_daft_type)
+            )
+            return coerced_dataframe
+        except Exception as e:
+            raise SchemaValidationError(
+                f"Cannot coerce Daft column '{column_name}' for field '{self.arrow.name}' "
+                f"to type {target_arrow_type}: {e}"
             )
 
     def promote_type_if_needed(
@@ -776,7 +815,7 @@ class Field(dict):
             # Float types
             [pa.float32(), pa.float64()],
             # Decimal types (most specific numeric)
-            [pa.decimal128(28, 10)],  # Use reasonable precision
+            [pa.decimal128(38, 10)],  # Use reasonable precision
             # String types (most permissive for text)
             [pa.string(), pa.large_string()],
             # Binary types (most permissive overall)
@@ -816,7 +855,7 @@ class Field(dict):
                     pa.float32(),
                     pa.float64(),
                 ],
-                [pa.decimal128(28, 10)],
+                [pa.decimal128(38, 10)],
             ),
             # Any type except binary can promote to string
             ("not_binary", [pa.string(), pa.large_string()]),
@@ -1262,6 +1301,58 @@ class Schema(dict):
             updated_schema,
         )
 
+    def validate_and_coerce_dataset(
+        self,
+        dataset: Union[pa.Table, Any],
+        schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
+        default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
+    ) -> Tuple[Union[pa.Table, Any], "Schema"]:
+        """Validate and coerce a dataset to match this schema's field types and constraints.
+
+        This method generalizes validate_and_coerce_table to work with different dataset types,
+        particularly Daft DataFrames without collecting them to memory.
+
+        Args:
+            dataset: Dataset to validate and coerce (PyArrow Table, Daft DataFrame, etc.)
+            schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
+            default_schema_consistency_type: Default consistency type for new fields in AUTO mode
+
+        Returns:
+            Tuple[Dataset, Schema]: Dataset with data validated/coerced according to schema consistency types,
+                                   and the (potentially updated) schema
+
+        Raises:
+            SchemaValidationError: If validation fails or coercion is not possible
+            SchemaCompatibilityError: If schema evolution would break compatibility
+        """
+        # Handle PyArrow tables using existing method
+        if get_dataset_type(dataset) == DatasetType.PYARROW:
+            return self.validate_and_coerce_table(
+                dataset, schema_evolution_mode, default_schema_consistency_type
+            )
+
+        # Handle Daft DataFrames without collecting to memory
+        if get_dataset_type(dataset) == DatasetType.DAFT:
+            return self._validate_and_coerce_daft_dataframe(
+                dataset, schema_evolution_mode, default_schema_consistency_type
+            )
+
+        # Handle Ray Datasets by converting to Daft (memory efficient)
+        if get_dataset_type(dataset) == DatasetType.RAY_DATASET:
+            daft_dataframe = dataset.to_daft()
+            return self._validate_and_coerce_daft_dataframe(
+                daft_dataframe,
+                schema_evolution_mode,
+                default_schema_consistency_type,
+            )
+
+        # For other types, convert to PyArrow and back
+        pa_table = to_pyarrow(dataset)
+        coerced_table, updated_schema = self.validate_and_coerce_table(
+            pa_table, schema_evolution_mode, default_schema_consistency_type
+        )
+        return from_pyarrow(coerced_table, get_dataset_type(dataset)), updated_schema
+
     def coerce(
         self,
         dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
@@ -1312,6 +1403,249 @@ class Schema(dict):
 
         # Convert back to original dataset type
         return from_pyarrow(coerced_table, get_dataset_type(dataset))
+
+    def _validate_and_coerce_daft_dataframe(
+        self,
+        dataframe: Any,  # DaftDataFrame type
+        schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
+        default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
+    ) -> Tuple[Any, "Schema"]:
+        """Validate and coerce a Daft DataFrame without collecting to memory.
+
+        This method processes Daft DataFrames column by column using Daft expressions
+        for validation and coercion, avoiding memory collection.
+
+        Args:
+            dataframe: Daft DataFrame to validate and coerce
+            schema_evolution_mode: How to handle fields not in schema (MANUAL or AUTO)
+            default_schema_consistency_type: Default consistency type for new fields in AUTO mode
+
+        Returns:
+            Tuple[DaftDataFrame, Schema]: Processed DataFrame and updated schema
+
+        Raises:
+            SchemaValidationError: If validation fails or coercion is not possible
+            SchemaCompatibilityError: If schema evolution would break compatibility
+        """
+        if not self.field_ids_to_fields:
+            # No fields defined in schema, return original dataframe
+            return dataframe, self
+
+        # Setup
+        field_name_to_field = self._create_field_name_mapping()
+        field_updates = {}  # field_name -> updated_field
+        new_fields = {}  # field_name -> new_field
+        processed_dataframe = dataframe
+
+        # Process each column in the dataframe
+        for column_name in dataframe.column_names:
+            column_type = dataframe.schema()[column_name].dtype.to_arrow_dtype()
+
+            (
+                processed_dataframe,
+                schema_field,
+                field_update,
+                new_field,
+            ) = self._process_existing_daft_column(
+                processed_dataframe,
+                column_name,
+                column_type,
+                field_name_to_field,
+                schema_evolution_mode,
+                default_schema_consistency_type,
+            )
+
+            if field_update:
+                field_updates[column_name] = field_update
+            if new_field:
+                new_fields[column_name] = new_field
+
+        # Add any missing fields from schema
+        dataframe_column_names = set(dataframe.column_names)
+        processed_dataframe = self._add_missing_schema_fields_daft(
+            processed_dataframe, dataframe_column_names
+        )
+
+        # Apply schema updates if any modifications were made
+        updated_schema = self._apply_schema_updates(field_updates, new_fields)
+
+        return processed_dataframe, updated_schema
+
+    def _process_existing_daft_column(
+        self,
+        dataframe: Any,  # DaftDataFrame type
+        column_name: str,
+        column_type: pa.DataType,
+        field_name_to_field: Dict[str, "Field"],
+        schema_evolution_mode: Optional[SchemaEvolutionMode],
+        default_schema_consistency_type: Optional[SchemaConsistencyType],
+    ) -> Tuple[Any, pa.Field, Optional["Field"], Optional["Field"]]:
+        """Process a Daft DataFrame column that exists in the dataset.
+
+        Args:
+            dataframe: Daft DataFrame to process
+            column_name: Name of the column to process
+            column_type: PyArrow DataType of the column
+            field_name_to_field: Mapping from field names to Field objects
+            schema_evolution_mode: How to handle fields not in schema
+            default_schema_consistency_type: Default consistency type for new fields
+
+        Returns:
+            Tuple of (processed_dataframe, schema_field, field_update, new_field)
+        """
+        if column_name in field_name_to_field:
+            # Field exists in schema - validate/coerce according to consistency type
+            field = field_name_to_field[column_name]
+
+            if field.consistency_type == SchemaConsistencyType.VALIDATE:
+                field.validate(column_type)
+                return dataframe, field.arrow, None, None
+            elif field.consistency_type == SchemaConsistencyType.COERCE:
+                coerced_dataframe = field.coerce_daft(dataframe, column_name)
+                return coerced_dataframe, field.arrow, None, None
+            else:
+                # NONE or no consistency type - use type promotion
+                return self._handle_daft_type_promotion(
+                    dataframe, column_name, column_type, field
+                )
+        else:
+            # Field not in schema - handle based on evolution mode
+            return self._handle_new_daft_field(
+                dataframe,
+                column_name,
+                column_type,
+                schema_evolution_mode,
+                default_schema_consistency_type,
+            )
+
+    def _handle_daft_type_promotion(
+        self,
+        dataframe: Any,  # DaftDataFrame type
+        column_name: str,
+        column_type: pa.DataType,
+        field: "Field",
+    ) -> Tuple[Any, pa.Field, Optional["Field"], Optional["Field"]]:
+        """Handle type promotion for a Daft column with NONE consistency type."""
+        # Create a dummy array to check type promotion
+        dummy_array = pa.array([None], type=column_type)
+        promoted_data, type_was_promoted = field.promote_type_if_needed(dummy_array)
+
+        if type_was_promoted:
+            # Cast the Daft column to the promoted type
+            promoted_dataframe = field.coerce_daft(
+                dataframe, column_name, promoted_data.type
+            )
+
+            # Cast default values to match the promoted type
+            promoted_past_default = (
+                field._cast_default_to_promoted_type(
+                    field.past_default, promoted_data.type
+                )
+                if field.past_default is not None
+                else None
+            )
+            promoted_future_default = (
+                field._cast_default_to_promoted_type(
+                    field.future_default, promoted_data.type
+                )
+                if field.future_default is not None
+                else None
+            )
+
+            # Create updated field with promoted type
+            promoted_field = pa.field(
+                field.arrow.name,
+                promoted_data.type,
+                field.arrow.nullable,
+                field.arrow.metadata,
+            )
+
+            updated_field = Field.of(
+                promoted_field,
+                field_id=field.id,
+                past_default=promoted_past_default,
+                future_default=promoted_future_default,
+                consistency_type=field.consistency_type,
+                path=field.path,
+                native_object=field.native_object,
+            )
+
+            return promoted_dataframe, promoted_field, updated_field, None
+        else:
+            return dataframe, field.arrow, None, None
+
+    def _handle_new_daft_field(
+        self,
+        dataframe: Any,  # DaftDataFrame type
+        column_name: str,
+        column_type: pa.DataType,
+        schema_evolution_mode: Optional[SchemaEvolutionMode],
+        default_schema_consistency_type: Optional[SchemaConsistencyType],
+    ) -> Tuple[Any, pa.Field, Optional["Field"], Optional["Field"]]:
+        """Handle a field that's not in the schema for Daft DataFrames."""
+        if schema_evolution_mode == SchemaEvolutionMode.AUTO:
+            # Create new field with default consistency type
+            next_field_id = self.max_field_id + 1
+            new_field = Field.of(
+                field=pa.field(column_name, column_type),
+                field_id=next_field_id,
+                consistency_type=default_schema_consistency_type
+                or SchemaConsistencyType.NONE,
+            )
+            return dataframe, new_field.arrow, None, new_field
+        else:
+            # MANUAL mode or not specified - raise error
+            raise SchemaValidationError(
+                f"Field '{column_name}' is not present in the schema"
+            )
+
+    def _add_missing_schema_fields_daft(
+        self,
+        dataframe: Any,  # DaftDataFrame type
+        dataframe_column_names: set,
+    ) -> Any:
+        """Add columns for fields that exist in schema but not in Daft DataFrame."""
+        processed_dataframe = dataframe
+
+        for field in self.field_ids_to_fields.values():
+            if field.arrow.name not in dataframe_column_names:
+                consistency_type = field.consistency_type
+
+                # Determine what value to use for missing field
+                default_value = None
+                if consistency_type == SchemaConsistencyType.COERCE:
+                    # Use future_default if available
+                    default_value = field.future_default
+                elif consistency_type == SchemaConsistencyType.VALIDATE:
+                    # Strict validation - missing field is an error unless nullable
+                    if not field.arrow.nullable:
+                        raise SchemaValidationError(
+                            f"Required field '{field.arrow.name}' is missing from data"
+                        )
+                    default_value = None
+                else:
+                    # NONE consistency type - use past_default if available
+                    default_value = field.past_default
+
+                # Add column with null values or default value to Daft DataFrame
+                if default_value is not None:
+                    # Convert default value to Daft literal
+                    processed_dataframe = processed_dataframe.with_column(
+                        field.arrow.name,
+                        daft.lit(default_value).cast(
+                            daft.DataType.from_arrow_type(field.arrow.type)
+                        ),
+                    )
+                else:
+                    # Add null column
+                    processed_dataframe = processed_dataframe.with_column(
+                        field.arrow.name,
+                        daft.lit(None).cast(
+                            daft.DataType.from_arrow_type(field.arrow.type)
+                        ),
+                    )
+
+        return processed_dataframe
 
     @property
     def fields(self) -> List[Field]:
@@ -1695,7 +2029,7 @@ class Schema(dict):
             field = field_name_to_field[column_name]
 
             if field.consistency_type == SchemaConsistencyType.VALIDATE:
-                field.validate(column_data)
+                field.validate(column_data.type)
                 return column_data, field.arrow, None, None
             elif field.consistency_type == SchemaConsistencyType.COERCE:
                 coerced_data = field.coerce(column_data)

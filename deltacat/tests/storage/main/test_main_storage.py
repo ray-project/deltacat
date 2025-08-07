@@ -2863,7 +2863,7 @@ class TestPartition:
 
         # Test invalid bucket transform value type
         invalid_bucket_values = [
-            "not_an_int",  # Should be decimal128(38, 0) from bucket transform
+            "not_an_int",  # Should be int32() from bucket transform
             2024,
             3,
             14,
@@ -2873,7 +2873,7 @@ class TestPartition:
         ]
         with pytest.raises(
             TableValidationError,
-            match="incompatible with partition transform return type decimal128\\(38, 0\\)",
+            match="incompatible with partition transform return type int32()",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -2885,7 +2885,7 @@ class TestPartition:
         # Test invalid year transform value type
         invalid_year_values = [
             5,  # Valid bucket transform value
-            "not_an_int",  # Should be int64 from year transform
+            "not_an_int",  # Should be int32 from year transform
             3,
             14,
             15,
@@ -2894,7 +2894,7 @@ class TestPartition:
         ]
         with pytest.raises(
             TableValidationError,
-            match="incompatible with partition transform return type int64",
+            match="incompatible with partition transform return type int32",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -2907,7 +2907,7 @@ class TestPartition:
         invalid_month_values = [
             5,
             2024,
-            "not_an_int",  # Should be int64 from month transform
+            "not_an_int",  # Should be int32 from month transform
             14,
             15,
             "foo",
@@ -2915,7 +2915,7 @@ class TestPartition:
         ]
         with pytest.raises(
             TableValidationError,
-            match="incompatible with partition transform return type int64",
+            match="incompatible with partition transform return type int32",
         ):
             metastore.stage_partition(
                 stream=stream,

@@ -79,6 +79,7 @@ from deltacat.storage.model.transform import (
     MonthTransform,
     YearTransform,
     TruncateTransform,
+    TruncateStrategy,
 )
 from deltacat.storage.model.types import (
     CommitState,
@@ -177,6 +178,7 @@ __all__ = [
     "TransformParameters",
     "TruncateTransform",
     "TruncateTransformParameters",
+    "TruncateStrategy",
     "UnknownTransform",
     "VoidTransform",
     "YearTransform",

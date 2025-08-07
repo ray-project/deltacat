@@ -4,10 +4,7 @@ from collections import defaultdict
 import os
 
 import pandas as pd
-import polars as pl
 import pyarrow as pa
-import numpy as np
-import ray.data as rd
 import daft
 import deltacat as dc
 
@@ -411,9 +408,6 @@ def write_to_table(
             **kwargs,
         )
 
-        # Convert data to supported format
-        converted_data = _convert_data_if_needed(data)
-
         # Get table properties for schema evolution
         schema_evolution_mode = table_version_obj.read_table_property(
             TableProperty.SCHEMA_EVOLUTION_MODE
@@ -422,17 +416,21 @@ def write_to_table(
             TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE
         )
 
-        # Validate and coerce data against schema if schema consistency types are set
+        # Validate and coerce data against schema BEFORE conversion
+        # This ensures we can properly handle Daft DataFrames without memory collection
         (
             validated_data,
             schema_modified,
             updated_schema,
         ) = _validate_and_coerce_data_against_schema(
-            converted_data,
+            data,  # Use original data, not converted
             table_version_obj.schema,
             schema_evolution_mode=schema_evolution_mode,
             default_schema_consistency_type=default_schema_consistency_type,
         )
+
+        # Convert validated data to supported format for storage
+        converted_data = _convert_data_if_needed(validated_data)
 
         # Update table version if schema was modified during evolution
         if schema_modified:
@@ -453,7 +451,7 @@ def write_to_table(
 
         # Stage and commit delta, handle compaction
         _stage_commit_and_compact(
-            validated_data,
+            converted_data,
             partition,
             delta_type,
             content_type,
@@ -740,43 +738,9 @@ def _validate_and_coerce_data_against_schema(
     if not schema:
         return data, False, None
 
-    # Convert data to PyArrow table for validation
-    if isinstance(data, pa.Table):
-        pa_table = data
-    elif isinstance(data, pd.DataFrame):
-        pa_table = pa.Table.from_pandas(data)
-    elif isinstance(data, pl.DataFrame):
-        pa_table = data.to_arrow()
-    elif isinstance(data, np.ndarray):
-        # Convert numpy array to PyArrow table
-        if data.ndim == 1:
-            pa_table = pa.table([data], names=[f"column_0"])
-        elif data.ndim == 2:
-            column_names = [f"column_{i}" for i in range(data.shape[1])]
-            pa_table = pa.table(
-                [data[:, i] for i in range(data.shape[1])], names=column_names
-            )
-        else:
-            raise ValueError(
-                f"NumPy arrays with {data.ndim} dimensions are not supported"
-            )
-    elif isinstance(data, rd.Dataset):
-        # For Ray Dataset, we can't easily validate without converting to PyArrow
-        # For now, skip validation for Ray datasets
-        logger.warning("Schema validation skipped for Ray Dataset - not yet supported")
-        return data, False, None
-    elif isinstance(data, daft.DataFrame):
-        pa_table = data.to_arrow()
-    else:
-        # Unknown data type, skip validation
-        logger.warning(
-            f"Schema validation skipped for unsupported data type: {type(data)}"
-        )
-        return data, False, None
-
-    # Validate and coerce the table against the schema
-    validated_table, updated_schema = schema.validate_and_coerce_table(
-        pa_table,
+    # Use the new generalized validation method that handles all dataset types
+    validated_data, updated_schema = schema.validate_and_coerce_dataset(
+        data,
         schema_evolution_mode=schema_evolution_mode,
         default_schema_consistency_type=default_schema_consistency_type,
     )
@@ -786,22 +750,7 @@ def _validate_and_coerce_data_against_schema(
     # Return updated schema only if it was modified
     updated_schema = updated_schema if schema_modified else None
 
-    # Convert back to original data type if needed
-    if isinstance(data, pa.Table):
-        return validated_table, schema_modified, updated_schema
-    elif isinstance(data, pd.DataFrame):
-        return validated_table.to_pandas(), schema_modified, updated_schema
-    elif isinstance(data, pl.DataFrame):
-        return pl.from_arrow(validated_table), schema_modified, updated_schema
-    elif isinstance(data, np.ndarray):
-        if validated_table.num_columns == 1:
-            return validated_table.column(0).to_numpy(), schema_modified, updated_schema
-        else:
-            return validated_table.to_pandas().values, schema_modified, updated_schema
-    elif isinstance(data, daft.DataFrame):
-        return daft.from_arrow(validated_table), schema_modified, updated_schema
-    else:
-        return validated_table, schema_modified, updated_schema
+    return validated_data, schema_modified, updated_schema
 
 
 def _stage_commit_and_compact(

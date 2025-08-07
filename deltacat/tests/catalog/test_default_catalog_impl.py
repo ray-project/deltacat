@@ -2842,6 +2842,576 @@ class TestDatasetTypes:
         # Clean up
         dc.clear_catalogs()
 
+    def test_daft_schema_validation_and_coercion(self, temp_catalog_properties):
+        """Test Daft schema validation and coercion without memory collection.
+
+        This test verifies that the generalized schema validation system works with
+        Daft DataFrames using lazy expressions for validation and type coercion,
+        avoiding memory collection of distributed datasets.
+        """
+        namespace = "test_daft_schema"
+        catalog_name = f"daft-schema-validation-{uuid.uuid4()}"
+        table_name = "daft_validation_test"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        # Test 1: Basic validation - compatible types should pass through
+        print("Testing basic Daft schema validation with compatible types...")
+
+        # Create schema with specific field types
+        basic_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                    pa.field("value", pa.float64()),
+                ]
+            )
+        )
+
+        # Create compatible Daft DataFrame
+        compatible_df = daft.from_pydict(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "value": [1.0, 2.0, 3.0],
+            }
+        )
+
+        # Write data with basic validation (should pass)
+        dc.write_to_table(
+            data=compatible_df,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=basic_schema,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify data was written correctly
+        result = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Handle different dataset types for length checking
+        if hasattr(result, "count_rows"):
+            row_count = result.count_rows()  # Daft DataFrame
+        elif hasattr(result, "num_rows"):
+            row_count = result.num_rows  # PyArrow Table
+        else:
+            row_count = len(result)  # Pandas DataFrame or other
+
+        assert row_count == 3, f"Expected 3 rows, got {row_count}"
+        assert set(result.column_names) == {
+            "id",
+            "name",
+            "value",
+        }, f"Expected columns id, name, value, got {result.column_names}"
+
+        print("✓ Basic Daft validation passed")
+
+        # Test 2: Type coercion - integers should coerce to floats
+        print("Testing Daft type coercion with COERCE consistency type...")
+
+        coerce_table_name = "daft_coercion_test"
+
+        # Create schema with COERCE consistency type for value field
+        value_field_pa = pa.field("value", pa.float64())
+        value_field_pa = value_field_pa.with_metadata(
+            {
+                b"field_id": b"3",
+                b"consistency_type": SchemaConsistencyType.COERCE.value.encode(),
+            }
+        )
+
+        coerce_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                    value_field_pa,
+                ]
+            )
+        )
+
+        # Create Daft DataFrame with integer values that need coercion
+        coercion_df = daft.from_pydict(
+            {
+                "id": [4, 5, 6],
+                "name": ["david", "emma", "frank"],
+                "value": [10, 20, 30],  # integers that should coerce to floats
+            }
+        )
+
+        # Write data with coercion (should succeed)
+        dc.write_to_table(
+            data=coercion_df,
+            table=coerce_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=coerce_schema,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify coercion worked
+        coerced_result = dc.read_table(
+            table=coerce_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Handle different dataset types for length checking
+        if hasattr(coerced_result, "count_rows"):
+            row_count = coerced_result.count_rows()  # Daft DataFrame
+        elif hasattr(coerced_result, "num_rows"):
+            row_count = coerced_result.num_rows  # PyArrow Table
+        else:
+            row_count = len(coerced_result)  # Pandas DataFrame or other
+
+        assert row_count == 3, f"Expected 3 rows, got {row_count}"
+
+        # Check that value column was coerced to float
+        if hasattr(coerced_result, "column"):
+            # PyArrow Table
+            value_column = coerced_result.column("value")
+            assert pa.types.is_floating(
+                value_column.type
+            ), f"Value column should be float type, got {value_column.type}"
+            value_data = value_column.to_pylist()
+        elif hasattr(coerced_result, "collect"):
+            # Daft DataFrame - convert to arrow to check type
+            arrow_result = coerced_result.to_arrow()
+            value_column = arrow_result.column("value")
+            assert pa.types.is_floating(
+                value_column.type
+            ), f"Value column should be float type, got {value_column.type}"
+            value_data = value_column.to_pylist()
+        else:
+            # Other format, convert via pandas
+            pandas_result = (
+                coerced_result
+                if hasattr(coerced_result, "dtypes")
+                else coerced_result.to_pandas()
+            )
+            assert (
+                pandas_result["value"].dtype.kind == "f"
+            ), f"Value column should be float type, got {pandas_result['value'].dtype}"
+            value_data = pandas_result["value"].tolist()
+
+        expected_values = [10.0, 20.0, 30.0]
+        # Sort both lists since Daft DataFrame might reorder data during processing
+        assert sorted(value_data) == sorted(
+            expected_values
+        ), f"Expected {sorted(expected_values)}, got {sorted(value_data)}"
+
+        print("✓ Daft type coercion passed")
+
+        # Test 3: Schema evolution - adding new fields
+        print("Testing Daft schema evolution with new field addition...")
+
+        evolution_table_name = "daft_evolution_test"
+
+        # Create initial schema
+        initial_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                ]
+            )
+        )
+
+        # Initial write
+        initial_df = daft.from_pydict(
+            {
+                "id": [7, 8],
+                "name": ["grace", "henry"],
+            }
+        )
+
+        dc.write_to_table(
+            data=initial_df,
+            table=evolution_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=initial_schema,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Evolve with new field using AUTO mode
+        evolved_df = daft.from_pydict(
+            {
+                "id": [9, 10],
+                "name": ["iris", "jack"],
+                "new_field": ["auto_added_1", "auto_added_2"],
+            }
+        )
+
+        dc.write_to_table(
+            data=evolved_df,
+            table=evolution_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.AUTO,  # AUTO mode allows schema evolution
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify schema evolution worked
+        evolved_result = dc.read_table(
+            table=evolution_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Handle different dataset types for length checking
+        if hasattr(evolved_result, "count_rows"):
+            row_count = evolved_result.count_rows()  # Daft DataFrame
+        elif hasattr(evolved_result, "num_rows"):
+            row_count = evolved_result.num_rows  # PyArrow Table
+        else:
+            row_count = len(evolved_result)  # Pandas DataFrame or other
+
+        assert row_count == 4, f"Expected 4 rows total, got {row_count}"
+        assert (
+            "new_field" in evolved_result.column_names
+        ), f"new_field should be in schema after evolution, got columns: {evolved_result.column_names}"
+
+        # Check that new field was properly added with expected values
+        if hasattr(evolved_result, "column"):
+            # PyArrow Table
+            new_field_column = evolved_result.column("new_field").to_pylist()
+        elif hasattr(evolved_result, "collect"):
+            # Daft DataFrame - convert to arrow to access column
+            arrow_result = evolved_result.to_arrow()
+            new_field_column = arrow_result.column("new_field").to_pylist()
+        else:
+            # Other format, convert via pandas
+            pandas_result = (
+                evolved_result
+                if hasattr(evolved_result, "dtypes")
+                else evolved_result.to_pandas()
+            )
+            new_field_column = pandas_result["new_field"].tolist()
+
+        # Check content rather than order: should have 2 None values and 2 string values
+        # Daft DataFrame can reorder rows during processing, so we sort both for comparison
+        expected_new_field_values = [None, None, "auto_added_1", "auto_added_2"]
+        assert sorted(new_field_column, key=lambda x: (x is None, x)) == sorted(
+            expected_new_field_values, key=lambda x: (x is None, x)
+        ), f"Expected 2 None and 2 string values in new_field, got {new_field_column}"
+
+        # Verify the specific string values are present
+        string_values = [x for x in new_field_column if x is not None]
+        assert sorted(string_values) == sorted(
+            ["auto_added_1", "auto_added_2"]
+        ), f"Expected auto_added_1 and auto_added_2 in new_field, got {string_values}"
+
+        # Verify we have exactly 2 None values
+        none_count = sum(1 for x in new_field_column if x is None)
+        assert none_count == 2, f"Expected 2 None values in new_field, got {none_count}"
+
+        print("✓ Daft schema evolution passed")
+        print("All Daft schema validation and coercion tests passed! ✓")
+
+    def test_ray_dataset_schema_validation_and_coercion(self, temp_catalog_properties):
+        """Test Ray Dataset schema validation and coercion without memory collection.
+
+        This test verifies that Ray Datasets work with our generalized schema validation
+        by converting to Daft DataFrames using to_daft(), then using our existing
+        Daft validation and coercion code path to avoid memory collection.
+        """
+        namespace = "test_ray_schema"
+        catalog_name = f"ray-schema-validation-{uuid.uuid4()}"
+        table_name = "ray_validation_test"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        # Test 1: Basic validation - compatible types should pass through
+        print("Testing basic Ray Dataset schema validation with compatible types...")
+
+        # Create schema with specific field types
+        basic_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                    pa.field("value", pa.float64()),
+                ]
+            )
+        )
+
+        # Create compatible Ray Dataset
+        import ray
+
+        if not ray.is_initialized():
+            ray.init()
+
+        compatible_ray_ds = ray.data.from_items(
+            [
+                {"id": 1, "name": "alice", "value": 1.0},
+                {"id": 2, "name": "bob", "value": 2.0},
+                {"id": 3, "name": "charlie", "value": 3.0},
+            ]
+        )
+
+        # Write data with basic validation (should pass)
+        dc.write_to_table(
+            data=compatible_ray_ds,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=basic_schema,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify data was written correctly
+        result = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Handle different dataset types for length checking
+        if hasattr(result, "count_rows"):
+            row_count = result.count_rows()  # Daft DataFrame
+        elif hasattr(result, "num_rows"):
+            row_count = result.num_rows  # PyArrow Table
+        else:
+            row_count = len(result)  # Pandas DataFrame or other
+
+        assert row_count == 3, f"Expected 3 rows, got {row_count}"
+        assert set(result.column_names) == {
+            "id",
+            "name",
+            "value",
+        }, f"Expected columns id, name, value, got {result.column_names}"
+
+        print("✓ Basic Ray Dataset validation passed")
+
+        # Test 2: Type coercion - integers should coerce to floats
+        print("Testing Ray Dataset type coercion with COERCE consistency type...")
+
+        coerce_table_name = "ray_coercion_test"
+
+        # Create schema with COERCE consistency type for value field
+        value_field_pa = pa.field("value", pa.float64())
+        value_field_pa = value_field_pa.with_metadata(
+            {
+                b"field_id": b"3",
+                b"consistency_type": SchemaConsistencyType.COERCE.value.encode(),
+            }
+        )
+
+        coerce_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                    value_field_pa,
+                ]
+            )
+        )
+
+        # Create Ray Dataset with integer values that need coercion
+        coercion_ray_ds = ray.data.from_items(
+            [
+                {
+                    "id": 4,
+                    "name": "david",
+                    "value": 10,
+                },  # integers that should coerce to floats
+                {"id": 5, "name": "emma", "value": 20},
+                {"id": 6, "name": "frank", "value": 30},
+            ]
+        )
+
+        # Write data with coercion (should succeed)
+        dc.write_to_table(
+            data=coercion_ray_ds,
+            table=coerce_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=coerce_schema,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify coercion worked
+        coerced_result = dc.read_table(
+            table=coerce_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Handle different dataset types for length checking
+        if hasattr(coerced_result, "count_rows"):
+            row_count = coerced_result.count_rows()  # Daft DataFrame
+        elif hasattr(coerced_result, "num_rows"):
+            row_count = coerced_result.num_rows  # PyArrow Table
+        else:
+            row_count = len(coerced_result)  # Pandas DataFrame or other
+
+        assert row_count == 3, f"Expected 3 rows, got {row_count}"
+
+        # Check that value column was coerced to float
+        if hasattr(coerced_result, "column"):
+            # PyArrow Table
+            value_column = coerced_result.column("value")
+            assert pa.types.is_floating(
+                value_column.type
+            ), f"Value column should be float type, got {value_column.type}"
+            value_data = value_column.to_pylist()
+        elif hasattr(coerced_result, "collect"):
+            # Daft DataFrame - convert to arrow to check type
+            arrow_result = coerced_result.to_arrow()
+            value_column = arrow_result.column("value")
+            assert pa.types.is_floating(
+                value_column.type
+            ), f"Value column should be float type, got {value_column.type}"
+            value_data = value_column.to_pylist()
+        else:
+            # Other format, convert via pandas
+            pandas_result = (
+                coerced_result
+                if hasattr(coerced_result, "dtypes")
+                else coerced_result.to_pandas()
+            )
+            assert (
+                pandas_result["value"].dtype.kind == "f"
+            ), f"Value column should be float type, got {pandas_result['value'].dtype}"
+            value_data = pandas_result["value"].tolist()
+
+        expected_values = [10.0, 20.0, 30.0]
+        # Sort both lists since Ray Dataset might reorder data during processing
+        assert sorted(value_data) == sorted(
+            expected_values
+        ), f"Expected {sorted(expected_values)}, got {sorted(value_data)}"
+
+        print("✓ Ray Dataset type coercion passed")
+
+        # Test 3: Schema evolution - adding new fields
+        print("Testing Ray Dataset schema evolution with new field addition...")
+
+        evolution_table_name = "ray_evolution_test"
+
+        # Create initial schema
+        initial_schema = Schema.of(
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                ]
+            )
+        )
+
+        # Initial write
+        initial_ray_ds = ray.data.from_items(
+            [
+                {"id": 7, "name": "grace"},
+                {"id": 8, "name": "henry"},
+            ]
+        )
+
+        dc.write_to_table(
+            data=initial_ray_ds,
+            table=evolution_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=initial_schema,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Evolve with new field using AUTO mode
+        evolved_ray_ds = ray.data.from_items(
+            [
+                {"id": 9, "name": "iris", "new_field": "auto_added_1"},
+                {"id": 10, "name": "jack", "new_field": "auto_added_2"},
+            ]
+        )
+
+        dc.write_to_table(
+            data=evolved_ray_ds,
+            table=evolution_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.AUTO,  # AUTO mode allows schema evolution
+            content_type=ContentType.PARQUET,
+        )
+
+        # Verify schema evolution worked
+        evolved_result = dc.read_table(
+            table=evolution_table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Handle different dataset types for length checking
+        if hasattr(evolved_result, "count_rows"):
+            row_count = evolved_result.count_rows()  # Daft DataFrame
+        elif hasattr(evolved_result, "num_rows"):
+            row_count = evolved_result.num_rows  # PyArrow Table
+        else:
+            row_count = len(evolved_result)  # Pandas DataFrame or other
+
+        assert row_count == 4, f"Expected 4 rows total, got {row_count}"
+        assert (
+            "new_field" in evolved_result.column_names
+        ), f"new_field should be in schema after evolution, got columns: {evolved_result.column_names}"
+
+        # Check that new field was properly added with expected values
+        if hasattr(evolved_result, "column"):
+            # PyArrow Table
+            new_field_column = evolved_result.column("new_field").to_pylist()
+        elif hasattr(evolved_result, "collect"):
+            # Daft DataFrame - convert to arrow to access column
+            arrow_result = evolved_result.to_arrow()
+            new_field_column = arrow_result.column("new_field").to_pylist()
+        else:
+            # Other format, convert via pandas
+            pandas_result = (
+                evolved_result
+                if hasattr(evolved_result, "dtypes")
+                else evolved_result.to_pandas()
+            )
+            new_field_column = pandas_result["new_field"].tolist()
+
+        # Check content rather than order: should have 2 None values and 2 string values
+        # Ray Dataset can reorder rows during processing, so we sort both for comparison
+        expected_new_field_values = [None, None, "auto_added_1", "auto_added_2"]
+        assert sorted(new_field_column, key=lambda x: (x is None, x)) == sorted(
+            expected_new_field_values, key=lambda x: (x is None, x)
+        ), f"Expected 2 None and 2 string values in new_field, got {new_field_column}"
+
+        # Verify the specific string values are present
+        string_values = [x for x in new_field_column if x is not None]
+        assert sorted(string_values) == sorted(
+            ["auto_added_1", "auto_added_2"]
+        ), f"Expected auto_added_1 and auto_added_2 in new_field, got {string_values}"
+
+        # Verify we have exactly 2 None values
+        none_count = sum(1 for x in new_field_column if x is None)
+        assert none_count == 2, f"Expected 2 None values in new_field, got {none_count}"
+
+        print("✓ Ray Dataset schema evolution passed")
+        print("All Ray Dataset schema validation and coercion tests passed! ✓")
+
 
 @pytest.fixture
 def table_version_catalog(temp_catalog_properties):

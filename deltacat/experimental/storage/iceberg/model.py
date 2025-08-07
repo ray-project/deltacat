@@ -66,6 +66,7 @@ from deltacat.storage import (
     TableVersionLocator,
     Transform,
     TransformName,
+    TruncateStrategy,
     TruncateTransform,
     TruncateTransformParameters,
     UnknownTransform,
@@ -227,7 +228,10 @@ class TransformMapper(ModelMapper[IcebergTransform, Transform]):
             )
         if isinstance(obj, IcebergTruncateTransform):
             return TruncateTransform.of(
-                TruncateTransformParameters.of(width=obj.width),
+                TruncateTransformParameters.of(
+                    width=obj.width,
+                    truncate_strategy=TruncateStrategy.ICEBERG,
+                ),
             )
         return UnknownTransform.of()
 
