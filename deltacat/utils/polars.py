@@ -44,16 +44,27 @@ def write_json(
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_ndjson(out, **write_kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses
+                table.write_ndjson(f, **write_kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_ndjson(f, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            # TODO (pdames): Add support for client-specified compression types.
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_ndjson(out, **write_kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    table.write_ndjson(out, **write_kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_ndjson(f, **write_kwargs)
 
 
 def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
@@ -104,15 +115,27 @@ def write_csv(
     """
     Write a polars DataFrame to a CSV file (or other delimited text format).
     """
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_csv(out, **kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses
+                table.write_csv(f, **kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_csv(f, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_csv(out, **kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    table.write_csv(out, **kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_csv(f, **kwargs)
 
 
 def write_avro(

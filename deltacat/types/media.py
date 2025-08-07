@@ -66,6 +66,11 @@ EXT_TO_CONTENT_TYPE: Dict[str, ContentType] = {
     ".avro": ContentType.AVRO,
 }
 
+# Inverse map of content types to file extensions
+CONTENT_TYPE_TO_EXT: Dict[ContentType, str] = {
+    v: k for k, v in EXT_TO_CONTENT_TYPE.items()
+}
+
 # Map of file extensions to content encodings
 EXT_TO_CONTENT_ENCODING: Dict[str, ContentEncoding] = {
     ".gz": ContentEncoding.GZIP,
@@ -74,6 +79,11 @@ EXT_TO_CONTENT_ENCODING: Dict[str, ContentEncoding] = {
     ".sz": ContentEncoding.SNAPPY,
     ".zz": ContentEncoding.DEFLATE,
     ".zip": ContentEncoding.DEFLATE,
+}
+
+# Inverse map of content encodings to file extensions
+CONTENT_ENCODING_TO_EXT: Dict[ContentEncoding, str] = {
+    v: k for k, v in EXT_TO_CONTENT_ENCODING.items()
 }
 
 

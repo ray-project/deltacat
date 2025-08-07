@@ -65,6 +65,8 @@ from deltacat.types.media import (
     ContentType,
     EXPLICIT_COMPRESSION_CONTENT_TYPES,
     ContentEncoding,
+    CONTENT_TYPE_TO_EXT,
+    CONTENT_ENCODING_TO_EXT,
 )
 from deltacat.utils import numpy as np_utils
 from deltacat.utils import pandas as pd_utils
@@ -768,6 +770,12 @@ def write_table(
     if table_writer_kwargs is None:
         table_writer_kwargs = {}
 
+    # Determine content_encoding before writing files so we can include it in filenames
+    content_encoding = None
+    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+        # TODO(pdames): Support other user-specified encodings at write time.
+        content_encoding = ContentEncoding.GZIP
+
     wrapped_obj = (
         CapturedBlockWritePathsActor.remote()
         if isinstance(table, RayDataset)
@@ -777,6 +785,8 @@ def write_table(
     block_write_path_provider = UuidBlockWritePathProvider(
         capture_object,
         base_path=base_path,
+        content_type=content_type,
+        content_encoding=content_encoding,
     )
     table_writer_fn(
         table,
@@ -792,10 +802,6 @@ def write_table(
     write_paths = capture_object.write_paths()
     metadata = get_block_metadata_list(table, write_paths, blocks)
     manifest_entries = ManifestEntryList()
-    content_encoding = None
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-        # TODO(pdames): Support other user-specified encodings at write time.
-        content_encoding = ContentEncoding.GZIP
     for block_idx, path in enumerate(write_paths):
         try:
             manifest_entry = ManifestEntry.from_path(
@@ -898,8 +904,12 @@ class UuidBlockWritePathProvider(FilenameProvider):
         self,
         capture_object: CapturedBlockWritePaths,
         base_path: Optional[str] = None,
+        content_type: Optional[ContentType] = None,
+        content_encoding: Optional[ContentEncoding] = None,
     ):
         self.base_path = base_path
+        self.content_type = content_type
+        self.content_encoding = content_encoding
         self.write_paths: List[str] = []
         self.blocks: List[Block] = []
         self.capture_object = capture_object
@@ -934,7 +944,24 @@ class UuidBlockWritePathProvider(FilenameProvider):
         block: Optional[Block] = None,
         **kwargs,
     ) -> str:
-        write_path = f"{base_path}/{str(uuid4())}"
+        # Generate base UUID filename
+        filename = str(uuid4())
+
+        # Add content type extension if available
+        if self.content_type:
+            content_type_extension = None
+            content_type_extension = CONTENT_TYPE_TO_EXT.get(self.content_type)
+            if content_type_extension:
+                filename += content_type_extension
+
+        # Add content encoding extension if available
+        if self.content_encoding:
+            encoding_extension = None
+            encoding_extension = CONTENT_ENCODING_TO_EXT.get(self.content_encoding)
+            if encoding_extension:
+                filename += encoding_extension
+
+        write_path = f"{base_path}/{filename}"
         self.write_paths.append(write_path)
         if block is not None:
             self.blocks.append(block)

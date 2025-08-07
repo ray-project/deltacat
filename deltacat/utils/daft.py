@@ -331,7 +331,7 @@ class DeltaCatScanOperator(ScanOperator):
 
 
 def read_csv(
-    path: str,
+    path: Union[str, List[str]],
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, Any] = {},
@@ -345,23 +345,18 @@ def read_csv(
         path: Path to the CSV file
         filesystem: Optional filesystem to use
         fs_open_kwargs: Optional filesystem open kwargs
-        content_encoding: Content encoding (currently only IDENTITY supported)
+        content_encoding: Content encoding (IDENTITY or GZIP supported)
         **read_kwargs: Additional arguments passed to daft.read_csv
 
     Returns:
         DataFrame: The Daft DataFrame
     """
-    # Currently, Daft only supports identity encoding for direct file reads
-    if content_encoding != ContentEncoding.IDENTITY.value:
-        raise NotImplementedError(
-            f"Daft CSV reader currently only supports identity encoding, got {content_encoding}"
-        )
-
     logger.debug(
         f"Reading CSV file {path} into Daft DataFrame with kwargs: {read_kwargs}"
     )
 
-    # Daft handles filesystem operations internally, so we pass the path directly
+    # Files should now be written with proper extensions, so we can read them directly
+    logger.debug(f"Reading CSV with Daft from: {path}")
     df, latency = timed_invocation(daft.read_csv, path, **read_kwargs)
 
     logger.debug(f"Time to read CSV {path} into Daft DataFrame: {latency}s")
@@ -369,7 +364,7 @@ def read_csv(
 
 
 def read_json(
-    path: str,
+    path: Union[str, List[str]],
     *,
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, Any] = {},
@@ -383,26 +378,51 @@ def read_json(
         path: Path to the JSON file (supports line-delimited JSON)
         filesystem: Optional filesystem to use
         fs_open_kwargs: Optional filesystem open kwargs
-        content_encoding: Content encoding (currently only IDENTITY supported)
+        content_encoding: Content encoding (IDENTITY or GZIP supported)
         **read_kwargs: Additional arguments passed to daft.read_json
 
     Returns:
         DataFrame: The Daft DataFrame
     """
-    # Currently, Daft only supports identity encoding for direct file reads
-    if content_encoding != ContentEncoding.IDENTITY.value:
-        raise NotImplementedError(
-            f"Daft JSON reader currently only supports identity encoding, got {content_encoding}"
-        )
-
     logger.debug(
         f"Reading JSON file {path} into Daft DataFrame with kwargs: {read_kwargs}"
     )
 
-    # Daft handles filesystem operations internally, so we pass the path directly
+    # Files should now be written with proper extensions, so we can read them directly
+    logger.debug(f"Reading JSON with Daft from: {path}")
     df, latency = timed_invocation(daft.read_json, path, **read_kwargs)
 
     logger.debug(f"Time to read JSON {path} into Daft DataFrame: {latency}s")
+    return df
+
+
+def read_parquet(
+    path: Union[str, List[str]],
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> DataFrame:
+    """
+    Read a Parquet file into a Daft DataFrame.
+
+    Args:
+        path: Path to the Parquet file
+        filesystem: Optional filesystem to use
+        fs_open_kwargs: Optional filesystem open kwargs
+        content_encoding: Content encoding (IDENTITY or GZIP supported)
+        **read_kwargs: Additional arguments passed to daft.read_parquet
+
+    Returns:
+        DataFrame: The Daft DataFrame
+    """
+    logger.debug(
+        f"Reading Parquet file {path} into Daft DataFrame with kwargs: {read_kwargs}"
+    )
+    logger.debug(f"Reading Parquet with Daft from: {path}")
+    df, latency = timed_invocation(daft.read_parquet, path=path, **read_kwargs)
+    logger.debug(f"Time to read Parquet {path} into Daft DataFrame: {latency}s")
     return df
 
 
@@ -412,7 +432,7 @@ CONTENT_TYPE_TO_READ_FN: Dict[str, Callable] = {
     ContentType.TSV.value: read_csv,
     ContentType.CSV.value: read_csv,
     ContentType.PSV.value: read_csv,
-    ContentType.PARQUET.value: daft.read_parquet,  # Use Daft's native parquet reader
+    ContentType.PARQUET.value: read_parquet,
     ContentType.JSON.value: read_json,
 }
 
@@ -447,78 +467,6 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
     }:
         return {}
     raise ValueError(f"Unsupported content type for Daft reader: {content_type}")
-
-
-def file_to_dataframe(
-    path: str,
-    content_type: str,
-    content_encoding: str = ContentEncoding.IDENTITY.value,
-    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    fs_open_kwargs: Dict[str, Any] = {},
-    **kwargs,
-) -> DataFrame:
-    """
-    Read a file into a Daft DataFrame using any filesystem.
-
-    Args:
-        path: The file path to read
-        content_type: The content type of the file (e.g., ContentType.CSV.value)
-        content_encoding: The content encoding (default: IDENTITY)
-        filesystem: The filesystem to use (if None, Daft will infer from path)
-        column_names: Optional column names to assign (for CSV files)
-        include_columns: Optional columns to include in the result
-        read_func_kwargs_provider: Optional kwargs provider for customization
-        fs_open_kwargs: Optional kwargs for filesystem open operations
-        **kwargs: Additional kwargs passed to the reader function
-
-    Returns:
-        DataFrame: The Daft DataFrame
-    """
-    logger.debug(
-        f"Reading {path} to Daft DataFrame. Content type: {content_type}. "
-        f"Encoding: {content_encoding}"
-    )
-
-    daft_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
-    if not daft_read_func:
-        raise NotImplementedError(
-            f"Daft reader for content type '{content_type}' not "
-            f"implemented. Known content types: "
-            f"{list(CONTENT_TYPE_TO_READ_FN.keys())}"
-        )
-
-    reader_kwargs = content_type_to_reader_kwargs(content_type)
-
-    # Note: Daft doesn't support reading specific columns during CSV parsing
-    # Column selection will be applied after reading the full dataset
-
-    # Merge with provided kwargs
-    reader_kwargs.update(kwargs)
-
-    if read_func_kwargs_provider:
-        reader_kwargs = read_func_kwargs_provider(content_type, reader_kwargs)
-
-    logger.debug(f"Reading {path} via {daft_read_func} with kwargs: {reader_kwargs}")
-
-    dataframe, latency = timed_invocation(
-        daft_read_func,
-        path,
-        filesystem=filesystem,
-        fs_open_kwargs=fs_open_kwargs,
-        content_encoding=content_encoding,
-        **reader_kwargs,
-    )
-
-    # Apply column selection after reading if needed
-    if include_columns:
-        # Select only the requested columns
-        dataframe = dataframe.select(*include_columns)
-
-    logger.debug(f"Time to read {path} into Daft DataFrame: {latency}s")
-    return dataframe
 
 
 class DaftFieldMapper(ModelMapper[DaftField, PaField]):
@@ -830,12 +778,11 @@ def files_to_dataframe(
     """
     Read multiple files into a Daft DataFrame using any filesystem.
 
-    This function is equivalent to s3_files_to_dataframe but works with any filesystem
-    by allowing users to provide their own IOConfig through kwargs.
+    This function supports reading PARQUET, CSV, JSON, TSV, and PSV files.
 
     Args:
         uris: List of file URIs to read
-        content_type: The content type (currently only PARQUET is supported)
+        content_type: The content type (PARQUET, CSV, JSON, TSV, UNESCAPED_TSV, PSV)
         content_encoding: The content encoding (currently only IDENTITY is supported)
         column_names: Optional column names to assign
         include_columns: Optional columns to include in the result
@@ -848,13 +795,20 @@ def files_to_dataframe(
         DataFrame: The Daft DataFrame
 
     Raises:
-        AssertionError: If content_type is not PARQUET or content_encoding is not IDENTITY
+        AssertionError: If content_type is not supported or content_encoding is not IDENTITY
 
     Examples:
-        # Read local files (filesystem auto-inferred)
+        # Read local parquet files (filesystem auto-inferred)
         df = files_to_dataframe(
             uris=["file1.parquet", "file2.parquet"],
             content_type=ContentType.PARQUET.value,
+            content_encoding=ContentEncoding.IDENTITY.value
+        )
+
+        # Read CSV files
+        df = files_to_dataframe(
+            uris=["file1.csv", "file2.csv"],
+            content_type=ContentType.CSV.value,
             content_encoding=ContentEncoding.IDENTITY.value
         )
 
@@ -867,26 +821,23 @@ def files_to_dataframe(
             content_encoding=ContentEncoding.IDENTITY.value,
             io_config=s3_config
         )
-
-        # Read with custom daft.read_parquet parameters
-        df = files_to_dataframe(
-            uris=["file1.parquet"],
-            content_type=ContentType.PARQUET.value,
-            content_encoding=ContentEncoding.IDENTITY.value,
-            coerce_int96_timestamp_unit="ns",
-            hive_partitioning=True
-        )
     """
     if ray_init_options is None:
         ray_init_options = {}
 
-    assert (
-        content_type == ContentType.PARQUET.value
-    ), f"daft native reader currently only supports parquet, got {content_type}"
+    if content_type not in CONTENT_TYPE_TO_READ_FN.keys():
+        raise NotImplementedError(
+            f"Daft native reader supports {CONTENT_TYPE_TO_READ_FN.keys()}, got {content_type}"
+        )
 
-    assert (
-        content_encoding == ContentEncoding.IDENTITY.value
-    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
+    # Handle content encoding - for now, we only support identity and gzip
+    if content_encoding not in [
+        ContentEncoding.IDENTITY.value,
+        ContentEncoding.GZIP.value,
+    ]:
+        raise NotImplementedError(
+            f"Daft native reader currently supports identity and gzip encoding, got {content_encoding}"
+        )
 
     if not ray.is_initialized():
         ray.init(**ray_init_options)
@@ -897,8 +848,9 @@ def files_to_dataframe(
     if read_func_kwargs_provider is not None:
         read_kwargs = read_func_kwargs_provider(content_type, read_kwargs)
 
-    # TODO(raghumdani): pass in coerce_int96_timestamp arg
-    # https://github.com/Eventual-Inc/Daft/issues/1894
+    # Add content-type-specific reader kwargs
+    content_type_kwargs = content_type_to_reader_kwargs(content_type)
+    read_kwargs.update(content_type_kwargs)
 
     # Extract io_config from kwargs if provided, otherwise use None
     io_config = kwargs.pop("io_config", None)
@@ -907,32 +859,52 @@ def files_to_dataframe(
     read_kwargs.update(kwargs)
 
     logger.debug(f"Preparing to read {len(uris)} files into daft dataframe")
-    logger.debug(f"Final read_kwargs for daft.read_parquet: {read_kwargs}")
+    logger.debug(f"Content type: {content_type}")
+    logger.debug(f"Final read_kwargs: {read_kwargs}")
 
-    # Use our latest PyArrow table version schema for efficient schema evolution
-    # When we have the actual table schema, provide it to Daft for automatic null handling
-    logger.debug(f"Reading {len(uris)} files with Daft.")
+    # Get the appropriate Daft reader function based on content type
+    daft_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
+    if not daft_read_func:
+        raise NotImplementedError(
+            f"Daft reader for content type '{content_type}' not implemented. "
+            f"Known content types: {list(CONTENT_TYPE_TO_READ_FN.keys())}"
+        )
+
+    # Handle schema for all supported formats
     table_version_schema = kwargs.get("table_version_schema")
     if table_version_schema is not None:
         # Convert PyArrow schema to Daft schema using the official API
         daft_schema = daft.Schema.from_pyarrow_schema(table_version_schema)
-        # Convert DaftSchema to dictionary format required by read_parquet
+        # Convert DaftSchema to dictionary format required by Daft readers
         schema_dict = {field.name: field.dtype for field in daft_schema}
-        # Use explicit schema with infer_schema=False for optimal performance
-        # Remove table_version_schema from kwargs since daft.read_parquet doesn't recognize it
-        read_kwargs.pop("table_version_schema", None)
-        read_kwargs.update({"infer_schema": False, "schema": schema_dict})
 
-    if io_config is not None:
+        # Remove table_version_schema from kwargs since Daft readers don't recognize it
+        read_kwargs.pop("table_version_schema", None)
+
+        if content_type == ContentType.PARQUET.value:
+            # Use explicit schema with infer_schema=False for optimal performance
+            read_kwargs.update({"infer_schema": False, "schema": schema_dict})
+        elif content_type in [ContentType.CSV.value, ContentType.JSON.value]:
+            # For CSV and JSON, provide schema for consistent column names and types
+            read_kwargs.update({"infer_schema": False, "schema": schema_dict})
+    else:
+        # Remove table_version_schema parameter if present but None
+        read_kwargs.pop("table_version_schema", None)
+
+    logger.debug(f"Reading {len(uris)} files with Daft using {daft_read_func}.")
+
+    # Call the appropriate Daft reader function
+    if io_config is not None and content_type == ContentType.PARQUET.value:
+        # Only parquet reader supports io_config parameter
         df, latency = timed_invocation(
-            daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
+            daft_read_func, path=uris, io_config=io_config, **read_kwargs
         )
     else:
-        df, latency = timed_invocation(daft.read_parquet, path=uris, **read_kwargs)
+        df, latency = timed_invocation(daft_read_func, path=uris, **read_kwargs)
 
     logger.debug(f"Daft read {len(uris)} files in {latency}s.")
 
-    # Limit the read to only the specified columns
+    # Apply column selection after reading
     columns_to_read = include_columns or column_names
     file_path_column = read_kwargs.get("file_path_column")
     if file_path_column and columns_to_read and file_path_column not in columns_to_read:

@@ -58,7 +58,15 @@ def write_csv(
         )
         return {"write_options": write_options}
 
-    pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
+    # Check if the block_path_provider will generate .gz files to avoid double compression
+    pa_open_stream_args = {}
+    if not (
+        hasattr(block_path_provider, "content_encoding")
+        and block_path_provider.content_encoding == ContentEncoding.GZIP
+    ):
+        # Block path provider will not generate .gz files, so we need to apply explicit compression
+        pa_open_stream_args["compression"] = ContentEncoding.GZIP.value
+
     dataset.write_csv(
         base_path,
         arrow_open_stream_args=pa_open_stream_args,
@@ -81,7 +89,15 @@ def write_json(
     """
     Write a Ray Dataset to a JSON file using Ray's native JSON writer.
     """
-    pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
+    # Check if the block_path_provider will generate .gz files to avoid double compression
+    pa_open_stream_args = {}
+    if not (
+        hasattr(block_path_provider, "content_encoding")
+        and block_path_provider.content_encoding == ContentEncoding.GZIP
+    ):
+        # Block path provider will not generate .gz files, so we need to apply explicit compression
+        pa_open_stream_args["compression"] = ContentEncoding.GZIP.value
+
     dataset.write_json(
         base_path,
         arrow_open_stream_args=pa_open_stream_args,

@@ -1531,6 +1531,7 @@ def update_table_version(
     new_table_version: TableVersion = Metafile.update_for(old_table_version)
     new_table_version.state = lifecycle_state or old_table_version.state
 
+    # Caller is expected to do all necessary backwards compatibility schema checks
     update_schema = schema and not schema.equivalent_to(
         old_table_version.schema,
         True,

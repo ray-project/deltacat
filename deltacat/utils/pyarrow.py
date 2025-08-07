@@ -503,16 +503,28 @@ def write_csv(
     if write_kwargs.get("write_options") is None:
         # column names are kept in table metadata, so omit header
         write_kwargs["write_options"] = pacsv.WriteOptions(include_header=False)
+
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                pacsv.write_csv(table, out, **write_kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses, no need for additional compression
+                pacsv.write_csv(table, f, **write_kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                pacsv.write_csv(table, f, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            # TODO (pdames): Add support for client-specified compression types.
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                pacsv.write_csv(table, out, **write_kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    pacsv.write_csv(table, out, **write_kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                pacsv.write_csv(table, f, **write_kwargs)
 
 
 def write_orc(

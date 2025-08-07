@@ -565,15 +565,30 @@ def write_csv(
     # TODO (pdames): Add support for client-specified compression types.
     if kwargs.get("header") is None:
         kwargs["header"] = False
+
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_csv(out, **kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses, no need for additional compression
+                dataframe.to_csv(f, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_csv(out, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_csv(out, **kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_csv(out, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_csv(out, **kwargs)
 
 
 def write_parquet(
@@ -635,16 +650,29 @@ def write_json(
     fs_open_kwargs: Dict[str, any] = {},
     **kwargs,
 ) -> None:
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_json(out, **kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses, no need for additional compression
+                dataframe.to_json(f, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_json(out, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            # TODO (pdames): Add support for client-specified compression types.
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_json(out, **kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_json(out, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_json(out, **kwargs)
 
 
 def write_avro(

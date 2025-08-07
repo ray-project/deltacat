@@ -197,6 +197,19 @@ def _validate_write_mode_and_table_version_existence(
     return table_exists_flag, table_version_exists_flag
 
 
+def _validate_content_type_against_supported_content_types(
+    namespace: str,
+    table: str,
+    content_type: ContentType,
+    supported_content_types: Optional[List[ContentType]],
+) -> None:
+    if supported_content_types and content_type not in supported_content_types:
+        raise ValueError(
+            f"Content type proposed for write to table {namespace}.{table} ({content_type}) "
+            f"conflicts with the proposed list of new supported content types: {supported_content_types}"
+        )
+
+
 def _get_or_create_table_and_version(
     data: Dataset,
     table: str,
@@ -215,11 +228,17 @@ def _get_or_create_table_and_version(
         if "schema" not in kwargs:
             kwargs["schema"] = infer_table_schema(data)
 
+        _validate_content_type_against_supported_content_types(
+            namespace,
+            table,
+            content_type,
+            kwargs.get("content_types"),
+        )
+
         return create_table(
             table,
             namespace=namespace,
             table_version=table_version,  # Pass the specific version
-            content_types=[content_type],
             *args,
             **kwargs,
         )
@@ -238,6 +257,13 @@ def _get_or_create_table_and_version(
                 # For CREATE/AUTO mode, we want to create a new table version
                 if "schema" not in kwargs:
                     kwargs["schema"] = infer_table_schema(data)
+
+                _validate_content_type_against_supported_content_types(
+                    namespace,
+                    table,
+                    content_type,
+                    kwargs.get("content_types"),
+                )
 
                 # Create a new table version directly using storage API
                 # We need to bypass the create_table function's existence check
@@ -258,7 +284,7 @@ def _get_or_create_table_and_version(
                     lifecycle_state=kwargs.get(
                         "lifecycle_state", LifecycleState.ACTIVE
                     ),
-                    supported_content_types=[content_type],
+                    supported_content_types=kwargs.get("content_types"),
                     **{
                         k: v
                         for k, v in kwargs.items()
@@ -322,7 +348,7 @@ def write_to_table(
             get this version if it exists (in other modes). If not specified,
             uses the latest version.
         mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
-        content_type: Content type for the data files.
+        content_type: Content type used to write the data files. Defaults to PARQUET.
         schema: Optional DeltaCAT schema for the table. Used when creating tables
             and updating existing table version schemas.
         lifecycle_state: Lifecycle state of any new table version created. Defaults to ACTIVE.
@@ -1132,30 +1158,6 @@ def _validate_read_table_input(
         )
 
 
-def _get_and_validate_table_metadata(
-    table: str, namespace: str, table_version: Optional[str], **kwargs
-) -> TableVersion:
-    """Get table version object and validate its metadata."""
-    table_version_obj = _get_latest_active_or_given_table_version(
-        namespace=namespace,
-        table_name=table,
-        table_version=table_version,
-        **kwargs,
-    )
-
-    # Validate content types
-    if (
-        table_version_obj.content_types is None
-        or len(table_version_obj.content_types) != 1
-    ):
-        raise ValueError(
-            "Expected exactly one content type but "
-            f"found {table_version_obj.content_types}."
-        )
-
-    return table_version_obj
-
-
 def _get_qualified_deltas_for_read(
     table: str,
     namespace: str,
@@ -1418,8 +1420,12 @@ def read_table(
     try:
         # Resolve namespace and get table metadata
         namespace = namespace or default_namespace()
-        table_version_obj = _get_and_validate_table_metadata(
-            table, namespace, table_version, **kwargs
+
+        table_version_obj = _get_latest_active_or_given_table_version(
+            namespace=namespace,
+            table_name=table,
+            table_version=table_version,
+            **kwargs,
         )
 
         # Get partitions and deltas to read

@@ -2212,7 +2212,7 @@ class TestDatasetTypes:
         dc.clear_catalogs()
 
     @pytest.mark.parametrize(
-        "distributed_dataset_type,dataset_name,custom_kwargs",
+        "distributed_dataset_type,dataset_name,custom_kwargs,content_type",
         [
             (
                 DatasetType.RAY_DATASET,
@@ -2220,6 +2220,7 @@ class TestDatasetTypes:
                 {
                     "file_path_column": "path",
                 },
+                ContentType.PARQUET,
             ),
             (
                 DatasetType.DAFT,
@@ -2229,6 +2230,27 @@ class TestDatasetTypes:
                     "ray_init_options": {"num_cpus": 1},
                     "file_path_column": "_source_file_path",
                 },
+                ContentType.PARQUET,  # Test Parquet support
+            ),
+            (
+                DatasetType.DAFT,
+                "DAFT-CSV",
+                {
+                    "io_config": None,
+                    "ray_init_options": {"num_cpus": 1},
+                    "file_path_column": "_source_file_path",
+                },
+                ContentType.CSV,  # Test CSV support
+            ),
+            (
+                DatasetType.DAFT,
+                "DAFT-JSON",
+                {
+                    "io_config": None,
+                    "ray_init_options": {"num_cpus": 1},
+                    "file_path_column": "_source_file_path",
+                },
+                ContentType.JSON,  # Test JSON support
             ),
         ],
     )
@@ -2238,6 +2260,7 @@ class TestDatasetTypes:
         distributed_dataset_type,
         dataset_name,
         custom_kwargs,
+        content_type,
     ):
         """Test custom kwargs propagation with distributed storage types."""
         namespace = "test_namespace"
@@ -2262,6 +2285,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            content_type=content_type,
         )
 
         # Test the distributed storage type with custom kwargs (parametrized above)
@@ -3437,6 +3461,197 @@ def table_version_catalog(temp_catalog_properties):
 
     # Cleanup
     dc.clear_catalogs()
+
+    @pytest.mark.parametrize(
+        "content_type,test_description",
+        [
+            (ContentType.PARQUET, "Daft reading Parquet files"),
+            (ContentType.CSV, "Daft reading CSV files"),
+            (ContentType.JSON, "Daft reading JSON files"),
+        ],
+    )
+    def test_daft_multi_format_reading(
+        self, temp_catalog_properties, content_type, test_description
+    ):
+        """
+        Test that Daft can correctly read tables with different content types.
+
+        This test verifies that Daft can read CSV, JSON, and Parquet files
+        with the same data and produce consistent results.
+        """
+        namespace = "test_namespace"
+        catalog_name = f"daft-multi-format-test-{uuid.uuid4()}"
+        table_name = "multi_format_test_table"
+
+        # Test data - compatible with all formats
+        test_data = pa.table(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+                "value": [10.1, 20.2, 30.3, 40.4, 50.5],
+                "category": ["A", "B", "A", "C", "B"],
+            }
+        )
+
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Create table with specific content type support
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=content_type,
+        )
+
+        # Test reading with Daft
+        result_table = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+
+        # Verify the result
+        assert result_table is not None
+        assert isinstance(
+            result_table, daft.DataFrame
+        ), f"Expected daft.DataFrame, got {type(result_table)}"
+
+        # Convert to pandas for easier comparison
+        result_df = result_table.collect().to_pandas()
+
+        # Verify the data was read correctly
+        assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
+        assert set(result_df.columns) == {
+            "id",
+            "name",
+            "value",
+            "category",
+        }, f"Unexpected columns: {result_df.columns}"
+
+        # Verify specific data values
+        assert result_df["id"].tolist() == [1, 2, 3, 4, 5]
+        assert result_df["name"].tolist() == ["Alice", "Bob", "Charlie", "David", "Eve"]
+        assert result_df["category"].tolist() == ["A", "B", "A", "C", "B"]
+
+        # Clean up
+        dc.clear_catalogs()
+
+    @pytest.mark.parametrize(
+        "content_types,test_description",
+        [
+            ([ContentType.PARQUET, ContentType.CSV], "Mixed Parquet and CSV files"),
+            ([ContentType.PARQUET, ContentType.JSON], "Mixed Parquet and JSON files"),
+            ([ContentType.CSV, ContentType.JSON], "Mixed CSV and JSON files"),
+            (
+                [ContentType.PARQUET, ContentType.CSV, ContentType.JSON],
+                "Mixed Parquet, CSV, and JSON files",
+            ),
+        ],
+    )
+    def test_daft_mixed_content_type_reading(
+        self, temp_catalog_properties, content_types, test_description
+    ):
+        """
+        Test that Daft can correctly read tables with mixed content types.
+
+        This test verifies that Daft can handle tables where different partitions
+        or deltas are stored in different formats (e.g., some in Parquet, some in CSV).
+        """
+        namespace = "test_namespace"
+        catalog_name = f"daft-mixed-format-test-{uuid.uuid4()}"
+        table_name = "mixed_format_test_table"
+
+        # Create catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Test data batches - we'll write multiple batches with different formats
+        test_data_batches = [
+            pa.table(
+                {
+                    "id": [1, 2, 3],
+                    "name": ["name_1", "name_2", "name_3"],
+                    "value": [10.1, 20.2, 30.3],
+                    "category": ["A", "B", "A"],
+                }
+            ),
+            pa.table(
+                {
+                    "id": [4, 5, 6],
+                    "name": ["name_4", "name_5", "name_6"],
+                    "value": [40.4, 50.5, 60.6],
+                    "category": ["C", "B", "C"],
+                }
+            ),
+            pa.table(
+                {
+                    "id": [7, 8, 9],
+                    "name": ["name_7", "name_8", "name_9"],
+                    "value": [70.7, 80.8, 90.9],
+                    "category": ["B", "A", "B"],
+                }
+            ),
+        ]
+
+        for i, content_type in enumerate(content_types):
+            # Write first batch with mixed content type support
+            dc.write_to_table(
+                data=test_data_batches[i],
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                mode=TableWriteMode.AUTO,
+                content_type=content_type,
+                content_types=content_types,
+            )
+
+        # Test reading with Daft
+        result_table = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            distributed_dataset_type=DatasetType.DAFT,
+        )
+
+        # Verify the result
+        assert result_table is not None
+        assert isinstance(
+            result_table, daft.DataFrame
+        ), f"Expected daft.DataFrame, got {type(result_table)}"
+
+        # Convert to pandas for easier comparison
+        result_df = result_table.collect().to_pandas()
+
+        # Verify the data was read correctly - should have all 6 rows
+        expected_row_count = 3 * len(content_types)
+        assert (
+            len(result_df) == expected_row_count
+        ), f"Expected {expected_row_count} rows, got {len(result_df)}"
+        assert set(result_df.columns) == {
+            "id",
+            "name",
+            "value",
+            "category",
+        }, f"Unexpected columns: {result_df.columns}"
+
+        # Verify all IDs are present (order may vary due to multiple files)
+        expected_ids = set(range(1, expected_row_count + 1))
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, got {actual_ids}"
+
+        # Verify all names are present
+        expected_names = set(f"name_{i}" for i in range(1, expected_row_count + 1))
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, got {actual_names}"
+
+        # Clean up
+        dc.clear_catalogs()
 
 
 class TestTableVersionWriteModes:
