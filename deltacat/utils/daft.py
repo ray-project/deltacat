@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List, Any, Dict, Callable, Iterator
+from typing import Optional, List, Any, Dict, Callable, Iterator, Union
 
 from daft.daft import (
     StorageConfig,
@@ -34,6 +34,8 @@ from daft.io.scan import (
     make_partition_field,
 )
 import pyarrow as pa
+import pyarrow.fs as pafs
+from fsspec import AbstractFileSystem
 
 from deltacat import logs
 from deltacat.utils.common import ReadKwargsProvider
@@ -326,6 +328,197 @@ class DeltaCatScanOperator(ScanOperator):
             partition_fields.append(field)
 
         return partition_fields
+
+
+def read_csv(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> DataFrame:
+    """
+    Read a CSV file into a Daft DataFrame.
+
+    Args:
+        path: Path to the CSV file
+        filesystem: Optional filesystem to use
+        fs_open_kwargs: Optional filesystem open kwargs
+        content_encoding: Content encoding (currently only IDENTITY supported)
+        **read_kwargs: Additional arguments passed to daft.read_csv
+
+    Returns:
+        DataFrame: The Daft DataFrame
+    """
+    # Currently, Daft only supports identity encoding for direct file reads
+    if content_encoding != ContentEncoding.IDENTITY.value:
+        raise NotImplementedError(
+            f"Daft CSV reader currently only supports identity encoding, got {content_encoding}"
+        )
+
+    logger.debug(
+        f"Reading CSV file {path} into Daft DataFrame with kwargs: {read_kwargs}"
+    )
+
+    # Daft handles filesystem operations internally, so we pass the path directly
+    df, latency = timed_invocation(daft.read_csv, path, **read_kwargs)
+
+    logger.debug(f"Time to read CSV {path} into Daft DataFrame: {latency}s")
+    return df
+
+
+def read_json(
+    path: str,
+    *,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    **read_kwargs,
+) -> DataFrame:
+    """
+    Read a JSON file into a Daft DataFrame.
+
+    Args:
+        path: Path to the JSON file (supports line-delimited JSON)
+        filesystem: Optional filesystem to use
+        fs_open_kwargs: Optional filesystem open kwargs
+        content_encoding: Content encoding (currently only IDENTITY supported)
+        **read_kwargs: Additional arguments passed to daft.read_json
+
+    Returns:
+        DataFrame: The Daft DataFrame
+    """
+    # Currently, Daft only supports identity encoding for direct file reads
+    if content_encoding != ContentEncoding.IDENTITY.value:
+        raise NotImplementedError(
+            f"Daft JSON reader currently only supports identity encoding, got {content_encoding}"
+        )
+
+    logger.debug(
+        f"Reading JSON file {path} into Daft DataFrame with kwargs: {read_kwargs}"
+    )
+
+    # Daft handles filesystem operations internally, so we pass the path directly
+    df, latency = timed_invocation(daft.read_json, path, **read_kwargs)
+
+    logger.debug(f"Time to read JSON {path} into Daft DataFrame: {latency}s")
+    return df
+
+
+# Map content types to their respective Daft read functions
+CONTENT_TYPE_TO_READ_FN: Dict[str, Callable] = {
+    ContentType.UNESCAPED_TSV.value: read_csv,
+    ContentType.TSV.value: read_csv,
+    ContentType.CSV.value: read_csv,
+    ContentType.PSV.value: read_csv,
+    ContentType.PARQUET.value: daft.read_parquet,  # Use Daft's native parquet reader
+    ContentType.JSON.value: read_json,
+}
+
+
+def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
+    """
+    Returns reader kwargs for the given content type when reading with Daft.
+    """
+    if content_type == ContentType.UNESCAPED_TSV.value:
+        return {
+            "delimiter": "\t",
+            "has_headers": False,
+        }
+    if content_type == ContentType.TSV.value:
+        return {
+            "delimiter": "\t",
+            "has_headers": False,
+        }
+    if content_type == ContentType.CSV.value:
+        return {
+            "delimiter": ",",
+            "has_headers": False,
+        }
+    if content_type == ContentType.PSV.value:
+        return {
+            "delimiter": "|",
+            "has_headers": False,
+        }
+    if content_type in {
+        ContentType.PARQUET.value,
+        ContentType.JSON.value,
+    }:
+        return {}
+    raise ValueError(f"Unsupported content type for Daft reader: {content_type}")
+
+
+def file_to_dataframe(
+    path: str,
+    content_type: str,
+    content_encoding: str = ContentEncoding.IDENTITY.value,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
+    column_names: Optional[List[str]] = None,
+    include_columns: Optional[List[str]] = None,
+    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
+    fs_open_kwargs: Dict[str, Any] = {},
+    **kwargs,
+) -> DataFrame:
+    """
+    Read a file into a Daft DataFrame using any filesystem.
+
+    Args:
+        path: The file path to read
+        content_type: The content type of the file (e.g., ContentType.CSV.value)
+        content_encoding: The content encoding (default: IDENTITY)
+        filesystem: The filesystem to use (if None, Daft will infer from path)
+        column_names: Optional column names to assign (for CSV files)
+        include_columns: Optional columns to include in the result
+        read_func_kwargs_provider: Optional kwargs provider for customization
+        fs_open_kwargs: Optional kwargs for filesystem open operations
+        **kwargs: Additional kwargs passed to the reader function
+
+    Returns:
+        DataFrame: The Daft DataFrame
+    """
+    logger.debug(
+        f"Reading {path} to Daft DataFrame. Content type: {content_type}. "
+        f"Encoding: {content_encoding}"
+    )
+
+    daft_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
+    if not daft_read_func:
+        raise NotImplementedError(
+            f"Daft reader for content type '{content_type}' not "
+            f"implemented. Known content types: "
+            f"{list(CONTENT_TYPE_TO_READ_FN.keys())}"
+        )
+
+    reader_kwargs = content_type_to_reader_kwargs(content_type)
+
+    # Note: Daft doesn't support reading specific columns during CSV parsing
+    # Column selection will be applied after reading the full dataset
+
+    # Merge with provided kwargs
+    reader_kwargs.update(kwargs)
+
+    if read_func_kwargs_provider:
+        reader_kwargs = read_func_kwargs_provider(content_type, reader_kwargs)
+
+    logger.debug(f"Reading {path} via {daft_read_func} with kwargs: {reader_kwargs}")
+
+    dataframe, latency = timed_invocation(
+        daft_read_func,
+        path,
+        filesystem=filesystem,
+        fs_open_kwargs=fs_open_kwargs,
+        content_encoding=content_encoding,
+        **reader_kwargs,
+    )
+
+    # Apply column selection after reading if needed
+    if include_columns:
+        # Select only the requested columns
+        dataframe = dataframe.select(*include_columns)
+
+    logger.debug(f"Time to read {path} into Daft DataFrame: {latency}s")
+    return dataframe
 
 
 class DaftFieldMapper(ModelMapper[DaftField, PaField]):
@@ -735,20 +928,14 @@ def files_to_dataframe(
             daft.read_parquet, path=uris, io_config=io_config, **read_kwargs
         )
     else:
-        df, latency = timed_invocation(
-            daft.read_parquet, path=uris, **read_kwargs
-        )
+        df, latency = timed_invocation(daft.read_parquet, path=uris, **read_kwargs)
 
     logger.debug(f"Daft read {len(uris)} files in {latency}s.")
 
     # Limit the read to only the specified columns
     columns_to_read = include_columns or column_names
     file_path_column = read_kwargs.get("file_path_column")
-    if (
-        file_path_column
-        and columns_to_read
-        and file_path_column not in columns_to_read
-    ):
+    if file_path_column and columns_to_read and file_path_column not in columns_to_read:
         # Add file_path_column to selection if it was specified
         columns_to_read.append(file_path_column)
 
