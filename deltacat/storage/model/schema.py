@@ -1347,7 +1347,7 @@ class Schema(dict):
             )
 
         # For other types, convert to PyArrow and back
-        pa_table = to_pyarrow(dataset)
+        pa_table = to_pyarrow(dataset, schema=self.arrow)
         coerced_table, updated_schema = self.validate_and_coerce_table(
             pa_table, schema_evolution_mode, default_schema_consistency_type
         )
@@ -1388,7 +1388,7 @@ class Schema(dict):
             return dataset
 
         # Convert dataset to PyArrow table for processing
-        pa_table = to_pyarrow(dataset)
+        pa_table = to_pyarrow(dataset, schema=self.arrow)
 
         # Process columns using field coercion
         coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)

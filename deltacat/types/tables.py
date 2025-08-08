@@ -151,7 +151,29 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
 }
 
 
-def _ray_dataset_to_pyarrow(table, **kwargs):
+def _numpy_array_to_pyarrow(table: np.ndarray, schema: pa.Schema) -> pa.Table:
+    """Convert NumPy array to PyArrow Table."""
+    if not schema:
+        raise ValueError("Schema is required for NumPy to PyArrow conversion")
+
+    if not isinstance(schema, pa.Schema):
+        raise ValueError(f"Schema must be a PyArrow Schema, got {type(schema)}")
+
+    if table.ndim == 1:
+        # 1D array: create single column
+        return pa.Table.from_arrays([pa.array(table)], schema=schema)
+    elif table.ndim == 2:
+        # 2D array: create multiple columns
+        arrays = [pa.array(table[:, i]) for i in range(table.shape[1])]
+        return pa.Table.from_arrays(arrays, schema=schema)
+    else:
+        raise ValueError(
+            f"NumPy arrays with {table.ndim} dimensions are not supported. "
+            f"Only 1D and 2D arrays are supported."
+        )
+
+
+def _ray_dataset_to_pyarrow(table, *, schema, **kwargs):
     """Convert Ray Dataset to PyArrow tables and concatenate."""
     arrow_refs = table.to_arrow_refs(**kwargs)
     arrow_tables = ray.get(arrow_refs)
@@ -163,16 +185,20 @@ def _ray_dataset_to_pyarrow(table, **kwargs):
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
-    pa.Table: lambda table, **kwargs: table,
-    papq.ParquetFile: lambda table, **kwargs: table.read(**kwargs),
-    pd.DataFrame: lambda table, **kwargs: pa.Table.from_pandas(table, **kwargs),
-    pl.DataFrame: lambda table, **kwargs: pl.DataFrame.to_arrow(table, **kwargs),
-    np.ndarray: lambda table, **kwargs: pa.Table.from_arrays(
-        [pa.array(table[:, i]) for i in range(table.shape[1])]
+    pa.Table: lambda table, *, schema, **kwargs: table,
+    papq.ParquetFile: lambda table, *, schema, **kwargs: table.read(**kwargs),
+    pd.DataFrame: lambda table, *, schema, **kwargs: pa.Table.from_pandas(
+        table, **kwargs
+    ),
+    pl.DataFrame: lambda table, *, schema, **kwargs: pl.DataFrame.to_arrow(
+        table, **kwargs
+    ),
+    np.ndarray: lambda table, *, schema, **kwargs: _numpy_array_to_pyarrow(
+        table, schema, **kwargs
     ),
     RayDataset: _ray_dataset_to_pyarrow,
     MaterializedDataset: _ray_dataset_to_pyarrow,
-    daft.DataFrame: lambda table, **kwargs: table.to_arrow(**kwargs),
+    daft.DataFrame: lambda table, *, schema, **kwargs: table.to_arrow(**kwargs),
 }
 
 TABLE_CLASS_TO_PANDAS_FUNC: Dict[
@@ -612,12 +638,15 @@ def get_dataset_type(dataset: Dataset) -> DatasetType:
 
 
 def table_to_pyarrow(
-    table: Union[LocalTable, DistributedDataset], **kwargs
+    table: Union[LocalTable, DistributedDataset],
+    *,
+    schema: Optional[pa.Schema] = None,
+    **kwargs,
 ) -> pa.Table:
     to_pyarrow_func = _get_table_function(
         table, TABLE_CLASS_TO_PYARROW_FUNC, "pyarrow conversion"
     )
-    return to_pyarrow_func(table, **kwargs)
+    return to_pyarrow_func(table, schema=schema, **kwargs)
 
 
 def table_to_pandas(
@@ -629,11 +658,13 @@ def table_to_pandas(
     return to_pandas_func(table, **kwargs)
 
 
-def to_pyarrow(table: Dataset, **kwargs) -> pa.Table:
+def to_pyarrow(
+    table: Dataset, *, schema: Optional[pa.Schema] = None, **kwargs
+) -> pa.Table:
     """Convert any supported dataset type to PyArrow Table format."""
     if isinstance(table, list):
         return _convert_all(table, table_to_pyarrow)
-    return table_to_pyarrow(table, **kwargs)
+    return table_to_pyarrow(table, schema=schema, **kwargs)
 
 
 def to_pandas(table: Dataset, **kwargs) -> pd.DataFrame:
@@ -1051,7 +1082,12 @@ def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         k: v
         for k, v in kwargs.items()
         if k
-        not in ["inner", "catalog", "ray_options_provider", "distributed_dataset_type"]
+        not in [
+            "inner",
+            "catalog",
+            "ray_options_provider",
+            "distributed_dataset_type",
+        ]
     }
 
 
@@ -1369,6 +1405,35 @@ def _collect_manifest_uris(manifest: Manifest, **kwargs) -> List[str]:
     return uris
 
 
+def _group_manifest_uris_by_content_type(
+    manifest: Manifest, **kwargs
+) -> Dict[Tuple[str, str], List[str]]:
+    """
+    Group manifest URIs by content type and content encoding.
+
+    Returns:
+        Dictionary mapping (content_type, content_encoding) tuples to lists of URIs
+    """
+    from deltacat.catalog import get_catalog_properties
+
+    catalog_properties = get_catalog_properties(**kwargs)
+
+    uris_by_type = {}
+
+    for entry in manifest.entries or []:
+        content_type = entry.meta.content_type
+        content_encoding = entry.meta.content_encoding
+        key = (content_type, content_encoding)
+
+        if key not in uris_by_type:
+            uris_by_type[key] = []
+
+        full_uri = catalog_properties.reconstruct_full_path(entry.uri)
+        uris_by_type[key].append(full_uri)
+
+    return uris_by_type
+
+
 def _download_manifest_entries_all_dataset_distributed(
     manifest: Manifest,
     table_type: DatasetType = DatasetType.PYARROW,
@@ -1377,17 +1442,48 @@ def _download_manifest_entries_all_dataset_distributed(
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-    distributed_dataset_type: Optional[
-        DistributedDatasetType
-    ] = DistributedDatasetType.RAY_DATASET,
+    distributed_dataset_type: Optional[DatasetType] = DatasetType.RAY_DATASET,
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
-    # Validate manifest consistency and collect URIs
-    entry_content_type, entry_content_encoding = _validate_manifest_consistency(
-        manifest
-    )
-    uris = _collect_manifest_uris(manifest, **kwargs)
+    # Group manifest entries by content type instead of validating consistency
+    uris_by_content_type = _group_manifest_uris_by_content_type(manifest, **kwargs)
+
+    # If only one content type, use the original single-reader logic
+    if len(uris_by_content_type) == 1:
+        content_type, content_encoding = next(iter(uris_by_content_type.keys()))
+        uris = next(iter(uris_by_content_type.values()))
+
+        reader_kwargs = _filter_kwargs(kwargs)
+
+        try:
+            reader_func = DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[
+                distributed_dataset_type.value
+            ]
+        except KeyError:
+            raise ValueError(
+                f"Unsupported distributed dataset type={distributed_dataset_type}. "
+                f"Supported types: {list(DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC.keys())}"
+            )
+
+        return reader_func(
+            uris=uris,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            column_names=column_names,
+            include_columns=include_columns,
+            read_func_kwargs_provider=file_reader_kwargs_provider,
+            ray_options_provider=ray_options_provider,
+            file_path_column=file_path_column,
+            **reader_kwargs,
+        )
+
+    # Multiple content types - read each group and union them (only for Daft)
+    if distributed_dataset_type != DatasetType.DAFT:
+        raise ValueError(
+            f"Mixed content types are only supported for Daft datasets. "
+            f"Got {len(uris_by_content_type)} different content types with dataset type {distributed_dataset_type}"
+        )
 
     reader_kwargs = _filter_kwargs(kwargs)
 
@@ -1401,17 +1497,31 @@ def _download_manifest_entries_all_dataset_distributed(
             f"Supported types: {list(DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC.keys())}"
         )
 
-    return reader_func(
-        uris=uris,
-        content_type=entry_content_type,
-        content_encoding=entry_content_encoding,
-        column_names=column_names,
-        include_columns=include_columns,
-        read_func_kwargs_provider=file_reader_kwargs_provider,
-        ray_options_provider=ray_options_provider,
-        file_path_column=file_path_column,
-        **reader_kwargs,
-    )
+    # Read each content type group into a separate DataFrame
+    dataframes = []
+    for (content_type, content_encoding), uris in uris_by_content_type.items():
+        df = reader_func(
+            uris=uris,
+            content_type=content_type,
+            content_encoding=content_encoding,
+            column_names=column_names,
+            include_columns=include_columns,
+            read_func_kwargs_provider=file_reader_kwargs_provider,
+            ray_options_provider=ray_options_provider,
+            file_path_column=file_path_column,
+            **reader_kwargs,
+        )
+        dataframes.append(df)
+
+    # Union all DataFrames using Daft's union_all
+    if len(dataframes) == 1:
+        return dataframes[0]
+
+    result = dataframes[0]
+    for df in dataframes[1:]:
+        result = result.union_all(df)
+
+    return result
 
 
 def _download_manifest_entries_parallel(

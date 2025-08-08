@@ -3436,32 +3436,6 @@ class TestDatasetTypes:
         print("✓ Ray Dataset schema evolution passed")
         print("All Ray Dataset schema validation and coercion tests passed! ✓")
 
-
-@pytest.fixture
-def table_version_catalog(temp_catalog_properties):
-    """Fixture to set up catalog for TestTableVersionWriteModes class."""
-    # Create temporary directory for class scope
-    catalog_name = "test_table_version_catalog"
-    catalog = dc.put_catalog(
-        catalog_name, catalog=Catalog(config=temp_catalog_properties)
-    )
-
-    # Test data
-    test_data = {
-        "initial": create_simple_test_data(),
-        "additional": create_additional_test_data(),
-        "merge_data": create_merge_test_data(),
-    }
-
-    yield {
-        "catalog_name": catalog_name,
-        "catalog": catalog,
-        "test_data": test_data,
-    }
-
-    # Cleanup
-    dc.clear_catalogs()
-
     @pytest.mark.parametrize(
         "content_type,test_description",
         [
@@ -3652,6 +3626,32 @@ def table_version_catalog(temp_catalog_properties):
 
         # Clean up
         dc.clear_catalogs()
+
+
+@pytest.fixture
+def table_version_catalog(temp_catalog_properties):
+    """Fixture to set up catalog for TestTableVersionWriteModes class."""
+    # Create temporary directory for class scope
+    catalog_name = "test_table_version_catalog"
+    catalog = dc.put_catalog(
+        catalog_name, catalog=Catalog(config=temp_catalog_properties)
+    )
+
+    # Test data
+    test_data = {
+        "initial": create_simple_test_data(),
+        "additional": create_additional_test_data(),
+        "merge_data": create_merge_test_data(),
+    }
+
+    yield {
+        "catalog_name": catalog_name,
+        "catalog": catalog,
+        "test_data": test_data,
+    }
+
+    # Cleanup
+    dc.clear_catalogs()
 
 
 class TestTableVersionWriteModes:

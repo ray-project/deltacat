@@ -142,7 +142,7 @@ class Manifest(dict):
                 if meta.content_encoding != content_encoding:
                     content_encoding = None
                 entry_content_type = meta.content_type
-                if entry_content_type != content_type:
+                if content_type and entry_content_type != content_type:
                     msg = (
                         f"Expected all manifest entries to have content "
                         f"type '{content_type}' but found "
@@ -150,7 +150,7 @@ class Manifest(dict):
                     )
                     raise ValueError(msg)
                 entry_content_encoding = meta.get("content_encoding", None)
-                if entry_content_encoding != content_encoding:
+                if content_encoding and entry_content_encoding != content_encoding:
                     msg = (
                         f"Expected all manifest entries to have content "
                         f"encoding '{content_encoding}' but found "
