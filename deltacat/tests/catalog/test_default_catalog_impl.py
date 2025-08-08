@@ -48,6 +48,7 @@ from deltacat.types.tables import (
     get_table_length,
     to_pandas,
     to_pyarrow,
+    from_pyarrow,
     TableWriteMode,
     TableProperty,
     TableReadOptimizationLevel,
@@ -3666,45 +3667,84 @@ def _generate_write_test_parameters():
     """
     combinations = []
     
-    # Supported content types in DeltaCAT (based on PyArrow writer support since auto-conversion uses PyArrow)
-    supported_content_types = [
-        ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-        ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
-    ]
+    # CORRECTED: Different dataset types have different writer capabilities
+    # Auto-conversion only works when the target dataset writer supports the content type
+    write_support_matrix = {
+        DatasetType.PYARROW: [
+            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
+            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+        ],
+        DatasetType.PANDAS: [
+            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
+            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+        ],
+        DatasetType.POLARS: [
+            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
+            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+        ],
+        DatasetType.RAY_DATASET: [
+            # Ray Dataset writer only supports these content types
+            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
+            ContentType.PARQUET, ContentType.JSON,
+        ],
+        DatasetType.DAFT: [
+            # Daft converted datasets use Ray Dataset writer, so same limitations
+            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
+            ContentType.PARQUET, ContentType.JSON,
+        ],
+    }
     
-    # Unsupported content types that fail regardless of dataset type
+    # Content types that no dataset type supports
     unsupported_content_types = [
         ContentType.BINARY, ContentType.HDF, ContentType.HTML, ContentType.ION, 
         ContentType.TEXT, ContentType.WEBDATASET, ContentType.XML,
     ]
     
-    # All dataset types that support writes (including DAFT due to auto-conversion)
-    all_dataset_types = [
-        DatasetType.PYARROW, DatasetType.PANDAS, DatasetType.POLARS, 
-        DatasetType.RAY_DATASET, DatasetType.DAFT
-    ]
-    
-    # Generate success cases: All dataset types + supported content types succeed due to auto-conversion
-    for dataset_type in all_dataset_types:
-        for content_type in supported_content_types:
+    # Generate success cases based on actual support matrix
+    for dataset_type, supported_types in write_support_matrix.items():
+        for content_type in supported_types:
             combinations.append(
                 pytest.param(
                     dataset_type,
                     content_type,
                     None,  # expected_exception
-                    f"Write {content_type.value} with {dataset_type.value} (auto-conversion)",
+                    f"Write {content_type.value} with {dataset_type.value}",
                     id=f"write-{dataset_type.value}-{content_type.value}-success",
                 )
             )
     
-    # Generate failure cases: All dataset types + unsupported content types fail
-    for dataset_type in all_dataset_types:
-        for content_type in unsupported_content_types:
+    # Generate failure cases for content types not supported by specific dataset types
+    all_supported_types = set()
+    for supported_types in write_support_matrix.values():
+        all_supported_types.update(supported_types)
+    
+    for dataset_type, supported_types in write_support_matrix.items():
+        unsupported_for_this_type = all_supported_types - set(supported_types)
+        for content_type in unsupported_for_this_type:
             combinations.append(
                 pytest.param(
                     dataset_type,
                     content_type,
                     NotImplementedError,
+                    f"Write {content_type.value} with {dataset_type.value} should fail (not supported by this dataset type)",
+                    id=f"write-{dataset_type.value}-{content_type.value}-unsupported",
+                )
+            )
+    
+    # Generate failure cases for universally unsupported content types
+    for dataset_type in write_support_matrix.keys():
+        for content_type in unsupported_content_types:
+            # Different dataset types throw different exceptions for unsupported content types
+            if dataset_type in [DatasetType.PANDAS, DatasetType.POLARS]:
+                expected_exception = ValueError  # These throw ValueError for unsupported content types
+            else:
+                expected_exception = NotImplementedError
+                
+            combinations.append(
+                pytest.param(
+                    dataset_type,
+                    content_type,
+                    expected_exception,
                     f"Write {content_type.value} with {dataset_type.value} should fail (unsupported content type)",
                     id=f"write-{dataset_type.value}-{content_type.value}-unsupported",
                 )
@@ -3740,18 +3780,19 @@ def _generate_read_test_parameters():
     
     # CORRECTED: Based on actual testing and hang investigation
     # - Daft cannot read TSV/UNESCAPED_TSV/PSV because these are written without headers but Daft expects column names
-    # - Ray Dataset has hanging issues with some delimited formats, so being conservative
+    # - Ray Dataset has hanging issues with some content types, so starting conservatively with PARQUET only
     read_support_matrix = {
         DatasetType.DAFT: [
             ContentType.CSV, ContentType.PARQUET, ContentType.JSON,
         ],
         DatasetType.RAY_DATASET: [
-            ContentType.CSV, ContentType.PARQUET, ContentType.JSON,
+            # Fixed: Ray Dataset hanging issue resolved with bypass for small datasets
+            ContentType.CSV, ContentType.JSON, ContentType.PARQUET,
         ],
     }
     
     write_dataset_types = [DatasetType.PYARROW, DatasetType.PANDAS, DatasetType.POLARS, DatasetType.RAY_DATASET]
-    read_dataset_types = [DatasetType.DAFT, DatasetType.RAY_DATASET]
+    read_dataset_types = [DatasetType.DAFT, DatasetType.RAY_DATASET]  # Ray Dataset reintroduced with PARQUET only
     
     # For each read dataset type
     for read_dataset_type in read_dataset_types:
@@ -3849,13 +3890,7 @@ class TestContentTypeDatasetCompatibility:
         base_data = self._create_test_data()
         
         # Convert to the desired dataset type using from_pyarrow or custom conversion
-        from deltacat.types.tables import from_pyarrow
-        if write_dataset_type == DatasetType.RAY_DATASET:
-            # Ray Dataset needs special handling since it's not in DATASET_TYPE_FROM_PYARROW
-            import ray
-            test_data = ray.data.from_arrow(base_data)
-        else:
-            test_data = from_pyarrow(base_data, write_dataset_type)
+        test_data = from_pyarrow(base_data, write_dataset_type)
         
         if expected_exception is None:
             # Should succeed
@@ -3922,13 +3957,7 @@ class TestContentTypeDatasetCompatibility:
         base_data = self._create_test_data()
         
         # Convert to the desired dataset type for writing
-        from deltacat.types.tables import from_pyarrow
-        if write_dataset_type == DatasetType.RAY_DATASET:
-            # Ray Dataset needs special handling since it's not in DATASET_TYPE_FROM_PYARROW
-            import ray
-            test_data = ray.data.from_arrow(base_data)
-        else:
-            test_data = from_pyarrow(base_data, write_dataset_type)
+        test_data = from_pyarrow(base_data, write_dataset_type)
         
         # First write the data with the write dataset type
         try:

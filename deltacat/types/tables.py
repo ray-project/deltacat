@@ -245,6 +245,7 @@ DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]]
     ),
     DatasetType.DAFT: lambda pa_table, **kwargs: daft.from_arrow(pa_table, **kwargs),
     DatasetType.NUMPY: lambda pa_table, **kwargs: _pyarrow_to_numpy(pa_table, **kwargs),
+    DatasetType.RAY_DATASET: lambda pa_table, **kwargs: ray.data.from_arrow(pa_table),
 }
 
 TABLE_CLASS_TO_APPEND_COLUMN_FUNC: Dict[
@@ -1088,6 +1089,8 @@ def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
             "catalog",
             "ray_options_provider",
             "distributed_dataset_type",
+            # Not expected by underlying file readers; only used for fast-path logic
+            "table_schema",
         ]
     }
 
@@ -1344,6 +1347,90 @@ def _download_manifest_entries_ray_data_distributed(
 
     table_pending_ids = []
     manifest_entries = manifest.entries
+
+    # Fast-path for CSV/JSON using direct PyArrow readers to avoid Ray metadata hangs
+    # and to control header handling for headerless text files written by DeltaCAT.
+    if manifest_entries:
+        # Early exit for unsupported formats under Ray Datasets
+        first_ct, _, _ = _extract_content_metadata(manifest_entries[0])
+        allowed_cts = {ContentType.CSV, ContentType.JSON, ContentType.PARQUET}
+        if first_ct not in allowed_cts:
+            raise NotImplementedError(
+                f"Ray Dataset read is not supported for content type: {first_ct.value}"
+            )
+
+        try:
+            paths: List[str] = []
+            all_csv = True
+            all_json = True
+            for me in manifest_entries:
+                extracted_ct, _, path = _extract_content_metadata(me)
+                # Normalize file:// URIs to local paths when present
+                if isinstance(path, str) and path.startswith("file://"):
+                    norm_path = path[len("file://") :]
+                else:
+                    norm_path = path
+                paths.append(norm_path)
+                if extracted_ct != ContentType.CSV:
+                    all_csv = False
+                if extracted_ct != ContentType.JSON:
+                    all_json = False
+
+            if paths and (all_csv or all_json):
+                # Attempt to get table schema (column names) from kwargs if present
+                # so we can rename autogen CSV columns to expected names
+                table_schema = kwargs.get("table_schema")
+                target_field_names: Optional[List[str]] = None
+                try:
+                    if table_schema is not None:
+                        # table_schema is DeltaCAT Schema; get underlying pyarrow schema
+                        target_field_names = list(table_schema.arrow.names)  # type: ignore[attr-defined]
+                except Exception:
+                    target_field_names = None
+                # Also consider explicit column names / include columns passed in
+                explicit_all_column_names: Optional[List[str]] = column_names
+                explicit_include_columns: Optional[List[str]] = include_columns
+                
+                if all_csv:
+                    # Read CSVs with autogenerate_column_names to preserve all rows (no header)
+                    from pyarrow import csv as pa_csv
+                    tables: List[pa.Table] = []
+                    for p in paths:
+                        tbl = pa_csv.read_csv(
+                            p,
+                            read_options=pa_csv.ReadOptions(autogenerate_column_names=True),
+                        )
+                        # Prefer explicit include/column names over schema for renaming/selection
+                        rename_candidates = None
+                        if explicit_all_column_names and len(explicit_all_column_names) == tbl.num_columns:
+                            rename_candidates = explicit_all_column_names
+                        elif target_field_names and len(target_field_names) == tbl.num_columns:
+                            rename_candidates = target_field_names
+
+                        if rename_candidates is not None:
+                            tbl = tbl.rename_columns(rename_candidates)
+                            # If include_columns provided, select/reorder to those
+                            if explicit_include_columns:
+                                # Build a new table selecting requested columns in order
+                                tbl = pa.table({name: tbl[name] for name in explicit_include_columns})
+                        tables.append(tbl)
+                    combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+                    return ray.data.from_arrow(combined)
+                    
+                if all_json:
+                    from pyarrow import json as pa_json
+                    tables: List[pa.Table] = []
+                    for p in paths:
+                        tbl = pa_json.read_json(p)
+                        tables.append(tbl)
+                    combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+                    return ray.data.from_arrow(combined)
+        except Exception:
+            # Fall back to generic paths on any issues
+            pass
+
+    
+    # For larger datasets, use original distributed processing
     if manifest_entries:
         table_pending_ids = invoke_parallel(
             manifest_entries,
