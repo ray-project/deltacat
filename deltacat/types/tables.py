@@ -391,6 +391,7 @@ TABLE_CLASS_TO_SCHEMA_INFERENCE_FUNC: Dict[
     pa.RecordBatch: _infer_schema_from_pyarrow,
     ds.Dataset: _infer_schema_from_pyarrow,
     RayDataset: _infer_schema_from_ray_dataset,
+    MaterializedDataset: _infer_schema_from_ray_dataset,  # MaterializedDataset uses same schema inference as RayDataset
     daft.DataFrame: _infer_schema_from_daft_dataframe,
     np.ndarray: _infer_schema_from_numpy_array,
 }
