@@ -230,17 +230,26 @@ def read_csv(
     **read_kwargs,
 ) -> pa.Table:
     # TODO(pdames): Merge in decimal256 support from pure S3 path reader.
+    
+    # Check if compression is already indicated by file path
+    should_decompress = path.endswith('.gz')
+    
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pacsv.read_csv(input_file, **read_kwargs)
+            # Handle decompression - avoid double decompression for PyArrow filesystem
+            if should_decompress:
+                # PyArrow filesystem already handles .gz decompression automatically
+                return pacsv.read_csv(f, **read_kwargs)
+            else:
+                # Apply explicit decompression if needed
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    return pacsv.read_csv(input_file, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-            # Handle compression
+            # Handle decompression - apply explicit decompression for fsspec
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
                 return pacsv.read_csv(input_file, **read_kwargs)
@@ -284,7 +293,7 @@ def read_feather(
                 # No compression, can read directly from file path
                 return paf.read_table(path, **read_kwargs)
         else:
-            # For non-local filesystems, always decompress to temporary file
+            # For non-local filesystems, always read from temporary file
             import tempfile
             import shutil
 
@@ -308,17 +317,25 @@ def read_json(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Check if decompression is already indicated by file path
+    should_decompress = path.endswith('.gz')
+    
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_stream(path, **fs_open_kwargs) as f:
-            # Handle compression
-            input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
-            with input_file_init(f) as input_file:
-                return pajson.read_json(input_file, **read_kwargs)
+            # Handle decompression - avoid double decompression for PyArrow filesystem
+            if should_decompress:
+                # PyArrow filesystem already handles .gz decompression automatically
+                return pajson.read_json(f, **read_kwargs)
+            else:
+                # Apply explicit decompression if needed
+                input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
+                with input_file_init(f) as input_file:
+                    return pajson.read_json(input_file, **read_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-            # Handle compression
+            # Handle decompression - apply explicit decompression for fsspec
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
                 return pajson.read_json(input_file, **read_kwargs)
@@ -1418,6 +1435,7 @@ def file_to_table(
         )
 
     reader_kwargs = content_type_to_reader_kwargs(content_type)
+    
     _add_column_kwargs(content_type, column_names, include_columns, reader_kwargs)
 
     # Merge with provided kwargs

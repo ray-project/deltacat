@@ -827,7 +827,8 @@ def files_to_dataframe(
 
     if content_type not in CONTENT_TYPE_TO_READ_FN.keys():
         raise NotImplementedError(
-            f"Daft native reader supports {CONTENT_TYPE_TO_READ_FN.keys()}, got {content_type}"
+            f"Daft native reader supports {CONTENT_TYPE_TO_READ_FN.keys()}, got {content_type}."
+            f"Try using the Ray Dataset reader instead."
         )
 
     # Handle content encoding - for now, we only support identity and gzip

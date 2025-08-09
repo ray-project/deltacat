@@ -2255,6 +2255,7 @@ class TestDatasetTypes:
             ),
         ],
     )
+    @pytest.mark.timeout(15)  # 15-second timeout for hanging tests
     def test_custom_kwargs_comprehensive_distributed_storage(
         self,
         temp_catalog_properties,
@@ -2263,7 +2264,7 @@ class TestDatasetTypes:
         custom_kwargs,
         content_type,
     ):
-        """Test custom kwargs propagation with distributed storage types."""
+        """Test custom kwargs propagation with distributed storage types.""" 
         namespace = "test_namespace"
         catalog_name = f"kwargs-distributed-test-{uuid.uuid4()}"
         table_name = "kwargs_distributed_test_table"
@@ -2312,6 +2313,7 @@ class TestDatasetTypes:
 
                 # Ray dataset should have the file path column
                 sample_data = result_table.take(2)
+                
                 assert (
                     sample_data and file_path_column_name in sample_data[0]
                 ), f"File path column '{file_path_column_name}' not found in data!"
@@ -3658,16 +3660,11 @@ def table_version_catalog(temp_catalog_properties):
 # Generate write test combinations statically
 def _generate_write_test_parameters():
     """
-    Generate all write test parameters.
-    
-    CRITICAL INSIGHT: DeltaCAT has auto-conversion via _convert_data_if_needed() that converts
-    unsupported dataset types to supported ones before writing. This means:
-    - ALL dataset types succeed with supported content types (due to auto-conversion)
-    - ALL dataset types fail with unsupported content types (regardless of dataset type)
+    Generate all write test parameters. 
     """
     combinations = []
     
-    # CORRECTED: Different dataset types have different writer capabilities
+    # Different dataset types have different writer capabilities
     # Auto-conversion only works when the target dataset writer supports the content type
     write_support_matrix = {
         DatasetType.PYARROW: [
@@ -3778,32 +3775,28 @@ def _generate_read_test_parameters():
         ],
     }
     
-    # CORRECTED: Based on actual testing and hang investigation
-    # - Daft cannot read TSV/UNESCAPED_TSV/PSV because these are written without headers but Daft expects column names
-    # - Ray Dataset has hanging issues with some content types, so starting conservatively with PARQUET only
     read_support_matrix = {
         DatasetType.DAFT: [
+            # TODO(pdames): Investigate Daft issues reading TSV/UNESCAPED_TSV/PSV
             ContentType.CSV, ContentType.PARQUET, ContentType.JSON,
         ],
         DatasetType.RAY_DATASET: [
-            # Fixed: Ray Dataset hanging issue resolved with bypass for small datasets
-            ContentType.CSV, ContentType.JSON, ContentType.PARQUET,
+            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
+            ContentType.PARQUET, ContentType.JSON, ContentType.AVRO, ContentType.ORC, ContentType.FEATHER,
         ],
     }
     
     write_dataset_types = [DatasetType.PYARROW, DatasetType.PANDAS, DatasetType.POLARS, DatasetType.RAY_DATASET]
-    read_dataset_types = [DatasetType.DAFT, DatasetType.RAY_DATASET]  # Ray Dataset reintroduced with PARQUET only
+    read_dataset_types = [DatasetType.DAFT, DatasetType.RAY_DATASET]
     
     # For each read dataset type
     for read_dataset_type in read_dataset_types:
         supported_content_types = read_support_matrix[read_dataset_type]
-        
         # Test reading files written by different writers
         for write_dataset_type in write_dataset_types:
             # Only test reading content types that both the writer and reader support
             write_supported = write_support_matrix[write_dataset_type]
             common_types = set(supported_content_types) & set(write_supported)
-            
             for content_type in common_types:
                 combinations.append(
                     pytest.param(
@@ -3815,11 +3808,9 @@ def _generate_read_test_parameters():
                         id=f"read-{write_dataset_type.value}-{read_dataset_type.value}-{content_type.value}-success",
                     )
                 )
-            
             # Test unsupported read combinations
             write_supported = write_support_matrix[write_dataset_type]
             read_unsupported = set(write_supported) - set(supported_content_types)
-            
             for content_type in read_unsupported:
                 # Use different exception types based on the read dataset type and content type
                 if read_dataset_type == DatasetType.DAFT:
@@ -3833,7 +3824,6 @@ def _generate_read_test_parameters():
                 else:
                     # Other dataset types typically throw NotImplementedError
                     expected_exception = NotImplementedError
-                    
                 combinations.append(
                     pytest.param(
                         write_dataset_type,
@@ -3844,7 +3834,6 @@ def _generate_read_test_parameters():
                         id=f"read-{write_dataset_type.value}-{read_dataset_type.value}-{content_type.value}-unsupported",
                     )
                 )
-    
     return combinations
 
 
@@ -3853,10 +3842,6 @@ class TestContentTypeDatasetCompatibility:
     Comprehensive test suite for content type and dataset type compatibility.
     Tests writing every ContentType with each supported DatasetType, and reading 
     them back with each supported DatasetType.
-    
-    CRITICAL INSIGHT: DeltaCAT has auto-conversion via _convert_data_if_needed() 
-    that converts unsupported dataset types to supported ones before writing.
-    This means ALL dataset types work with ALL supported content types for writes.
     """
 
     @staticmethod
@@ -3942,14 +3927,15 @@ class TestContentTypeDatasetCompatibility:
         "write_dataset_type,read_dataset_type,content_type,expected_exception,description",
         _generate_read_test_parameters()
     )
+    @pytest.mark.timeout(15)  # 15-second timeout for hanging tests
     def test_read_content_type_compatibility(
         self, temp_catalog_properties, write_dataset_type, read_dataset_type, content_type, expected_exception, description
     ):
-        """Test reading every content type with each dataset type."""
+        """Test reading every content type with each dataset type.""" 
         namespace = "test_namespace"
         catalog_name = f"read-compatibility-test-{uuid.uuid4()}"
         table_name = "compatibility_test_table"
-        
+         
         # Create catalog
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
         
@@ -3991,13 +3977,23 @@ class TestContentTypeDatasetCompatibility:
                 if hasattr(result_table, "collect"):
                     # For Daft DataFrames
                     result_df = result_table.collect().to_pandas()
+                elif hasattr(result_table, "to_arrow"):
+                    # For Ray Datasets - TRY PYARROW FIRST TO AVOID HANG
+                    try:
+                        arrow_table = result_table.to_arrow()
+                        
+                        # Convert Arrow to pandas for validation
+                        result_df = arrow_table.to_pandas()
+                        
+                    except Exception as e:
+                        result_df = result_table.to_pandas()
                 elif hasattr(result_table, "to_pandas"):
-                    # For Ray Datasets
+                    # For other Ray Dataset types without to_arrow
                     result_df = result_table.to_pandas()
                 else:
                     # For other types, try direct conversion
                     result_df = pd.DataFrame(result_table.to_pydict() if hasattr(result_table, "to_pydict") else result_table)
-                
+                 
                 # Verify basic data integrity
                 assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
                 assert set(result_df.columns) == {"id", "name", "value", "category"}, f"Unexpected columns: {result_df.columns}"
