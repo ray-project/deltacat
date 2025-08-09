@@ -2255,7 +2255,6 @@ class TestDatasetTypes:
             ),
         ],
     )
-    @pytest.mark.timeout(15)  # 15-second timeout for hanging tests
     def test_custom_kwargs_comprehensive_distributed_storage(
         self,
         temp_catalog_properties,
@@ -2264,7 +2263,7 @@ class TestDatasetTypes:
         custom_kwargs,
         content_type,
     ):
-        """Test custom kwargs propagation with distributed storage types.""" 
+        """Test custom kwargs propagation with distributed storage types."""
         namespace = "test_namespace"
         catalog_name = f"kwargs-distributed-test-{uuid.uuid4()}"
         table_name = "kwargs_distributed_test_table"
@@ -2313,7 +2312,7 @@ class TestDatasetTypes:
 
                 # Ray dataset should have the file path column
                 sample_data = result_table.take(2)
-                
+
                 assert (
                     sample_data and file_path_column_name in sample_data[0]
                 ), f"File path column '{file_path_column_name}' not found in data!"
@@ -3660,43 +3659,77 @@ def table_version_catalog(temp_catalog_properties):
 # Generate write test combinations statically
 def _generate_write_test_parameters():
     """
-    Generate all write test parameters. 
+    Generate all write test parameters.
     """
     combinations = []
-    
+
     # Different dataset types have different writer capabilities
     # Auto-conversion only works when the target dataset writer supports the content type
     write_support_matrix = {
         DatasetType.PYARROW: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.FEATHER,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
         ],
         DatasetType.PANDAS: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.FEATHER,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
         ],
         DatasetType.POLARS: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.FEATHER,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
         ],
         DatasetType.RAY_DATASET: [
             # Ray Dataset writer only supports these content types
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.JSON,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.JSON,
         ],
         DatasetType.DAFT: [
             # Daft converted datasets use Ray Dataset writer, so same limitations
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.JSON,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.JSON,
         ],
     }
-    
+
     # Content types that no dataset type supports
     unsupported_content_types = [
-        ContentType.BINARY, ContentType.HDF, ContentType.HTML, ContentType.ION, 
-        ContentType.TEXT, ContentType.WEBDATASET, ContentType.XML,
+        ContentType.BINARY,
+        ContentType.HDF,
+        ContentType.HTML,
+        ContentType.ION,
+        ContentType.TEXT,
+        ContentType.WEBDATASET,
+        ContentType.XML,
     ]
-    
+
     # Generate success cases based on actual support matrix
     for dataset_type, supported_types in write_support_matrix.items():
         for content_type in supported_types:
@@ -3709,12 +3742,12 @@ def _generate_write_test_parameters():
                     id=f"write-{dataset_type.value}-{content_type.value}-success",
                 )
             )
-    
+
     # Generate failure cases for content types not supported by specific dataset types
     all_supported_types = set()
     for supported_types in write_support_matrix.values():
         all_supported_types.update(supported_types)
-    
+
     for dataset_type, supported_types in write_support_matrix.items():
         unsupported_for_this_type = all_supported_types - set(supported_types)
         for content_type in unsupported_for_this_type:
@@ -3727,16 +3760,18 @@ def _generate_write_test_parameters():
                     id=f"write-{dataset_type.value}-{content_type.value}-unsupported",
                 )
             )
-    
+
     # Generate failure cases for universally unsupported content types
     for dataset_type in write_support_matrix.keys():
         for content_type in unsupported_content_types:
             # Different dataset types throw different exceptions for unsupported content types
             if dataset_type in [DatasetType.PANDAS, DatasetType.POLARS]:
-                expected_exception = ValueError  # These throw ValueError for unsupported content types
+                expected_exception = (
+                    ValueError  # These throw ValueError for unsupported content types
+                )
             else:
                 expected_exception = NotImplementedError
-                
+
             combinations.append(
                 pytest.param(
                     dataset_type,
@@ -3746,49 +3781,88 @@ def _generate_write_test_parameters():
                     id=f"write-{dataset_type.value}-{content_type.value}-unsupported",
                 )
             )
-    
+
     return combinations
 
 
-# Generate read test combinations statically  
+# Generate read test combinations statically
 def _generate_read_test_parameters():
     """Generate all read test parameters."""
     combinations = []
-    
+
     # Define matrices inline for static access
     write_support_matrix = {
         DatasetType.PYARROW: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.FEATHER,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
         ],
         DatasetType.PANDAS: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.FEATHER,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
         ],
         DatasetType.POLARS: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.FEATHER, ContentType.JSON, ContentType.AVRO, ContentType.ORC,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.FEATHER,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
         ],
         DatasetType.RAY_DATASET: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.JSON,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.JSON,
         ],
     }
-    
+
     read_support_matrix = {
         DatasetType.DAFT: [
             # TODO(pdames): Investigate Daft issues reading TSV/UNESCAPED_TSV/PSV
-            ContentType.CSV, ContentType.PARQUET, ContentType.JSON,
+            ContentType.CSV,
+            ContentType.PARQUET,
+            ContentType.JSON,
         ],
         DatasetType.RAY_DATASET: [
-            ContentType.CSV, ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV,
-            ContentType.PARQUET, ContentType.JSON, ContentType.AVRO, ContentType.ORC, ContentType.FEATHER,
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.PARQUET,
+            ContentType.JSON,
+            ContentType.AVRO,
+            ContentType.ORC,
+            ContentType.FEATHER,
         ],
     }
-    
-    write_dataset_types = [DatasetType.PYARROW, DatasetType.PANDAS, DatasetType.POLARS, DatasetType.RAY_DATASET]
+
+    write_dataset_types = [
+        DatasetType.PYARROW,
+        DatasetType.PANDAS,
+        DatasetType.POLARS,
+        DatasetType.RAY_DATASET,
+    ]
     read_dataset_types = [DatasetType.DAFT, DatasetType.RAY_DATASET]
-    
+
     # For each read dataset type
     for read_dataset_type in read_dataset_types:
         supported_content_types = read_support_matrix[read_dataset_type]
@@ -3814,9 +3888,14 @@ def _generate_read_test_parameters():
             for content_type in read_unsupported:
                 # Use different exception types based on the read dataset type and content type
                 if read_dataset_type == DatasetType.DAFT:
-                    if content_type in [ContentType.TSV, ContentType.UNESCAPED_TSV, ContentType.PSV]:
+                    if content_type in [
+                        ContentType.TSV,
+                        ContentType.UNESCAPED_TSV,
+                        ContentType.PSV,
+                    ]:
                         # Daft throws DaftCoreException for TSV/PSV column not found issues
                         from daft.exceptions import DaftCoreException
+
                         expected_exception = DaftCoreException
                     else:
                         # Daft throws NotImplementedError for completely unsupported content types (ORC, FEATHER, AVRO)
@@ -3840,7 +3919,7 @@ def _generate_read_test_parameters():
 class TestContentTypeDatasetCompatibility:
     """
     Comprehensive test suite for content type and dataset type compatibility.
-    Tests writing every ContentType with each supported DatasetType, and reading 
+    Tests writing every ContentType with each supported DatasetType, and reading
     them back with each supported DatasetType.
     """
 
@@ -3858,25 +3937,30 @@ class TestContentTypeDatasetCompatibility:
 
     @pytest.mark.parametrize(
         "write_dataset_type,content_type,expected_exception,description",
-        _generate_write_test_parameters()
+        _generate_write_test_parameters(),
     )
     def test_write_content_type_compatibility(
-        self, temp_catalog_properties, write_dataset_type, content_type, expected_exception, description
+        self,
+        temp_catalog_properties,
+        write_dataset_type,
+        content_type,
+        expected_exception,
+        description,
     ):
         """Test writing every content type with each dataset type."""
         namespace = "test_namespace"
         catalog_name = f"write-compatibility-test-{uuid.uuid4()}"
         table_name = "compatibility_test_table"
-        
+
         # Create catalog
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
-        
+
         # Create test data as PyArrow table first
         base_data = self._create_test_data()
-        
+
         # Convert to the desired dataset type using from_pyarrow or custom conversion
         test_data = from_pyarrow(base_data, write_dataset_type)
-        
+
         if expected_exception is None:
             # Should succeed
             try:
@@ -3888,14 +3972,14 @@ class TestContentTypeDatasetCompatibility:
                     content_type=content_type,
                     mode=TableWriteMode.CREATE,
                 )
-                
+
                 # Verify the table was created
                 assert dc.table_exists(
                     table=table_name,
                     namespace=namespace,
                     catalog=catalog_name,
                 ), f"Table should exist after successful write with {write_dataset_type.value} and {content_type.value}"
-                
+
             except Exception as e:
                 pytest.fail(
                     f"Expected write to succeed for {write_dataset_type.value} with {content_type.value}, "
@@ -3912,53 +3996,61 @@ class TestContentTypeDatasetCompatibility:
                     content_type=content_type,
                     mode=TableWriteMode.CREATE,
                 )
-            
+
             # Check for clear error message
             error_message = str(exc_info.value)
             assert any(
                 keyword in error_message.lower()
-                for keyword in ["not implemented", "not supported", "unknown", "unsupported", "content type", "supports"]
+                for keyword in [
+                    "not implemented",
+                    "not supported",
+                    "unknown",
+                    "unsupported",
+                    "content type",
+                    "supports",
+                ]
             ), f"Error message should be clear and descriptive: {error_message}"
-        
+
         # Cleanup
         dc.clear_catalogs()
 
     @pytest.mark.parametrize(
         "write_dataset_type,read_dataset_type,content_type,expected_exception,description",
-        _generate_read_test_parameters()
+        _generate_read_test_parameters(),
     )
-    @pytest.mark.timeout(15)  # 15-second timeout for hanging tests
     def test_read_content_type_compatibility(
-        self, temp_catalog_properties, write_dataset_type, read_dataset_type, content_type, expected_exception, description
+        self,
+        temp_catalog_properties,
+        write_dataset_type,
+        read_dataset_type,
+        content_type,
+        expected_exception,
+        description,
     ):
-        """Test reading every content type with each dataset type.""" 
+        """Test reading every content type with each dataset type."""
         namespace = "test_namespace"
         catalog_name = f"read-compatibility-test-{uuid.uuid4()}"
         table_name = "compatibility_test_table"
-         
+
         # Create catalog
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
-        
+
         # Create test data as PyArrow table first
         base_data = self._create_test_data()
-        
+
         # Convert to the desired dataset type for writing
         test_data = from_pyarrow(base_data, write_dataset_type)
-        
+
         # First write the data with the write dataset type
-        try:
-            dc.write_to_table(
-                data=test_data,
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                content_type=content_type,
-                mode=TableWriteMode.CREATE,
-            )
-        except (NotImplementedError, ValueError) as e:
-            # If write fails, skip this test
-            pytest.skip(f"Cannot test read because write failed: {e}")
-        
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            content_type=content_type,
+            mode=TableWriteMode.CREATE,
+        )
+
         # Now try to read with the read dataset type
         if expected_exception is None:
             # Should succeed
@@ -3969,35 +4061,36 @@ class TestContentTypeDatasetCompatibility:
                     catalog=catalog_name,
                     distributed_dataset_type=read_dataset_type,
                 )
-                
+
                 # Verify we got data back
                 assert result_table is not None, "Result table should not be None"
-                
+
                 # Convert to pandas for comparison (works for all dataset types)
                 if hasattr(result_table, "collect"):
                     # For Daft DataFrames
                     result_df = result_table.collect().to_pandas()
                 elif hasattr(result_table, "to_arrow"):
-                    # For Ray Datasets - TRY PYARROW FIRST TO AVOID HANG
-                    try:
-                        arrow_table = result_table.to_arrow()
-                        
-                        # Convert Arrow to pandas for validation
-                        result_df = arrow_table.to_pandas()
-                        
-                    except Exception as e:
-                        result_df = result_table.to_pandas()
+                    result_df = result_table.to_pandas()
                 elif hasattr(result_table, "to_pandas"):
                     # For other Ray Dataset types without to_arrow
                     result_df = result_table.to_pandas()
                 else:
                     # For other types, try direct conversion
-                    result_df = pd.DataFrame(result_table.to_pydict() if hasattr(result_table, "to_pydict") else result_table)
-                 
+                    result_df = pd.DataFrame(
+                        result_table.to_pydict()
+                        if hasattr(result_table, "to_pydict")
+                        else result_table
+                    )
+
                 # Verify basic data integrity
                 assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
-                assert set(result_df.columns) == {"id", "name", "value", "category"}, f"Unexpected columns: {result_df.columns}"
-                
+                assert set(result_df.columns) == {
+                    "id",
+                    "name",
+                    "value",
+                    "category",
+                }, f"Unexpected columns: {result_df.columns}"
+
             except Exception as e:
                 pytest.fail(
                     f"Expected read to succeed for {content_type.value} written with {write_dataset_type.value} "
@@ -4012,7 +4105,7 @@ class TestContentTypeDatasetCompatibility:
                     catalog=catalog_name,
                     distributed_dataset_type=read_dataset_type,
                 )
-            
+
             # Check for clear error message
             error_message = str(exc_info.value)
             # Different error message patterns for different dataset types and exception types
@@ -4021,11 +4114,21 @@ class TestContentTypeDatasetCompatibility:
                     # Daft NotImplementedError patterns for unsupported content types
                     assert any(
                         keyword in error_message.lower()
-                        for keyword in ["not implemented", "supports", "content type", "native reader"]
+                        for keyword in [
+                            "not implemented",
+                            "supports",
+                            "content type",
+                            "native reader",
+                        ]
                     ), f"Error message should indicate unsupported content type for Daft: {error_message}"
                 else:
                     # Daft-specific error patterns for DaftCoreException
-                    daft_error_keywords = ["fieldnotfound", "column", "not found", "dafterror"]
+                    daft_error_keywords = [
+                        "fieldnotfound",
+                        "column",
+                        "not found",
+                        "dafterror",
+                    ]
                     assert any(
                         keyword in error_message.lower()
                         for keyword in daft_error_keywords
@@ -4034,9 +4137,16 @@ class TestContentTypeDatasetCompatibility:
                 # Standard error patterns for other dataset types
                 assert any(
                     keyword in error_message.lower()
-                    for keyword in ["not implemented", "not supported", "unknown", "unsupported", "content type", "supports"]
-                ), f"Error message should be clear and descriptive: {error_message}"
-        
+                    for keyword in [
+                        "not implemented",
+                        "not supported",
+                        "unknown",
+                        "unsupported",
+                        "content type",
+                        "supports",
+                    ]
+                ), f"Error message should indicate lack of support: {error_message}"
+
         # Cleanup
         dc.clear_catalogs()
 
@@ -4812,7 +4922,7 @@ class TestTableVersionWriteModes:
             ),
         ],
     )
-    def test_error_messages_quality(
+    def test_error_messages(
         self,
         table_name,
         table_version,
@@ -4820,7 +4930,7 @@ class TestTableVersionWriteModes:
         expected_keywords,
         description,
     ):
-        """Test that error messages are clear and helpful."""
+        """Test that error messages are clear."""
         namespace = "test_ns"
 
         # Create a table for testing (only if we're testing with existing table)

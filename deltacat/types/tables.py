@@ -1269,8 +1269,8 @@ def download_manifest_entry_ray(
     Ray remote function for downloading manifest entries.
     For Polars table types, converts the result to Arrow format since Ray datasets work with Arrow.
     """
-    # Make sure we normalize the table type to PyArrow to provide the correct 
-    # input type to from_arrow_refs 
+    # Make sure we normalize the table type to PyArrow to provide the correct
+    # input type to from_arrow_refs
     effective_table_type = table_type
     if table_type == DatasetType.RAY_DATASET:
         effective_table_type = DatasetType.PYARROW
@@ -1413,49 +1413,6 @@ def _download_manifest_entries_ray_data_distributed(
         table_type, TABLE_TYPE_TO_DATASET_CREATE_FUNC_REFS, "dataset create"
     )
     return create_func(table_pending_ids)
-
-
-def _validate_manifest_consistency(manifest: Manifest) -> Tuple[str, str]:
-    """Validate that all manifest entries have consistent content type and encoding."""
-    entry_content_type = None
-    entry_content_encoding = None
-
-    for entry in manifest.entries or []:
-        if (
-            entry_content_type is not None
-            and entry_content_type != entry.meta.content_type
-        ):
-            raise ValueError(
-                f"Mixed content types of ({entry_content_type},"
-                f" {entry.meta.content_type}) is not supported."
-            )
-
-        if (
-            entry_content_encoding is not None
-            and entry_content_encoding != entry.meta.content_encoding
-        ):
-            raise ValueError(
-                f"Mixed content encoding of {entry_content_encoding},"
-                f" {entry.meta.content_encoding} is not supported."
-            )
-
-        entry_content_type = entry.meta.content_type
-        entry_content_encoding = entry.meta.content_encoding
-
-    return entry_content_type, entry_content_encoding
-
-
-def _collect_manifest_uris(manifest: Manifest, **kwargs) -> List[str]:
-    """Collect and reconstruct URIs from manifest entries."""
-    from deltacat.catalog import get_catalog_properties
-
-    catalog_properties = get_catalog_properties(**kwargs)
-
-    uris = []
-    for entry in manifest.entries or []:
-        full_uri = catalog_properties.reconstruct_full_path(entry.uri)
-        uris.append(full_uri)
-    return uris
 
 
 def _group_manifest_uris_by_content_type(
