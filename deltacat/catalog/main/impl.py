@@ -1140,7 +1140,11 @@ def _get_table_stream(namespace: str, table: str, table_version: str, **kwargs):
 
 
 def _validate_read_table_input(
-    table_type: Optional[DatasetType], distributed_dataset_type: Optional[DatasetType]
+    namespace: str,
+    table: str,
+    table_schema: Optional[Schema],
+    table_type: Optional[DatasetType],
+    distributed_dataset_type: Optional[DatasetType],
 ) -> None:
     """Validate input parameters for read_table operation."""
     if (
@@ -1153,8 +1157,16 @@ def _validate_read_table_input(
         )
     if table_type and table_type not in DatasetType.local():
         raise ValueError(
-            f"{table_type} is not a valid table type. "
+            f"{table_type} is not a valid local table type. "
             f"Valid table types are: {DatasetType.local()}."
+        )
+
+    # For schemaless tables, distributed datasets are not yet supported
+    if table_schema is None and distributed_dataset_type:
+        raise NotImplementedError(
+            f"Distributed dataset reading is not yet supported for schemaless tables. "
+            f"Table '{namespace}.{table}' has no schema, but distributed_dataset_type={distributed_dataset_type} was specified. "
+            f"Please use local storage by setting distributed_dataset_type=None."
         )
 
 
@@ -1192,7 +1204,8 @@ def _get_qualified_deltas_for_read(
 
 
 def _get_max_parallelism(
-    max_parallelism: Optional[int], distributed_dataset_type: Optional[DatasetType]
+    max_parallelism: Optional[int],
+    distributed_dataset_type: Optional[DatasetType],
 ) -> int:
     """Get the max parallelism for a read operation."""
     if distributed_dataset_type:
@@ -1209,9 +1222,10 @@ def _get_max_parallelism(
 
 
 def _download_and_process_table_data(
+    namespace: str,
+    table: str,
     qualified_deltas: List[Delta],
     read_as: Optional[DatasetType],
-    distributed_dataset_type: Optional[DatasetType],
     max_parallelism: Optional[int],
     columns: Optional[List[str]],
     file_path_column: Optional[str],
@@ -1221,6 +1235,29 @@ def _download_and_process_table_data(
     """Download delta data and process result based on storage type."""
     # Merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
+
+    # Convert read parameters to download parameters
+    table_type = (
+        read_as
+        if read_as in DatasetType.local()
+        else (kwargs.pop("table_type", None) or DatasetType.PYARROW)
+    )
+    distributed_dataset_type = read_as if read_as in DatasetType.distributed() else None
+
+    # Validate input parameters
+    _validate_read_table_input(
+        namespace,
+        table,
+        table_schema,
+        table_type,
+        distributed_dataset_type,
+    )
+
+    # Determine max parallelism
+    max_parallelism = _get_max_parallelism(
+        max_parallelism,
+        distributed_dataset_type,
+    )
 
     result = _get_storage(**kwargs).download_delta(
         merged_delta,
@@ -1235,10 +1272,10 @@ def _download_and_process_table_data(
         **kwargs,
     )
 
-    # Process result based on storage type and schema
-    return _process_table_result(
-        result, read_as, distributed_dataset_type, table_schema
-    )
+    # Handle local storage table concatenation
+    if not distributed_dataset_type and table_type and isinstance(result, list):
+        return _handle_local_table_concatenation(result, table_type, table_schema)
+    return result
 
 
 def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dataset:
@@ -1350,35 +1387,12 @@ def _handle_local_table_concatenation(
         return results
 
 
-def _process_table_result(
-    result: Dataset,
-    table_type: Optional[DatasetType],
-    distributed_dataset_type: Optional[DatasetType],
-    table_schema: Optional[Schema],
-) -> Dataset:
-    """Process table results based on storage type and schema."""
-
-    # Handle schemaless tables with distributed datasets
-    if table_schema is None and distributed_dataset_type:
-        logger.debug(
-            f"Schemaless table detected with distributed dataset type: {distributed_dataset_type}"
-        )
-        return result
-
-    # Handle local storage table concatenation
-    if not distributed_dataset_type and table_type and isinstance(result, list):
-        return _handle_local_table_concatenation(result, table_type, table_schema)
-
-    return result
-
-
 def read_table(
     table: str,
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    read_as: Optional[DatasetType] = DatasetType.PYARROW,
-    distributed_dataset_type: Optional[DatasetType] = DatasetType.DAFT,
+    read_as: Optional[DatasetType] = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -1392,15 +1406,11 @@ def read_table(
         table: Name of the table to read.
         namespace: Optional namespace of the table. Uses default if not specified.
         table_version: Optional specific version of the table to read.
-        read_as: Local table type to use for reading table files. Valid values include members
-            of DatasetType.local() like NUMPY, PANDAS, POLARS, and PYARROW. Defaults to DatasetType.PYARROW.
-        distributed_dataset_type: Type of dataset to return for distributed storage. Set to None
-            to store the table in local memory with the same table type used to read table files.
-            Valid values include members of DatasetType.distributed() like DAFT and RAY_DATASET.
-            Defaults to DatasetType.DAFT.
+        read_as: Dataset type to use for reading table files. Defaults to DatasetType.DAFT.
         partition_filter: Optional list of partitions to read from.
         max_parallelism: Optional maximum parallelism for data download. Defaults to the number of
-            available CPU cores for local reads and 100 for distributed reads.
+            available CPU cores for local dataset type reads (i.e., members of DatasetType.local())
+            and 100 for distributed dataset type reads (i.e., members of DatasetType.distributed()).
         columns: Optional list of columns to include in the result.
         file_path_column: Optional column name to add file paths to the result.
         transaction: Optional transaction to chain this read operation to. If provided, uncommitted
@@ -1410,9 +1420,6 @@ def read_table(
     Returns:
         Dataset containing the table data.
     """
-    # Validate input parameters
-    _validate_read_table_input(read_as, distributed_dataset_type)
-
     # Set up transaction handling
     read_transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     kwargs["transaction"] = read_transaction
@@ -1437,14 +1444,6 @@ def read_table(
             **kwargs,
         )
 
-        # For schemaless tables, distributed datasets are not yet supported
-        if table_version_obj.schema is None and distributed_dataset_type:
-            raise NotImplementedError(
-                f"Distributed dataset reading is not yet supported for schemaless tables. "
-                f"Table '{namespace}.{table}' has no schema, but distributed_dataset_type={distributed_dataset_type} was specified. "
-                f"Please use local storage by setting distributed_dataset_type=None."
-            )
-
         # Download and process the data
         # TODO(pdames): Remove once we implement a custom SerDe for pa.ParquetFile
         if read_as == DatasetType.PYARROW_PARQUET:
@@ -1452,14 +1451,11 @@ def read_table(
             logger.warning(
                 f"Forcing max_parallelism to 1 for PyArrow Parquet reads to avoid serialization errors."
             )
-        max_parallelism = _get_max_parallelism(
-            max_parallelism,
-            distributed_dataset_type,
-        )
         result = _download_and_process_table_data(
+            namespace,
+            table,
             qualified_deltas,
             read_as,
-            distributed_dataset_type,
             max_parallelism,
             columns,
             file_path_column,

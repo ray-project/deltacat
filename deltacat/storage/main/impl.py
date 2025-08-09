@@ -94,9 +94,9 @@ from deltacat.storage.model.transaction import (
 from deltacat.storage.model.manifest import Manifest
 from deltacat.types.media import (
     ContentType,
+    DatasetType,
     DistributedDatasetType,
     StorageType,
-    DatasetType,
     ContentEncoding,
 )
 from deltacat.utils.common import ReadKwargsProvider
@@ -998,8 +998,6 @@ def download_delta(
         and table_version_schema.arrow
         and distributed_dataset_type is not None
     ):
-        from deltacat.types.media import DatasetType
-
         # Only pass schema to DAFT dataset type since it's the only one that handles schema evolution
         if distributed_dataset_type == DatasetType.DAFT:
             kwargs["table_version_schema"] = table_version_schema.arrow

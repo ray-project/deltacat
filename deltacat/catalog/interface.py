@@ -76,8 +76,7 @@ def read_table(
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    read_as: Optional[DatasetType] = DatasetType.PYARROW,
-    distributed_dataset_type: Optional[DatasetType] = DatasetType.DAFT,
+    read_as: Optional[DatasetType] = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -91,15 +90,11 @@ def read_table(
         table: Name of the table to read.
         namespace: Optional namespace of the table. Uses default if not specified.
         table_version: Optional specific version of the table to read.
-        read_as: Local table type to use for reading table files. Valid values include members
-            of DatasetType.local() like NUMPY, PANDAS, POLARS, and PYARROW. Defaults to DatasetType.PYARROW.
-        distributed_dataset_type: Type of dataset to return for distributed storage. Set to None
-            to store the table in local memory with the same table type used to read table files.
-            Valid values include members of DatasetType.distributed() like DAFT and RAY_DATASET.
-            Defaults to DatasetType.DAFT.
+        read_as: Dataset type to use for reading table files. Defaults to DatasetType.DAFT.
         partition_filter: Optional list of partitions to read from.
         max_parallelism: Optional maximum parallelism for data download. Defaults to the number of
-            available CPU cores for local reads and 100 for distributed reads.
+            available CPU cores for local dataset type reads (i.e., members of DatasetType.local())
+            and 100 for distributed dataset type reads (i.e., members of DatasetType.distributed()).
         columns: Optional list of columns to include in the result.
         file_path_column: Optional column name to add file paths to the result.
         transaction: Optional transaction to chain this read operation to. If provided, uncommitted

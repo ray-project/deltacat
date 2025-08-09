@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pyarrow as pa
+import pyarrow.parquet as papq
 import pytest
 from ray.data.dataset import MaterializedDataset
 
@@ -52,6 +53,7 @@ from deltacat.types.tables import (
     TableWriteMode,
     TableProperty,
     TableReadOptimizationLevel,
+    SchemaEvolutionMode,
 )
 
 COPY_ON_WRITE_TABLE_PROPERTIES = {
@@ -563,8 +565,6 @@ class TestReadTableMain:
         READ_TABLE_TABLE_NAME = "test_read_table"
 
         # Create test data compatible with the expected format (pk, value columns)
-        import pyarrow as pa
-
         test_data = pa.table(
             {"pk": [1, 2, 3, 4, 5, 6], "value": ["a", "b", "c", "d", "e", "f"]}
         )
@@ -581,7 +581,6 @@ class TestReadTableMain:
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # verify
@@ -601,8 +600,6 @@ class TestReadTableMain:
         READ_TABLE_TABLE_NAME = "test_read_table_2"
 
         # Create test data compatible with the expected format (pk, value columns)
-        import pyarrow as pa
-
         test_data = pa.table(
             {"pk": [1, 2, 3, 4, 5, 6], "value": ["a", "b", "c", "d", "e", "f"]}
         )
@@ -633,7 +630,6 @@ class TestReadTableMain:
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # verify
@@ -770,7 +766,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should get all original records
@@ -826,7 +821,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Step 5: Verify the results show proper merge behavior
@@ -903,7 +897,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Expected: 9 total unique records after all merges
@@ -1188,7 +1181,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         final_count = final_result.count_rows()
@@ -1213,8 +1205,6 @@ class TestCopyOnWrite:
 
         Note: This test requires fork-based multiprocessing for reliable process isolation.
         """
-        import multiprocessing
-
         table_name = "test_concurrent_stress"
         concurrent_writers = multiprocessing.cpu_count()
         rounds = 10
@@ -1345,7 +1335,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         final_df = final_result.collect().to_pandas()
@@ -1488,7 +1477,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should have 3 unique records (4, 5, 6) with latest values for duplicates
@@ -1569,7 +1557,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should have 3 unique records (4, 5, 6) with latest values for duplicates
@@ -1662,7 +1649,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should have 2 records (one per unique merge key)
@@ -1760,7 +1746,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should have 2 records (one per unique merge key)
@@ -1858,7 +1843,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should have 2 records (one per unique merge key)
@@ -1965,7 +1949,6 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Should have 2 records (one per unique merge key)
@@ -2047,20 +2030,14 @@ class TestDatasetTypes:
         )
 
         # Test all LOCAL storage types
-        local_storage_types = [
-            (DatasetType.PYARROW, "PyArrow"),
-            (DatasetType.PANDAS, "Pandas"),
-            (DatasetType.POLARS, "Polars"),
-            (DatasetType.NUMPY, "NumPy"),
-        ]
+        local_storage_types = DatasetType.local()
 
         local_successes = 0
-        for storage_type, type_name in local_storage_types:
+        for storage_type in local_storage_types:
             result_table = dc.read_table(
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
-                distributed_dataset_type=None,
                 read_as=storage_type,
             )
 
@@ -2081,18 +2058,15 @@ class TestDatasetTypes:
             local_successes += 1
 
         # Test all DISTRIBUTED storage types
-        distributed_storage_types = [
-            (DatasetType.RAY_DATASET, "RAY_DATASET"),
-            (DatasetType.DAFT, "DAFT"),
-        ]
+        distributed_storage_types = DatasetType.distributed()
 
         distributed_successes = 0
-        for distributed_type, type_name in distributed_storage_types:
+        for distributed_type in distributed_storage_types:
             result_table = dc.read_table(
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
-                distributed_dataset_type=distributed_type,
+                read_as=distributed_type,
             )
 
             # For distributed types, we expect different return types
@@ -2111,6 +2085,14 @@ class TestDatasetTypes:
                 {
                     "pre_buffer": True,
                     "use_pandas_metadata": True,
+                    "file_path_column": "_source_path",
+                },
+            ),
+            (
+                DatasetType.PYARROW_PARQUET,
+                "PyArrow Parquet",
+                {
+                    "pre_buffer": True,
                     "file_path_column": "_source_path",
                 },
             ),
@@ -2173,7 +2155,6 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
             read_as=read_as,
             **custom_kwargs,
         )
@@ -2213,7 +2194,7 @@ class TestDatasetTypes:
         dc.clear_catalogs()
 
     @pytest.mark.parametrize(
-        "distributed_dataset_type,dataset_name,custom_kwargs,content_type",
+        "dataset_type,dataset_name,custom_kwargs,content_type",
         [
             (
                 DatasetType.RAY_DATASET,
@@ -2258,7 +2239,7 @@ class TestDatasetTypes:
     def test_custom_kwargs_comprehensive_distributed_storage(
         self,
         temp_catalog_properties,
-        distributed_dataset_type,
+        dataset_type,
         dataset_name,
         custom_kwargs,
         content_type,
@@ -2294,13 +2275,13 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=distributed_dataset_type,
+            read_as=dataset_type,
             **custom_kwargs,
         )
         assert result_table is not None
 
         # Additional validation based on type
-        if distributed_dataset_type == DatasetType.RAY_DATASET:
+        if dataset_type == DatasetType.RAY_DATASET:
             # Ray dataset should be materialized as MaterializedDataset
             assert isinstance(
                 result_table, MaterializedDataset
@@ -2323,7 +2304,7 @@ class TestDatasetTypes:
                 assert any(
                     "/" in str(path) for path in paths
                 ), "Ray paths should contain valid file system paths"
-        elif distributed_dataset_type == DatasetType.DAFT:
+        elif dataset_type == DatasetType.DAFT:
             # Daft dataframe should be a proper daft DataFrame
             assert isinstance(
                 result_table, daft.DataFrame
@@ -2357,12 +2338,11 @@ class TestDatasetTypes:
         dc.clear_catalogs()
 
     @pytest.mark.parametrize(
-        "test_name,read_as,distributed_dataset_type,include_columns,file_path_column,expected_columns",
+        "test_name,read_as,include_columns,file_path_column,expected_columns",
         [
             (
                 "PyArrow LOCAL with file_path_column + include_columns (path NOT in include)",
                 DatasetType.PYARROW,
-                None,
                 ["id", "name"],
                 "_file_source",
                 {"id", "name", "_file_source"},
@@ -2370,7 +2350,6 @@ class TestDatasetTypes:
             (
                 "PyArrow LOCAL with file_path_column + include_columns (path IN include)",
                 DatasetType.PYARROW,
-                None,
                 ["id", "name", "_file_source"],
                 "_file_source",
                 {"id", "name", "_file_source"},
@@ -2378,14 +2357,12 @@ class TestDatasetTypes:
             (
                 "Pandas LOCAL with file_path_column + include_columns (path NOT in include)",
                 DatasetType.PANDAS,
-                None,
                 ["value", "category"],
                 "_source_file",
                 {"value", "category", "_source_file"},
             ),
             (
                 "RAY_DATASET with file_path_column + include_columns (path NOT in include)",
-                None,
                 DatasetType.RAY_DATASET,
                 ["id", "category"],
                 "ray_path",
@@ -2393,7 +2370,6 @@ class TestDatasetTypes:
             ),
             (
                 "DAFT with file_path_column + include_columns (path NOT in include)",
-                None,
                 DatasetType.DAFT,
                 ["name", "value"],
                 "daft_source",
@@ -2406,7 +2382,6 @@ class TestDatasetTypes:
         temp_catalog_properties,
         test_name,
         read_as,
-        distributed_dataset_type,
         include_columns,
         file_path_column,
         expected_columns,
@@ -2443,33 +2418,25 @@ class TestDatasetTypes:
             mode=TableWriteMode.CREATE,
         )
 
-        # Test the file_path_column behavior with column selection (parametrized above)
-        # Prepare arguments
-        read_args = {
-            "table": table_name,
-            "namespace": namespace,
-            "catalog": catalog_name,
-            "columns": include_columns,  # Use 'columns' not 'include_columns'
-            "file_path_column": file_path_column,
-        }
-
-        if read_as:
-            read_args["read_as"] = read_as
-            read_args["distributed_dataset_type"] = None
-        else:
-            read_args["distributed_dataset_type"] = distributed_dataset_type
-
         # Read the table
-        result = dc.read_table(**read_args)
+        # Test the file_path_column behavior with column selection (parametrized above)
+        result = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            columns=include_columns,
+            file_path_column=file_path_column,
+            read_as=read_as,
+        )
 
         # Get column names based on result type
         if read_as == DatasetType.PYARROW:
             actual_columns = set(result.column_names)
         elif read_as == DatasetType.PANDAS:
             actual_columns = set(result.columns)
-        elif distributed_dataset_type == DatasetType.RAY_DATASET:
+        elif read_as == DatasetType.RAY_DATASET:
             actual_columns = set(result.schema().names)
-        elif distributed_dataset_type == DatasetType.DAFT:
+        elif read_as == DatasetType.DAFT:
             actual_columns = set(result.column_names)
         else:
             raise ValueError(f"Unsupported test case: {test_name}")
@@ -2495,11 +2462,6 @@ class TestDatasetTypes:
         This is a regression test for the issue where Daft would fail with:
         DaftCoreException: Column col(batch_size) not found
         """
-        import uuid
-        import pandas as pd
-        import pyarrow as pa
-        from deltacat.types.tables import DatasetType
-
         namespace = "test_namespace"
         catalog_name = f"daft-schema-evolution-test-{uuid.uuid4()}"
         table_name = "schema_evolution_test"
@@ -2582,7 +2544,6 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Verify the result
@@ -2652,61 +2613,56 @@ class TestDatasetTypes:
         dc.clear_catalogs()
 
     @pytest.mark.parametrize(
-        "test_mode,read_as_type,distributed_type,test_description",
+        "read_as_type,table_type,test_description",
         [
-            # Local dataset types with various distributed_dataset_type settings
+            # Local dataset types with various dataset and local table types
             (
-                "local",
                 DatasetType.PYARROW,
                 None,
-                "PyArrow + distributed_dataset_type=None",
+                "PyArrow",
             ),
             (
-                "local",
-                DatasetType.PYARROW,
                 DatasetType.DAFT,
-                "PyArrow + distributed_dataset_type=DAFT",
-            ),
-            (
-                "local",
                 DatasetType.PYARROW,
-                DatasetType.RAY_DATASET,
-                "PyArrow + distributed_dataset_type=RAY_DATASET",
+                "PyArrow + DAFT",
             ),
             (
-                "local",
+                DatasetType.RAY_DATASET,
+                DatasetType.PYARROW,
+                "PyArrow + RAY_DATASET",
+            ),
+            (
                 DatasetType.PANDAS,
                 None,
-                "Pandas + distributed_dataset_type=None",
+                "Pandas ",
             ),
             (
-                "local",
-                DatasetType.PANDAS,
                 DatasetType.DAFT,
-                "Pandas + distributed_dataset_type=DAFT",
-            ),
-            (
-                "local",
                 DatasetType.PANDAS,
-                DatasetType.RAY_DATASET,
-                "Pandas + distributed_dataset_type=RAY_DATASET",
+                "Pandas + DAFT",
             ),
-            # Distributed dataset types (these use distributed_dataset_type parameter)
-            ("distributed", DatasetType.DAFT, DatasetType.DAFT, "Distributed DAFT"),
             (
-                "distributed",
                 DatasetType.RAY_DATASET,
+                DatasetType.PANDAS,
+                "Pandas + RAY_DATASET",
+            ),
+            (
+                DatasetType.DAFT,
+                None,
+                "DAFT",
+            ),
+            (
                 DatasetType.RAY_DATASET,
-                "Distributed RAY_DATASET",
+                None,
+                "RAY_DATASET",
             ),
         ],
     )
-    def test_schema_evolution_all_dataset_types(
+    def test_schema_evolution_dataset_and_table_types(
         self,
         temp_catalog_properties,
-        test_mode,
         read_as_type,
-        distributed_type,
+        table_type,
         test_description,
     ):
         """
@@ -2715,11 +2671,6 @@ class TestDatasetTypes:
         This ensures that the table_version_schema parameter is only passed to dataset types
         that can handle it (currently only DAFT) and doesn't cause failures for other types.
         """
-        import uuid
-        import pandas as pd
-        import pyarrow as pa
-        from deltacat.types.media import DatasetType
-
         namespace = "test_namespace"
         catalog_name = f"schema-evolution-all-types-test-{uuid.uuid4()}"
         table_name = "schema_evolution_test"
@@ -2774,47 +2725,26 @@ class TestDatasetTypes:
             mode=dc.TableWriteMode.APPEND,
         )
 
-        # Test schema evolution for the specific dataset type combination (parametrized above)
-        if test_mode == "distributed":
-            # Pure distributed dataset types
-            result = dc.read_table(
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                distributed_dataset_type=distributed_type,
-            )
-        else:
-            # Local dataset types with various distributed_dataset_type combinations
-            read_params = {
-                "table": table_name,
-                "namespace": namespace,
-                "catalog": catalog_name,
-                "read_as": read_as_type,
-            }
+        # Read the table
+        read_params = {
+            "table": table_name,
+            "namespace": namespace,
+            "catalog": catalog_name,
+            "read_as": read_as_type,
+        }
 
-            # Add distributed_dataset_type parameter if specified
-            if distributed_type is not None:
-                read_params["distributed_dataset_type"] = distributed_type
+        # Add table_type parameter if given
+        if table_type is not None:
+            read_params["table_type"] = table_type
 
-            result = dc.read_table(**read_params)
+        result = dc.read_table(**read_params)
 
         # Convert to consistent format for testing
         # The actual result type depends on what was actually used (distributed vs local)
-        if hasattr(result, "collect"):
-            # Daft DataFrame (from DAFT distributed type or when local types fallback to Daft)
-            result_df = result.collect().to_pandas()
-        elif hasattr(result, "to_pandas") and callable(getattr(result, "to_pandas")):
-            # Ray Dataset or PyArrow Table
-            result_df = result.to_pandas()
-        else:
-            # Already a Pandas DataFrame
-            result_df = result
+        result_df = to_pandas(result)
 
         # Basic validation - check record count
-        if hasattr(result_df, "count_rows"):
-            record_count = result_df.count_rows()
-        else:
-            record_count = len(result_df)
+        record_count = get_table_length(result)
         assert (
             record_count == 3
         ), f"{test_description}: Expected 3 records, got {record_count}"
@@ -2827,9 +2757,7 @@ class TestDatasetTypes:
         ), f"{test_description}: Expected {expected_experiments}, got {experiments}"
 
         # All combinations should handle schema evolution gracefully
-        # They should either:
-        # 1. Have all columns with null handling (like DAFT), or
-        # 2. Have a consistent subset of columns without errors
+        # They should either have all columns with proper null handling
         available_columns = set(result_df.columns)
         base_columns = {"experiment_name", "global_step", "loss", "timestamp"}
 
@@ -2838,32 +2766,26 @@ class TestDatasetTypes:
             available_columns
         ), f"{test_description}: Missing base columns. Got {available_columns}"
 
-        # For cases where DAFT is used (either as distributed_dataset_type or fallback),
-        # verify full schema evolution with null handling
-        if distributed_type == DatasetType.DAFT or (
-            test_mode == "distributed" and read_as_type == DatasetType.DAFT
-        ):
-            expected_all_columns = {
-                "experiment_name",
-                "global_step",
-                "loss",
-                "timestamp",
-                "learning_rate",
-            }
-            if available_columns >= expected_all_columns:
-                # Verify null handling only if we have the evolved columns
-                baseline_records = result_df[result_df["experiment_name"] == "baseline"]
-                higher_lr_records = result_df[
-                    result_df["experiment_name"] == "higher_lr"
-                ]
+        # Verify full schema evolution with null handling
+        expected_all_columns = {
+            "experiment_name",
+            "global_step",
+            "loss",
+            "timestamp",
+            "learning_rate",
+        }
+        if available_columns >= expected_all_columns:
+            # Verify null handling only if we have the evolved columns
+            baseline_records = result_df[result_df["experiment_name"] == "baseline"]
+            higher_lr_records = result_df[result_df["experiment_name"] == "higher_lr"]
 
-                if "learning_rate" in available_columns:
-                    assert (
-                        baseline_records["learning_rate"].isna().all()
-                    ), f"{test_description}: Baseline should have null learning_rate"
-                    assert (
-                        not higher_lr_records["learning_rate"].isna().any()
-                    ), f"{test_description}: Higher_lr should have non-null learning_rate"
+            if "learning_rate" in available_columns:
+                assert (
+                    baseline_records["learning_rate"].isna().all()
+                ), f"{test_description}: Baseline should have null learning_rate"
+                assert (
+                    not higher_lr_records["learning_rate"].isna().any()
+                ), f"{test_description}: Higher_lr should have non-null learning_rate"
 
         # Clean up
         dc.clear_catalogs()
@@ -3486,7 +3408,6 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Verify the result
@@ -3588,7 +3509,6 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=DatasetType.DAFT,
         )
 
         # Verify the result
@@ -3629,6 +3549,251 @@ class TestDatasetTypes:
         # Clean up
         dc.clear_catalogs()
 
+    def test_pyarrow_parquet_lazy_materialization(self, temp_catalog_properties):
+        """Test that PYARROW_PARQUET preserves lazy materialization when possible.
+
+        This test ensures that:
+        1. Reading with DatasetType.PYARROW_PARQUET returns a ParquetFile (lazy)
+        2. Lazy materialization is preserved when no extra processing is needed
+        3. File path columns are skipped for lazy objects
+        """
+        namespace = "test_namespace"
+        catalog_name = f"lazy-test-{uuid.uuid4()}"
+        table_name = "lazy_materialization_table"
+
+        # Test data
+        test_data = pa.table(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+                "value": [10.1, 20.2, 30.3, 40.4, 50.5],
+                "category": ["A", "B", "A", "C", "B"],
+            }
+        )
+
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Write test data
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Test 1: Read with PYARROW_PARQUET (no extra args) should return ParquetFile
+        result_lazy = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW_PARQUET,
+        )
+
+        # Should be a lazy ParquetFile
+        assert isinstance(
+            result_lazy, papq.ParquetFile
+        ), f"Expected ParquetFile for lazy read, got {type(result_lazy)}"
+
+        # Verify metadata is accessible without materialization
+        assert (
+            result_lazy.metadata.num_rows == 5
+        ), "ParquetFile metadata should show 5 rows"
+
+        # Verify schema is accessible without materialization
+        schema_names = [field.name for field in result_lazy.schema_arrow]
+        expected_columns = {"id", "name", "value", "category"}
+        assert (
+            set(schema_names) == expected_columns
+        ), f"Expected columns {expected_columns}, got {set(schema_names)}"
+
+        # Test 2: Read with file_path_column should also stay lazy with LazyParquetWithColumns
+        result_with_column = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW_PARQUET,
+            file_path_column="_source_path",
+        )
+
+        # Should be a ParquetFile (file path column is skipped for lazy objects)
+        assert isinstance(
+            result_with_column, papq.ParquetFile
+        ), f"Expected ParquetFile (lazy), got {type(result_with_column)}"
+
+        # Verify metadata access is still lazy
+        assert (
+            result_with_column.metadata.num_rows == 5
+        ), "ParquetFile metadata should show 5 rows (still lazy)"
+
+        # Verify schema does NOT include virtual column (since it was skipped)
+        schema_names = [field.name for field in result_with_column.schema_arrow]
+        expected_columns = {"id", "name", "value", "category"}
+        assert (
+            set(schema_names) == expected_columns
+        ), f"Expected columns {expected_columns} (no virtual column for lazy), got {set(schema_names)}"
+
+        # Test materialization returns original data without file path column
+        materialized = result_with_column.read()
+        assert isinstance(
+            materialized, pa.Table
+        ), f"Materialization should return PyArrow Table, got {type(materialized)}"
+
+        assert (
+            "_source_path" not in materialized.column_names
+        ), "Materialized table should NOT have _source_path column (was skipped)"
+
+        assert materialized.num_rows == 5, "Materialized table should have 5 rows"
+
+        # Verify original columns are preserved in materialized table
+        original_columns = {"id", "name", "value", "category"}
+        materialized_columns = set(materialized.column_names)
+        assert (
+            original_columns == materialized_columns
+        ), f"Expected columns {original_columns}, got {materialized_columns}"
+
+        # Test 3: Compare with regular PYARROW read (should always be Table)
+        result_pyarrow = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+        )
+
+        # Should always be PyArrow Table
+        assert isinstance(
+            result_pyarrow, pa.Table
+        ), f"Expected PyArrow Table for PYARROW read, got {type(result_pyarrow)}"
+
+    def test_pyarrow_parquet_lazy_materialization_multiple_writes(
+        self, temp_catalog_properties
+    ):
+        """Test that PYARROW_PARQUET preserves lazy materialization with multiple writes.
+
+        This test ensures that:
+        1. Multiple writes to the same table work correctly
+        2. Lazy materialization is preserved (returns ParquetFile or list of ParquetFiles)
+        3. File path columns are skipped for lazy objects
+        """
+        namespace = "test_namespace"
+        catalog_name = f"multi-write-lazy-test-{uuid.uuid4()}"
+        table_name = "multi_write_lazy_table"
+
+        # Test data - first batch
+        first_batch = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [10.1, 20.2, 30.3],
+                "category": ["A", "B", "A"],
+            }
+        )
+
+        # Test data - second batch
+        second_batch = pa.table(
+            {
+                "id": [4, 5, 6],
+                "name": ["David", "Eve", "Frank"],
+                "value": [40.4, 50.5, 60.6],
+                "category": ["C", "B", "C"],
+            }
+        )
+
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Write first batch
+        dc.write_to_table(
+            data=first_batch,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Write second batch in APPEND mode
+        dc.write_to_table(
+            data=second_batch,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+        )
+
+        # Test 1: Read with PYARROW_PARQUET should handle multiple files properly
+        result_lazy = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW_PARQUET,
+        )
+
+        # After concatenation, we should get a list or a single table
+        # The important thing is that lazy behavior is preserved where possible
+        # If we get a list, each element should be a ParquetFile
+        for item in result_lazy:
+            assert isinstance(
+                item, papq.ParquetFile
+            ), f"Expected ParquetFile in list, got {type(item)}"
+        total_rows = sum(get_table_length(item) for item in result_lazy)
+
+        # Total should be 6 rows (3 + 3)
+        assert (
+            total_rows == 6
+        ), f"Expected 6 total rows from both writes, got {total_rows}"
+
+        # Test 2: Read with file_path_column should work with multiple writes
+        result_with_column = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW_PARQUET,
+            file_path_column="_source_path",
+        )
+
+        # Should handle multiple files (file path column is skipped for lazy objects)
+        for item in result_with_column:
+            assert isinstance(
+                item, papq.ParquetFile
+            ), f"Expected ParquetFile in list, got {type(item)}"
+        total_rows = sum(get_table_length(item) for item in result_with_column)
+
+        assert (
+            total_rows == 6
+        ), f"Expected 6 total rows with file_path_column, got {total_rows}"
+
+        # Test 3: Materialization should combine all data properly
+        materialized = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PYARROW,
+            file_path_column="_source_path",
+        )
+
+        # Should be a single PyArrow Table with all data
+        assert isinstance(
+            materialized, pa.Table
+        ), f"Expected PyArrow Table for materialized read, got {type(materialized)}"
+
+        assert (
+            materialized.num_rows == 6
+        ), f"Expected 6 rows in materialized table, got {materialized.num_rows}"
+
+        assert (
+            "_source_path" in materialized.column_names
+        ), "Materialized table should have _source_path column"
+
+        # Verify all original columns are present
+        original_columns = {"id", "name", "value", "category"}
+        materialized_columns = set(materialized.column_names)
+        assert original_columns.issubset(
+            materialized_columns
+        ), f"Original columns {original_columns} should be preserved in {materialized_columns}"
+
+        # Verify data integrity - should have IDs 1-6
+        ids = materialized.column("id").to_pylist()
+        assert set(ids) == {1, 2, 3, 4, 5, 6}, f"Expected IDs 1-6, got {set(ids)}"
+
 
 @pytest.fixture
 def table_version_catalog(temp_catalog_properties):
@@ -3666,68 +3831,17 @@ def _generate_write_test_parameters():
     # Different dataset types have different writer capabilities
     # Auto-conversion only works when the target dataset writer supports the content type
     write_support_matrix = {
-        DatasetType.PYARROW: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.FEATHER,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-        ],
-        DatasetType.PANDAS: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.FEATHER,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-        ],
-        DatasetType.POLARS: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.FEATHER,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-        ],
-        DatasetType.RAY_DATASET: [
-            # Ray Dataset writer only supports these content types
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.JSON,
-        ],
-        DatasetType.DAFT: [
-            # Daft converted datasets use Ray Dataset writer, so same limitations
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.JSON,
-        ],
+        DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
+        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types()),
+        DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
+        DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
+        DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.writable_content_types()),
+        DatasetType.DAFT: list(DatasetType.DAFT.writable_content_types()),
     }
 
     # Content types that no dataset type supports
     unsupported_content_types = [
         ContentType.BINARY,
-        ContentType.HDF,
-        ContentType.HTML,
-        ContentType.ION,
-        ContentType.TEXT,
-        ContentType.WEBDATASET,
-        ContentType.XML,
     ]
 
     # Generate success cases based on actual support matrix
@@ -3765,7 +3879,7 @@ def _generate_write_test_parameters():
     for dataset_type in write_support_matrix.keys():
         for content_type in unsupported_content_types:
             # Different dataset types throw different exceptions for unsupported content types
-            if dataset_type in [DatasetType.PANDAS, DatasetType.POLARS]:
+            if dataset_type in [DatasetType.PANDAS, DatasetType.POLARS, DatasetType.NUMPY]:
                 expected_exception = (
                     ValueError  # These throw ValueError for unsupported content types
                 )
@@ -3792,67 +3906,17 @@ def _generate_read_test_parameters():
 
     # Define matrices inline for static access
     write_support_matrix = {
-        DatasetType.PYARROW: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.FEATHER,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-        ],
-        DatasetType.PANDAS: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.FEATHER,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-        ],
-        DatasetType.POLARS: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.FEATHER,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-        ],
-        DatasetType.RAY_DATASET: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.JSON,
-        ],
+        DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
+        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types()),
+        DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
+        DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
+        DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.writable_content_types()),
+        DatasetType.DAFT: list(DatasetType.DAFT.writable_content_types()),
     }
 
     read_support_matrix = {
-        DatasetType.DAFT: [
-            # TODO(pdames): Investigate Daft issues reading TSV/UNESCAPED_TSV/PSV
-            ContentType.CSV,
-            ContentType.PARQUET,
-            ContentType.JSON,
-        ],
-        DatasetType.RAY_DATASET: [
-            ContentType.CSV,
-            ContentType.TSV,
-            ContentType.UNESCAPED_TSV,
-            ContentType.PSV,
-            ContentType.PARQUET,
-            ContentType.JSON,
-            ContentType.AVRO,
-            ContentType.ORC,
-            ContentType.FEATHER,
-        ],
+        DatasetType.DAFT: list(DatasetType.DAFT.readable_content_types()),
+        DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.readable_content_types()),
     }
 
     write_dataset_types = [
@@ -4059,7 +4123,7 @@ class TestContentTypeDatasetCompatibility:
                     table=table_name,
                     namespace=namespace,
                     catalog=catalog_name,
-                    distributed_dataset_type=read_dataset_type,
+                    read_as=read_dataset_type,
                 )
 
                 # Verify we got data back
@@ -4103,7 +4167,7 @@ class TestContentTypeDatasetCompatibility:
                     table=table_name,
                     namespace=namespace,
                     catalog=catalog_name,
-                    distributed_dataset_type=read_dataset_type,
+                    read_as=read_dataset_type,
                 )
 
             # Check for clear error message
@@ -5125,7 +5189,7 @@ class TestTableVersionWriteModes:
     def test_past_default_enforcement_daft_to_local_dataset_types(self):
         """Test past_default enforcement when converting from DAFT distributed to local dataset types.
 
-        Tests conversion from DAFT (default distributed_dataset_type) to various local formats:
+        Tests conversion from DAFT (default read type) to various local formats:
         PANDAS, PYARROW, POLARS, and PYARROW_PARQUET to ensure that missing fields are
         filled with past_default values during the conversion process.
         """
@@ -5154,7 +5218,6 @@ class TestTableVersionWriteModes:
 
         # Write incomplete data (missing default_field)
         incomplete_data = pd.DataFrame({"id": [1, 2]})
-
         dc.write_to_table(
             incomplete_data,
             table_name,
@@ -5163,77 +5226,44 @@ class TestTableVersionWriteModes:
             mode=TableWriteMode.APPEND,
         )
 
+        # Read the table into a Daft DataFrame
+        result = dc.read_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+        )
+
         # Test all supported dataset types
-        dataset_types_to_test = [
-            DatasetType.PANDAS,
-            DatasetType.PYARROW,
-            DatasetType.POLARS,
-            DatasetType.PYARROW_PARQUET,
-            # Note: NUMPY would require special handling since it doesn't naturally support string columns
-        ]
+        dataset_types_to_test = DatasetType.local()
+        # NUMPY doesn't naturally support string columns
+        dataset_types_to_test.remove(DatasetType.NUMPY)
 
         for dataset_type in dataset_types_to_test:
-            result = dc.read_table(
-                table_name,
-                catalog=self.catalog_name,
-                namespace=namespace,
-                read_as=dataset_type,
-            )
-
+            # Convert result to the appropriate type and extract default values
             if dataset_type == DatasetType.PANDAS:
                 # Convert result to pandas using strict type checking
-                result = to_pandas(result)
-
-                assert (
-                    "default_field" in result.columns
-                ), f"default_field should be present in {dataset_type}"
-                assert all(
-                    result["default_field"] == "default_value"
-                ), f"All default_field values should be 'default_value' for {dataset_type}, got {result['default_field'].tolist()}"
-
-            elif dataset_type == DatasetType.PYARROW:
+                local_result = to_pandas(result)
+                default_values = local_result["default_field"].to_list()
+            elif dataset_type in (DatasetType.PYARROW, DatasetType.PYARROW_PARQUET):
                 # Convert result to pyarrow using strict type checking
-                result = to_pyarrow(result)
-
-                assert (
-                    "default_field" in result.column_names
-                ), f"default_field should be present in {dataset_type}"
-                default_column = result.column("default_field").to_pylist()
-                assert all(
-                    val == "default_value" for val in default_column
-                ), f"All default_field values should be 'default_value' for {dataset_type}, got {default_column}"
-
+                local_result = to_pyarrow(result)
+                default_values = local_result.column("default_field").to_pylist()
             elif dataset_type == DatasetType.POLARS:
-                # Convert result to polars via pandas to avoid metadata issues
+                # Convert result to polars via pandas to avoid metadata errors
                 pandas_df = to_pandas(result)
-                result = pl.from_pandas(pandas_df)
+                local_result = pl.from_pandas(pandas_df)
+                default_values = local_result["default_field"].to_list()
 
-                assert (
-                    "default_field" in result.columns
-                ), f"default_field should be present in {dataset_type}"
-                default_values = result["default_field"].to_list()
-                assert all(
-                    val == "default_value" for val in default_values
-                ), f"All default_field values should be 'default_value' for {dataset_type}, got {default_values}"
-
-            elif dataset_type == DatasetType.PYARROW_PARQUET:
-                # PYARROW_PARQUET should return a PyArrow table with parquet-specific optimizations
-                # Convert result to pyarrow using strict type checking
-                result = to_pyarrow(result)
-
-                assert (
-                    "default_field" in result.column_names
-                ), f"default_field should be present in {dataset_type}"
-                default_column = result.column("default_field").to_pylist()
-                assert all(
-                    val == "default_value" for val in default_column
-                ), f"All default_field values should be 'default_value' for {dataset_type}, got {default_column}"
+            # Verify that the default_field column is present and has the correct values
+            assert all(
+                val == "default_value" for val in default_values
+            ), f"All default_field values should be 'default_value' for {dataset_type}, got {default_values}"
 
     def test_past_default_enforcement_local_only_dataset_types(self):
-        """Test past_default enforcement with local-only storage (distributed_dataset_type=None).
+        """Test past_default enforcement with local-only storage.
 
         Tests various local dataset types without any distributed processing to ensure
-        past_default enforcement works in pure local storage mode.
+        past_default enforcement works with pure local storage mode.
         """
         table_name = "past_default_local_only_test"
         namespace = "test_ns"
@@ -5260,7 +5290,6 @@ class TestTableVersionWriteModes:
 
         # Write incomplete data (missing default_field)
         incomplete_data = pd.DataFrame({"id": [10, 20]})
-
         dc.write_to_table(
             incomplete_data,
             table_name,
@@ -5269,68 +5298,33 @@ class TestTableVersionWriteModes:
             mode=TableWriteMode.APPEND,
         )
 
-        # Test local dataset types with distributed_dataset_type=None
-        local_dataset_types_to_test = [
-            DatasetType.PANDAS,
-            DatasetType.PYARROW,
-            DatasetType.POLARS,
-            DatasetType.PYARROW_PARQUET,
-        ]
+        # Test local dataset types
+        local_dataset_types_to_test = DatasetType.local()
+        # NUMPY doesn't naturally support string columns
+        local_dataset_types_to_test.remove(DatasetType.NUMPY)
 
         for dataset_type in local_dataset_types_to_test:
+            # Read the table into a local dataset type
             result = dc.read_table(
                 table_name,
                 catalog=self.catalog_name,
                 namespace=namespace,
                 read_as=dataset_type,
-                distributed_dataset_type=None,  # Force local-only processing
             )
-
             if dataset_type == DatasetType.PANDAS:
                 # Should be a pandas DataFrame
                 result = to_pandas(result)
-
-                assert (
-                    "default_field" in result.columns
-                ), f"default_field should be present in {dataset_type}"
-                assert all(
-                    result["default_field"] == "local_default_value"
-                ), f"All default_field values should be 'local_default_value' for {dataset_type}, got {result['default_field'].tolist()}"
-
-            elif dataset_type == DatasetType.PYARROW:
+                default_values = result["default_field"]
+            elif dataset_type in (DatasetType.PYARROW, DatasetType.PYARROW_PARQUET):
                 result = to_pyarrow(result)
-
-                assert (
-                    "default_field" in result.column_names
-                ), f"default_field should be present in {dataset_type}"
-                default_column = result.column("default_field").to_pylist()
-                assert all(
-                    val == "local_default_value" for val in default_column
-                ), f"All default_field values should be 'local_default_value' for {dataset_type}, got {default_column}"
-
+                default_values = result.column("default_field").to_pylist()
             elif dataset_type == DatasetType.POLARS:
                 pandas_df = to_pandas(result)
                 result = pl.from_pandas(pandas_df)
-
-                assert (
-                    "default_field" in result.columns
-                ), f"default_field should be present in {dataset_type}"
                 default_values = result["default_field"].to_list()
-                assert all(
-                    val == "local_default_value" for val in default_values
-                ), f"All default_field values should be 'local_default_value' for {dataset_type}, got {default_values}"
-
-            elif dataset_type == DatasetType.PYARROW_PARQUET:
-                # Handle ParquetFile objects
-                result = to_pyarrow(result)
-
-                assert (
-                    "default_field" in result.column_names
-                ), f"default_field should be present in {dataset_type}"
-                default_column = result.column("default_field").to_pylist()
-                assert all(
-                    val == "local_default_value" for val in default_column
-                ), f"All default_field values should be 'local_default_value' for {dataset_type}, got {default_column}"
+            assert all(
+                val == "local_default_value" for val in default_values
+            ), f"All default_field values should be 'local_default_value' for {dataset_type}, got {default_values}"
 
     def _create_ray_dataset_test_data(self, table_name, namespace):
         """Helper to create test table and data for Ray dataset tests."""
@@ -5376,11 +5370,11 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            read_as=DatasetType.PANDAS,
-            distributed_dataset_type=DatasetType.RAY_DATASET,
+            read_as=DatasetType.RAY_DATASET,
+            table_type=DatasetType.PANDAS,
         )
 
-        # Handle Ray MaterializedDataset objects
+        # Convert result to pandas dataframe
         result = to_pandas(result)
 
         assert "default_field" in result.columns
@@ -5399,11 +5393,10 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            read_as=DatasetType.PYARROW,
-            distributed_dataset_type=DatasetType.RAY_DATASET,
+            read_as=DatasetType.RAY_DATASET,
         )
 
-        # Handle Ray MaterializedDataset objects
+        # Convert result to pyarrow table
         result = to_pyarrow(result)
 
         assert "default_field" in result.column_names
@@ -5423,11 +5416,11 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            read_as=DatasetType.POLARS,
-            distributed_dataset_type=DatasetType.RAY_DATASET,
+            read_as=DatasetType.RAY_DATASET,
+            table_type=DatasetType.POLARS,
         )
 
-        # Handle Ray MaterializedDataset objects
+        # Convert result to polars dataframe
         pandas_df = to_pandas(result)
         result = pl.from_pandas(pandas_df)
 
@@ -5455,11 +5448,11 @@ class TestTableVersionWriteModes:
             table_name,
             catalog=self.catalog_name,
             namespace=namespace,
-            read_as=DatasetType.PYARROW_PARQUET,
-            distributed_dataset_type=DatasetType.RAY_DATASET,
+            read_as=DatasetType.RAY_DATASET,
+            table_type=DatasetType.PYARROW_PARQUET,
         )
 
-        # Handle ParquetFile objects and Ray MaterializedDataset objects
+        # Convert result to pyarrow table
         result = to_pyarrow(result)
 
         assert "default_field" in result.column_names
@@ -5667,8 +5660,6 @@ class TestSchemaConsistency:
         ]  # future_default used
 
         # For integer columns, pandas represents nulls as NaN
-        import numpy as np
-
         assert all(
             np.isnan(x) for x in result_df["none_nullable"]
         )  # nulls for NONE type
@@ -5699,7 +5690,6 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             read_as=DatasetType.PANDAS,
-            distributed_dataset_type=None,
             max_parallelism=1,
         )
         # ensure dataframe column and row count
@@ -5734,7 +5724,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
 
         # For schemaless tables, we now get a list of tables
@@ -5766,7 +5756,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
 
         # For schemaless tables, we now get a list of tables
@@ -5798,7 +5788,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
 
         # For schemaless tables, we now get a list of tables
@@ -5850,7 +5840,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
 
         # For schemaless tables, we now get a list of tables
@@ -5933,7 +5923,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
 
         # For schemaless tables, we now get a list of tables
@@ -5995,7 +5985,6 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             read_as=DatasetType.PYARROW,
-            distributed_dataset_type=None,  # Force local storage
         )
 
         # Check if result is a list (which it should be for schemaless tables)
@@ -6079,7 +6068,6 @@ class TestSchemaConsistency:
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
-                distributed_dataset_type=DatasetType.DAFT,
             )
 
         # Test 2: RAY_DATASET should also raise NotImplementedError for schemaless tables
@@ -6091,7 +6079,7 @@ class TestSchemaConsistency:
                 table=table_name,
                 namespace=namespace,
                 catalog=catalog_name,
-                distributed_dataset_type=DatasetType.RAY_DATASET,
+                read_as=DatasetType.RAY_DATASET,
             )
 
         # Test 3: Local storage should still work (explicit None)
@@ -6099,7 +6087,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,  # Explicitly use local storage
+            read_as=DatasetType.PYARROW,  # Explicitly use local storage
         )
 
         # For schemaless tables with local storage, we expect a list of tables
@@ -6174,7 +6162,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result1, list):
             combined_result1 = pd.concat(
@@ -6212,7 +6200,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result2, list):
             combined_result2 = pd.concat(
@@ -6246,7 +6234,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result3, list):
             combined_result3 = pd.concat(
@@ -6280,7 +6268,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result4, list):
             combined_result4 = pd.concat(
@@ -6344,7 +6332,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result1, list):
             combined_result1 = pd.concat(
@@ -6381,7 +6369,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result2, list):
             combined_result2 = pd.concat(
@@ -6426,7 +6414,7 @@ class TestSchemaConsistency:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            distributed_dataset_type=None,
+            read_as=DatasetType.PYARROW,
         )
         if isinstance(result3, list):
             combined_result3 = pd.concat(
@@ -7017,8 +7005,6 @@ class TestSchemaConsistency:
         initial_data = pd.DataFrame([{"id": 1, "name": "alice", "value": 10.5}])
 
         # Create table with MANUAL schema evolution mode
-        from deltacat.types.tables import SchemaEvolutionMode, TableProperty
-
         table_version_properties = {
             TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.MANUAL
         }
@@ -7104,7 +7090,6 @@ class TestSchemaConsistency:
 
         # Test 2: Explicit MANUAL mode should be persisted
         table_name_manual = "schema_evolution_manual_property_test"
-        from deltacat.types.tables import SchemaEvolutionMode
 
         table_version_properties_manual = {
             TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.MANUAL

@@ -956,7 +956,6 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_1",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
 
             dest_df = dc.read_table(
@@ -964,7 +963,6 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_2",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
 
             # Verify both datasets are valid pandas DataFrames
@@ -1001,7 +999,6 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_2",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
             _assert_data_equivalence(source_df, dest_df)
 
@@ -1011,7 +1008,6 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_1",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
             assert (
                 len(source_df_repeated) == len(source_df) * 2
@@ -1032,7 +1028,6 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_1",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
             _assert_data_equivalence(source_df_repeated, source_df_unchanged)
 
@@ -1042,7 +1037,6 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_2",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
             assert (
                 len(dest_df_repeated) == len(dest_df) * 2

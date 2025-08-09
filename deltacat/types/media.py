@@ -5,7 +5,11 @@ from typing import Set, Dict
 class ContentType(str, Enum):
     """
     Enumeration used to resolve the entity-body Media Type (formerly known as
-    MIME type) in an HTTP request.
+    MIME type) in an HTTP request. In practice, all of the content types here
+    are writeable by at least one :class:`deltacat.types.media.DatasetType`, and
+    their associated Media Type is used to populate the content type of each
+    :class:`deltacat.storage.model.manifest.ManifestEntry` written by that
+    :class:`deltacat.types.media.DatasetType`.
 
     https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.17
 
@@ -16,16 +20,10 @@ class ContentType(str, Enum):
     AVRO = "application/avro"
     BINARY = "application/octet-stream"
     CSV = "text/csv"
-    HDF = "application/x-hdf"
-    HTML = "text/html"
     JSON = "application/json"
-    TEXT = "text/plain"
-    WEBDATASET = "application/x-web-dataset"
-    XML = "text/xml"
 
     # unregistered types
     FEATHER = "application/feather"
-    ION = "application/x-amzn-ion"
     ORC = "application/orc"
     PARQUET = "application/parquet"
     PSV = "text/psv"
@@ -111,9 +109,6 @@ EXPLICIT_COMPRESSION_CONTENT_TYPES: Set[str] = {
     ContentType.CSV.value,
     ContentType.PSV.value,
     ContentType.JSON.value,
-    ContentType.TEXT.value,
-    ContentType.HTML.value,
-    ContentType.XML.value,
 }
 
 
@@ -154,6 +149,105 @@ class DatasetType(str, Enum):
             DatasetType.PYARROW_PARQUET,
         }
 
+    def readable_content_types(self) -> Set[ContentType]:
+        # if this is DAFT then it can read PARQUET, JSON, and CSV
+        if self == DatasetType.DAFT:
+            return {
+                ContentType.PARQUET, 
+                ContentType.JSON, 
+                ContentType.CSV,
+            }
+        if self == DatasetType.RAY_DATASET:
+            return {
+                ContentType.CSV, 
+                ContentType.TSV, 
+                ContentType.UNESCAPED_TSV, 
+                ContentType.PSV, 
+                ContentType.PARQUET, 
+                ContentType.JSON, 
+                ContentType.AVRO, 
+                ContentType.ORC, 
+                ContentType.FEATHER,
+            }
+        raise ValueError(f"No readable content types for {self}")
+
+    def writable_content_types(self) -> Set[ContentType]:
+        if self == DatasetType.PYARROW:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.PANDAS:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.POLARS:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.RAY_DATASET:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.JSON,
+            }
+        if self == DatasetType.DAFT:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.JSON,
+            }
+        if self == DatasetType.NUMPY:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.PYARROW_PARQUET:
+            return {}
+        raise ValueError(f"No writable content types for {self}")
+
+    def can_read(self, content_type: ContentType) -> bool:
+        return content_type in self.readable_content_types()
+
+    def can_write(self, content_type: ContentType) -> bool:
+        return content_type in self.writable_content_types()
+
 
 # deprecated by DatasetType - populated dynamically for backwards compatibility
 TableType = Enum(
@@ -175,6 +269,26 @@ class StorageType(str, Enum):
     DISTRIBUTED = "distributed"
 
 
+DATASET_TYPE_TO_SUPPORTED_READ_CONTENT_TYPES: Dict[DatasetType, Set[str]] = {
+    DatasetType.DAFT: {
+        ContentType.CSV,
+        ContentType.PARQUET,
+        ContentType.JSON,
+    },
+    DatasetType.RAY_DATASET: {
+        ContentType.CSV,
+        ContentType.TSV,
+        ContentType.UNESCAPED_TSV,
+        ContentType.PSV,
+        ContentType.PARQUET,
+        ContentType.JSON,
+        ContentType.AVRO,
+        ContentType.ORC,
+        ContentType.FEATHER,
+    },
+}
+
+
 class DatastoreType(str, Enum):
     """
     Enumeration used to identify the type of reader required to connect to and
@@ -186,7 +300,8 @@ class DatastoreType(str, Enum):
     :class:`deltacat.types.media.ContentType` is to resolve a file's MIME type,
     and may be used together with datastores that support storing different
     file types to describe the specific file type read/written from/to that
-    datastore (e.g., Iceberg, Hudi, Delta Lake, Audio, Images, Video, etc.)
+    datastore (e.g., DeltaCAT, Iceberg, Hudi, Delta Lake, Audio, Images, Video, 
+    etc.)
     """
 
     # DeltaCAT Catalog Datasets

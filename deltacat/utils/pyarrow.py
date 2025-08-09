@@ -1548,18 +1548,37 @@ def file_to_parquet(
     return pq_file
 
 
-def concat_tables(tables: List[pa.Table]) -> Optional[pa.Table]:
+def concat_tables(
+    tables: List[Union[pa.Table, papq.ParquetFile]]
+) -> Optional[Union[pa.Table, List[papq.ParquetFile]]]:
     """
-    Concatenate a list of PyArrow Tables into a single Table.
+    Concatenate a list of PyArrow Tables or ParquetFiles.
 
     Args:
-        tables: List of PyArrow Tables to concatenate
+        tables: List of PyArrow Tables or ParquetFiles to concatenate
 
     Returns:
-        Concatenated PyArrow Table, or None if input is empty
+        - Single table/ParquetFile if only one input
+        - List of ParquetFiles if all inputs are ParquetFiles (preserves lazy behavior)
+        - Concatenated PyArrow Table if mixed types or multiple PyArrow Tables
+        - None if input is empty
     """
     if tables is None or not len(tables):
         return None
     if len(tables) == 1:
+        # Return single table as-is to preserve lazy behavior
         return next(iter(tables))
-    return pa.concat_tables(tables)
+
+    # Check if all tables are ParquetFiles - return list to preserve lazy behavior
+    if all(isinstance(table, papq.ParquetFile) for table in tables):
+        return list(tables)
+
+    # Convert all tables to PyArrow Tables for concatenation
+    converted_tables = []
+    for table in tables:
+        if isinstance(table, papq.ParquetFile):
+            converted_tables.append(table.read())
+        else:
+            converted_tables.append(table)
+
+    return pa.concat_tables(converted_tables)

@@ -1,7 +1,7 @@
 from typing import List, Optional, Callable, Union, Dict, Any
 
+import pandas as pd
 import numpy as np
-import pyarrow as pa
 from fsspec import AbstractFileSystem
 import pyarrow.fs as pafs
 import logging
@@ -123,11 +123,10 @@ def ndarray_to_file(
     """
     Writes the given Numpy ndarray to a file.
     """
-
-    # PyArrow only supports 1D ndarrays, so convert to list of 1D arrays
-    np_arrays = [array for array in np_array]
-    pa_utils.table_to_file(
-        pa.table({"data": np_arrays}),
+    # Convert to pandas and use its writer
+    df = pd.DataFrame(np_array)
+    pd_utils.dataframe_to_file(
+        df,
         path,
         filesystem,
         block_path_provider,

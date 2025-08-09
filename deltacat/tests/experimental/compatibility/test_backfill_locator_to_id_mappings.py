@@ -259,7 +259,6 @@ class TestBackfillLocatorToIdMappings:
                 catalog=verify_catalog_name,
                 table_version="1",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
             assert (
                 table_data is not None
@@ -434,7 +433,6 @@ class TestBackfillLocatorToIdMappings:
                 catalog=dest_catalog_name,
                 table_version="1",
                 read_as=DatasetType.PANDAS,
-                distributed_dataset_type=None,
             )
 
             # Verify migrated data structure and content matches expected test data exactly

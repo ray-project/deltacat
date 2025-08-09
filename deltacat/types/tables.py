@@ -248,10 +248,37 @@ DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]]
     DatasetType.RAY_DATASET: lambda pa_table, **kwargs: ray.data.from_arrow(pa_table),
 }
 
+
+def append_column_to_parquet_file(
+    parquet_file: papq.ParquetFile,
+    column_name: str,
+    column_value: Any,
+) -> pa.Table:
+    """
+    Append a column to a ParquetFile by converting to PyArrow Table first.
+
+    Args:
+        parquet_file: The ParquetFile to add column to
+        column_name: Name of the new column
+        column_value: Value to populate in all rows of the new column
+
+    Returns:
+        PyArrow Table with the new column
+    """
+    # Convert ParquetFile to Table
+    table = parquet_file.read()
+
+    # Use the existing PyArrow append column function
+    num_rows = table.num_rows
+    column_array = pa.array([column_value] * num_rows)
+    return table.append_column(column_name, column_array)
+
+
 TABLE_CLASS_TO_APPEND_COLUMN_FUNC: Dict[
     Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
     pa.Table: pa_utils.append_column_to_table,
+    papq.ParquetFile: append_column_to_parquet_file,
     pd.DataFrame: pd_utils.append_column_to_dataframe,
     pl.DataFrame: pl_utils.append_column_to_table,
     np.ndarray: np_utils.append_column_to_ndarray,
@@ -303,21 +330,16 @@ TABLE_TYPE_TO_CONCAT_FUNC: Dict[str, Callable] = {
 
 def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
     """Infer schema from NumPy array."""
-    if data.ndim == 1:
-        arrow_type = pa.from_numpy_dtype(data.dtype)
-        arrow_schema = pa.schema([("column_0", arrow_type)])
-    elif data.ndim == 2:
-        arrow_type = pa.from_numpy_dtype(data.dtype)
-        fields = [(f"column_{i}", arrow_type) for i in range(data.shape[1])]
-        arrow_schema = pa.schema(fields)
-    else:
+    if data.ndim > 2:
         raise ValueError(
             f"NumPy arrays with {data.ndim} dimensions are not supported. "
             f"Only 1D and 2D arrays are supported."
         )
+    # Handle object dtype by converting to pandas first
+    df = pd.DataFrame(data)
+    arrow_schema = pa.Schema.from_pandas(df)
 
     from deltacat.storage.model.schema import Schema
-
     return Schema.of(schema=arrow_schema)
 
 
@@ -504,6 +526,7 @@ class TableProperty(str, Enum):
     APPENDED_DELTA_COUNT_COMPACTION_TRIGGER = "appended_delta_count_compaction_trigger"
     SCHEMA_EVOLUTION_MODE = "schema_evolution_mode"
     DEFAULT_SCHEMA_CONSISTENCY_TYPE = "default_schema_consistency_type"
+    SUPPORTED_READER_TYPES = "supported_reader_types"
 
 
 class TableReadOptimizationLevel(str, Enum):
@@ -540,6 +563,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
     TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
+    TableProperty.SUPPORTED_READER_TYPES: [d for d in DatasetType],
 }
 
 
@@ -605,6 +629,8 @@ def get_table_length(
         return table.count_rows()
     elif isinstance(table, RayDataset):
         return table.count()
+    elif isinstance(table, papq.ParquetFile):
+        return table.metadata.num_rows
     else:
         return len(table)
 
@@ -1290,9 +1316,8 @@ def download_manifest_entry_ray(
     )
 
     # Convert Polars DataFrame to Arrow Table for Ray dataset compatibility
-    if effective_table_type == DatasetType.POLARS:
-        if isinstance(result, pl.DataFrame):
-            result = result.to_arrow()
+    if isinstance(result, pl.DataFrame):
+        result = result.to_arrow()
 
     # Cast string_view columns to string to avoid cloudpickle issues
     if isinstance(result, pa.Table):
@@ -1615,7 +1640,14 @@ def download_manifest_entry(
 
     # Add file path column if requested
     if file_path_column:
-        table = append_column_to_table(table, file_path_column, manifest_entry.uri)
+        if isinstance(table, papq.ParquetFile):
+            logger.warning(
+                f"Skipping file_path_column '{file_path_column}' for lazily materialized ParquetFile. "
+                f"File path information can be retrieved from the ParquetFile object's metadata. "
+                f"Use read_as=DatasetType.PYARROW to materialize with file path column."
+            )
+        else:
+            table = append_column_to_table(table, file_path_column, manifest_entry.uri)
 
     return table
 
