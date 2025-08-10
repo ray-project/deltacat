@@ -1275,6 +1275,7 @@ def _download_and_process_table_data(
     # Handle local storage table concatenation
     if not distributed_dataset_type and table_type and isinstance(result, list):
         return _handle_local_table_concatenation(result, table_type, table_schema)
+
     return result
 
 

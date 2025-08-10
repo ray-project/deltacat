@@ -173,16 +173,22 @@ def _numpy_array_to_pyarrow(table: np.ndarray, schema: pa.Schema) -> pa.Table:
         )
 
 
-def _numpy_array_to_pandas(table: np.ndarray, *, schema: Optional[pa.Schema] = None, **kwargs) -> pd.DataFrame:
+def _numpy_array_to_pandas(
+    table: np.ndarray, *, schema: Optional[pa.Schema] = None, **kwargs
+) -> pd.DataFrame:
     """Convert NumPy array to pandas DataFrame."""
     if schema and isinstance(schema, pa.Schema):
         if table.ndim == 1:
             # 1D array: single column
-            column_names = [schema.names[0]] if schema.names else ['data']
+            column_names = [schema.names[0]] if schema.names else ["data"]
             return pd.DataFrame({column_names[0]: table}, **kwargs)
         elif table.ndim == 2:
             # 2D array: multiple columns
-            column_names = schema.names if len(schema.names) == table.shape[1] else [f"data_{i}" for i in range(table.shape[1])]
+            column_names = (
+                schema.names
+                if len(schema.names) == table.shape[1]
+                else [f"data_{i}" for i in range(table.shape[1])]
+            )
             return pd.DataFrame(table, columns=column_names, **kwargs)
         else:
             raise ValueError(
@@ -226,14 +232,18 @@ TABLE_CLASS_TO_PANDAS_FUNC: Dict[
     Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
     pa.Table: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
-    papq.ParquetFile: lambda table, *, schema=None, **kwargs: table.read(**kwargs).to_pandas(**kwargs),
+    papq.ParquetFile: lambda table, *, schema=None, **kwargs: table.read(
+        **kwargs
+    ).to_pandas(**kwargs),
     pd.DataFrame: lambda table, *, schema=None, **kwargs: table,
     pl.DataFrame: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
     np.ndarray: lambda table, *, schema=None, **kwargs: _numpy_array_to_pandas(
         table, schema=schema, **kwargs
     ),
     RayDataset: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
-    MaterializedDataset: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
+    MaterializedDataset: lambda table, *, schema=None, **kwargs: table.to_pandas(
+        **kwargs
+    ),
     daft.DataFrame: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
 }
 
@@ -363,6 +373,7 @@ def _infer_schema_from_numpy_array(data: np.ndarray) -> Schema:
     arrow_schema = pa.Schema.from_pandas(df)
 
     from deltacat.storage.model.schema import Schema
+
     return Schema.of(schema=arrow_schema)
 
 
@@ -702,7 +713,10 @@ def table_to_pyarrow(
 
 
 def table_to_pandas(
-    table: Union[LocalTable, DistributedDataset], *, schema: Optional[pa.Schema] = None, **kwargs
+    table: Union[LocalTable, DistributedDataset],
+    *,
+    schema: Optional[pa.Schema] = None,
+    **kwargs,
 ) -> pd.DataFrame:
     to_pandas_func = _get_table_function(
         table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion"
@@ -719,7 +733,9 @@ def to_pyarrow(
     return table_to_pyarrow(table, schema=schema, **kwargs)
 
 
-def to_pandas(table: Dataset, *, schema: Optional[pa.Schema] = None, **kwargs) -> pd.DataFrame:
+def to_pandas(
+    table: Dataset, *, schema: Optional[pa.Schema] = None, **kwargs
+) -> pd.DataFrame:
     """Convert any supported dataset type to pandas DataFrame format."""
     if isinstance(table, list):
         return _convert_all(table, table_to_pandas)

@@ -4,12 +4,11 @@ from typing import Set, Dict
 
 class ContentType(str, Enum):
     """
-    Enumeration used to resolve the entity-body Media Type (formerly known as
-    MIME type) in an HTTP request. In practice, all of the content types here
-    are writeable by at least one :class:`deltacat.types.media.DatasetType`, and
-    their associated Media Type is used to populate the content type of each
-    :class:`deltacat.storage.model.manifest.ManifestEntry` written by that
-    :class:`deltacat.types.media.DatasetType`.
+    Enumeration used to resolve a file's entity-body Media Type (formerly known
+    as MIME type). All content types here are writeable by at least one
+    :class:`deltacat.types.media.DatasetType`. The Media Type is used as the
+    content type of each :class:`deltacat.storage.model.manifest.ManifestEntry`
+    written by that dataset type.
 
     https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.17
 
@@ -35,7 +34,7 @@ class ContentEncoding(str, Enum):
     """
     Enumeration used as a modifier for :class:`deltacat.types.media.ContentType`
     to indicate that additional encodings have been applied to the entity-body
-    Media Type in an HTTP request.
+    Media Type.
 
     https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.11
 
@@ -59,9 +58,11 @@ EXT_TO_CONTENT_TYPE: Dict[str, ContentType] = {
     ".pq": ContentType.PARQUET,
     ".csv": ContentType.CSV,
     ".tsv": ContentType.TSV,
+    ".psv": ContentType.PSV,
     ".json": ContentType.JSON,
     ".feather": ContentType.FEATHER,
     ".avro": ContentType.AVRO,
+    ".orc": ContentType.ORC,
 }
 
 # Inverse map of content types to file extensions
@@ -153,22 +154,72 @@ class DatasetType(str, Enum):
         # if this is DAFT then it can read PARQUET, JSON, and CSV
         if self == DatasetType.DAFT:
             return {
-                ContentType.PARQUET, 
-                ContentType.JSON, 
+                ContentType.PARQUET,
+                ContentType.JSON,
                 ContentType.CSV,
             }
         if self == DatasetType.RAY_DATASET:
             return {
-                ContentType.CSV, 
-                ContentType.TSV, 
-                ContentType.UNESCAPED_TSV, 
-                ContentType.PSV, 
-                ContentType.PARQUET, 
-                ContentType.JSON, 
-                ContentType.AVRO, 
-                ContentType.ORC, 
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
                 ContentType.FEATHER,
             }
+        if self == DatasetType.PYARROW:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.PANDAS:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.POLARS:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.NUMPY:
+            return {
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.PSV,
+                ContentType.PARQUET,
+                ContentType.FEATHER,
+                ContentType.JSON,
+                ContentType.AVRO,
+                ContentType.ORC,
+            }
+        if self == DatasetType.PYARROW_PARQUET:
+            return {ContentType.PARQUET}
         raise ValueError(f"No readable content types for {self}")
 
     def writable_content_types(self) -> Set[ContentType]:
@@ -300,7 +351,7 @@ class DatastoreType(str, Enum):
     :class:`deltacat.types.media.ContentType` is to resolve a file's MIME type,
     and may be used together with datastores that support storing different
     file types to describe the specific file type read/written from/to that
-    datastore (e.g., DeltaCAT, Iceberg, Hudi, Delta Lake, Audio, Images, Video, 
+    datastore (e.g., DeltaCAT, Iceberg, Hudi, Delta Lake, Audio, Images, Video,
     etc.)
     """
 

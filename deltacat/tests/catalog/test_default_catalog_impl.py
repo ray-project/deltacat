@@ -3879,7 +3879,11 @@ def _generate_write_test_parameters():
     for dataset_type in write_support_matrix.keys():
         for content_type in unsupported_content_types:
             # Different dataset types throw different exceptions for unsupported content types
-            if dataset_type in [DatasetType.PANDAS, DatasetType.POLARS, DatasetType.NUMPY]:
+            if dataset_type in [
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+                DatasetType.NUMPY,
+            ]:
                 expected_exception = (
                     ValueError  # These throw ValueError for unsupported content types
                 )
@@ -3915,22 +3919,16 @@ def _generate_read_test_parameters():
     }
 
     read_support_matrix = {
-        DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
-        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types()),
-        DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
-        DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
+        DatasetType.NUMPY: list(DatasetType.NUMPY.readable_content_types()),
+        DatasetType.PYARROW: list(DatasetType.PYARROW.readable_content_types()),
+        DatasetType.PANDAS: list(DatasetType.PANDAS.readable_content_types()),
+        DatasetType.POLARS: list(DatasetType.POLARS.readable_content_types()),
         DatasetType.DAFT: list(DatasetType.DAFT.readable_content_types()),
         DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.readable_content_types()),
     }
 
     write_dataset_types = write_support_matrix.keys()
-    read_dataset_types = [
-        DatasetType.PYARROW,
-        DatasetType.PANDAS,
-        DatasetType.POLARS,
-        DatasetType.RAY_DATASET,
-        DatasetType.DAFT,
-    ]
+    read_dataset_types = read_support_matrix.keys()
 
     # For each read dataset type
     for read_dataset_type in read_dataset_types:
@@ -4148,7 +4146,11 @@ class TestContentTypeDatasetCompatibility:
                 assert result_table is not None, "Result table should not be None"
 
                 # Convert to pandas for comparison
-                result_df = to_pandas(result_table)
+                # For numpy data, use the original schema to preserve column names
+                if read_dataset_type == DatasetType.NUMPY:
+                    result_df = to_pandas(result_table, schema=base_data.schema)
+                else:
+                    result_df = to_pandas(result_table)
 
                 # Verify basic data integrity
                 assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
