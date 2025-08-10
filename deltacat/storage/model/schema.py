@@ -1261,6 +1261,8 @@ class Schema(dict):
         new_fields = {}  # field_name -> new_field
         new_columns = []
         new_schema_fields = []
+        # Track next available field ID for new fields during schema evolution
+        next_available_field_id = self.max_field_id + 1
 
         # Process each column in the table
         for column_name in table.column_names:
@@ -1271,12 +1273,14 @@ class Schema(dict):
                 schema_field,
                 field_update,
                 new_field,
+                next_available_field_id,
             ) = self._process_existing_table_column(
                 column_name,
                 column_data,
                 field_name_to_field,
                 schema_evolution_mode,
                 default_schema_consistency_type,
+                next_available_field_id,
             )
 
             new_columns.append(processed_data)
@@ -1835,14 +1839,14 @@ class Schema(dict):
         visitor_dict: Dict[str, Any],
     ) -> None:
         field_ids_to_fields = visitor_dict["fieldIdsToFields"]
-        max_field_id = (
-            visitor_dict["maxFieldId"] + len(field_ids_to_fields)
-        ) % MAX_FIELD_ID_EXCLUSIVE
         dc_field = Field.of(field)
         if dc_field is not None and dc_field.id is not None:
             field_id = dc_field.id
         else:
-            field_id = max_field_id
+            # Calculate next available field ID for new fields
+            field_id = (
+                visitor_dict["maxFieldId"] + len(field_ids_to_fields) + 1
+            ) % MAX_FIELD_ID_EXCLUSIVE
 
         if (dupe := field_ids_to_fields.get(field_id)) is not None:
             raise ValueError(
@@ -2018,7 +2022,8 @@ class Schema(dict):
         field_name_to_field: Dict[str, Field],
         schema_evolution_mode: Optional[SchemaEvolutionMode],
         default_schema_consistency_type: Optional[SchemaConsistencyType],
-    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field]]:
+        next_available_field_id: int,
+    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field], int]:
         """Process a column that exists in the table.
 
         Returns:
@@ -2030,13 +2035,15 @@ class Schema(dict):
 
             if field.consistency_type == SchemaConsistencyType.VALIDATE:
                 field.validate(column_data.type)
-                return column_data, field.arrow, None, None
+                return column_data, field.arrow, None, None, next_available_field_id
             elif field.consistency_type == SchemaConsistencyType.COERCE:
                 coerced_data = field.coerce(column_data)
-                return coerced_data, field.arrow, None, None
+                return coerced_data, field.arrow, None, None, next_available_field_id
             else:
                 # NONE or no consistency type - use type promotion
-                return self._handle_type_promotion(column_name, column_data, field)
+                return self._handle_type_promotion(
+                    column_name, column_data, field, next_available_field_id
+                )
         else:
             # Field not in schema - handle based on evolution mode
             return self._handle_new_field(
@@ -2044,11 +2051,16 @@ class Schema(dict):
                 column_data,
                 schema_evolution_mode,
                 default_schema_consistency_type,
+                next_available_field_id,
             )
 
     def _handle_type_promotion(
-        self, column_name: str, column_data: pa.Array, field: "Field"
-    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
+        self,
+        column_name: str,
+        column_data: pa.Array,
+        field: "Field",
+        next_available_field_id: int,
+    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"], int]:
         """Handle type promotion for a field with NONE consistency type."""
         promoted_data, type_was_promoted = field.promote_type_if_needed(column_data)
 
@@ -2092,9 +2104,15 @@ class Schema(dict):
                 native_object=field.native_object,
             )
 
-            return promoted_data, promoted_field, updated_field, None
+            return (
+                promoted_data,
+                promoted_field,
+                updated_field,
+                None,
+                next_available_field_id,
+            )
         else:
-            return promoted_data, field.arrow, None, None
+            return promoted_data, field.arrow, None, None, next_available_field_id
 
     def _handle_new_field(
         self,
@@ -2102,18 +2120,25 @@ class Schema(dict):
         column_data: pa.Array,
         schema_evolution_mode: Optional[SchemaEvolutionMode],
         default_schema_consistency_type: Optional[SchemaConsistencyType],
-    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field]]:
+        next_available_field_id: int,
+    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field], int]:
         """Handle a field that's not in the schema."""
         if schema_evolution_mode == SchemaEvolutionMode.AUTO:
-            # Create new field with default consistency type
-            next_field_id = self.max_field_id + 1
+            # Create new field with incremented field ID
             new_field = Field.of(
                 pa.field(column_name, column_data.type, nullable=True),
-                field_id=next_field_id,
+                field_id=next_available_field_id,
                 consistency_type=default_schema_consistency_type
                 or SchemaConsistencyType.NONE,
             )
-            return column_data, new_field.arrow, None, new_field
+            # Increment field ID for next new field
+            return (
+                column_data,
+                new_field.arrow,
+                None,
+                new_field,
+                next_available_field_id + 1,
+            )
         else:
             # MANUAL mode or not specified - raise error
             raise SchemaValidationError(
@@ -2810,6 +2835,47 @@ class SchemaUpdate(dict):
                 f"Default value {default_value} is not compatible with type {arrow_type}: {e}"
             )
 
+    def _validate_no_conflicting_operations(self) -> None:
+        """
+        Validate that no truly conflicting operations target the same field name.
+
+        Allows multiple update operations on the same field (they are applied cumulatively),
+        but prevents combinations like add/remove, remove/update, etc.
+
+        Raises:
+            ValueError: If conflicting operations target the same field name
+        """
+        field_to_operations = {}
+
+        for operation in self.operations:
+            if operation.operation == "add":
+                # For add operations, use the field name from the new field
+                field_name = operation.field.arrow.name
+            else:
+                # For remove/update operations, extract field name from locator
+                field_name = self._get_field_name(operation.field_locator)
+
+            # Track operations per field name
+            if field_name not in field_to_operations:
+                field_to_operations[field_name] = []
+            field_to_operations[field_name].append(operation.operation)
+
+        # Check for truly conflicting operations
+        for field_name, operations in field_to_operations.items():
+            if len(operations) > 1:
+                unique_ops = set(operations)
+
+                # Allow multiple update operations on same field (they are cumulative)
+                if unique_ops == {"update"}:
+                    continue  # Multiple updates on same field are allowed
+
+                # Any other combination is conflicting
+                operation_types = ", ".join(sorted(unique_ops))
+                raise ValueError(
+                    f"Conflicting operations detected on field '{field_name}': {operation_types}. "
+                    f"Cannot mix add/remove operations with each other or with updates on the same field."
+                )
+
     def apply(self) -> Schema:
         """
         Apply all pending operations and return the updated schema.
@@ -2820,7 +2886,11 @@ class SchemaUpdate(dict):
         Raises:
             SchemaCompatibilityError: If any operation would break backward compatibility
                 and allow_incompatible_changes is False
+            ValueError: If multiple operations target the same field name
         """
+        # Check for conflicting operations before applying them
+        self._validate_no_conflicting_operations()
+
         # Start with a copy of the base schema
         updated_fields = list(self.base_schema.fields)
         field_name_to_index = {
@@ -2828,13 +2898,25 @@ class SchemaUpdate(dict):
             for i, field in enumerate(updated_fields)
         }
 
+        # Track next available field ID for auto-assignment in add operations
+        next_available_field_id = self.base_schema.max_field_id + 1
+        if next_available_field_id >= MAX_FIELD_ID_EXCLUSIVE:
+            # Just raise an error instead of wrapping to 0, since this
+            # breaks our guarantee of unique field IDs across schema
+            # evolution history (e.g., we may overflow on a schema with IDs
+            # 0-1MM or 2, 10, etc. already assigned).
+            raise SchemaCompatibilityError(
+                f"Schema Field ID overflow: {next_available_field_id} >= {MAX_FIELD_ID_EXCLUSIVE}",
+            )
+
         # Apply operations in order
         for operation in self.operations:
             if operation.operation == "add":
-                self._apply_add_field(
+                next_available_field_id = self._apply_add_field(
                     updated_fields,
                     field_name_to_index,
                     operation.field,
+                    next_available_field_id,
                 )
             elif operation.operation == "remove":
                 self._apply_remove_field(
@@ -2851,15 +2933,33 @@ class SchemaUpdate(dict):
                 )
 
         # Create new schema from updated fields with incremented schema ID
-        return Schema.of(updated_fields, schema_id=self.base_schema.id + 1)
+        new_schema = Schema.of(updated_fields, schema_id=self.base_schema.id + 1)
+
+        # Ensure max_field_id never decreases, even when fields are removed
+        # This prevents field ID reuse across schema evolution history
+        if new_schema.max_field_id < self.base_schema.max_field_id:
+            new_schema["maxFieldId"] = self.base_schema.max_field_id
+
+        return new_schema
 
     def _apply_add_field(
         self,
         fields: List[Field],
         field_name_to_index: Dict[str, int],
         new_field: Field,
-    ) -> None:
-        """Apply add field operation with compatibility validation."""
+        next_available_field_id: int,
+    ) -> int:
+        """Apply add field operation with compatibility validation.
+
+        Args:
+            fields: List of existing fields to append to
+            field_name_to_index: Mapping of field names to indices
+            new_field: The field to add (user-specified field_id will be ignored)
+            next_available_field_id: The next available field ID to assign
+
+        Returns:
+            The next available field ID for subsequent operations
+        """
         field_name = new_field.arrow.name
 
         # Check if field already exists
@@ -2868,14 +2968,13 @@ class SchemaUpdate(dict):
                 f"Field '{field_name}' already exists in schema",
             )
 
-        # Validate compatibility for new field
-        if not self.allow_incompatible_changes:
-            self._validate_add_field_compatibility(new_field)
+        # For add operations, ignore user-specified field ID and auto-assign.
+        auto_assigned_field_id = next_available_field_id
 
-        # Create a copy of the field with the correct path
-        field_with_path = Field.of(
+        # Create a field copy with auto-assigned field ID (ignore user-specified ID)
+        field_with_auto_id = Field.of(
             new_field.arrow,
-            field_id=new_field.id,
+            field_id=auto_assigned_field_id,  # Use auto-assigned ID, not new_field.id
             is_merge_key=new_field.is_merge_key,
             merge_order=new_field.merge_order,
             is_event_time=new_field.is_event_time,
@@ -2887,9 +2986,16 @@ class SchemaUpdate(dict):
             native_object=new_field.native_object,
         )
 
+        # Validate compatibility for new field (after auto-assigning field ID)
+        if not self.allow_incompatible_changes:
+            self._validate_add_field_compatibility(field_with_auto_id)
+
         # Add the field
-        fields.append(field_with_path)
+        fields.append(field_with_auto_id)
         field_name_to_index[field_name] = len(fields) - 1
+
+        # Return incremented field ID for next operation
+        return next_available_field_id + 1
 
     def _apply_remove_field(
         self,
