@@ -362,6 +362,7 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
             "header": None,
             "na_values": [""],
             "keep_default_na": False,
+            "quoting": csv.QUOTE_NONE,
         }
     if content_type == ContentType.TSV.value:
         return {"sep": "\t", "header": None}
