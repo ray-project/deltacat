@@ -3365,6 +3365,9 @@ class TestDatasetTypes:
         [
             (ContentType.PARQUET, "Daft reading Parquet files"),
             (ContentType.CSV, "Daft reading CSV files"),
+            (ContentType.TSV, "Daft reading TSV files"),
+            (ContentType.UNESCAPED_TSV, "Daft reading UNESCAPED_TSV files"),
+            (ContentType.PSV, "Daft reading PSV files"),
             (ContentType.JSON, "Daft reading JSON files"),
         ],
     )
@@ -3373,9 +3376,6 @@ class TestDatasetTypes:
     ):
         """
         Test that Daft can correctly read tables with different content types.
-
-        This test verifies that Daft can read CSV, JSON, and Parquet files
-        with the same data and produce consistent results.
         """
         namespace = "test_namespace"
         catalog_name = f"daft-multi-format-test-{uuid.uuid4()}"
