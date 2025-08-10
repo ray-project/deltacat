@@ -735,6 +735,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "sep": "\t",
             "header": False,
             "lineterminator": "\n",
+            "quoting": csv.QUOTE_MINIMAL,
             "index": False,
         }
     if content_type == ContentType.CSV.value:
@@ -743,6 +744,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "header": False,
             "index": False,
             "lineterminator": "\n",
+            "quoting": csv.QUOTE_MINIMAL,
             "index": False,
         }
     if content_type == ContentType.PSV.value:
@@ -751,6 +753,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "header": False,
             "index": False,
             "lineterminator": "\n",
+            "quoting": csv.QUOTE_MINIMAL,
         }
     if content_type == ContentType.PARQUET.value:
         return {"index": False}

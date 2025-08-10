@@ -206,7 +206,11 @@ def _ray_dataset_to_pyarrow(table, *, schema, **kwargs):
     arrow_tables = ray.get(arrow_refs)
     if len(arrow_tables) == 1:
         return arrow_tables[0]
-    return pa.concat_tables(arrow_tables)
+    # Unify schemas to support schema evolution across blocks/files
+    try:
+        return pa.concat_tables(arrow_tables, promote=True, unify_schemas=True)
+    except TypeError:
+        return pa.concat_tables(arrow_tables, promote=True)
 
 
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[

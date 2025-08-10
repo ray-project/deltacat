@@ -663,15 +663,27 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
         }
     if content_type == ContentType.TSV.value:
         return {
-            "write_options": pacsv.WriteOptions(include_header=False, delimiter="\t")
+            "write_options": pacsv.WriteOptions(
+                include_header=False,
+                delimiter="\t",
+                quoting_style="needed",
+            )
         }
     if content_type == ContentType.CSV.value:
         return {
-            "write_options": pacsv.WriteOptions(include_header=False, delimiter=",")
+            "write_options": pacsv.WriteOptions(
+                include_header=False,
+                delimiter=",",
+                quoting_style="needed",
+            )
         }
     if content_type == ContentType.PSV.value:
         return {
-            "write_options": pacsv.WriteOptions(include_header=False, delimiter="|")
+            "write_options": pacsv.WriteOptions(
+                include_header=False,
+                delimiter="|",
+                quoting_style="needed",
+            )
         }
     if content_type in {
         ContentType.PARQUET.value,

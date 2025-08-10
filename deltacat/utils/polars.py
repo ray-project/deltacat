@@ -82,16 +82,19 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
         return {
             "separator": "\t",
             "include_header": False,
+            "quote_style": "needed",
         }
     if content_type == ContentType.CSV.value:
         return {
             "separator": ",",
             "include_header": False,
+            "quote_style": "needed",
         }
     if content_type == ContentType.PSV.value:
         return {
             "separator": "|",
             "include_header": False,
+            "quote_style": "needed",
         }
     if content_type in {
         ContentType.PARQUET.value,
