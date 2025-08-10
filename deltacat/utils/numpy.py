@@ -9,7 +9,7 @@ import logging
 from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.utils import pandas as pd_utils
-from deltacat.utils import pyarrow as pa_utils
+
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat import logs
 from deltacat.utils.performance import timed_invocation
@@ -123,8 +123,27 @@ def ndarray_to_file(
     """
     Writes the given Numpy ndarray to a file.
     """
-    # Convert to pandas and use its writer
-    df = pd.DataFrame(np_array)
+    import pyarrow as pa
+
+    # Extract schema from kwargs if available
+    schema = kwargs.pop('schema', None)
+
+    # Convert to pandas DataFrame with proper column names if schema is available
+    if schema and isinstance(schema, pa.Schema):
+        if np_array.ndim == 1:
+            # 1D array: single column
+            column_names = [schema.names[0]] if schema.names else ['data']
+            df = pd.DataFrame({column_names[0]: np_array})
+        elif np_array.ndim == 2:
+            # 2D array: multiple columns
+            column_names = schema.names if len(schema.names) == np_array.shape[1] else [f"data_{i}" for i in range(np_array.shape[1])]
+            df = pd.DataFrame(np_array, columns=column_names)
+        else:
+            raise ValueError(f"NumPy arrays with {np_array.ndim} dimensions are not supported")
+    else:
+        # Fallback to generic column names
+        df = pd.DataFrame(np_array)
+
     pd_utils.dataframe_to_file(
         df,
         path,

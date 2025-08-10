@@ -2571,6 +2571,17 @@ def stage_delta(
             f"Cannot stage delta to {partition.state} partition: {partition}",
         )
     previous_stream_position: Optional[int] = partition.stream_position
+
+    # Add schema to table_writer_kwargs if available
+    table_writer_kwargs = table_writer_kwargs or {}
+    if "schema" in kwargs and "schema" not in table_writer_kwargs:
+        schema = kwargs["schema"]
+        # Normalize DeltaCAT Schema to PyArrow Schema
+        if isinstance(schema, Schema):
+            table_writer_kwargs["schema"] = schema.arrow
+        elif schema is not None:
+            table_writer_kwargs["schema"] = schema
+
     manifest: Manifest = _write_table(
         partition.partition_id,
         data,

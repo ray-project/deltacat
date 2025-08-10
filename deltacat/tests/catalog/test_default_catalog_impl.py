@@ -3915,17 +3915,22 @@ def _generate_read_test_parameters():
     }
 
     read_support_matrix = {
+        DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
+        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types()),
+        DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
+        DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
         DatasetType.DAFT: list(DatasetType.DAFT.readable_content_types()),
         DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.readable_content_types()),
     }
 
-    write_dataset_types = [
+    write_dataset_types = write_support_matrix.keys()
+    read_dataset_types = [
         DatasetType.PYARROW,
         DatasetType.PANDAS,
         DatasetType.POLARS,
         DatasetType.RAY_DATASET,
+        DatasetType.DAFT,
     ]
-    read_dataset_types = [DatasetType.DAFT, DatasetType.RAY_DATASET]
 
     # For each read dataset type
     for read_dataset_type in read_dataset_types:
@@ -4028,6 +4033,11 @@ class TestContentTypeDatasetCompatibility:
         if expected_exception is None:
             # Should succeed
             try:
+                # For numpy data, preserve the original schema to maintain column names
+                write_kwargs = {}
+                if write_dataset_type == DatasetType.NUMPY:
+                    write_kwargs["schema"] = Schema.of(schema=base_data.schema)
+
                 dc.write_to_table(
                     data=test_data,
                     table=table_name,
@@ -4035,6 +4045,7 @@ class TestContentTypeDatasetCompatibility:
                     catalog=catalog_name,
                     content_type=content_type,
                     mode=TableWriteMode.CREATE,
+                    **write_kwargs,
                 )
 
                 # Verify the table was created
@@ -4106,6 +4117,11 @@ class TestContentTypeDatasetCompatibility:
         test_data = from_pyarrow(base_data, write_dataset_type)
 
         # First write the data with the write dataset type
+        # For numpy data, preserve the original schema to maintain column names
+        write_kwargs = {}
+        if write_dataset_type == DatasetType.NUMPY:
+            write_kwargs["schema"] = Schema.of(schema=base_data.schema)
+
         dc.write_to_table(
             data=test_data,
             table=table_name,
@@ -4113,6 +4129,7 @@ class TestContentTypeDatasetCompatibility:
             catalog=catalog_name,
             content_type=content_type,
             mode=TableWriteMode.CREATE,
+            **write_kwargs,
         )
 
         # Now try to read with the read dataset type
@@ -4124,27 +4141,14 @@ class TestContentTypeDatasetCompatibility:
                     namespace=namespace,
                     catalog=catalog_name,
                     read_as=read_dataset_type,
+                    max_parallelism=1,
                 )
 
                 # Verify we got data back
                 assert result_table is not None, "Result table should not be None"
 
-                # Convert to pandas for comparison (works for all dataset types)
-                if hasattr(result_table, "collect"):
-                    # For Daft DataFrames
-                    result_df = result_table.collect().to_pandas()
-                elif hasattr(result_table, "to_arrow"):
-                    result_df = result_table.to_pandas()
-                elif hasattr(result_table, "to_pandas"):
-                    # For other Ray Dataset types without to_arrow
-                    result_df = result_table.to_pandas()
-                else:
-                    # For other types, try direct conversion
-                    result_df = pd.DataFrame(
-                        result_table.to_pydict()
-                        if hasattr(result_table, "to_pydict")
-                        else result_table
-                    )
+                # Convert to pandas for comparison
+                result_df = to_pandas(result_table)
 
                 # Verify basic data integrity
                 assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"

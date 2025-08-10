@@ -173,6 +173,27 @@ def _numpy_array_to_pyarrow(table: np.ndarray, schema: pa.Schema) -> pa.Table:
         )
 
 
+def _numpy_array_to_pandas(table: np.ndarray, *, schema: Optional[pa.Schema] = None, **kwargs) -> pd.DataFrame:
+    """Convert NumPy array to pandas DataFrame."""
+    if schema and isinstance(schema, pa.Schema):
+        if table.ndim == 1:
+            # 1D array: single column
+            column_names = [schema.names[0]] if schema.names else ['data']
+            return pd.DataFrame({column_names[0]: table}, **kwargs)
+        elif table.ndim == 2:
+            # 2D array: multiple columns
+            column_names = schema.names if len(schema.names) == table.shape[1] else [f"data_{i}" for i in range(table.shape[1])]
+            return pd.DataFrame(table, columns=column_names, **kwargs)
+        else:
+            raise ValueError(
+                f"NumPy arrays with {table.ndim} dimensions are not supported. "
+                f"Only 1D and 2D arrays are supported."
+            )
+
+    # Fallback to generic column names
+    return pd.DataFrame(table, **kwargs)
+
+
 def _ray_dataset_to_pyarrow(table, *, schema, **kwargs):
     """Convert Ray Dataset to PyArrow tables and concatenate."""
     arrow_refs = table.to_arrow_refs(**kwargs)
@@ -204,14 +225,16 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
 TABLE_CLASS_TO_PANDAS_FUNC: Dict[
     Type[Union[LocalTable, DistributedDataset]], Callable
 ] = {
-    pa.Table: lambda table, **kwargs: table.to_pandas(**kwargs),
-    papq.ParquetFile: lambda table, **kwargs: table.read(**kwargs).to_pandas(**kwargs),
-    pd.DataFrame: lambda table, **kwargs: table,
-    pl.DataFrame: lambda table, **kwargs: table.to_pandas(**kwargs),
-    np.ndarray: lambda table, **kwargs: pd.DataFrame(table, **kwargs),
-    RayDataset: lambda table, **kwargs: table.to_pandas(**kwargs),
-    MaterializedDataset: lambda table, **kwargs: table.to_pandas(**kwargs),
-    daft.DataFrame: lambda table, **kwargs: table.to_pandas(**kwargs),
+    pa.Table: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
+    papq.ParquetFile: lambda table, *, schema=None, **kwargs: table.read(**kwargs).to_pandas(**kwargs),
+    pd.DataFrame: lambda table, *, schema=None, **kwargs: table,
+    pl.DataFrame: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
+    np.ndarray: lambda table, *, schema=None, **kwargs: _numpy_array_to_pandas(
+        table, schema=schema, **kwargs
+    ),
+    RayDataset: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
+    MaterializedDataset: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
+    daft.DataFrame: lambda table, *, schema=None, **kwargs: table.to_pandas(**kwargs),
 }
 
 
@@ -679,12 +702,12 @@ def table_to_pyarrow(
 
 
 def table_to_pandas(
-    table: Union[LocalTable, DistributedDataset], **kwargs
+    table: Union[LocalTable, DistributedDataset], *, schema: Optional[pa.Schema] = None, **kwargs
 ) -> pd.DataFrame:
     to_pandas_func = _get_table_function(
         table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion"
     )
-    return to_pandas_func(table, **kwargs)
+    return to_pandas_func(table, schema=schema, **kwargs)
 
 
 def to_pyarrow(
@@ -696,11 +719,11 @@ def to_pyarrow(
     return table_to_pyarrow(table, schema=schema, **kwargs)
 
 
-def to_pandas(table: Dataset, **kwargs) -> pd.DataFrame:
+def to_pandas(table: Dataset, *, schema: Optional[pa.Schema] = None, **kwargs) -> pd.DataFrame:
     """Convert any supported dataset type to pandas DataFrame format."""
     if isinstance(table, list):
         return _convert_all(table, table_to_pandas)
-    return table_to_pandas(table, **kwargs)
+    return table_to_pandas(table, schema=schema, **kwargs)
 
 
 def from_pyarrow(pa_table: pa.Table, target_type: DatasetType, **kwargs) -> Dataset:
