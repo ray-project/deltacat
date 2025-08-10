@@ -453,7 +453,7 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
         return {
             "delimiter": "\t",
             "has_headers": False,
-            "doubled_quote": False,
+            "double_quote": False,
             "allow_variable_columns": True,
         }
     if content_type == ContentType.TSV.value:
