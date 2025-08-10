@@ -157,6 +157,9 @@ class DatasetType(str, Enum):
                 ContentType.PARQUET,
                 ContentType.JSON,
                 ContentType.CSV,
+                ContentType.PSV,
+                ContentType.TSV,
+                ContentType.UNESCAPED_TSV,
             }
         if self == DatasetType.RAY_DATASET:
             return {

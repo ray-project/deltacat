@@ -3921,7 +3921,9 @@ def _generate_read_test_parameters():
     read_support_matrix = {
         DatasetType.NUMPY: list(DatasetType.NUMPY.readable_content_types()),
         DatasetType.PYARROW: list(DatasetType.PYARROW.readable_content_types()),
-        DatasetType.PYARROW_PARQUET: list(DatasetType.PYARROW_PARQUET.readable_content_types()),
+        DatasetType.PYARROW_PARQUET: list(
+            DatasetType.PYARROW_PARQUET.readable_content_types()
+        ),
         DatasetType.PANDAS: list(DatasetType.PANDAS.readable_content_types()),
         DatasetType.POLARS: list(DatasetType.POLARS.readable_content_types()),
         DatasetType.DAFT: list(DatasetType.DAFT.readable_content_types()),
@@ -3962,6 +3964,7 @@ def _generate_read_test_parameters():
                     ]:
                         # Daft throws DaftCoreException for TSV/PSV column not found issues
                         from daft.exceptions import DaftCoreException
+
                         expected_exception = DaftCoreException
                     else:
                         # Daft throws NotImplementedError for completely unsupported content types (ORC, FEATHER, AVRO)
@@ -3969,6 +3972,7 @@ def _generate_read_test_parameters():
                 elif read_dataset_type == DatasetType.PYARROW_PARQUET:
                     # PYARROW_PARQUET throws NonRetryableDownloadTableError for unsupported content types
                     from deltacat.exceptions import NonRetryableDownloadTableError
+
                     expected_exception = NonRetryableDownloadTableError
                 else:
                     # Other dataset types typically throw NotImplementedError

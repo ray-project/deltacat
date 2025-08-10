@@ -336,6 +336,7 @@ def read_csv(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     fs_open_kwargs: Dict[str, Any] = {},
     content_encoding: str = ContentEncoding.IDENTITY.value,
+    content_type: Optional[str] = None,
     **read_kwargs,
 ) -> DataFrame:
     """
@@ -346,6 +347,7 @@ def read_csv(
         filesystem: Optional filesystem to use
         fs_open_kwargs: Optional filesystem open kwargs
         content_encoding: Content encoding (IDENTITY or GZIP supported)
+        content_type: Optional content type (PARQUET, JSON, CSV, etc.)
         **read_kwargs: Additional arguments passed to daft.read_csv
 
     Returns:
@@ -354,6 +356,12 @@ def read_csv(
     logger.debug(
         f"Reading CSV file {path} into Daft DataFrame with kwargs: {read_kwargs}"
     )
+
+    # If content_type is provided, add appropriate reader kwargs
+    if content_type is not None:
+        content_kwargs = content_type_to_reader_kwargs(content_type)
+        read_kwargs.update(content_kwargs)
+        logger.debug(f"Added content type kwargs for {content_type}: {content_kwargs}")
 
     # Files should now be written with proper extensions, so we can read them directly
     logger.debug(f"Reading CSV with Daft from: {path}")
@@ -445,21 +453,26 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
         return {
             "delimiter": "\t",
             "has_headers": False,
+            "doubled_quote": False,
+            "allow_variable_columns": True,
         }
     if content_type == ContentType.TSV.value:
         return {
             "delimiter": "\t",
             "has_headers": False,
+            "allow_variable_columns": True,
         }
     if content_type == ContentType.CSV.value:
         return {
             "delimiter": ",",
             "has_headers": False,
+            "allow_variable_columns": True,
         }
     if content_type == ContentType.PSV.value:
         return {
             "delimiter": "|",
             "has_headers": False,
+            "allow_variable_columns": True,
         }
     if content_type in {
         ContentType.PARQUET.value,
@@ -878,16 +891,10 @@ def files_to_dataframe(
         daft_schema = daft.Schema.from_pyarrow_schema(table_version_schema)
         # Convert DaftSchema to dictionary format required by Daft readers
         schema_dict = {field.name: field.dtype for field in daft_schema}
-
         # Remove table_version_schema from kwargs since Daft readers don't recognize it
         read_kwargs.pop("table_version_schema", None)
-
-        if content_type == ContentType.PARQUET.value:
-            # Use explicit schema with infer_schema=False for optimal performance
-            read_kwargs.update({"infer_schema": False, "schema": schema_dict})
-        elif content_type in [ContentType.CSV.value, ContentType.JSON.value]:
-            # For CSV and JSON, provide schema for consistent column names and types
-            read_kwargs.update({"infer_schema": False, "schema": schema_dict})
+        # Use explicit schema with infer_schema=False for correctness and performance
+        read_kwargs.update({"infer_schema": False, "schema": schema_dict})
     else:
         # Remove table_version_schema parameter if present but None
         read_kwargs.pop("table_version_schema", None)
