@@ -7,6 +7,7 @@ Cross-platform compatibility notes:
 - Some stress tests are skipped on systems with <2 CPUs
 """
 
+import datetime
 import multiprocessing
 import os
 import threading
@@ -7130,6 +7131,395 @@ class TestSchemaConsistency:
         assert (
             schema_evolution_mode_manual == "manual"
         ), f"Expected 'manual', got {schema_evolution_mode_manual}"
+
+    @pytest.mark.parametrize(
+        "write_dataset_type,read_dataset_type",
+        [
+            (DatasetType.PYARROW, DatasetType.PYARROW),
+            (DatasetType.PYARROW, DatasetType.PANDAS),
+            (DatasetType.PYARROW, DatasetType.POLARS),
+            (DatasetType.PYARROW, DatasetType.RAY_DATASET),
+            (DatasetType.PYARROW, DatasetType.DAFT),
+            # (DatasetType.PYARROW, DatasetType.NUMPY),
+            (DatasetType.PANDAS, DatasetType.PYARROW),
+            (DatasetType.PANDAS, DatasetType.PANDAS),
+            (DatasetType.PANDAS, DatasetType.POLARS),
+            (DatasetType.PANDAS, DatasetType.RAY_DATASET),
+            (DatasetType.PANDAS, DatasetType.DAFT),
+            # (DatasetType.PANDAS, DatasetType.NUMPY),
+            (DatasetType.POLARS, DatasetType.PYARROW),
+            (DatasetType.POLARS, DatasetType.PANDAS),
+            (DatasetType.POLARS, DatasetType.POLARS),
+            (DatasetType.POLARS, DatasetType.RAY_DATASET),
+            (DatasetType.POLARS, DatasetType.DAFT),
+            # (DatasetType.POLARS, DatasetType.NUMPY),
+            (DatasetType.RAY_DATASET, DatasetType.PYARROW),
+            (DatasetType.RAY_DATASET, DatasetType.PANDAS),
+            (DatasetType.RAY_DATASET, DatasetType.POLARS),
+            (DatasetType.RAY_DATASET, DatasetType.RAY_DATASET),
+            (DatasetType.RAY_DATASET, DatasetType.DAFT),
+            # (DatasetType.RAY_DATASET, DatasetType.NUMPY),
+            (DatasetType.DAFT, DatasetType.PYARROW),
+            (DatasetType.DAFT, DatasetType.PANDAS),
+            (DatasetType.DAFT, DatasetType.POLARS),
+            (DatasetType.DAFT, DatasetType.RAY_DATASET),
+            (DatasetType.DAFT, DatasetType.DAFT),
+            # (DatasetType.DAFT, DatasetType.NUMPY),
+            # (DatasetType.NUMPY, DatasetType.PYARROW),
+            # (DatasetType.NUMPY, DatasetType.PANDAS),
+            # (DatasetType.NUMPY, DatasetType.POLARS),
+            # (DatasetType.NUMPY, DatasetType.RAY_DATASET),
+            # (DatasetType.NUMPY, DatasetType.DAFT),
+            # (DatasetType.NUMPY, DatasetType.NUMPY),
+        ],
+    )
+    def test_schema_evolution_comprehensive_dataset_types(
+        self, temp_catalog_properties, write_dataset_type, read_dataset_type
+    ):
+        """Test schema evolution with comprehensive PyArrow data types across all DatasetType combinations."""
+        namespace = "test_namespace"
+        catalog_name = f"schema-evolution-test-{uuid.uuid4()}"
+        table_name = "comprehensive_schema_evolution_table"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Create comprehensive test data with wide variety of PyArrow data types
+        def create_pyarrow_data_batch1():
+            return pa.Table.from_arrays(
+                [
+                    # Integer types
+                    pa.array([1, 2, 3], type=pa.int8()),
+                    pa.array([10, 20, 30], type=pa.int16()),
+                    pa.array([100, 200, 300], type=pa.int32()),
+                    pa.array([1000, 2000, 3000], type=pa.int64()),
+                    pa.array([10, 20, 30], type=pa.uint8()),
+                    pa.array([100, 200, 300], type=pa.uint16()),
+                    pa.array([1000, 2000, 3000], type=pa.uint32()),
+                    pa.array([10000, 20000, 30000], type=pa.uint64()),
+                    # Float types
+                    pa.array([1.1, 2.2, 3.3], type=pa.float32()),
+                    pa.array([10.1, 20.2, 30.3], type=pa.float64()),
+                    # String types
+                    pa.array(["alice", "bob", "charlie"], type=pa.string()),
+                    pa.array([b"data1", b"data2", b"data3"], type=pa.binary()),
+                    # Boolean type
+                    pa.array([True, False, True], type=pa.bool_()),
+                    # Date and time types
+                    pa.array(
+                        [
+                            datetime.date(2023, 1, 1),
+                            datetime.date(2023, 1, 2),
+                            datetime.date(2023, 1, 3),
+                        ],
+                        type=pa.date32(),
+                    ),
+                    pa.array(
+                        [
+                            datetime.datetime(2023, 1, 1, 10, 0, 0),
+                            datetime.datetime(2023, 1, 1, 11, 0, 0),
+                            datetime.datetime(2023, 1, 1, 12, 0, 0),
+                        ],
+                        type=pa.timestamp("us"),
+                    ),
+                ],
+                names=[
+                    "int8_col",
+                    "int16_col",
+                    "int32_col",
+                    "int64_col",
+                    "uint8_col",
+                    "uint16_col",
+                    "uint32_col",
+                    "uint64_col",
+                    "float32_col",
+                    "float64_col",
+                    "string_col",
+                    "binary_col",
+                    "bool_col",
+                    "date32_col",
+                    "timestamp_col",
+                ],
+            )
+
+        def create_pyarrow_data_batch2():
+            # Second batch with new columns added
+            batch1 = create_pyarrow_data_batch1()
+
+            # Add new columns with different data types
+            from decimal import Decimal
+
+            new_columns = [
+                pa.array(
+                    [Decimal("1.50"), Decimal("2.50"), Decimal("3.50")],
+                    type=pa.decimal128(10, 2),
+                ),  # Decimal type
+                pa.array(
+                    [[1, 2], [3, 4], [5, 6]], type=pa.list_(pa.int32())
+                ),  # List type
+                pa.array([10.5, None, 30.5], type=pa.float64()),  # Nullable column
+                pa.array(
+                    ["extra1", "extra2", "extra3"], type=pa.string()
+                ),  # Additional string column
+            ]
+            new_column_names = [
+                "decimal_col",
+                "list_col",
+                "nullable_col",
+                "extra_string_col",
+            ]
+
+            # Combine original columns with new columns
+            all_arrays = list(batch1.columns) + new_columns
+            all_names = batch1.column_names + new_column_names
+            return pa.Table.from_arrays(all_arrays, names=all_names)
+
+        def create_pyarrow_data_batch3():
+            # Third batch with even more new columns
+            batch2 = create_pyarrow_data_batch2()
+
+            # Add more new columns
+            new_columns = [
+                pa.array(
+                    [
+                        {"name": "alice", "age": 30},
+                        {"name": "bob", "age": 25},
+                        {"name": "charlie", "age": 35},
+                    ],
+                    type=pa.struct(
+                        [pa.field("name", pa.string()), pa.field("age", pa.int32())]
+                    ),
+                ),  # Struct type
+                pa.array(
+                    [100000, 200000, 300000], type=pa.int64()
+                ),  # Another int column
+                pa.array(
+                    ["category_a", "category_b", "category_a"], type=pa.string()
+                ),  # Categorical-like data
+            ]
+            new_column_names = ["struct_col", "large_int_col", "category_col"]
+
+            # Combine with previous columns
+            all_arrays = list(batch2.columns) + new_columns
+            all_names = batch2.column_names + new_column_names
+            return pa.Table.from_arrays(all_arrays, names=all_names)
+
+        # Write initial data (batch 1) - original columns
+        initial_data = create_pyarrow_data_batch1()
+        write_data1 = from_pyarrow(initial_data, write_dataset_type)
+
+        dc.write_to_table(
+            data=write_data1,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Write second batch - adds 4 new columns
+        batch2_data = create_pyarrow_data_batch2()
+        write_data2 = from_pyarrow(batch2_data, write_dataset_type)
+
+        dc.write_to_table(
+            data=write_data2,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Write third batch - adds 3 more new columns
+        batch3_data = create_pyarrow_data_batch3()
+        write_data3 = from_pyarrow(batch3_data, write_dataset_type)
+
+        dc.write_to_table(
+            data=write_data3,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Get the table schema for strict schema compliance
+        table_info = dc.get_table(
+            table=table_name, namespace=namespace, catalog=catalog_name
+        )
+
+        # Read back all data and verify schema evolution worked correctly
+        result = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=read_dataset_type,
+            max_parallelism=1,
+        )
+
+        # Convert result to PyArrow for consistent comparison, using the table schema
+        if table_info.table_version.schema:
+            result_arrow = to_pyarrow(
+                result, schema=table_info.table_version.schema.arrow
+            )
+        else:
+            result_arrow = to_pyarrow(result)
+
+        # Verify we have all expected rows (3 from each batch = 9 total)
+        assert result_arrow.num_rows == 9
+
+        # Filter out any index columns that might be added by pandas conversion
+        result_columns = set(result_arrow.column_names)
+        index_columns = {col for col in result_columns if col.startswith("__index")}
+        data_columns = result_columns - index_columns
+
+        # Verify we have all expected data columns (15 original + 4 from batch2 + 3 from batch3 = 22 total)
+        expected_columns = {
+            "int8_col",
+            "int16_col",
+            "int32_col",
+            "int64_col",
+            "uint8_col",
+            "uint16_col",
+            "uint32_col",
+            "uint64_col",
+            "float32_col",
+            "float64_col",
+            "string_col",
+            "binary_col",
+            "bool_col",
+            "date32_col",
+            "timestamp_col",
+            "decimal_col",
+            "list_col",
+            "nullable_col",
+            "extra_string_col",
+            "struct_col",
+            "large_int_col",
+            "category_col",
+        }
+        assert data_columns == expected_columns
+        assert len(data_columns) == 22
+
+        # Verify data types are preserved correctly
+        schema = result_arrow.schema
+
+        # With schema enforcement now available for all dataset types, we can do strict type checking
+        # Allow some flexibility for type conversions that may occur during dataset type conversions
+
+        # Check integer types (allowing some flexibility for upcasting)
+        assert schema.field("int8_col").type in [
+            pa.int8(),
+            pa.int64(),
+        ]  # Some may upcast to int64
+        assert schema.field("int16_col").type in [pa.int16(), pa.int64()]
+        assert schema.field("int32_col").type in [pa.int32(), pa.int64()]
+        assert schema.field("int64_col").type == pa.int64()
+        assert schema.field("uint8_col").type in [
+            pa.uint8(),
+            pa.uint64(),
+        ]  # Some may upcast to uint64
+        assert schema.field("uint16_col").type in [pa.uint16(), pa.uint64()]
+        assert schema.field("uint32_col").type in [pa.uint32(), pa.uint64()]
+        assert schema.field("uint64_col").type == pa.uint64()
+
+        # Check float types (allowing some precision flexibility)
+        assert schema.field("float32_col").type in [
+            pa.float32(),
+            pa.float64(),
+        ]  # May upcast to float64
+        assert schema.field("float64_col").type == pa.float64()
+
+        # Check date/time types (these should be preserved)
+        assert schema.field("date32_col").type == pa.date32()
+        assert schema.field("timestamp_col").type == pa.timestamp("us")
+
+        # Check complex types added in later batches
+        # Decimal precision and scale may be inferred from data for some dataset types
+        decimal_field = schema.field("decimal_col")
+        assert pa.types.is_decimal(decimal_field.type)  # Ensure it's a decimal type
+        assert decimal_field.type.scale == 2  # Scale should be preserved
+
+        # List types may be converted to large_list by some dataset types
+        list_field = schema.field("list_col")
+        assert pa.types.is_list(list_field.type) or pa.types.is_large_list(
+            list_field.type
+        )
+
+        assert schema.field("nullable_col").type == pa.float64()
+
+        # String types may be converted to large_string by some dataset types
+        extra_string_field = schema.field("extra_string_col")
+        assert pa.types.is_string(extra_string_field.type) or pa.types.is_large_string(
+            extra_string_field.type
+        )
+
+        # Check struct type (structure should be preserved)
+        struct_field = schema.field("struct_col")
+        assert pa.types.is_struct(struct_field.type)
+        
+        # Large int column may be converted to double by some dataset types (e.g., pandas)
+        large_int_field = schema.field("large_int_col")
+        assert large_int_field.type in [pa.int64(), pa.float64()]
+
+        category_field = schema.field("category_col")
+        assert pa.types.is_string(category_field.type) or pa.types.is_large_string(
+            category_field.type
+        )
+
+        # Common checks for all dataset types (with flexibility for string types)
+        string_field = schema.field("string_col")
+        assert pa.types.is_string(string_field.type) or pa.types.is_large_string(
+            string_field.type
+        )
+        assert schema.field("bool_col").type == pa.bool_()
+
+        # Verify data values are correct for some key columns across all batches
+        # First batch values (rows 0-2)
+        assert result_arrow.column("int32_col").to_pylist()[:3] == [100, 200, 300]
+        assert result_arrow.column("string_col").to_pylist()[:3] == [
+            "alice",
+            "bob",
+            "charlie",
+        ]
+        assert result_arrow.column("bool_col").to_pylist()[:3] == [True, False, True]
+
+        # Second batch values (rows 3-5) - should have new columns populated
+        assert result_arrow.column("int32_col").to_pylist()[3:6] == [100, 200, 300]
+        decimal_values = result_arrow.column("decimal_col").to_pylist()[3:6]
+        # Decimal values might be returned as Decimal objects
+        expected_decimals = [1.5, 2.5, 3.5]
+        for i, val in enumerate(decimal_values):
+            if val is not None:
+                assert float(val) == expected_decimals[i]
+
+        # Third batch values (rows 6-8) - should have all columns populated
+        assert result_arrow.column("int32_col").to_pylist()[6:9] == [100, 200, 300]
+        assert result_arrow.column("large_int_col").to_pylist()[6:9] == [
+            100000,
+            200000,
+            300000,
+        ]
+        assert result_arrow.column("category_col").to_pylist()[6:9] == [
+            "category_a",
+            "category_b",
+            "category_a",
+        ]
+
+        # Verify schema evolution backfill behavior for missing columns
+        # Batch 1 rows should have null values for columns added in batches 2 and 3
+        assert all(
+            x is None for x in result_arrow.column("decimal_col").to_pylist()[:3]
+        )
+        assert all(
+            x is None for x in result_arrow.column("large_int_col").to_pylist()[:3]
+        )
+
+        # Batch 2 rows should have null values for columns added in batch 3
+        assert all(
+            x is None for x in result_arrow.column("large_int_col").to_pylist()[3:6]
+        )
+        assert all(
+            x is None for x in result_arrow.column("category_col").to_pylist()[3:6]
+        )
 
 
 class TestAlterTable:

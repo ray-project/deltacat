@@ -991,14 +991,8 @@ def download_delta(
         f"Reading {columns or 'all'} columns from table version column "
         f"names: {all_column_names}. "
     )
-    # Pass the actual schema for proper schema evolution handling, but only to dataset types that support it
-    # Currently only DAFT supports the table_version_schema parameter for schema evolution
-    if (
-        table_version_schema
-        and table_version_schema.arrow
-        and distributed_dataset_type is not None
-    ):
-        # Only pass schema to DAFT dataset type since it's the only one that handles schema evolution
+    if table_version_schema and table_version_schema.arrow:
+        # Daft needs to the latest table version schema to properly handle schema evolution
         if distributed_dataset_type == DatasetType.DAFT:
             kwargs["table_version_schema"] = table_version_schema.arrow
 

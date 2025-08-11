@@ -7,7 +7,6 @@ import gzip
 import io
 import logging
 from functools import partial
-from optparse import Option
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from pyarrow.parquet import ParquetFile
 from deltacat.exceptions import ContentTypeValidationError
