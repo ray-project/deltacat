@@ -2877,26 +2877,31 @@ class SchemaUpdate(dict):
     def _validate_no_conflicting_operations(self) -> None:
         """Validate that operations don't conflict with each other."""
         field_operations = {}  # field_name -> set of operations
-        
+
         for operation in self.operations:
             field_name = None
-            
+
             if operation.operation == "add" and operation.field:
                 field_name = operation.field.arrow.name
-            elif operation.operation in ("remove", "update") and operation.field_locator:
+            elif (
+                operation.operation in ("remove", "update") and operation.field_locator
+            ):
                 # Extract field name from locator
                 if isinstance(operation.field_locator, str):
                     field_name = operation.field_locator
-                elif hasattr(operation.field_locator, 'name'):
+                elif hasattr(operation.field_locator, "name"):
                     field_name = operation.field_locator.name
-                elif isinstance(operation.field_locator, list) and operation.field_locator:
+                elif (
+                    isinstance(operation.field_locator, list)
+                    and operation.field_locator
+                ):
                     field_name = operation.field_locator[0]
-            
+
             if field_name:
                 if field_name not in field_operations:
                     field_operations[field_name] = set()
                 field_operations[field_name].add(operation.operation)
-        
+
         # Check for conflicting operations on same field
         for field_name, operations in field_operations.items():
             if len(operations) > 1:
@@ -2906,7 +2911,7 @@ class SchemaUpdate(dict):
                     continue  # Multiple updates on same field are allowed
                 # Any other combination is conflicting
                 message_suffix = f"Cannot perform {', '.join(sorted(unique_ops))} operations on the same field"
-                    
+
                 raise ValueError(
                     f"Conflicting operations detected on field '{field_name}': {sorted(operations)}. "
                     f"{message_suffix}."

@@ -891,12 +891,15 @@ def write_table(
         content_type=content_type,
         content_encoding=content_encoding,
     )
+    # Extract schema from table_writer_kwargs explicitly
+    schema = table_writer_kwargs.pop("schema", None)
     table_writer_fn(
         table,
         base_path,
         filesystem,
         block_write_path_provider,
         content_type.value,
+        schema=schema,
         **table_writer_kwargs,
     )
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors

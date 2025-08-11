@@ -7173,7 +7173,7 @@ class TestAlterTable:
 
         # Create schema update operations to add a new field
         new_field = Field.of(
-            pa.field("email", pa.string(), nullable=True), field_id=100
+            pa.field("email", pa.string(), nullable=True),
         )
         schema_updates = SchemaUpdateOperations.of(
             [SchemaUpdateOperation.add_field(new_field)]
@@ -7200,7 +7200,7 @@ class TestAlterTable:
         assert updated_schema.field("email") is not None
         assert updated_schema.field("email").arrow.type == pa.string()
         assert updated_schema.field("email").arrow.nullable is True
-        assert updated_schema.field("email").id == 100
+        assert updated_schema.field("email").id == 4
 
         # Verify schema ID was incremented
         assert updated_schema.id == original_schema_id + 1

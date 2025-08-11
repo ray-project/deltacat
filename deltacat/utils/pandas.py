@@ -774,6 +774,7 @@ def dataframe_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """

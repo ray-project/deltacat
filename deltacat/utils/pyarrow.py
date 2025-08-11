@@ -7,6 +7,7 @@ import gzip
 import io
 import logging
 from functools import partial
+from optparse import Option
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from pyarrow.parquet import ParquetFile
 from deltacat.exceptions import ContentTypeValidationError
@@ -1112,6 +1113,7 @@ def table_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """
@@ -1123,6 +1125,7 @@ def table_to_file(
         file_system: Optional filesystem to use
         block_path_provider: Provider for block path generation
         content_type: Content type for the output file
+        schema: Optional schema (for compatibility with explicit schema parameter pattern)
         kwargs: Keyword arguments passed to the PyArrow write function
     """
     writer = CONTENT_TYPE_TO_PA_WRITE_FUNC.get(content_type)

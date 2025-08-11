@@ -82,19 +82,19 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
         return {
             "separator": "\t",
             "include_header": False,
-            "quote_style": "needed",
+            "quote_style": "necessary",
         }
     if content_type == ContentType.CSV.value:
         return {
             "separator": ",",
             "include_header": False,
-            "quote_style": "needed",
+            "quote_style": "necessary",
         }
     if content_type == ContentType.PSV.value:
         return {
             "separator": "|",
             "include_header": False,
-            "quote_style": "needed",
+            "quote_style": "necessary",
         }
     if content_type in {
         ContentType.PARQUET.value,
@@ -261,6 +261,7 @@ def dataframe_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """

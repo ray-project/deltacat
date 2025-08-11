@@ -3,6 +3,7 @@ from typing import Callable, Dict, List, Optional, Union
 
 from fsspec import AbstractFileSystem
 
+import pyarrow as pa
 from pyarrow import csv as pacsv
 import pyarrow.fs as pafs
 
@@ -178,6 +179,7 @@ def dataset_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """
