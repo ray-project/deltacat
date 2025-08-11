@@ -544,10 +544,13 @@ class SchemaEvolutionMode(str, Enum):
     not in the existing schema will cause an error.
     AUTO: Schema changes are automatically handled. New fields are added to
     the schema using the table's default_schema_consistency_type.
+    DISABLED: Schema changes are disabled. The schema that the table was
+    created with is immutable. 
     """
 
     MANUAL = "manual"
     AUTO = "auto"
+    DISABLED = "disabled"
 
 
 class TableProperty(str, Enum):
@@ -601,7 +604,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
     TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
-    TableProperty.SUPPORTED_READER_TYPES: [d for d in DatasetType],
+    TableProperty.SUPPORTED_READER_TYPES: [d for d in DatasetType if d != DatasetType.NUMPY],
 }
 
 
@@ -635,7 +638,7 @@ def _get_table_type_function(
     return table_func
 
 
-def _convert_all(tables: List[LocalTable], conversion_fn: Callable):
+def _convert_all(tables: List[LocalTable], conversion_fn: Callable, **kwargs):
     if not tables:  # Empty list
         return pd.DataFrame()
 
@@ -643,19 +646,23 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable):
     all_tables = []
     for i, table in enumerate(tables):
         try:
-            converted_table = conversion_fn(table)
+            converted_table = conversion_fn(table, **kwargs)
             all_tables.append(converted_table)
         except Exception as e:
             raise ValueError(f"Failed to convert list element {i}: {e}") from e
 
-    if not all_tables:
-        return pd.DataFrame()
-    # Concatenate with error handling
+    # Concatenate with error handling - handle different table types
     try:
-        return pd.concat(all_tables, ignore_index=True, sort=False)
+        # Check if we have PyArrow tables
+        if all(isinstance(table, pa.Table) for table in all_tables):
+            # Use PyArrow concatenation for PyArrow tables
+            return pa.concat_tables(all_tables, promote=True)
+        else:
+            # Use pandas concatenation for other types
+            return pd.concat(all_tables, ignore_index=True, sort=False)
     except Exception as e:
         raise ValueError(
-            f"Failed to concatenate {len(all_tables)} DataFrames: {e}"
+            f"Failed to concatenate {len(all_tables)} tables: {e}"
         ) from e
 
 
@@ -733,7 +740,7 @@ def to_pyarrow(
 ) -> pa.Table:
     """Convert any supported dataset type to PyArrow Table format."""
     if isinstance(table, list):
-        return _convert_all(table, table_to_pyarrow)
+        return _convert_all(table, table_to_pyarrow, schema=schema, **kwargs)
     return table_to_pyarrow(table, schema=schema, **kwargs)
 
 
@@ -742,7 +749,7 @@ def to_pandas(
 ) -> pd.DataFrame:
     """Convert any supported dataset type to pandas DataFrame format."""
     if isinstance(table, list):
-        return _convert_all(table, table_to_pandas)
+        return _convert_all(table, table_to_pandas, schema=schema, **kwargs)
     return table_to_pandas(table, schema=schema, **kwargs)
 
 

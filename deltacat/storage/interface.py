@@ -606,6 +606,7 @@ def stage_delta(
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
+    schema: Optional[Schema] = None,
     *args,
     **kwargs,
 ) -> Delta:

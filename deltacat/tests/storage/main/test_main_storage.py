@@ -2633,7 +2633,6 @@ class TestPartition:
         )
         partition = Partition.of(
             locator=partition_locator,
-            schema=None,
             content_types=None,
             state=CommitState.STAGED,
             partition_scheme_id=self.tv.partition_scheme.id,

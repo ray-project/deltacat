@@ -32,7 +32,6 @@ class TestRoundCompletionInfoInPartition:
         # Create a partition with RoundCompletionInfo
         partition = Partition.of(
             locator=destination_locator,
-            schema=None,
             content_types=None,
             compaction_round_completion_info=expected_rci,
         )
@@ -86,7 +85,6 @@ class TestRoundCompletionInfoInPartition:
         # Create a partition with RoundCompletionInfo
         partition = Partition.of(
             locator=destination_locator,
-            schema=None,
             content_types=None,
             compaction_round_completion_info=expected_rci,
         )
@@ -132,7 +130,6 @@ class TestRoundCompletionInfoInPartition:
         # Create a partition with RoundCompletionInfo
         partition = Partition.of(
             locator=destination_locator,
-            schema=None,
             content_types=None,
             compaction_round_completion_info=expected_rci,
         )
@@ -195,7 +192,6 @@ class TestRoundCompletionInfoInPartition:
         # Create a partition without RoundCompletionInfo
         partition = Partition.of(
             locator=destination_locator,
-            schema=None,
             content_types=None,
             compaction_round_completion_info=None,
         )
@@ -238,7 +234,6 @@ class TestRoundCompletionInfoInPartition:
         # Create a partition with RoundCompletionInfo
         partition = Partition.of(
             locator=destination_locator,
-            schema=None,
             content_types=None,
             compaction_round_completion_info=rcf,
         )

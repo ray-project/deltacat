@@ -298,7 +298,6 @@ class Dataset:
                     partition_values=DEFAULT_PARTITION_VALUES,
                     partition_id=self._partition_id,
                 ),
-                schema=None,
                 content_types=None,
             ),
         ]

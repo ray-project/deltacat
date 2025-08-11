@@ -798,6 +798,7 @@ def _stage_commit_and_compact(
         delta_type=delta_type,
         content_type=content_type,
         author=ManifestAuthor.of(name="write_to_table", version="1.0"),
+        schema=table_version_obj.schema,
         **kwargs,
     )
 

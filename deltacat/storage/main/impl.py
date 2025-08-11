@@ -467,7 +467,6 @@ def list_partitions(
     )
     partition = Partition.of(
         locator=locator,
-        schema=None,
         content_types=None,
     )
     try:
@@ -503,7 +502,6 @@ def list_stream_partitions(stream: Stream, *args, **kwargs) -> ListResult[Partit
     )
     partition = Partition.of(
         locator=locator,
-        schema=None,
         content_types=None,
     )
     try:
@@ -2154,7 +2152,6 @@ def stage_partition(
     )
     partition = Partition.of(
         locator=locator,
-        schema=table_version.schema,
         content_types=table_version.content_types,
         state=CommitState.STAGED,
         previous_stream_position=None,
@@ -2388,7 +2385,6 @@ def get_partition_by_id(
     return _latest(
         metafile=Partition.of(
             locator=locator,
-            schema=None,
             content_types=None,
         ),
         *args,
@@ -2437,7 +2433,6 @@ def get_partition(
     partition = _latest(
         metafile=Partition.of(
             locator=locator,
-            schema=None,
             content_types=None,
             state=CommitState.COMMITTED,
             partition_scheme_id=partition_scheme_id,
@@ -2545,6 +2540,7 @@ def stage_delta(
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
     write_table_slices_fn: Optional[Callable] = _write_table_slices,
+    schema: Optional[Schema] = None,
     *args,
     **kwargs,
 ) -> Delta:
@@ -2566,15 +2562,23 @@ def stage_delta(
         )
     previous_stream_position: Optional[int] = partition.stream_position
 
-    # Add schema to table_writer_kwargs if available
+    # Handle schema parameter and add to table_writer_kwargs if available
     table_writer_kwargs = table_writer_kwargs or {}
-    if "schema" in kwargs and "schema" not in table_writer_kwargs:
+
+    # Use schema parameter if provided, otherwise check kwargs
+    if schema is None and "schema" in kwargs:
         schema = kwargs["schema"]
-        # Normalize DeltaCAT Schema to PyArrow Schema
-        if isinstance(schema, Schema):
+
+    # Extract schema_id from the schema if it's a DeltaCAT Schema
+    schema_id = None
+    if isinstance(schema, Schema):
+        schema_id = schema.id
+        # Add PyArrow schema to table_writer_kwargs if not already present
+        if "schema" not in table_writer_kwargs:
             table_writer_kwargs["schema"] = schema.arrow
-        elif schema is not None:
-            table_writer_kwargs["schema"] = schema
+    elif schema is not None and "schema" not in table_writer_kwargs:
+        # For PyArrow schemas or other types, add directly
+        table_writer_kwargs["schema"] = schema
 
     manifest: Manifest = _write_table(
         partition.partition_id,
@@ -2595,6 +2599,7 @@ def stage_delta(
         properties=properties,
         manifest=manifest,
         previous_stream_position=previous_stream_position,
+        schema_id=schema_id,
     )
     return staged_delta
 

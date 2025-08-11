@@ -57,7 +57,6 @@ class Partition(Metafile):
     @staticmethod
     def of(
         locator: Optional[PartitionLocator],
-        schema: Optional[Schema],
         content_types: Optional[List[ContentType]],
         state: Optional[CommitState] = None,
         previous_stream_position: Optional[int] = None,
@@ -68,7 +67,6 @@ class Partition(Metafile):
     ) -> Partition:
         partition = Partition()
         partition.locator = locator
-        partition.schema = schema
         partition.content_types = content_types
         partition.state = state
         partition.previous_stream_position = previous_stream_position
@@ -96,17 +94,6 @@ class Partition(Metafile):
     @property
     def locator_alias(self) -> Optional[PartitionLocatorAlias]:
         return PartitionLocatorAlias.of(self)
-
-    @property
-    def schema(self) -> Optional[Schema]:
-        val: Dict[str, Any] = self.get("schema")
-        if val is not None and not isinstance(val, Schema):
-            self.schema = val = Schema(val)
-        return val
-
-    @schema.setter
-    def schema(self, schema: Optional[Schema]) -> None:
-        self["schema"] = schema
 
     @property
     def content_types(self) -> Optional[List[ContentType]]:
@@ -305,17 +292,6 @@ class Partition(Metafile):
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Partition:
-        if self.get("schema"):
-            schema_data = self["schema"]
-            schema_bytes = (
-                base64.b64decode(schema_data)
-                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
-                else schema_data
-            )
-            self["schema"] = Schema.deserialize(pa.py_buffer(schema_bytes))
-        else:
-            self["schema"] = None
-
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(

@@ -2323,7 +2323,6 @@ class TestMetafileIO:
         )
         partition = Partition.of(
             locator=partition_locator,
-            schema=schema,
             content_types=[ContentType.PARQUET],
             state=CommitState.STAGED,
             previous_stream_position=0,

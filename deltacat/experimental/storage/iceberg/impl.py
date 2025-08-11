@@ -603,6 +603,7 @@ def stage_delta(
     properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
+    schema: Optional[Schema] = None,
     *args,
     **kwargs,
 ) -> Delta:
