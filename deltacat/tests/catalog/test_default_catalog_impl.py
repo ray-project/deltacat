@@ -7624,11 +7624,10 @@ class TestAlterTable:
 
         # Create multiple schema update operations
         email_field = Field.of(
-            pa.field("email", pa.string(), nullable=True), field_id=100
+            pa.field("email", pa.string(), nullable=True),
         )
         status_field = Field.of(
             pa.field("status", pa.string(), nullable=False),
-            field_id=101,
             past_default="active",
         )
 
@@ -7659,12 +7658,12 @@ class TestAlterTable:
         # Verify email field
         assert updated_schema.field("email") is not None
         assert updated_schema.field("email").arrow.type == pa.string()
-        assert updated_schema.field("email").id == 100
+        assert updated_schema.field("email").id == 4
 
         # Verify status field with past_default
         assert updated_schema.field("status") is not None
         assert updated_schema.field("status").arrow.type == pa.string()
-        assert updated_schema.field("status").id == 101
+        assert updated_schema.field("status").id == 5
         assert updated_schema.field("status").past_default == "active"
 
         # Verify schema ID was incremented

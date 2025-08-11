@@ -460,7 +460,7 @@ class TestCatalogTableOperations:
 
         # Create schema update operations to add a new field
         new_field = Field.of(
-            pa.field("count", pa.float64(), nullable=True), field_id=100
+            pa.field("count", pa.float64(), nullable=True)
         )
         schema_updates = SchemaUpdateOperations.of(
             [SchemaUpdateOperation.add_field(new_field)]
@@ -505,7 +505,7 @@ class TestCatalogTableOperations:
         assert updated_schema.field("count") is not None
         assert updated_schema.field("count").arrow.type == pa.float64()
         assert updated_schema.field("count").arrow.nullable is True
-        assert updated_schema.field("count").id == 100
+        assert updated_schema.field("count").id == 3  # Next sequential ID after id(0), name(1), value(2)
 
         # Verify schema ID was incremented (proving SchemaUpdate was used)
         assert updated_schema.id == old_schema.id + 1
@@ -554,11 +554,10 @@ class TestCatalogTableOperations:
 
         # Create multiple schema update operations
         new_field1 = Field.of(
-            pa.field("count", pa.int64(), nullable=True), field_id=100
+            pa.field("count", pa.int64(), nullable=True)
         )
         new_field2 = Field.of(
             pa.field("status", pa.string(), nullable=False),
-            field_id=101,
             past_default="active",
         )
 
@@ -590,11 +589,11 @@ class TestCatalogTableOperations:
         # Verify both fields were added
         assert updated_schema.field("count") is not None
         assert updated_schema.field("count").arrow.type == pa.int64()
-        assert updated_schema.field("count").id == 100
+        assert updated_schema.field("count").id == 3  # Next sequential ID after id(0), name(1), value(2)
 
         assert updated_schema.field("status") is not None
         assert updated_schema.field("status").arrow.type == pa.string()
-        assert updated_schema.field("status").id == 101
+        assert updated_schema.field("status").id == 4  # Next sequential ID after count(3)
         assert updated_schema.field("status").past_default == "active"
 
         # Verify schema ID was incremented
@@ -609,8 +608,8 @@ class TestCatalogTableOperations:
         initial_fields = [
             Field.of(
                 pa.field("id", pa.int64(), nullable=False),
-                field_id=1,
                 is_merge_key=True,
+                field_id=1,
             ),
             Field.of(pa.field("name", pa.string(), nullable=True), field_id=2),
             Field.of(pa.field("temp_field", pa.float64(), nullable=True), field_id=3),
@@ -668,8 +667,8 @@ class TestCatalogTableOperations:
         initial_fields = [
             Field.of(
                 pa.field("id", pa.int64(), nullable=False),
-                field_id=1,
                 is_merge_key=True,
+                field_id=1,
             ),
             Field.of(pa.field("value", pa.int32(), nullable=True), field_id=2),
         ]
@@ -687,7 +686,7 @@ class TestCatalogTableOperations:
 
         # Update the value field to int64 (compatible type widening)
         updated_field = Field.of(
-            pa.field("value", pa.int64(), nullable=True), field_id=2
+            pa.field("value", pa.int64(), nullable=True)
         )
         schema_updates = SchemaUpdateOperations.of(
             [SchemaUpdateOperation.update_field("value", updated_field)]
@@ -883,16 +882,20 @@ class TestWriteToTable:
         """Create test Ray Dataset for schema inference testing."""
         import ray
 
-        # Initialize Ray if not already initialized
+        # Initialize Ray if not already initialized  
+        # Note: Use distributed mode (not local_mode=True) to avoid Ray 2.46.0 internal bug
         if not ray.is_initialized():
-            ray.init(local_mode=True)
+            ray.init()
 
-        data = [
-            {"id": 1, "name": "Alice", "age": 25, "city": "NYC"},
-            {"id": 2, "name": "Bob", "age": 30, "city": "LA"},
-            {"id": 3, "name": "Charlie", "age": 35, "city": "Chicago"},
-        ]
-        return rd.from_items(data)
+        data = pa.table(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "Dave", "Eve"],
+                "age": [25, 30, 35, 40, 45],
+                "city": ["NYC", "LA", "Chicago", "Houston", "Phoenix"],
+            }
+        )
+        return rd.from_arrow(data)
 
     def _create_test_daft_data(self):
         """Create test Daft DataFrame for schema inference testing."""
@@ -1403,18 +1406,11 @@ class TestWriteToTable:
 
     def test_schema_inference_ray_dataset(self):
         """Test schema inference from Ray Dataset"""
-
-        # in Ray 2.46.0 this fails due to the following internal Ray Core Error:
-        # task_manager.cc:618: Check failed: stream_it != object_ref_streams_.end() PeekObjectRefStream API can be used only when the stream has been created and not removed
-        pytest.skip(
-            "Skip crashing Ray Dataset schema inference test. See Comments. "
-            "Update Ray version and re-enable."
-        )
         table_name = "test_schema_inference_ray"
-        data = self._create_test_ray_data()
+        ray_data = self._create_test_ray_data()
 
         catalog.write_to_table(
-            data=data,
+            data=ray_data,
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
@@ -1478,7 +1474,7 @@ class TestWriteToTable:
         )
 
         schema = table_def.table_version.schema.arrow
-        assert "column_0" in schema.names
+        assert "0" in schema.names  # pandas converts 1D numpy array with column name "0"
         assert len(schema.names) == 1
 
     def test_schema_inference_numpy_2d(self):
@@ -1501,8 +1497,8 @@ class TestWriteToTable:
         )
 
         schema = table_def.table_version.schema.arrow
-        assert "column_0" in schema.names
-        assert "column_1" in schema.names
+        assert "0" in schema.names  # pandas converts 2D numpy array with column names "0", "1" 
+        assert "1" in schema.names
         assert len(schema.names) == 2
 
     def test_numpy_3d_array_error(self):

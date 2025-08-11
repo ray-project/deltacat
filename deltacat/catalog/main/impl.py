@@ -791,6 +791,10 @@ def _stage_commit_and_compact(
     **kwargs,
 ) -> None:
     """Stage and commit delta, then handle compaction if needed."""
+    # Remove schema from kwargs to avoid duplicate parameter conflict
+    # We explicitly pass the correct schema from table_version_obj
+    kwargs.pop("schema", None)
+
     # Stage a delta with the data
     delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
