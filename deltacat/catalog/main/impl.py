@@ -1006,6 +1006,10 @@ def _create_compaction_params(
     kwargs.pop("partition_updates", None)
     kwargs.pop("sort_key_updates", None)
 
+    table_writer_kwargs = kwargs.pop("table_writer_kwargs", {})
+    table_writer_kwargs["schema"] = table_version_obj.schema
+    table_writer_kwargs["sort_scheme_id"] = table_version_obj.sort_scheme.id
+
     return CompactPartitionParams.of(
         {
             "catalog": kwargs.get("inner", kwargs.get("catalog")),
@@ -1016,6 +1020,7 @@ def _create_compaction_params(
             "deltacat_storage": _get_storage(**kwargs),
             "deltacat_storage_kwargs": kwargs,
             "list_deltas_kwargs": kwargs,
+            "table_writer_kwargs": table_writer_kwargs,
             "hash_bucket_count": hash_bucket_count,
             "records_per_compacted_file": table_version_obj.read_table_property(
                 TableProperty.RECORDS_PER_COMPACTED_FILE,

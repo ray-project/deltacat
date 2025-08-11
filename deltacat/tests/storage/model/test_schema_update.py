@@ -1654,3 +1654,263 @@ class TestSchemaUpdate:
         # Verify field names in final schema
         field_names = [f.path[0] for f in step3_schema.fields if f.path]
         assert sorted(field_names) == ["email", "id", "name", "phone"]
+
+    def test_schema_update_increments_id_by_one(self, base_schema):
+        """Test that SchemaUpdate.apply() increments schema ID by exactly 1."""
+        # Create a schema with a specific schema ID
+        test_schema = Schema.of(
+            [
+                Field.of(
+                    pa.field("id", pa.int64(), nullable=False),
+                    field_id=1,
+                    is_merge_key=True,
+                ),
+                Field.of(pa.field("name", pa.string(), nullable=True), field_id=2),
+                Field.of(pa.field("age", pa.int32(), nullable=True), field_id=3),
+            ],
+            schema_id=5,  # Explicitly set schema ID to 5
+        )
+
+        # Verify base schema has the expected ID
+        assert test_schema.id == 5
+
+        # Apply a schema update (add a new field)
+        new_field = Field.of(pa.field("email", pa.string(), nullable=True), field_id=4)
+        updated_schema = SchemaUpdate.of(test_schema).add_field(new_field).apply()
+
+        # Verify the updated schema has ID = base_schema.id + 1
+        assert updated_schema.id == 6  # 5 + 1
+        assert len(updated_schema.fields) == 4
+
+    def test_schema_update_increments_id_from_zero(self):
+        """Test that schema ID increments correctly when starting from 0."""
+        # Create a schema with default schema ID (0)
+        base_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), field_id=1),
+                Field.of(pa.field("name", pa.string()), field_id=2),
+            ]
+        )
+
+        # Verify base schema has default ID of 0
+        assert base_schema.id == 0
+
+        # Apply a schema update
+        updated_schema = (
+            base_schema.update()
+            .update_field_type("name", pa.string())
+            .update_field_doc("name", "Full name")
+            .apply()
+        )
+
+        # Verify the updated schema has ID = 0 + 1 = 1
+        assert updated_schema.id == 1
+
+    def test_multiple_schema_updates_increment_sequentially(self):
+        """Test that multiple schema updates increment ID sequentially."""
+        # Start with schema ID 10
+        base_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), field_id=1),
+                Field.of(pa.field("name", pa.string()), field_id=2),
+            ],
+            schema_id=10,
+        )
+
+        assert base_schema.id == 10
+
+        # First update: should go from 10 to 11
+        schema_v11 = (
+            base_schema.update()
+            .add_field(Field.of(pa.field("age", pa.int32(), nullable=True)))
+            .apply()
+        )
+        assert schema_v11.id == 11
+
+        # Second update: should go from 11 to 12
+        schema_v12 = (
+            schema_v11.update()
+            .add_field(Field.of(pa.field("email", pa.string(), nullable=True)))
+            .apply()
+        )
+        assert schema_v12.id == 12
+
+        # Third update: should go from 12 to 13
+        schema_v13 = (
+            schema_v12.update()
+            .update_field_consistency_type("name", SchemaConsistencyType.VALIDATE)
+            .apply()
+        )
+        assert schema_v13.id == 13
+
+    def test_schema_update_different_operation_types_increment_id(self):
+        """Test that different types of schema operations all increment schema ID."""
+        base_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), field_id=1, is_merge_key=True),
+                Field.of(pa.field("name", pa.string()), field_id=2),
+                Field.of(pa.field("age", pa.int32()), field_id=3),
+            ],
+            schema_id=100,
+        )
+
+        # Test add field operation
+        add_result = (
+            base_schema.update()
+            .add_field(Field.of(pa.field("email", pa.string(), nullable=True)))
+            .apply()
+        )
+        assert add_result.id == 101
+
+        # Test update field operation
+        update_result = (
+            base_schema.update().update_field_type("age", pa.int64()).apply()
+        )
+        assert update_result.id == 101
+
+        # Test rename field operation
+        rename_result = base_schema.update().rename_field("name", "full_name").apply()
+        assert rename_result.id == 101
+
+        # Test remove field operation (with incompatible changes allowed)
+        remove_result = (
+            base_schema.update(allow_incompatible_changes=True)
+            .remove_field("age")
+            .apply()
+        )
+        assert remove_result.id == 101
+
+        # Test update field documentation
+        doc_result = (
+            base_schema.update().update_field_doc("name", "Person's full name").apply()
+        )
+        assert doc_result.id == 101
+
+    def test_schema_update_chained_operations_increment_once(self):
+        """Test that multiple chained operations in one update increment ID by 1, not per operation."""
+        base_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), field_id=1),
+                Field.of(pa.field("name", pa.string()), field_id=2),
+                Field.of(pa.field("age", pa.int32()), field_id=3),
+            ],
+            schema_id=50,
+        )
+
+        # Chain multiple operations in a single SchemaUpdate
+        chained_result = (
+            base_schema.update()
+            .add_field(Field.of(pa.field("email", pa.string(), nullable=True)))
+            .add_field(Field.of(pa.field("phone", pa.string(), nullable=True)))
+            .update_field_type("age", pa.int64())
+            .update_field_doc("name", "Full name")
+            .rename_field("id", "user_id")
+            .apply()
+        )
+
+        # Even with 5 operations, schema ID should only increment by 1
+        assert chained_result.id == 51  # 50 + 1, not 50 + 5
+
+    def test_schema_subschema_operations_increment_id(self):
+        """Test that subschema operations (add/delete/replace) also increment schema ID by 1."""
+        # Create a base schema
+        base_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), field_id=1),
+                Field.of(pa.field("name", pa.string()), field_id=2),
+            ],
+            schema_id=20,
+        )
+
+        # Test add_subschema operation
+        add_subschema_result = base_schema.add_subschema(
+            "user_profile",
+            [
+                Field.of(pa.field("email", pa.string()), field_id=3),
+                Field.of(pa.field("age", pa.int32()), field_id=4),
+            ],
+        )
+        assert add_subschema_result.id == 21  # 20 + 1
+
+        # Test replace_subschema operation
+        schema_with_subschema = base_schema.add_subschema(
+            "test_subschema", [Field.of(pa.field("temp", pa.string()), field_id=5)]
+        )
+        replace_result = schema_with_subschema.replace_subschema(
+            "test_subschema", [Field.of(pa.field("replaced", pa.int32()), field_id=6)]
+        )
+        assert replace_result.id == 22  # 21 + 1
+
+        # Test delete_subschema operation
+        delete_result = schema_with_subschema.delete_subschema("test_subschema")
+        assert delete_result.id == 22  # 21 + 1
+
+    def test_schema_id_increment_with_high_values(self):
+        """Test that schema ID increment works correctly with high values."""
+        # Test with a high schema ID to ensure no overflow issues
+        high_id = 999999
+        base_schema = Schema.of(
+            [Field.of(pa.field("id", pa.int64()), field_id=1)],
+            schema_id=high_id,
+        )
+
+        updated_schema = (
+            base_schema.update()
+            .add_field(Field.of(pa.field("name", pa.string(), nullable=True)))
+            .apply()
+        )
+
+        assert updated_schema.id == high_id + 1
+
+    def test_schema_id_preserved_in_failed_updates(self):
+        """Test that schema ID is not incremented when schema updates fail."""
+        base_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), field_id=1),
+                Field.of(pa.field("name", pa.string()), field_id=2),
+            ],
+            schema_id=42,
+        )
+
+        # Try an operation that should fail (adding non-nullable field without defaults)
+        with pytest.raises(Exception):  # Could be SchemaCompatibilityError or other
+            base_schema.update().add_field(
+                Field.of(pa.field("required_field", pa.string(), nullable=False))
+            ).apply()
+
+        # Original schema should still have the same ID
+        assert base_schema.id == 42
+
+        # A successful update should still increment correctly
+        success_schema = (
+            base_schema.update()
+            .add_field(Field.of(pa.field("optional_field", pa.string(), nullable=True)))
+            .apply()
+        )
+        assert success_schema.id == 43
+
+    def test_schema_id_increment_consistency_across_update_methods(self):
+        """Test that schema ID increments consistently regardless of how SchemaUpdate is created."""
+        base_schema = Schema.of(
+            [Field.of(pa.field("id", pa.int64()), field_id=1)],
+            schema_id=77,
+        )
+
+        # Method 1: Using Schema.update()
+        result1 = (
+            base_schema.update()
+            .add_field(Field.of(pa.field("field1", pa.string(), nullable=True)))
+            .apply()
+        )
+        assert result1.id == 78
+
+        # Method 2: Using SchemaUpdate.of()
+        result2 = (
+            SchemaUpdate.of(base_schema)
+            .add_field(Field.of(pa.field("field2", pa.string(), nullable=True)))
+            .apply()
+        )
+        assert result2.id == 78
+
+        # Both methods should produce the same schema ID increment
+        assert result1.id == result2.id

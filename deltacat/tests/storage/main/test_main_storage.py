@@ -3494,7 +3494,7 @@ class TestDelta:
         )
         schema = Schema.of(
             schema=arrow_schema,
-            schema_id="test_schema_id",
+            schema_id=1,
         )
 
         # Create and commit table version with schema

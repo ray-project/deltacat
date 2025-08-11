@@ -1041,6 +1041,8 @@ class Schema(dict):
         Returns:
             A new DeltaCAT Schema.
         """
+        if schema_id and schema_id < 0:
+            raise ValueError(f"Schema ID must be non-negative, got {schema_id}")
         # normalize the input as a unified pyarrow schema
         # if the input included multiple subschemas, then also save a mapping
         # from each subschema to its unique field names

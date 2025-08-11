@@ -20,6 +20,12 @@ from deltacat import (
     NullOrder,
     LifecycleState,
 )
+from deltacat.exceptions import (
+    ObjectAlreadyExistsError,
+    ConcurrentModificationError,
+    ObjectDeletedError,
+    ObjectNotFoundError,
+)
 from deltacat.storage import (
     BucketTransform,
     BucketTransformParameters,
@@ -114,7 +120,7 @@ def _commit_concurrent_transaction(
 ) -> None:
     try:
         return transaction.commit(catalog_root)
-    except (RuntimeError, ValueError) as e:
+    except (ObjectAlreadyExistsError, ConcurrentModificationError) as e:
         return e
 
 
@@ -155,9 +161,8 @@ class TestMetafileIO:
                 results = [future.get() for future in futures]
                 conflict_exception_count = 0
                 for result in results:
-                    # TODO(pdames): Add new concurrent conflict exception types.
-                    if isinstance(result, RuntimeError) or isinstance(
-                        result, ValueError
+                    if isinstance(result, ConcurrentModificationError) or isinstance(
+                        result, ObjectAlreadyExistsError
                     ):
                         conflict_exception_count += 1
                     else:
@@ -307,10 +312,10 @@ class TestMetafileIO:
             ],
         )
         # expect the commit to fail due to a concurrent modification error
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ConcurrentModificationError):
             transaction.commit(temp_dir)
         # expect a commit retry to also fail
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ConcurrentModificationError):
             transaction.commit(temp_dir)
 
     def test_append_multiple_deltas(self, temp_dir):
@@ -408,7 +413,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect subsequent deletes of the deleted delta to fail
@@ -421,7 +426,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
     def test_replace_delta(self, temp_dir):
@@ -479,7 +484,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect deletes of the original delta to fail
@@ -492,7 +497,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
     def test_delete_partition(self, temp_dir):
@@ -555,7 +560,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect subsequent deletes of the deleted partition to fail
@@ -568,7 +573,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the deleted partition to fail
@@ -582,7 +587,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_replace_partition(self, temp_dir):
@@ -668,7 +673,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect deletes of the original partition to fail
@@ -681,7 +686,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the old partition to fail
@@ -695,7 +700,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_delete_stream(self, temp_dir):
@@ -761,7 +766,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect subsequent deletes of the deleted stream to fail
@@ -774,7 +779,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the deleted stream to fail
@@ -788,7 +793,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_replace_stream(self, temp_dir):
@@ -877,7 +882,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect deletes of the original stream to fail
@@ -890,7 +895,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the old stream to fail
@@ -904,7 +909,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_delete_table_version(self, temp_dir):
@@ -973,7 +978,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect subsequent deletes of the deleted table version to fail
@@ -986,7 +991,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the deleted table version to fail
@@ -1000,7 +1005,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_replace_table_version(self, temp_dir):
@@ -1093,7 +1098,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect deletes of the original table version to fail
@@ -1106,7 +1111,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the old table version to fail
@@ -1120,7 +1125,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_delete_table(self, temp_dir):
@@ -1189,7 +1194,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect subsequent deletes of the deleted table to fail
@@ -1202,7 +1207,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the deleted table to fail
@@ -1216,7 +1221,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_replace_table(self, temp_dir):
@@ -1310,7 +1315,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect table deletes of the original table to fail
@@ -1323,7 +1328,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the old table to fail
@@ -1337,7 +1342,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_delete_namespace(self, temp_dir):
@@ -1409,7 +1414,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect subsequent deletes of the deleted namespace to fail
@@ -1422,7 +1427,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the deleted namespace to fail
@@ -1436,7 +1441,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_replace_namespace(self, temp_dir):
@@ -1533,7 +1538,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect namespace deletes of the original namespace to fail
@@ -1546,7 +1551,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect new child metafile creation under the old namespace to fail
@@ -1560,7 +1565,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_create_stream_bad_order_txn_op_chaining(self, temp_dir):
@@ -1600,7 +1605,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect stream creation to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectNotFoundError):
             transaction.commit(temp_dir)
         # when a transaction with the operations reversed is committed,
         transaction = Transaction.of(
@@ -1647,7 +1652,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect the transaction to fail due to incorrect operation order
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectNotFoundError):
             transaction.commit(temp_dir)
         # when a transaction with the operations reversed is committed,
         transaction = Transaction.of(
@@ -1675,7 +1680,7 @@ class TestMetafileIO:
         deserialized_namespace = Namespace.read(write_paths.pop())
         assert namespace.equivalent_to(deserialized_namespace)
         # but expect the second transaction to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectAlreadyExistsError):
             transaction.commit(temp_dir)
 
     def test_create_duplicate_namespace_txn_op_chaining(self, temp_dir):
@@ -1696,7 +1701,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect duplicate namespace creation to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectAlreadyExistsError):
             transaction.commit(temp_dir)
 
     def test_create_stream_in_missing_table_version(self, temp_dir):
@@ -1721,7 +1726,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect stream creation to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectNotFoundError):
             transaction.commit(temp_dir)
 
     def test_create_table_version_in_missing_namespace(self, temp_dir):
@@ -1746,7 +1751,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect table version creation to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectNotFoundError):
             transaction.commit(temp_dir)
 
     def test_create_table_version_in_missing_table(self, temp_dir):
@@ -1771,7 +1776,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect table version creation to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectNotFoundError):
             transaction.commit(temp_dir)
 
     def test_create_table_in_missing_namespace(self, temp_dir):
@@ -1795,7 +1800,7 @@ class TestMetafileIO:
         )
         # when the transaction is committed,
         # expect table creation to fail
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectNotFoundError):
             transaction.commit(temp_dir)
 
     def test_rename_table_txn_op_chaining(self, temp_dir):
@@ -1974,7 +1979,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect table deletes of the old table name fail
@@ -1987,7 +1992,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect child metafile creation under the old table name to fail
@@ -2001,7 +2006,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_rename_namespace(self, temp_dir):
@@ -2078,7 +2083,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect namespace deletes of the old namespace name fail
@@ -2091,7 +2096,7 @@ class TestMetafileIO:
         transaction = Transaction.of(
             txn_operations=bad_txn_operations,
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ObjectDeletedError):
             transaction.commit(temp_dir)
 
         # expect child metafile creation under the old namespace to fail
@@ -2105,7 +2110,7 @@ class TestMetafileIO:
             transaction = Transaction.of(
                 txn_operations=bad_txn_operations,
             )
-            with pytest.raises(ValueError):
+            with pytest.raises(ObjectAlreadyExistsError):
                 transaction.commit(temp_dir)
 
     def test_e2e_serde(self, temp_dir):
@@ -2301,25 +2306,6 @@ class TestMetafileIO:
             stream_format=None,
             partition_values=["a", 1],
             partition_id="test_partition_id",
-        )
-        schema = Schema.of(
-            [
-                Field.of(
-                    field=pa.field("some_string", pa.string(), nullable=False),
-                    field_id=1,
-                    is_merge_key=True,
-                ),
-                Field.of(
-                    field=pa.field("some_int32", pa.int32(), nullable=False),
-                    field_id=2,
-                    is_merge_key=True,
-                ),
-                Field.of(
-                    field=pa.field("some_float64", pa.float64()),
-                    field_id=3,
-                    is_merge_key=False,
-                ),
-            ]
         )
         partition = Partition.of(
             locator=partition_locator,

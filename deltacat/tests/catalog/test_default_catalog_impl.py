@@ -7444,7 +7444,7 @@ class TestSchemaConsistency:
         # Check struct type (structure should be preserved)
         struct_field = schema.field("struct_col")
         assert pa.types.is_struct(struct_field.type)
-        
+
         # Large int column may be converted to double by some dataset types (e.g., pandas)
         large_int_field = schema.field("large_int_col")
         assert large_int_field.type in [pa.int64(), pa.float64()]

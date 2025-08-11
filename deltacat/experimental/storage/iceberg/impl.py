@@ -604,6 +604,7 @@ def stage_delta(
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     schema: Optional[Schema] = None,
+    sort_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Delta:

@@ -696,21 +696,21 @@ class Metafile(dict):
 
     @staticmethod
     def _equivalent_minus_exclusions(d1: dict, d2: dict, exclusions: Set[str]) -> bool:
-        if "streamLocator" in d1 and "streamLocator" in d2:
+        if d1.get("streamLocator") and d2.get("streamLocator"):
             # stream locators should be equivalent minus streamId
             exclusions.add("streamId")
             if not Metafile._equivalent_minus_exclusions(
                 d1["streamLocator"], d2["streamLocator"], exclusions
             ):
                 return False
-        if "partitionLocator" in d1 and "partitionLocator" in d2:
+        if d1.get("partitionLocator") and d2.get("partitionLocator"):
             # partition locators should be equivalent minus partitionId and parent stream locator streamId
             exclusions.add("partitionId")
             if not Metafile._equivalent_minus_exclusions(
                 d1["partitionLocator"], d2["partitionLocator"], exclusions
             ):
                 return False
-        if "deltaLocator" in d1 and "deltaLocator" in d2:
+        if d1.get("deltaLocator") and d2.get("deltaLocator"):
             # delta locators should be equivalent minus parent partition/stream locator partitionId and streamId
             if not Metafile._equivalent_minus_exclusions(
                 d1["deltaLocator"], d2["deltaLocator"], exclusions

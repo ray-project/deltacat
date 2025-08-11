@@ -545,7 +545,7 @@ class SchemaEvolutionMode(str, Enum):
     AUTO: Schema changes are automatically handled. New fields are added to
     the schema using the table's default_schema_consistency_type.
     DISABLED: Schema changes are disabled. The schema that the table was
-    created with is immutable. 
+    created with is immutable.
     """
 
     MANUAL = "manual"
@@ -604,7 +604,9 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
     TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
-    TableProperty.SUPPORTED_READER_TYPES: [d for d in DatasetType if d != DatasetType.NUMPY],
+    TableProperty.SUPPORTED_READER_TYPES: [
+        d for d in DatasetType if d != DatasetType.NUMPY
+    ],
 }
 
 
@@ -661,9 +663,7 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable, **kwargs):
             # Use pandas concatenation for other types
             return pd.concat(all_tables, ignore_index=True, sort=False)
     except Exception as e:
-        raise ValueError(
-            f"Failed to concatenate {len(all_tables)} tables: {e}"
-        ) from e
+        raise ValueError(f"Failed to concatenate {len(all_tables)} tables: {e}") from e
 
 
 def get_table_length(
@@ -898,8 +898,10 @@ def write_table(
         content_type=content_type,
         content_encoding=content_encoding,
     )
-    # Extract schema from table_writer_kwargs explicitly
+    # Extract schema, schema_id, and sort_scheme_id from table_writer_kwargs
     schema = table_writer_kwargs.pop("schema", None)
+    schema_id = table_writer_kwargs.pop("schema_id", None)
+    sort_scheme_id = table_writer_kwargs.pop("sort_scheme_id", None)
     table_writer_fn(
         table,
         base_path,
@@ -926,6 +928,8 @@ def write_table(
                 content_encoding=content_encoding,
                 entry_type=entry_type,
                 entry_params=entry_params,
+                schema_id=schema_id,
+                sort_scheme_id=sort_scheme_id,
             )
             manifest_entries.append(manifest_entry)
         except RETRYABLE_TRANSIENT_ERRORS as e:

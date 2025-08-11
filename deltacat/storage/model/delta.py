@@ -33,7 +33,6 @@ from deltacat.storage.model.types import (
     DeltaType,
     StreamFormat,
 )
-from deltacat.storage.model.schema import SchemaId
 
 DeltaProperties = Dict[str, Any]
 
@@ -47,12 +46,10 @@ class Delta(Metafile):
         properties: Optional[DeltaProperties],
         manifest: Optional[Manifest],
         previous_stream_position: Optional[int] = None,
-        schema_id: Optional[SchemaId] = None,
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
-        manifest metadata, properties, manifest, previous delta stream position,
-        and schema ID.
+        manifest metadata, properties, manifest, and previous delta stream position.
         """
         delta = Delta()
         delta.locator = locator
@@ -61,7 +58,6 @@ class Delta(Metafile):
         delta.properties = properties
         delta.manifest = manifest
         delta.previous_stream_position = previous_stream_position
-        delta.schema_id = schema_id
         return delta
 
     @staticmethod
@@ -121,8 +117,6 @@ class Delta(Metafile):
         partition_locator = deltas[0].partition_locator
         prev_positions = [d.previous_stream_position for d in deltas]
         prev_position = None if None in prev_positions else max(prev_positions)
-        # Get schema_id from the first delta (all deltas should have the same schema_id)
-        schema_id = max(deltas, key=lambda x: x.schema_id).schema_id if deltas else None
         return Delta.of(
             DeltaLocator.of(partition_locator, stream_position),
             distinct_delta_types.pop(),
@@ -130,7 +124,6 @@ class Delta(Metafile):
             properties,
             merged_manifest,
             prev_position,
-            schema_id,
         )
 
     @property
@@ -190,14 +183,6 @@ class Delta(Metafile):
     @previous_stream_position.setter
     def previous_stream_position(self, previous_stream_position: Optional[int]) -> None:
         self["previousStreamPosition"] = previous_stream_position
-
-    @property
-    def schema_id(self) -> Optional[SchemaId]:
-        return self.get("schemaId")
-
-    @schema_id.setter
-    def schema_id(self, schema_id: Optional[SchemaId]) -> None:
-        self["schemaId"] = schema_id
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -397,14 +382,28 @@ class DeltaLocator(Locator, dict):
         partition_id: Optional[str],
         stream_position: Optional[int],
     ) -> DeltaLocator:
-        partition_locator = PartitionLocator.at(
-            namespace,
-            table_name,
-            table_version,
-            stream_id,
-            stream_format,
-            partition_values,
-            partition_id,
+        partition_locator = (
+            PartitionLocator.at(
+                namespace,
+                table_name,
+                table_version,
+                stream_id,
+                stream_format,
+                partition_values,
+                partition_id,
+            )
+            if any(
+                [
+                    partition_id,
+                    partition_values,
+                    stream_id,
+                    stream_format,
+                    table_name,
+                    table_version,
+                    namespace,
+                ]
+            )
+            else None
         )
         return DeltaLocator.of(
             partition_locator,

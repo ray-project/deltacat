@@ -2541,6 +2541,7 @@ def stage_delta(
     entry_type: Optional[EntryType] = EntryType.DATA,
     write_table_slices_fn: Optional[Callable] = _write_table_slices,
     schema: Optional[Schema] = None,
+    sort_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Delta:
@@ -2565,10 +2566,6 @@ def stage_delta(
     # Handle schema parameter and add to table_writer_kwargs if available
     table_writer_kwargs = table_writer_kwargs or {}
 
-    # Use schema parameter if provided, otherwise check kwargs
-    if schema is None and "schema" in kwargs:
-        schema = kwargs["schema"]
-
     # Extract schema_id from the schema if it's a DeltaCAT Schema
     schema_id = None
     if isinstance(schema, Schema):
@@ -2579,6 +2576,12 @@ def stage_delta(
     elif schema is not None and "schema" not in table_writer_kwargs:
         # For PyArrow schemas or other types, add directly
         table_writer_kwargs["schema"] = schema
+
+    # Add schema_id and sort_scheme_id to table_writer_kwargs for manifest entry creation
+    if schema_id is not None:
+        table_writer_kwargs["schema_id"] = schema_id
+    if sort_scheme_id is not None:
+        table_writer_kwargs["sort_scheme_id"] = sort_scheme_id
 
     manifest: Manifest = _write_table(
         partition.partition_id,
@@ -2599,7 +2602,6 @@ def stage_delta(
         properties=properties,
         manifest=manifest,
         previous_stream_position=previous_stream_position,
-        schema_id=schema_id,
     )
     return staged_delta
 

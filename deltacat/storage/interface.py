@@ -607,6 +607,7 @@ def stage_delta(
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
     schema: Optional[Schema] = None,
+    sort_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Delta:
