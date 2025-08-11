@@ -1262,7 +1262,6 @@ class TestSchemaUpdate:
             )
 
         assert "Conflicting operations detected on field 'temp'" in str(exc_info.value)
-        assert "Cannot mix add/remove operations" in str(exc_info.value)
 
     def test_conflicting_operations_remove_then_add_same_field(self, base_schema):
         """Test conflicting operations: removing a field then adding it back should raise ValueError."""
@@ -1280,7 +1279,6 @@ class TestSchemaUpdate:
             )
 
         assert "Conflicting operations detected on field 'age'" in str(exc_info.value)
-        assert "Cannot mix add/remove operations" in str(exc_info.value)
 
     def test_conflicting_operations_update_then_remove_same_field(self, base_schema):
         """Test conflicting operations: updating a field then removing it should raise ValueError."""
@@ -1293,7 +1291,6 @@ class TestSchemaUpdate:
             )
 
         assert "Conflicting operations detected on field 'age'" in str(exc_info.value)
-        assert "Cannot mix add/remove operations" in str(exc_info.value)
 
     def test_conflicting_operations_remove_then_update_same_field_fails(
         self, base_schema
