@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 from collections import defaultdict
-import os
 
 import pandas as pd
 import pyarrow as pa
@@ -1221,7 +1220,8 @@ def _get_max_parallelism(
     if distributed_dataset_type:
         max_parallelism = max_parallelism or 100
     else:
-        max_parallelism = max_parallelism or os.cpu_count()
+        # TODO(pdames): Set max parallelism using available resources and dataset size
+        max_parallelism = 1
     if max_parallelism < 1:
         raise ValueError(
             f"max_parallelism must be greater than 0, but got {max_parallelism}"

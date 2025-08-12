@@ -459,9 +459,7 @@ class TestCatalogTableOperations:
         )
 
         # Create schema update operations to add a new field
-        new_field = Field.of(
-            pa.field("count", pa.float64(), nullable=True)
-        )
+        new_field = Field.of(pa.field("count", pa.float64(), nullable=True))
         schema_updates = SchemaUpdateOperations.of(
             [SchemaUpdateOperation.add_field(new_field)]
         )
@@ -505,7 +503,9 @@ class TestCatalogTableOperations:
         assert updated_schema.field("count") is not None
         assert updated_schema.field("count").arrow.type == pa.float64()
         assert updated_schema.field("count").arrow.nullable is True
-        assert updated_schema.field("count").id == 3  # Next sequential ID after id(0), name(1), value(2)
+        assert (
+            updated_schema.field("count").id == 3
+        )  # Next sequential ID after id(0), name(1), value(2)
 
         # Verify schema ID was incremented (proving SchemaUpdate was used)
         assert updated_schema.id == old_schema.id + 1
@@ -553,9 +553,7 @@ class TestCatalogTableOperations:
         original_schema = table.table_version.schema
 
         # Create multiple schema update operations
-        new_field1 = Field.of(
-            pa.field("count", pa.int64(), nullable=True)
-        )
+        new_field1 = Field.of(pa.field("count", pa.int64(), nullable=True))
         new_field2 = Field.of(
             pa.field("status", pa.string(), nullable=False),
             past_default="active",
@@ -589,11 +587,15 @@ class TestCatalogTableOperations:
         # Verify both fields were added
         assert updated_schema.field("count") is not None
         assert updated_schema.field("count").arrow.type == pa.int64()
-        assert updated_schema.field("count").id == 3  # Next sequential ID after id(0), name(1), value(2)
+        assert (
+            updated_schema.field("count").id == 3
+        )  # Next sequential ID after id(0), name(1), value(2)
 
         assert updated_schema.field("status") is not None
         assert updated_schema.field("status").arrow.type == pa.string()
-        assert updated_schema.field("status").id == 4  # Next sequential ID after count(3)
+        assert (
+            updated_schema.field("status").id == 4
+        )  # Next sequential ID after count(3)
         assert updated_schema.field("status").past_default == "active"
 
         # Verify schema ID was incremented
@@ -685,9 +687,7 @@ class TestCatalogTableOperations:
         original_schema = table.table_version.schema
 
         # Update the value field to int64 (compatible type widening)
-        updated_field = Field.of(
-            pa.field("value", pa.int64(), nullable=True)
-        )
+        updated_field = Field.of(pa.field("value", pa.int64(), nullable=True))
         schema_updates = SchemaUpdateOperations.of(
             [SchemaUpdateOperation.update_field("value", updated_field)]
         )
@@ -882,7 +882,7 @@ class TestWriteToTable:
         """Create test Ray Dataset for schema inference testing."""
         import ray
 
-        # Initialize Ray if not already initialized  
+        # Initialize Ray if not already initialized
         # Note: Use distributed mode (not local_mode=True) to avoid Ray 2.46.0 internal bug
         if not ray.is_initialized():
             ray.init()
@@ -1474,7 +1474,9 @@ class TestWriteToTable:
         )
 
         schema = table_def.table_version.schema.arrow
-        assert "0" in schema.names  # pandas converts 1D numpy array with column name "0"
+        assert (
+            "0" in schema.names
+        )  # pandas converts 1D numpy array with column name "0"
         assert len(schema.names) == 1
 
     def test_schema_inference_numpy_2d(self):
@@ -1497,7 +1499,9 @@ class TestWriteToTable:
         )
 
         schema = table_def.table_version.schema.arrow
-        assert "0" in schema.names  # pandas converts 2D numpy array with column names "0", "1" 
+        assert (
+            "0" in schema.names
+        )  # pandas converts 2D numpy array with column names "0", "1"
         assert "1" in schema.names
         assert len(schema.names) == 2
 

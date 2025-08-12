@@ -669,6 +669,15 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable, **kwargs):
 def get_table_length(
     table: Union[LocalTable, DistributedDataset, BlockAccessor]
 ) -> int:
+    """
+    Generic function to get the length of a table or distributed dataset.
+
+    Args:
+        table: The local table or distributed dataset to get the length of
+
+    Returns:
+        Length of the table or distributed dataset in rows
+    """
     # Handle DAFT DataFrames dynamically
     if hasattr(table, "count_rows") and str(type(table).__module__).startswith("daft"):
         return table.count_rows()
@@ -681,15 +690,42 @@ def get_table_length(
 
 
 def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
+    """
+    Generic function to get the size of a table or distributed dataset.
+
+    Args:
+        table: The local table or distributed dataset to get the size of
+
+    Returns:
+        Size of the table or distributed dataset
+    """
     table_size_func = _get_table_function(table, TABLE_CLASS_TO_SIZE_FUNC, "size")
     return table_size_func(table)
 
 
 def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:
+    """
+    Generic function to get a table writer function for a given dataset type.
+
+    Args:
+        table: The local table or distributed dataset to get the writer function for
+
+    Returns:
+        Writer function for the given dataset type
+    """
     return _get_table_function(table, TABLE_CLASS_TO_WRITER_FUNC, "writer")
 
 
 def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
+    """
+    Generic function to get a table slicer function for a given dataset type.
+
+    Args:
+        table: The local table or distributed dataset to get the slicer function for
+
+    Returns:
+        Slicer function for the given dataset type
+    """
     return _get_table_function(table, TABLE_CLASS_TO_SLICER_FUNC, "slicer")
 
 
@@ -717,6 +753,17 @@ def table_to_pyarrow(
     schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> pa.Table:
+    """
+    Convert a single table or distributed dataset to PyArrow Table format.
+
+    Args:
+        table: The local table or distributed dataset to convert
+        schema: Optional schema to use for the conversion
+        **kwargs: Additional arguments passed to the conversion function
+
+    Returns:
+        PyArrow Table created from the provided dataset
+    """
     to_pyarrow_func = _get_table_function(
         table, TABLE_CLASS_TO_PYARROW_FUNC, "pyarrow conversion"
     )
@@ -729,6 +776,17 @@ def table_to_pandas(
     schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> pd.DataFrame:
+    """
+    Convert a single table or distributed dataset to pandas DataFrame format.
+
+    Args:
+        table: The local table or distributed dataset to convert
+        schema: Optional schema to use for the conversion
+        **kwargs: Additional arguments passed to the conversion function
+
+    Returns:
+        pandas DataFrame created from the provided dataset
+    """
     to_pandas_func = _get_table_function(
         table, TABLE_CLASS_TO_PANDAS_FUNC, "pandas conversion"
     )
@@ -738,7 +796,17 @@ def table_to_pandas(
 def to_pyarrow(
     table: Dataset, *, schema: Optional[pa.Schema] = None, **kwargs
 ) -> pa.Table:
-    """Convert any supported dataset type to PyArrow Table format."""
+    """
+    Convert any supported dataset type to PyArrow Table format.
+
+    Args:
+        table: The table/dataset to convert
+        schema: Optional schema to use for the conversion
+        **kwargs: Additional arguments passed to the conversion function
+
+    Returns:
+        PyArrow Table created from the provided dataset
+    """
     if isinstance(table, list):
         return _convert_all(table, table_to_pyarrow, schema=schema, **kwargs)
     return table_to_pyarrow(table, schema=schema, **kwargs)
@@ -747,7 +815,17 @@ def to_pyarrow(
 def to_pandas(
     table: Dataset, *, schema: Optional[pa.Schema] = None, **kwargs
 ) -> pd.DataFrame:
-    """Convert any supported dataset type to pandas DataFrame format."""
+    """
+    Convert any supported dataset type to pandas DataFrame format.
+
+    Args:
+        table: The table/dataset to convert
+        schema: Optional schema to use for the conversion
+        **kwargs: Additional arguments passed to the conversion function
+
+    Returns:
+        pandas DataFrame created from the provided dataset
+    """
     if isinstance(table, list):
         return _convert_all(table, table_to_pandas, schema=schema, **kwargs)
     return table_to_pandas(table, schema=schema, **kwargs)
@@ -802,6 +880,16 @@ def select_columns_from_table(
     table: LocalTable,
     column_names: List[str],
 ) -> LocalTable:
+    """
+    Generic function to select columns from any supported dataset type.
+
+    Args:
+        table: The table/dataset to select columns from
+        column_names: List of column names to select
+
+    Returns:
+        Updated table with the selected columns
+    """
     select_columns_func = _get_table_function(
         table, TABLE_CLASS_TO_SELECT_COLUMNS_FUNC, "select columns"
     )
@@ -820,7 +908,24 @@ def write_sliced_table(
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
 ) -> ManifestEntryList:
+    """
+    Writes table slices to 1 or more files and returns
+    manifest entries describing the uploaded files.
 
+    Args:
+        table: The local table or distributed dataset to write
+        base_path: The base path to write the table to
+        filesystem: The filesystem to write the table to
+        table_writer_fn: The function to write the table to
+        table_slicer_fn: The function to slice the table into multiple files
+        table_writer_kwargs: Additional arguments to pass to the table writer
+        content_type: The content type to write the table to
+        entry_params: Manifest entry parameters
+        entry_type: The manifest entry types to write
+
+    Returns:
+        Manifest entries describing the uploaded files
+    """
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
@@ -876,6 +981,19 @@ def write_table(
     """
     Writes the given table to 1 or more files and return
     manifest entries describing the uploaded files.
+
+    Args:
+        table: The local table or distributed dataset to write
+        base_path: The base path to write the table to
+        filesystem: The filesystem to write the table to
+        table_writer_fn: The function to write the table to
+        table_writer_kwargs: Additional arguments to pass to the table writer
+        content_type: The content type to write the table to
+        entry_params: Manifest entry parameters
+        entry_type: The manifest entry types to write
+
+    Returns:
+        Manifest entries describing the uploaded files
     """
     if table_writer_kwargs is None:
         table_writer_kwargs = {}
@@ -1109,6 +1227,17 @@ def get_block_metadata_list(
     write_paths: List[str],
     blocks: List[Block],
 ) -> List[BlockMetadata]:
+    """
+    Get the block metadata for a given table.
+
+    Args:
+        table: The local table or distributed dataset to get the block metadata for
+        write_paths: The list of write paths for the table
+        blocks: The list of blocks to get the metadata for
+
+    Returns:
+        List of block metadata
+    """
     block_meta_list: List[BlockMetadata] = []
     if not blocks:
         # this must be a local table - ensure it was written to only 1 file
@@ -1125,6 +1254,15 @@ def get_block_metadata_list(
 def get_block_metadata(
     table: Union[LocalTable, DistributedDataset, BlockAccessor],
 ) -> BlockMetadata:
+    """
+    Get the block metadata for a given table.
+
+    Args:
+        table: The local table or distributed dataset to get the block metadata for
+
+    Returns:
+        Block metadata
+    """
     table_size = None
     table_size_func = TABLE_CLASS_TO_SIZE_FUNC.get(type(table))
     if table_size_func:
@@ -1146,6 +1284,16 @@ def _reconstruct_manifest_entry_uri(
     manifest_entry: ManifestEntry,
     **kwargs,
 ) -> ManifestEntry:
+    """
+    Reconstruct the full URI for a manifest entry.
+
+    Args:
+        manifest_entry: The manifest entry to reconstruct the URI for
+        **kwargs: Additional arguments to pass to the catalog properties
+
+    Returns:
+        Manifest entry with the reconstructed URI
+    """
     # Reconstruct full URI with scheme for external readers (see GitHub issue #567)
     from deltacat.catalog import get_catalog_properties
 
@@ -1163,7 +1311,15 @@ def _reconstruct_manifest_entry_uri(
 
 
 def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    # Filter out DeltaCAT system kwargs that external readers don't expect.
+    """
+    Filter out DeltaCAT system kwargs that external readers don't expect.
+
+    Args:
+        kwargs: The dictionary of arguments to filter
+
+    Returns:
+        Dictionary of arguments with DeltaCAT system kwargs removed
+    """
     return {
         k: v
         for k, v in kwargs.items()
@@ -1180,7 +1336,15 @@ def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
 def _extract_content_metadata(
     manifest_entry: ManifestEntry,
 ) -> Tuple[ContentType, ContentEncoding, str]:
-    """Extract content type, encoding, and path from manifest entry."""
+    """
+    Extract content type, encoding, and path from manifest entry.
+
+    Args:
+        manifest_entry: The manifest entry to extract the content metadata from
+
+    Returns:
+        Tuple of content type, encoding, and path
+    """
     content_type = manifest_entry.meta.content_type
     assert content_type, f"Unknown content type for manifest entry: {manifest_entry}"
     content_type = ContentType(content_type)
@@ -1201,7 +1365,15 @@ def _extract_content_metadata(
 def _extract_partial_download_params(
     manifest_entry: ManifestEntry,
 ) -> Optional[PartialFileDownloadParams]:
-    """Extract partial file download parameters from manifest entry."""
+    """
+    Extract partial file download parameters from manifest entry.
+
+    Args:
+        manifest_entry: The manifest entry to extract the partial file download parameters from
+
+    Returns:
+        Partial file download parameters
+    """
     if not manifest_entry.meta or not manifest_entry.meta.content_type_parameters:
         return None
 
@@ -1212,7 +1384,12 @@ def _extract_partial_download_params(
 
 
 def _create_retry_wrapper():
-    """Create a standardized retry wrapper for file operations."""
+    """
+    Create a standardized Tenacity Retrying wrapper for file operations.
+
+    Returns:
+        Tenacity Retrying wrapper
+    """
     return Retrying(
         wait=wait_random_exponential(multiplier=1, max=60),
         stop=stop_after_delay(DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY),
@@ -1220,10 +1397,19 @@ def _create_retry_wrapper():
     )
 
 
-def _process_file_path_column(
-    include_columns: Optional[List[str]], file_path_column: Optional[str]
+def _remove_file_path_column(
+    include_columns: Optional[List[str]],
+    file_path_column: Optional[str],
 ) -> Optional[List[str]]:
-    """Process include_columns to filter out synthetic file_path_column."""
+    """Remove the file path system column from the include_columns list.
+
+    Args:
+        include_columns: The list of columns to include in a selection
+        file_path_column: Optional file path system column name to remove from the selection
+
+    Returns:
+        List of columns to include without the file path system column
+    """
     if file_path_column and include_columns:
         return [col for col in include_columns if col != file_path_column]
     return include_columns
@@ -1237,9 +1423,21 @@ def _prepare_download_arguments(
     file_path_column: Optional[str],
     **kwargs,
 ) -> Dict[str, Any]:
-    """Prepare standardized arguments for download operations."""
+    """Prepare standardized arguments for download operations.
+
+    Args:
+        table_type: The type of table to download
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs
+        file_path_column: The file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Dictionary of arguments for the download operation
+    """
     reader_kwargs = _filter_kwargs(kwargs)
-    processed_include_columns = _process_file_path_column(
+    processed_include_columns = _remove_file_path_column(
         include_columns, file_path_column
     )
 
@@ -1284,7 +1482,22 @@ def download_manifest_entries(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
+    """Download all entries in the manifest.
 
+    Args:
+        manifest: The manifest containing the entries to download
+        table_type: Dataset type to load the entries into
+        max_parallelism: Maximum parallelism to use
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Local dataset
+    """
     if max_parallelism and max_parallelism <= 1:
         return _download_manifest_entries(
             manifest,
@@ -1317,6 +1530,21 @@ def _download_manifest_entries(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
+    """Download all entries in the manifest.
+
+    Args:
+        manifest: The manifest containing the entries to download
+        table_type: Dataset type to load the entries into
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Local dataset
+    """
     download_args = _prepare_download_arguments(
         table_type,
         column_names,
@@ -1350,7 +1578,22 @@ def download_manifest_entry_ray(
 ) -> LocalTable:
     """
     Ray remote function for downloading manifest entries.
-    For Polars table types, converts the result to Arrow format since Ray datasets work with Arrow.
+
+    Args:
+        manifest_entry: The manifest entry to download
+        table_type: Dataset type to load the entry into
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        content_type: Optional content type of the file
+        content_encoding: Optional content encoding of the file
+        filesystem: Optional PyArrow filesystem to use to read the file
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Local table
     """
     # Make sure we normalize the table type to PyArrow to provide the correct
     # input type to from_arrow_refs
@@ -1397,6 +1640,24 @@ def download_manifest_entries_distributed(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
+    """Download all entries in the manifest using the given distributed dataset type.
+
+    Args:
+        manifest: The manifest containing the entries to download
+        table_type: Dataset type to load the entries into
+        max_parallelism: Maximum parallelism to use
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        ray_options_provider: Optional provider of Ray options
+        distributed_dataset_type: Optional distributed dataset type to use
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Distributed dataset
+    """
     params = {
         "manifest": manifest,
         "table_type": table_type,
@@ -1474,6 +1735,23 @@ def _download_manifest_entries_ray_data_distributed(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
+    """Download all entries in the manifest into a Ray dataset.
+
+    Args:
+        manifest: The manifest containing the entries to download
+        table_type: Dataset type to load the entries into
+        max_parallelism: Maximum parallelism to use
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        ray_options_provider: Optional provider of Ray options
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Ray dataset
+    """
     table_pending_ids = []
     manifest_entries = manifest.entries
 
@@ -1502,6 +1780,10 @@ def _group_manifest_uris_by_content_type(
 ) -> Dict[Tuple[str, str], List[str]]:
     """
     Group manifest URIs by content type and content encoding.
+
+    Args:
+        manifest: The manifest containing the entries to group by content type
+        **kwargs: Additional arguments to pass to the catalog properties
 
     Returns:
         Dictionary mapping (content_type, content_encoding) tuples to lists of URIs
@@ -1534,10 +1816,28 @@ def _download_manifest_entries_all_dataset_distributed(
     include_columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     ray_options_provider: Callable[[int, Any], Dict[str, Any]] = None,
-    distributed_dataset_type: Optional[DatasetType] = DatasetType.RAY_DATASET,
+    distributed_dataset_type: Optional[DatasetType] = DatasetType.DAFT,
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> DistributedDataset:
+    """Download all entries in the manifest into a distributed dataset other than Ray Dataset.
+
+    Args:
+        manifest: The manifest containing the entries to download
+        table_type: Dataset type to load the entries into
+        max_parallelism: Maximum parallelism to use
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        ray_options_provider: Optional provider of Ray options
+        distributed_dataset_type: Optional distributed dataset type to use
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Distributed dataset
+    """
     # Group manifest entries by content type instead of validating consistency
     uris_by_content_type = _group_manifest_uris_by_content_type(manifest, **kwargs)
 
@@ -1626,6 +1926,22 @@ def _download_manifest_entries_parallel(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalDataset:
+    """Download all entries in the manifest into a local dataset using multiprocessing.
+
+    Args:
+        manifest: The manifest containing the entries to download
+        table_type: Dataset type to load the entries into
+        max_parallelism: Maximum parallel processes to use for entry downloads
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Local dataset
+    """
     download_args = _prepare_download_arguments(
         table_type,
         column_names,
@@ -1661,6 +1977,24 @@ def download_manifest_entry(
     file_path_column: Optional[str] = None,
     **kwargs,
 ) -> LocalTable:
+    """Download a single entry in the manifest into a local table.
+
+    Args:
+        manifest_entry: The manifest entry to download
+        table_type: Dataset type to load the entry into
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        content_type: Optional content type of the file
+        content_encoding: Optional content encoding of the file
+        filesystem: Optional PyArrow filesystem to use to read the file
+        file_path_column: Optional file path system column name
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Local table
+    """
     # Extract manifest metadata
     (
         extracted_content_type,
@@ -1675,7 +2009,7 @@ def download_manifest_entry(
 
     # Filter kwargs and process file path column
     reader_kwargs = _filter_kwargs(kwargs)
-    processed_include_columns = _process_file_path_column(
+    processed_include_columns = _remove_file_path_column(
         include_columns, file_path_column
     )
 
@@ -1722,7 +2056,24 @@ def read_file(
     filesystem: Optional[pyarrow.fs.FileSystem] = None,
     **kwargs,
 ) -> LocalTable:
+    """Read a file into a local table.
 
+    Args:
+        path: The path to the file to read
+        content_type: The content type of the file
+        content_encoding: The content encoding of the file
+        table_type: Dataset type to load the file into
+        column_names: The list of column names in the table
+        include_columns: The list of columns to include in the selection
+        file_reader_kwargs_provider: Optional per-content-type provider of file reader kwargs,
+            (e.g., to pass in a custom schema for a Parquet file)
+        partial_file_download_params: Optional partial file download parameters
+        filesystem: Optional PyArrow filesystem to use to read the file
+        **kwargs: Additional arguments to pass to the file reader
+
+    Returns:
+        Local table
+    """
     reader = TABLE_TYPE_TO_READER_FUNC[table_type.value]
     try:
         table = reader(
