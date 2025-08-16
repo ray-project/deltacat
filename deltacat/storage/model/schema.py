@@ -620,12 +620,8 @@ class Field(dict):
         column_data: pa.Array,
     ) -> Tuple[pa.Array, bool]:
         """Promote field type to accommodate new data when consistency type is NONE.
-
-        This method implements intelligent type widening for fields with SchemaConsistencyType.NONE:
-        - Numeric types: int8 → int16 → int32 → int64 → float32 → float64 → decimal
-        - Any numeric → string (most permissive)
-        - Any type → binary (most permissive)
-        - Maintains nullability and metadata
+        Use PyArrow's unify_schemas to find the most permissive type that can accommodate both
+        the current and new data types.
 
         Args:
             column_data: PyArrow Array containing the column data
@@ -634,6 +630,9 @@ class Field(dict):
             Tuple[pa.Array, bool]: (data, type_was_promoted)
                 - data: Either original data or data cast to promoted type
                 - type_was_promoted: True if field type should be updated
+
+        Raises:
+            SchemaValidationError: If column data cannot be promoted to a unified type
         """
         current_type = self.arrow.type
         data_type = column_data.type
@@ -644,8 +643,6 @@ class Field(dict):
 
         # Find the promoted type that can accommodate both types
         promoted_type = self._find_promoted_type(current_type, data_type)
-        if promoted_type is None:
-            return column_data, False
 
         # Handle type coercion vs promotion
         if promoted_type.equals(current_type):
@@ -675,23 +672,11 @@ class Field(dict):
             promoted_data = pa.compute.cast(column_data, promoted_type)
             return promoted_data, True
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
-            # Try multi-step conversion for binary types
-            if pa.types.is_binary(promoted_type):
-                return self._convert_to_binary_via_string(column_data, promoted_type)
-            return column_data, False
-
-    def _convert_to_binary_via_string(
-        self,
-        column_data: pa.Array,
-        binary_type: pa.DataType,
-    ) -> Tuple[pa.Array, bool]:
-        """Try converting to binary via string intermediate step."""
-        try:
-            string_data = pa.compute.cast(column_data, pa.string())
-            binary_data = pa.compute.cast(string_data, binary_type)
-            return binary_data, True
-        except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
-            return column_data, False
+            # If direct cast fails, the promotion is not valid
+            raise SchemaValidationError(
+                f"Cannot cast data for field '{self.arrow.name}' from type {column_data.type} "
+                f"to promoted type {promoted_type}"
+            )
 
     def _cast_default_to_promoted_type(
         self,
@@ -705,7 +690,10 @@ class Field(dict):
             promoted_type: The new promoted type
 
         Returns:
-            The default value cast to the promoted type, or None if casting fails
+            The default value cast to the promoted type.
+
+        Raises:
+            SchemaValidationError: If the default value cannot be cast to the promoted type
         """
         if default_value is None:
             return None
@@ -724,273 +712,43 @@ class Field(dict):
             TypeError,
             ValueError,
         ):
-            # If direct casting fails, try via string for binary promotion
-            if pa.types.is_binary(promoted_type):
-                try:
-                    # Convert to string first, then to binary
-                    string_scalar = pa.compute.cast(
-                        pa.scalar(default_value), pa.string()
-                    )
-                    binary_scalar = pa.compute.cast(string_scalar, promoted_type)
-                    return binary_scalar.as_py()
-                except (
-                    pa.ArrowTypeError,
-                    pa.ArrowInvalid,
-                    pa.ArrowNotImplementedError,
-                    TypeError,
-                    ValueError,
-                ):
-                    pass
-
-            # If all casting attempts fail, return None to remove the default
-            return None
+            raise SchemaValidationError(
+                f"Cannot cast default value `{default_value}` to promoted type {promoted_type}"
+            )
 
     def _find_promoted_type(
         self,
         current_type: pa.DataType,
         new_type: pa.DataType,
     ) -> Optional[pa.DataType]:
-        """Find the most specific type that can accommodate both current and new types.
+        """Find the most specific type that can accommodate both current and new types
+        using PyArrow's unify_schemas with permissive promotion options.
 
-        Returns the promoted type or None if no promotion is possible.
+        Returns:
+            The promoted type.
+
+        Raises:
+            SchemaValidationError: If the types cannot be unified.
         """
-        # Try within-hierarchy promotions first (most specific)
-        promoted_type = self._try_within_hierarchy_promotion(current_type, new_type)
-        if promoted_type is not None:
-            return promoted_type
-
-        # Try cross-type promotions (more permissive)
-        return self._try_cross_type_promotion(current_type, new_type)
-
-    def _try_within_hierarchy_promotion(
-        self,
-        current_type: pa.DataType,
-        new_type: pa.DataType,
-    ) -> Optional[pa.DataType]:
-        """Try to promote types within the same type hierarchy."""
-        type_hierarchies = self._get_type_hierarchies()
-
-        for hierarchy in type_hierarchies:
-            current_idx = self._find_type_in_hierarchy(current_type, hierarchy)
-            new_idx = self._find_type_in_hierarchy(new_type, hierarchy)
-
-            if current_idx is not None and new_idx is not None:
-                # Both types are in same hierarchy - promote to the higher one
-                promoted_idx = max(current_idx, new_idx)
-                promoted_type = hierarchy[promoted_idx]
-                return self._maybe_make_nullable(promoted_type, current_type, new_type)
-
-        return None
-
-    def _try_cross_type_promotion(
-        self,
-        current_type: pa.DataType,
-        new_type: pa.DataType,
-    ) -> Optional[pa.DataType]:
-        """Try cross-type promotions in order of specificity."""
-        promotions = self._get_cross_type_promotions()
-
-        for source_types, target_types in promotions:
-            if self._types_compatible_with_promotion_rule(
-                current_type, new_type, source_types
-            ):
-                # Find the most specific target type that works for both
-                for target_type in target_types:
-                    if self._can_cast_to(
-                        current_type, target_type
-                    ) and self._can_cast_to(new_type, target_type):
-                        return self._maybe_make_nullable(
-                            target_type, current_type, new_type
-                        )
-        return None
-
-    def _get_type_hierarchies(
-        self,
-    ) -> List[List[pa.DataType]]:
-        """Get ordered type hierarchies for within-hierarchy promotions."""
-        return [
-            # Integer types (in order of promotion)
-            [pa.int8(), pa.int16(), pa.int32(), pa.int64()],
-            [pa.uint8(), pa.uint16(), pa.uint32(), pa.uint64()],
-            # Float types
-            [pa.float32(), pa.float64()],
-            # Decimal types (most specific numeric)
-            [pa.decimal128(38, 10)],  # Use reasonable precision
-            # String types (most permissive for text)
-            [pa.string(), pa.large_string()],
-            # Binary types (most permissive overall)
-            [pa.binary(), pa.large_binary()],
-        ]
-
-    def _get_cross_type_promotions(
-        self,
-    ) -> List[Tuple]:
-        """Get cross-type promotions ordered by specificity (most specific first)."""
-        return [
-            # Any integer can promote to float (most specific numeric promotion)
-            (
-                [
-                    pa.int8(),
-                    pa.int16(),
-                    pa.int32(),
-                    pa.int64(),
-                    pa.uint8(),
-                    pa.uint16(),
-                    pa.uint32(),
-                    pa.uint64(),
-                ],
-                [pa.float32(), pa.float64()],
-            ),
-            # Any numeric can promote to decimal
-            (
-                [
-                    pa.int8(),
-                    pa.int16(),
-                    pa.int32(),
-                    pa.int64(),
-                    pa.uint8(),
-                    pa.uint16(),
-                    pa.uint32(),
-                    pa.uint64(),
-                    pa.float32(),
-                    pa.float64(),
-                ],
-                [pa.decimal128(38, 10)],
-            ),
-            # Any type except binary can promote to string
-            ("not_binary", [pa.string(), pa.large_string()]),
-            # Any type can promote to binary (most permissive, checked last)
-            (None, [pa.binary(), pa.large_binary()]),
-        ]
-
-    def _types_compatible_with_promotion_rule(
-        self,
-        current_type: pa.DataType,
-        new_type: pa.DataType,
-        source_types,
-    ) -> bool:
-        """Check if types are compatible with a specific promotion rule."""
-        if source_types is None:  # any_to_* cases
-            return True
-        elif source_types == "not_binary":  # any type except binary
-            # For string promotion, require both types to be non-binary
-            return not pa.types.is_binary(current_type) and not pa.types.is_binary(
-                new_type
-            )
-        else:
-            # Check if at least one type is compatible with source types
-            current_compatible = any(
-                self._types_compatible(current_type, src) for src in source_types
-            )
-            new_compatible = any(
-                self._types_compatible(new_type, src) for src in source_types
-            )
-            return current_compatible or new_compatible
-
-    def _find_type_in_hierarchy(
-        self,
-        data_type: pa.DataType,
-        hierarchy: List[pa.DataType],
-    ) -> Optional[int]:
-        """Find the index of a compatible type in the hierarchy."""
-        for i, hierarchy_type in enumerate(hierarchy):
-            if self._types_compatible(data_type, hierarchy_type):
-                return i
-        return None
-
-    def _types_compatible(
-        self,
-        type1: pa.DataType,
-        type2: pa.DataType,
-    ) -> bool:
-        """Check if two types are compatible (ignoring nullability)."""
-        # For complex types like list and dictionary, compare their value types
-        base_type1 = (
-            type1.value_type
-            if isinstance(type1, (pa.ListType, pa.DictionaryType))
-            else type1
-        )
-        base_type2 = (
-            type2.value_type
-            if isinstance(type2, (pa.ListType, pa.DictionaryType))
-            else type2
-        )
-        return base_type1.equals(base_type2)
-
-    def _can_cast_to(
-        self,
-        from_type: pa.DataType,
-        to_type: pa.DataType,
-    ) -> bool:
-        """Check if a type can be cast to another type."""
-        # Null can cast to anything
-        if from_type == pa.null():
-            return True
-
-        # Special handling for binary types (most permissive)
-        if pa.types.is_binary(to_type):
-            return self._can_cast_to_binary(from_type)
-
-        # Test casting with a minimal array
-        return self._test_cast_with_sample_array(from_type, to_type)
-
-    def _can_cast_to_binary(
-        self,
-        from_type: pa.DataType,
-    ) -> bool:
-        """Check if a type can be cast to binary (directly or via string)."""
-        # Binary and string can always cast to binary
-        if pa.types.is_binary(from_type) or pa.types.is_string(from_type):
-            return True
-        # For other types, check if they can cast to string first
-        return self._can_cast_to(from_type, pa.string())
-
-    def _test_cast_with_sample_array(
-        self,
-        from_type: pa.DataType,
-        to_type: pa.DataType,
-    ) -> bool:
-        """Test casting by creating a sample array and attempting the cast."""
         try:
-            test_array = self._create_sample_array(from_type)
-            if test_array is None:
-                return False
-            pa.compute.cast(test_array, to_type)
-            return True
+            # Create schemas with the same field name but different types
+            schema1 = pa.schema([("field", current_type)])
+            schema2 = pa.schema([("field", new_type)])
+
+            # Use PyArrow's built-in permissive type promotion
+            unified_schema = pa.unify_schemas(
+                [schema1, schema2], promote_options="permissive"
+            )
+
+            # Return the promoted type
+            return unified_schema.field("field").type
+
         except (pa.ArrowTypeError, pa.ArrowInvalid, pa.ArrowNotImplementedError):
-            return False
-
-    def _create_sample_array(
-        self,
-        data_type: pa.DataType,
-    ) -> Optional[pa.Array]:
-        """Create a minimal sample array for testing type casting."""
-        if isinstance(data_type, (pa.ListType, pa.DictionaryType)):  # complex types
-            return pa.array([None], type=data_type)
-
-        # Create appropriate test value based on type
-        if pa.types.is_integer(data_type):
-            return pa.array([0], type=data_type)
-        elif pa.types.is_floating(data_type):
-            return pa.array([0.0], type=data_type)
-        elif pa.types.is_string(data_type):
-            return pa.array([""], type=data_type)
-        elif pa.types.is_binary(data_type):
-            return pa.array([b""], type=data_type)
-        else:
-            return None  # Unknown type
-
-    def _maybe_make_nullable(
-        self,
-        base_type: pa.DataType,
-        type1: pa.DataType,
-        type2: pa.DataType,
-    ) -> pa.DataType:
-        """Make the base type nullable if either input type is nullable."""
-        # PyArrow doesn't have a direct way to check nullability at the type level
-        # This method assumes the caller will handle nullability at the field level
-        # For now, return the base type as-is since nullability is handled by pa.field()
-        return base_type
+            # If unification fails, no promotion is possible
+            raise SchemaValidationError(
+                f"Cannot unify types for field '{self.arrow.name}': "
+                f"current type {current_type} incompatible with new data type {new_type}"
+            )
 
 
 SingleSchema = Union[List[Field], pa.Schema]
@@ -1229,7 +987,7 @@ class Schema(dict):
 
         return None
 
-    def validate_and_coerce_table(
+    def _validate_and_coerce_table(
         self,
         table: pa.Table,
         schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
@@ -1329,7 +1087,7 @@ class Schema(dict):
         """
         # Handle PyArrow tables using existing method
         if get_dataset_type(dataset) == DatasetType.PYARROW:
-            return self.validate_and_coerce_table(
+            return self._validate_and_coerce_table(
                 dataset, schema_evolution_mode, default_schema_consistency_type
             )
 
@@ -1339,7 +1097,7 @@ class Schema(dict):
                 dataset, schema_evolution_mode, default_schema_consistency_type
             )
 
-        # Handle Ray Datasets by converting to Daft (memory efficient)
+        # Handle Ray Datasets by converting to Daft
         if get_dataset_type(dataset) == DatasetType.RAY_DATASET:
             daft_dataframe = dataset.to_daft()
             return self._validate_and_coerce_daft_dataframe(
@@ -1350,7 +1108,7 @@ class Schema(dict):
 
         # For other types, convert to PyArrow and back
         pa_table = to_pyarrow(dataset, schema=self.arrow)
-        coerced_table, updated_schema = self.validate_and_coerce_table(
+        coerced_table, updated_schema = self._validate_and_coerce_table(
             pa_table, schema_evolution_mode, default_schema_consistency_type
         )
         return from_pyarrow(coerced_table, get_dataset_type(dataset)), updated_schema
@@ -1598,7 +1356,7 @@ class Schema(dict):
         else:
             # MANUAL mode or not specified - raise error
             raise SchemaValidationError(
-                f"Field '{column_name}' is not present in the schema"
+                f"Field '{column_name}' is not present in the schema and schema evolution mode is '{schema_evolution_mode}'"
             )
 
     def _add_missing_schema_fields_daft(
@@ -1611,40 +1369,26 @@ class Schema(dict):
 
         for field in self.field_ids_to_fields.values():
             if field.arrow.name not in dataframe_column_names:
-                consistency_type = field.consistency_type
-
-                # Determine what value to use for missing field
-                default_value = None
-                if consistency_type == SchemaConsistencyType.COERCE:
-                    # Use future_default if available
-                    default_value = field.future_default
-                elif consistency_type == SchemaConsistencyType.VALIDATE:
-                    # Strict validation - missing field is an error unless nullable
-                    if not field.arrow.nullable:
-                        raise SchemaValidationError(
-                            f"Required field '{field.arrow.name}' is missing from data"
-                        )
-                    default_value = None
-                else:
-                    # NONE consistency type - use past_default if available
-                    default_value = field.past_default
-
                 # Add column with null values or default value to Daft DataFrame
-                if default_value is not None:
+                if field.future_default is not None:
                     # Convert default value to Daft literal
                     processed_dataframe = processed_dataframe.with_column(
                         field.arrow.name,
-                        daft.lit(default_value).cast(
+                        daft.lit(field.future_default).cast(
                             daft.DataType.from_arrow_type(field.arrow.type)
                         ),
                     )
-                else:
+                elif field.arrow.nullable:
                     # Add null column
                     processed_dataframe = processed_dataframe.with_column(
                         field.arrow.name,
                         daft.lit(None).cast(
                             daft.DataType.from_arrow_type(field.arrow.type)
                         ),
+                    )
+                else:
+                    raise SchemaValidationError(
+                        f"Field '{field.arrow.name}' is required but not present and no future_default is set"
                     )
 
         return processed_dataframe
@@ -2116,9 +1860,9 @@ class Schema(dict):
             )
             return column_data, new_field.arrow, None, new_field
         else:
-            # MANUAL mode or not specified - raise error
+            # MANUAL mode or disabled - raise error
             raise SchemaValidationError(
-                f"Field '{column_name}' is not present in the schema"
+                f"Field '{column_name}' is not present in the schema and schema evolution mode is '{schema_evolution_mode}'"
             )
 
     def _add_missing_schema_fields(
@@ -2131,47 +1875,26 @@ class Schema(dict):
         """Add columns for fields that exist in schema but not in table."""
         for field in self.field_ids_to_fields.values():
             if field.arrow.name not in table_column_names:
-                consistency_type = field.consistency_type
-
-                if consistency_type == SchemaConsistencyType.VALIDATE:
-                    raise SchemaValidationError(
-                        f"Field '{field.arrow.name}' is required but not present in the data"
+                # Use future_default if available, otherwise check if nullable
+                if field.future_default is not None:
+                    # Create column with future_default value
+                    default_array = pa.array(
+                        [field.future_default] * get_table_length(table),
+                        type=field.arrow.type,
                     )
-                elif consistency_type == SchemaConsistencyType.COERCE:
-                    # Use future_default if available, otherwise check if nullable
-                    if field.future_default is not None:
-                        # Create column with future_default value
-                        default_array = pa.array(
-                            [field.future_default] * get_table_length(table),
-                            type=field.arrow.type,
-                        )
-                        new_columns.append(default_array)
-                    elif field.arrow.nullable:
-                        # Backfill with nulls if field is nullable
-                        null_column = pa.nulls(
-                            get_table_length(table), type=field.arrow.type
-                        )
-                        new_columns.append(null_column)
-                    else:
-                        # Field is not nullable and no future_default - error
-                        raise SchemaValidationError(
-                            f"Field '{field.arrow.name}' is required (not nullable) but not present in the data and no future_default is set"
-                        )
-                    new_schema_fields.append(field.arrow)
+                    new_columns.append(default_array)
+                elif field.arrow.nullable:
+                    # Backfill with nulls if field is nullable
+                    null_column = pa.nulls(
+                        get_table_length(table), type=field.arrow.type
+                    )
+                    new_columns.append(null_column)
                 else:
-                    # NONE or no consistency type - backfill with future_default or nulls
-                    if field.future_default is not None:
-                        default_array = pa.array(
-                            [field.future_default] * get_table_length(table),
-                            type=field.arrow.type,
-                        )
-                        new_columns.append(default_array)
-                    else:
-                        null_column = pa.nulls(
-                            get_table_length(table), type=field.arrow.type
-                        )
-                        new_columns.append(null_column)
-                    new_schema_fields.append(field.arrow)
+                    # Field is not nullable and no future_default - error
+                    raise SchemaValidationError(
+                        f"Field '{field.arrow.name}' is required but not present and no future_default is set"
+                    )
+                new_schema_fields.append(field.arrow)
 
     def _apply_schema_updates(
         self, field_updates: Dict[str, "Field"], new_fields: Dict[str, "Field"]

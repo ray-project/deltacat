@@ -1,5 +1,6 @@
 import pytest
 import pyarrow as pa
+from deltacat.exceptions import SchemaValidationError
 
 from deltacat.storage.model.schema import (
     Schema,
@@ -373,4 +374,112 @@ def test_schema_update_method(schema_a):
     added_field = updated_schema.field("name")
     assert added_field.arrow.name == "name"
     assert added_field.arrow.type == pa.string()
-    assert added_field.id == 4
+    assert added_field.id == 2  # requested field_id of 4 is ignored and auto-assigned
+
+
+def test_default_value_type_promotion():
+    """Test that default values are correctly cast when field types are promoted."""
+
+    # Test 1: Unit-level default value casting
+    # Create a field with int32 type and default values
+    original_field = Field.of(
+        pa.field("test_field", pa.int32()),
+        past_default=42,
+        future_default=100,
+        consistency_type=SchemaConsistencyType.NONE,
+    )
+
+    # Test casting to int64
+    promoted_past = original_field._cast_default_to_promoted_type(42, pa.int64())
+    promoted_future = original_field._cast_default_to_promoted_type(100, pa.int64())
+    assert promoted_past == 42
+    assert promoted_future == 100
+
+    # Test casting to float64
+    promoted_past_float = original_field._cast_default_to_promoted_type(
+        42, pa.float64()
+    )
+    promoted_future_float = original_field._cast_default_to_promoted_type(
+        100, pa.float64()
+    )
+    assert promoted_past_float == 42.0
+    assert promoted_future_float == 100.0
+
+    # Test casting to string
+    promoted_past_str = original_field._cast_default_to_promoted_type(
+        42, pa.string()
+    )
+    promoted_future_str = original_field._cast_default_to_promoted_type(
+        100, pa.string()
+    )
+    assert promoted_past_str == "42"
+    assert promoted_future_str == "100"
+
+    # Test 2: Test that the default casting logic works correctly
+    # Test with None values (should return None)
+    none_result = original_field._cast_default_to_promoted_type(None, pa.string())
+    assert none_result is None, "None default should remain None"
+
+    # Test error handling - incompatible cast should raise SchemaValidationError
+    with pytest.raises(SchemaValidationError):
+        original_field._cast_default_to_promoted_type("not_a_number", pa.int64())
+
+    # Test with a complex type
+    complex_field = Field.of(
+        pa.field("complex", pa.list_(pa.int32())),
+        consistency_type=SchemaConsistencyType.NONE,
+    )
+    with pytest.raises(SchemaValidationError):
+        complex_field._cast_default_to_promoted_type(42, pa.list_(pa.string()))
+
+
+def test_default_value_backfill_with_promotion():
+    """Test that default values are correctly backfilled when types are promoted."""
+
+    # Test the interaction between default value casting and binary promotion
+    # This represents a common scenario where defaults need to be promoted to binary
+    field_with_defaults = Field.of(
+        pa.field("test_field", pa.int32()),
+        past_default=42,
+        future_default=100,
+        consistency_type=SchemaConsistencyType.NONE,
+    )
+
+    # Test promotion to string (a common "catch-all" type in type promotion)
+    string_past = field_with_defaults._cast_default_to_promoted_type(
+        42, pa.string()
+    )
+    string_future = field_with_defaults._cast_default_to_promoted_type(
+        100, pa.string()
+    )
+
+    assert string_past == "42", f"Expected '42', got {string_past}"
+    assert string_future == "100", f"Expected '100', got {string_future}"
+
+    # Also test floats to string
+    float_field = Field.of(
+        pa.field("float_field", pa.float32()),
+        past_default=3.14159,
+        future_default=2.71828,
+        consistency_type=SchemaConsistencyType.NONE,
+    )
+
+    string_past = float_field._cast_default_to_promoted_type(3.14159, pa.string())
+    string_future = float_field._cast_default_to_promoted_type(2.71828, pa.string())
+
+    assert string_past == "3.14159", f"Expected '3.14159', got {string_past}"
+    assert string_future == "2.71828", f"Expected '2.71828', got {string_future}"
+
+    # Test that None defaults are handled correctly
+    none_field = Field.of(
+        pa.field("none_field", pa.int32()),
+        past_default=None,
+        future_default=42,
+        consistency_type=SchemaConsistencyType.NONE,
+    )
+
+    none_past = none_field._cast_default_to_promoted_type(None, pa.string())
+    valid_future = none_field._cast_default_to_promoted_type(42, pa.string())
+
+    assert none_past is None, f"None should remain None, got {none_past}"
+    assert valid_future == "42", f"Expected '42', got {valid_future}"

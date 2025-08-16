@@ -5620,7 +5620,7 @@ class TestSchemaConsistency:
         )
 
         with pytest.raises(
-            SchemaValidationError, match="not nullable.*not present.*no future_default"
+            SchemaValidationError, match="required.*not present.*no future_default"
         ):
             dc.write_to_table(
                 data=incomplete_data2,
@@ -6264,39 +6264,25 @@ class TestSchemaConsistency:
             abs(combined_result3["count"].iloc[-1] - 3.14159) < 0.00001
         )  # Verify float value preserved
 
-        # Test 4: Write data with string values - should promote float64 -> string
+        # Note: PyArrow's permissive promotion doesn't support float64 -> string promotion
+        # This test validates that the simplified promotion logic correctly rejects incompatible types
+        # instead of using the old custom fallback logic
+        
+        # Test 4: Attempt to write string data to float field - should raise SchemaValidationError
         string_data = pd.DataFrame(
             {"id": [7], "count": ["not_a_number"], "name": ["Grace"]}  # String value
         )
 
-        dc.write_to_table(
-            data=string_data,
-            table=table_name,
-            namespace=namespace,
-            catalog=catalog_name,
-            mode=TableWriteMode.APPEND,
-        )
-
-        # Verify type promotion to string
-        result4 = dc.read_table(
-            table=table_name,
-            namespace=namespace,
-            catalog=catalog_name,
-            read_as=DatasetType.PYARROW,
-        )
-        if isinstance(result4, list):
-            combined_result4 = pd.concat(
-                [t.to_pandas() for t in result4], ignore_index=True, sort=False
+        # This should now raise SchemaValidationError since float64 + string is incompatible
+        from deltacat.exceptions import SchemaValidationError
+        with pytest.raises(SchemaValidationError, match="Cannot unify types"):
+            dc.write_to_table(
+                data=string_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                mode=TableWriteMode.APPEND,
             )
-        else:
-            combined_result4 = to_pandas(result4)
-
-        assert get_table_length(combined_result4) == 7
-        # The count column should now be string (promoted from float64)
-        assert combined_result4["count"].dtype.name in ["object", "string"]
-        assert (
-            combined_result4["count"].iloc[-1] == "not_a_number"
-        )  # Verify string value preserved
 
     def test_binary_type_promotion_and_stability(self, temp_catalog_properties):
         """Test binary type promotion and ensure binary types are never down-promoted."""
@@ -6445,37 +6431,15 @@ class TestSchemaConsistency:
         # Check that we have a mix of original strings (converted to binary), binary data, and new strings (converted to binary)
         combined_result3["data"].iloc[-1]
 
-        # Test 4: Test direct unit-level binary promotion
+        # Test 4: Test direct unit-level string ↔ binary promotion
+        # Note: PyArrow's permissive promotion only supports string ↔ binary (both directions → binary)
+        # but NOT int32/float64 → binary promotion
 
-        # Test int → binary
-        field_int = Field.of(
-            pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE
-        )
-        binary_data_array = pa.array([b"test1", b"test2"], type=pa.binary())
-        promoted_data, was_promoted = field_int.promote_type_if_needed(
-            binary_data_array
-        )
-        assert was_promoted, "int32 should promote to binary"
-        assert pa.types.is_binary(
-            promoted_data.type
-        ), f"Should promote to binary type, got {promoted_data.type}"
-
-        # Test float → binary
-        field_float = Field.of(
-            pa.field("test", pa.float64()), consistency_type=SchemaConsistencyType.NONE
-        )
-        promoted_data, was_promoted = field_float.promote_type_if_needed(
-            binary_data_array
-        )
-        assert was_promoted, "float64 should promote to binary"
-        assert pa.types.is_binary(
-            promoted_data.type
-        ), f"Should promote to binary type, got {promoted_data.type}"
-
-        # Test string → binary
+        # Test string → binary (should work: results in binary)
         field_string = Field.of(
             pa.field("test", pa.string()), consistency_type=SchemaConsistencyType.NONE
         )
+        binary_data_array = pa.array([b"test1", b"test2"], type=pa.binary())
         promoted_data, was_promoted = field_string.promote_type_if_needed(
             binary_data_array
         )
@@ -6484,7 +6448,7 @@ class TestSchemaConsistency:
             promoted_data.type
         ), f"Should promote to binary type, got {promoted_data.type}"
 
-        # Test binary → string should NOT happen (binary should stay binary)
+        # Test binary → string (binary + string unifies to binary, same as original type)
         field_binary = Field.of(
             pa.field("test", pa.binary()), consistency_type=SchemaConsistencyType.NONE
         )
@@ -6492,10 +6456,25 @@ class TestSchemaConsistency:
         promoted_data, was_promoted = field_binary.promote_type_if_needed(
             string_data_array
         )
-        assert not was_promoted, "binary should NOT down-promote to string"
+        assert not was_promoted, "binary + string unifies to binary (same type, no promotion needed)"
         assert pa.types.is_binary(
             promoted_data.type
-        ), f"Should remain binary type, got {promoted_data.type}"
+        ), f"binary + string should result in binary type, got {promoted_data.type}"
+        
+        # Test int → binary should fail (incompatible types)
+        from deltacat.exceptions import SchemaValidationError
+        field_int = Field.of(
+            pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE
+        )
+        with pytest.raises(SchemaValidationError, match="Cannot unify types"):
+            field_int.promote_type_if_needed(binary_data_array)
+
+        # Test float → binary should fail (incompatible types)
+        field_float = Field.of(
+            pa.field("test", pa.float64()), consistency_type=SchemaConsistencyType.NONE
+        )
+        with pytest.raises(SchemaValidationError, match="Cannot unify types"):
+            field_float.promote_type_if_needed(binary_data_array)
 
     def test_critical_column_type_promotion_prevention(self, temp_catalog_properties):
         """Test that merge key, merge order, and event time columns cannot have type promotion."""
@@ -6639,120 +6618,6 @@ class TestSchemaConsistency:
                 catalog=catalog_name,
                 mode=TableWriteMode.MERGE,
             )
-
-    def test_default_value_type_promotion(self, temp_catalog_properties):
-        """Test that default values are correctly cast when field types are promoted."""
-
-        # Test 1: Unit-level default value casting
-        # Create a field with int32 type and default values
-        original_field = Field.of(
-            pa.field("test_field", pa.int32()),
-            past_default=42,
-            future_default=100,
-            consistency_type=SchemaConsistencyType.NONE,
-        )
-
-        # Test casting to int64
-        promoted_past = original_field._cast_default_to_promoted_type(42, pa.int64())
-        promoted_future = original_field._cast_default_to_promoted_type(100, pa.int64())
-        assert promoted_past == 42
-        assert promoted_future == 100
-
-        # Test casting to float64
-        promoted_past_float = original_field._cast_default_to_promoted_type(
-            42, pa.float64()
-        )
-        promoted_future_float = original_field._cast_default_to_promoted_type(
-            100, pa.float64()
-        )
-        assert promoted_past_float == 42.0
-        assert promoted_future_float == 100.0
-
-        # Test casting to string
-        promoted_past_str = original_field._cast_default_to_promoted_type(
-            42, pa.string()
-        )
-        promoted_future_str = original_field._cast_default_to_promoted_type(
-            100, pa.string()
-        )
-        assert promoted_past_str == "42"
-        assert promoted_future_str == "100"
-
-        # Test casting to binary
-        promoted_past_bin = original_field._cast_default_to_promoted_type(
-            42, pa.binary()
-        )
-        promoted_future_bin = original_field._cast_default_to_promoted_type(
-            100, pa.binary()
-        )
-        assert promoted_past_bin == b"42"
-        assert promoted_future_bin == b"100"
-
-        # Test 2: Test that the default casting logic works correctly
-        # Test with None values (should return None)
-        none_result = original_field._cast_default_to_promoted_type(None, pa.string())
-        assert none_result is None, "None default should remain None"
-
-        # Test error handling - incompatible cast should return None
-        original_field._cast_default_to_promoted_type("not_a_number", pa.int64())
-        # Note: This actually works due to string→int conversion, so let's test with a complex type
-        complex_field = Field.of(
-            pa.field("complex", pa.list_(pa.int32())),
-            consistency_type=SchemaConsistencyType.NONE,
-        )
-        complex_field._cast_default_to_promoted_type(42, pa.list_(pa.string()))
-        # This should work or return None gracefully - the important thing is no exceptions
-
-    def test_default_value_backfill_with_promotion(self, temp_catalog_properties):
-        """Test that default values are correctly backfilled when types are promoted."""
-
-        # Test the interaction between default value casting and binary promotion
-        # This represents a common scenario where defaults need to be promoted to binary
-        field_with_defaults = Field.of(
-            pa.field("test_field", pa.int32()),
-            past_default=42,
-            future_default=100,
-            consistency_type=SchemaConsistencyType.NONE,
-        )
-
-        # Test promotion to binary (a common "catch-all" type in type promotion)
-        binary_past = field_with_defaults._cast_default_to_promoted_type(
-            42, pa.binary()
-        )
-        binary_future = field_with_defaults._cast_default_to_promoted_type(
-            100, pa.binary()
-        )
-
-        assert binary_past == b"42", f"Expected b'42', got {binary_past}"
-        assert binary_future == b"100", f"Expected b'100', got {binary_future}"
-
-        # Test with more complex defaults - floats to string
-        float_field = Field.of(
-            pa.field("float_field", pa.float32()),
-            past_default=3.14159,
-            future_default=2.71828,
-            consistency_type=SchemaConsistencyType.NONE,
-        )
-
-        string_past = float_field._cast_default_to_promoted_type(3.14159, pa.string())
-        string_future = float_field._cast_default_to_promoted_type(2.71828, pa.string())
-
-        assert string_past == "3.14159", f"Expected '3.14159', got {string_past}"
-        assert string_future == "2.71828", f"Expected '2.71828', got {string_future}"
-
-        # Test that None defaults are handled correctly
-        none_field = Field.of(
-            pa.field("none_field", pa.int32()),
-            past_default=None,
-            future_default=42,
-            consistency_type=SchemaConsistencyType.NONE,
-        )
-
-        none_past = none_field._cast_default_to_promoted_type(None, pa.string())
-        valid_future = none_field._cast_default_to_promoted_type(42, pa.string())
-
-        assert none_past is None, f"None should remain None, got {none_past}"
-        assert valid_future == "42", f"Expected '42', got {valid_future}"
 
     def test_automatic_schema_evolution_with_auto_write_mode(
         self, temp_catalog_properties
