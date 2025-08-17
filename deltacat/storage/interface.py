@@ -2,6 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
 from deltacat.storage import (
     EntryParams,
+    EntryType,
     Delta,
     DeltaLocator,
     DeltaProperties,
@@ -216,7 +217,7 @@ def download_delta(
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
-    Download the given delta or delta locator into either a list of
+    Reads the given delta or delta locator into either a list of
     tables resident in the local node's memory, or into a dataset distributed
     across this Ray cluster's object store memory. Ordered table N of a local
     table list, or ordered block N of a distributed dataset, always contain
@@ -235,12 +236,12 @@ def download_delta_manifest_entry(
     **kwargs,
 ) -> LocalTable:
     """
-    Downloads a single manifest entry into the specified table type for the
+    Reads a single manifest entry into the specified table type for the
     given delta or delta locator. If a delta is provided with a non-empty
-    manifest, then the entry is downloaded from this manifest. Otherwise, the
-    manifest is first retrieved then the given entry index downloaded.
+    manifest, then the entry is read from this manifest. Otherwise, the
+    manifest is first retrieved then the given entry index read.
 
-    NOTE: The entry will be downloaded in the current node's memory.
+    NOTE: The entry will be read in the current node's memory.
     """
     raise NotImplementedError("download_delta_manifest_entry not implemented")
 
@@ -586,23 +587,17 @@ def stage_delta(
     max_records_per_entry: Optional[int] = None,
     author: Optional[ManifestAuthor] = None,
     properties: Optional[DeltaProperties] = None,
-    s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
+    table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
+    entry_type: Optional[EntryType] = EntryType.DATA,
     *args,
     **kwargs,
 ) -> Delta:
     """
-    Writes the given table to 1 or more S3 files. Returns an unregistered
+    Writes the given dataset to 1 or more files. Returns an unregistered
     delta whose manifest entries point to the uploaded files. Applies any
     schema consistency policies configured for the parent table version.
-
-    The partition spec will be used to split the input table into
-    multiple files. Optionally, partition_values can be provided to avoid
-    this method to recompute partition_values from the provided data.
-
-    Raises an error if the provided data does not conform to a unique ordered
-    list of partition_values
     """
     raise NotImplementedError("stage_delta not implemented")
 
@@ -723,13 +718,23 @@ def table_version_exists(
 
 def can_categorize(e: BaseException, *args, **kwargs) -> bool:
     """
-    Return whether input error is from storage implementation layer.
+    True if the input error originated from the storage
+    implementation layer and can be categorized under an
+    existing DeltaCatError. The "categorize_errors" decorator
+    uses this to determine if an unknown error from the storage
+    implementation can be categorized prior to casting it to
+    the equivalent DeltaCatError via `raise_categorized_error`
     """
     raise NotImplementedError
 
 
 def raise_categorized_error(e: BaseException, *args, **kwargs):
     """
-    Raise and handle storage implementation layer specific errors.
+    Casts a categorizable error that originaed from the storage
+    implementation layer to its equivalent DeltaCatError
+    for uniform handling (e.g., determining whether an error
+    is retryable or not) via the "categorize_errors" decorator.
+    Raises an UnclassifiedDeltaCatError from the input exception
+    if the error cannot be categorized.
     """
     raise NotImplementedError

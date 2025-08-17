@@ -4,8 +4,10 @@ from contextlib import contextmanager
 from typing import Generator, Tuple
 
 from deltacat.benchmarking.benchmark_report import BenchmarkMetric, BenchmarkStep
-from deltacat.storage.rivulet.dataset import Dataset
-from deltacat.storage.rivulet.reader.query_expression import QueryExpression
+from deltacat.experimental.storage.rivulet.dataset import Dataset
+from deltacat.experimental.storage.rivulet.reader.query_expression import (
+    QueryExpression,
+)
 
 
 @contextmanager

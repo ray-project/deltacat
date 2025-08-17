@@ -1,3 +1,4 @@
+import argparse
 import os
 import logging
 from typing import Dict, Any
@@ -49,3 +50,12 @@ def create_ray_runtime_environment() -> Dict[str, Any]:
             "env_vars": worker_env_vars,
         }
     return runtime_environment
+
+
+def store_cli_args_in_os_environ(script_args_list=[]):
+    parser = argparse.ArgumentParser()
+    for args, kwargs in script_args_list:
+        parser.add_argument(*args, **kwargs)
+    args = parser.parse_args()
+    print(f"Command Line Arguments: {args}")
+    os.environ.update(vars(args))

@@ -1,26 +1,20 @@
 import unittest
-import sqlite3
 import ray
-import os
 from collections import defaultdict
 from deltacat.compute.compactor import DeltaAnnotated
-import deltacat.tests.local_deltacat_storage as ds
+from deltacat.storage import metastore
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.compute.compactor_v2.model.hash_bucket_input import HashBucketInput
 from deltacat.compute.compactor_v2.model.hash_bucket_result import HashBucketResult
 from deltacat.compute.compactor_v2.steps.hash_bucket import hash_bucket
-from deltacat.utils.common import current_time_ms
 from deltacat.tests.test_utils.pyarrow import create_delta_from_csv_file
 from unittest.mock import patch
-from deltacat.tests.local_deltacat_storage.exceptions import (
-    InvalidNamespaceError,
-    LocalStorageValidationError,
-)
+from deltacat.tests.utils.exceptions import InvalidNamespaceError
+import tempfile
 
 
-class TestHashBucket(unittest.TestCase):
-    HASH_BUCKET_NAMESPACE = "test_hash_bucket"
-    DB_FILE_PATH = f"{current_time_ms()}.db"
+class TestHashBucketMain(unittest.TestCase):
+    HASH_BUCKET_NAMESPACE = "test_hash_bucket_main"
     STRING_PK_FILE_PATH = (
         "deltacat/tests/compute/compactor_v2/steps/data/string_pk_table.csv"
     )
@@ -35,15 +29,21 @@ class TestHashBucket(unittest.TestCase):
     def setUp(self):
         ray.init(local_mode=True, ignore_reinit_error=True)
 
-        con = sqlite3.connect(self.DB_FILE_PATH)
-        cur = con.cursor()
-        self.kwargs = {ds.SQLITE_CON_ARG: con, ds.SQLITE_CUR_ARG: cur}
-        self.deltacat_storage_kwargs = {ds.DB_FILE_PATH_ARG: self.DB_FILE_PATH}
+        # Create a temporary directory for main storage
+        self.temp_dir = tempfile.mkdtemp()
+        from deltacat.catalog import CatalogProperties
+
+        catalog_properties = CatalogProperties(root=self.temp_dir)
+        self.kwargs = {"inner": catalog_properties}
+        self.deltacat_storage_kwargs = self.kwargs
 
         super().setUpClass()
 
     def tearDown(self) -> None:
-        os.remove(self.DB_FILE_PATH)
+        # Clean up temporary directory
+        import shutil
+
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
         ray.shutdown()
 
     def test_single_string_pk_correctly_hashes(self):
@@ -59,7 +59,7 @@ class TestHashBucket(unittest.TestCase):
             primary_keys=["pk"],
             num_hash_buckets=3,
             num_hash_groups=2,
-            deltacat_storage=ds,
+            deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
         )
@@ -91,7 +91,7 @@ class TestHashBucket(unittest.TestCase):
             primary_keys=["pk"],
             num_hash_buckets=2,
             num_hash_groups=1,
-            deltacat_storage=ds,
+            deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
         )
@@ -122,7 +122,7 @@ class TestHashBucket(unittest.TestCase):
             primary_keys=[],
             num_hash_buckets=2,
             num_hash_groups=1,
-            deltacat_storage=ds,
+            deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
         )
@@ -153,7 +153,7 @@ class TestHashBucket(unittest.TestCase):
             primary_keys=["pk1", "pk2"],
             num_hash_buckets=2,
             num_hash_groups=1,
-            deltacat_storage=ds,
+            deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
         )
@@ -186,7 +186,7 @@ class TestHashBucket(unittest.TestCase):
             primary_keys=["pk1", "pk2"],
             num_hash_buckets=2,
             num_hash_groups=1,
-            deltacat_storage=ds,
+            deltacat_storage=metastore,  # Use real metastore instead of mock
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
         )
@@ -195,9 +195,11 @@ class TestHashBucket(unittest.TestCase):
         try:
             hb_result_promise = hash_bucket.remote(hb_input)
             ray.get(hb_result_promise)
-            self.fail("Expected LocalStorageValidationError")
+            self.fail("Expected UnclassifiedDeltaCatError")
         except ray.exceptions.RayTaskError as e:
-            self.assertIsInstance(e.cause, LocalStorageValidationError)
+            from deltacat.exceptions import UnclassifiedDeltaCatError
+
+            self.assertIsInstance(e.cause, UnclassifiedDeltaCatError)
 
     def _validate_hash_bucket_result(
         self,
@@ -207,7 +209,6 @@ class TestHashBucket(unittest.TestCase):
         num_columns: int,
         object_store,
     ):
-
         self.assertEqual(hb_result.hb_record_count, record_count)
         self.assertIsNotNone(hb_result)
         self.assertIsNotNone(hb_result.peak_memory_usage_bytes)
@@ -229,3 +230,7 @@ class TestHashBucket(unittest.TestCase):
 
         self.assertTrue(len(hb_index_to_dfes) <= num_hash_buckets)
         self.assertEqual(total_records_in_result, record_count)
+
+
+if __name__ == "__main__":
+    unittest.main()

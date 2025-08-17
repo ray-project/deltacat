@@ -1,7 +1,6 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-TEST_S3_RCF_BUCKET_NAME = "test-compaction-artifacts-bucket"
 # REBASE  src = spark compacted table to create an initial version of ray compacted table
 BASE_TEST_SOURCE_NAMESPACE = "source_test_namespace"
 BASE_TEST_SOURCE_TABLE_NAME = "source_test_table"

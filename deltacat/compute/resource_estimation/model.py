@@ -24,6 +24,14 @@ class ResourceEstimationMethod(str, Enum):
     DEFAULT_V2 = "DEFAULT_V2"
 
     """
+    This approach combines file sampling estimation and inflation based methods
+    and runs them in the order specified below:
+    1. FILE_SAMPLING
+    2. PREVIOUS_INFLATION
+    """
+    FILE_SAMPLING_WITH_PREVIOUS_INFLATION = "FILE_SAMPLING_WITH_PREVIOUS_INFLATION"
+
+    """
     This approach strictly uses previous inflation and average record size to arrive
     at a resource estimate. It requires users to pass in previous inflation and average
     record sizes.

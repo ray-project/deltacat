@@ -1,12 +1,10 @@
 import ray
 import deltacat
 import daft
-import pyiceberg
 
 
 def print_package_version_info():
     print(f"DeltaCAT Version: {deltacat.__version__}")
-    print(f"PyIceberg Version: {pyiceberg.__version__}")
     print(f"Ray Version: {ray.__version__}")
     print(f"Daft Version: {daft.__version__}")
 
@@ -24,4 +22,8 @@ def run():
 
 
 if __name__ == "__main__":
+    # initialize deltacat
+    deltacat.init()
+
+    # run the example
     run()

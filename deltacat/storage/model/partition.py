@@ -39,6 +39,7 @@ An ordered list of partition values. Partition values are typically derived
 by applying one or more transforms to a table's fields.
 """
 PartitionValues = List[Any]
+UNPARTITIONED_SCHEME_NAME = "unpartitioned_scheme"
 UNPARTITIONED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
 
 
@@ -175,6 +176,7 @@ class Partition(Metafile):
         partition_locator = self.locator
         if partition_locator:
             return partition_locator.partition_values
+        return None
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
@@ -468,6 +470,12 @@ class PartitionKey(dict):
         transform: Optional[Transform] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionKey:
+        if (
+            len(key) > 1
+            and transform is not None
+            and not transform.is_multi_field_transform
+        ):
+            raise ValueError(f"{len(key)} keys given for 1-key transform.")
         return PartitionKey(
             {
                 "key": key,
@@ -545,6 +553,40 @@ class PartitionScheme(dict):
         scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> PartitionScheme:
+        # Validate keys if provided
+        if keys is not None:
+            # Check for empty keys list
+            if len(keys) == 0:
+                raise ValueError("Partition scheme cannot have empty keys list")
+
+            # Check for duplicate keys (by field locators and transform types) and names
+            seen_key_transform_pairs = set()
+            seen_names = set()
+            for key in keys:
+                # Check for duplicate field locators with identical transform types
+                key_tuple = tuple(key.key) if key.key else ()
+                transform_type = type(key.transform) if key.transform else None
+                key_transform_pair = (key_tuple, transform_type)
+
+                if key_transform_pair in seen_key_transform_pairs:
+                    # Use the first field locator for the error message
+                    key_name = key.key[0] if key.key else "unknown"
+                    transform_name = (
+                        transform_type.__name__ if transform_type else "None"
+                    )
+                    raise ValueError(
+                        f"Duplicate partition key found: {key_name} with transform type {transform_name}"
+                    )
+                seen_key_transform_pairs.add(key_transform_pair)
+
+                # Check for duplicate names (when specified)
+                if key.name is not None:
+                    if key.name in seen_names:
+                        raise ValueError(
+                            f"Duplicate partition key name found: {key.name}"
+                        )
+                    seen_names.add(key.name)
+
         return PartitionScheme(
             {
                 "keys": keys,
@@ -565,6 +607,15 @@ class PartitionScheme(dict):
             return False
         if not isinstance(other, PartitionScheme):
             other = PartitionScheme(other)
+        # If both have None keys, they are equivalent (for unpartitioned schemes)
+        if self.keys is None and other.keys is None:
+            return not check_identifiers or (
+                self.name == other.name and self.id == other.id
+            )
+        # If only one has None keys, they are not equivalent
+        if self.keys is None or other.keys is None:
+            return False
+        # Compare keys if both have them
         for i in range(len(self.keys)):
             if not self.keys[i].equivalent_to(other.keys[i], check_identifiers):
                 return False
@@ -590,6 +641,13 @@ class PartitionScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
+
+
+UNPARTITIONED_SCHEME = PartitionScheme.of(
+    keys=None,
+    name=UNPARTITIONED_SCHEME_NAME,
+    scheme_id=UNPARTITIONED_SCHEME_ID,
+)
 
 
 class PartitionSchemeList(List[PartitionScheme]):
@@ -639,8 +697,8 @@ class PartitionLocatorAlias(Locator, dict):
                     ),
                 }
             )
-            if parent_partition.state == CommitState.COMMITTED
-            else None  # only committed partitions can be resolved by alias
+            if parent_partition.state != CommitState.STAGED
+            else None  # staged partitions cannot be resolved by alias
         )
 
     @property

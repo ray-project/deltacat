@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import botocore.exceptions
 
+from daft.exceptions import DaftTransientError
 from deltacat.utils.common import env_string, env_bool
-import os
+from deltacat.utils.common import env_integer
 
 # Environment variables
 DELTACAT_SYS_LOG_LEVEL = env_string("DELTACAT_SYS_LOG_LEVEL", "DEBUG")
@@ -40,14 +42,13 @@ DELTACAT_LOGGER_USE_SINGLE_HANDLER = env_bool(
 )
 DELTACAT_ROOT = env_string(
     "DELTACAT_ROOT",
-    os.path.join(os.getcwd(), ".deltacat"),
+    "",
 )
 
 # CLI Args
-METAFILE_FORMAT_KEY = "METAFILE_FORMAT"
 METAFILE_FORMAT_JSON = "json"
 METAFILE_FORMAT_MSGPACK = "msgpack"
-METAFILE_FORMAT = env_string(METAFILE_FORMAT_KEY, METAFILE_FORMAT_MSGPACK)
+METAFILE_FORMAT = env_string("METAFILE_FORMAT", METAFILE_FORMAT_MSGPACK)
 SUPPORTED_METAFILE_FORMATS = [METAFILE_FORMAT_JSON, METAFILE_FORMAT_MSGPACK]
 METAFILE_EXT = {
     "json": ".json",
@@ -93,14 +94,56 @@ REVISION_DIR_NAME: str = "rev"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
 FAILED_TXN_DIR_NAME: str = "failed"
+PAUSED_TXN_DIR_NAME: str = "paused"
 SUCCESS_TXN_DIR_NAME: str = "success"
+DATA_FILE_DIR_NAME: str = "data"
+REV_DIR_NAME: str = "rev"
 TXN_PART_SEPARATOR = "_"
+
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations
 # Storage interface implementations should be agnostic to defaults and require full information
-DEFAULT_CATALOG = "DEFAULT"
-DEFAULT_NAMESPACE = "DEFAULT"
+DEFAULT_CATALOG = "default"
+DEFAULT_NAMESPACE = "default"
 DEFAULT_TABLE_VERSION = "1"
 DEFAULT_STREAM_ID = "stream"
 DEFAULT_PARTITION_ID = "partition"
 DEFAULT_PARTITION_VALUES = ["default"]
+
+# Transaction Status constants
+SUCCESSFULLY_CLEANED = "cleaned"
+CURRENTLY_CLEANING = "cleaning"
+TIMEOUT_TXN = "timedout"
+
+# operation timeout constants
+OPERATION_TIMEOUTS = {
+    "create": 5,
+    "update": 3,
+    "delete": 4,
+    "read_siblings": 2,
+    "read_children": 2,
+    "read_latest": 3,
+    "read_exists": 1,
+}
+# Upload/Download Retry Defaults
+UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY = env_integer(
+    "UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY", 10 * 60
+)
+UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY = env_integer(
+    "UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY", 30 * 60
+)
+DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY = env_integer(
+    "DOWNLOAD_MANIFEST_ENTRY_RETRY_STOP_AFTER_DELAY", 30 * 60
+)
+DEFAULT_FILE_READ_TIMEOUT_MS = env_integer(
+    "DEFAULT_FILE_READ_TIMEOUT_MS", 300_000
+)  # 5 mins
+RETRYABLE_TRANSIENT_ERRORS = (
+    OSError,
+    botocore.exceptions.ConnectionError,
+    botocore.exceptions.HTTPClientError,
+    botocore.exceptions.NoCredentialsError,
+    botocore.exceptions.ConnectTimeoutError,
+    botocore.exceptions.ReadTimeoutError,
+    DaftTransientError,
+)

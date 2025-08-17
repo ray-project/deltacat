@@ -5,13 +5,15 @@ import ray
 import time
 import json
 from math import ceil
+from urllib.parse import urlparse
+import pyarrow
 
 from deltacat.compute.compactor import (
     PyArrowWriteResult,
     HighWatermark,
     RoundCompletionInfo,
 )
-from deltacat.aws import s3u as s3_utils
+from deltacat.utils.filesystem import resolve_path_and_filesystem
 from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.compute.compactor_v2.model.evaluate_compaction_result import (
     ExecutionCompactionResult,
@@ -88,10 +90,9 @@ def _fetch_compaction_metadata(
 
     if not params.rebase_source_partition_locator:
         round_completion_info = rcf.read_round_completion_file(
-            params.compaction_artifact_s3_bucket,
+            params.compaction_artifact_path,
             params.source_partition_locator,
             params.destination_partition_locator,
-            **params.s3_client_kwargs,
         )
         if not round_completion_info:
             logger.info(
@@ -159,10 +160,10 @@ def _build_uniform_deltas(
         delta_discovery_end - delta_discovery_start
     )
 
-    s3_utils.upload(
+    _upload_audit_data(
+        params,
         mutable_compaction_audit.audit_url,
         str(json.dumps(mutable_compaction_audit)),
-        **params.s3_client_kwargs,
     )
 
     return (
@@ -267,10 +268,10 @@ def _run_hash_and_merge(
             hb_end - hb_start,
         )
 
-        s3_utils.upload(
+        _upload_audit_data(
+            params,
             mutable_compaction_audit.audit_url,
             str(json.dumps(mutable_compaction_audit)),
-            **params.s3_client_kwargs,
         )
 
         hb_data_processed_size_bytes = np.int64(0)
@@ -428,7 +429,7 @@ def _merge(
                 max_records_per_output_file=params.records_per_compacted_file,
                 enable_profiler=params.enable_profiler,
                 metrics_config=params.metrics_config,
-                s3_table_writer_kwargs=params.s3_table_writer_kwargs,
+                table_writer_kwargs=params.table_writer_kwargs,
                 read_kwargs_provider=params.read_kwargs_provider,
                 round_completion_info=round_completion_info,
                 object_store=params.object_store,
@@ -438,6 +439,7 @@ def _merge(
                 delete_file_envelopes=delete_file_envelopes,
                 memory_logs_enabled=params.memory_logs_enabled,
                 disable_copy_by_reference=params.disable_copy_by_reference,
+                hash_bucket_count=params.hash_bucket_count,
             )
         }
 
@@ -595,10 +597,10 @@ def _process_merge_results(
         file_index += mat_result.pyarrow_write_result.files
         previous_task_index = mat_result.task_index
 
-    s3_utils.upload(
+    _upload_audit_data(
+        params,
         mutable_compaction_audit.audit_url,
         str(json.dumps(mutable_compaction_audit)),
-        **params.s3_client_kwargs,
     )
     deltas: List[Delta] = [m.delta for m in mat_results]
     # Note: An appropriate last stream position must be set
@@ -633,10 +635,10 @@ def _update_and_upload_compaction_audit(
             + round_completion_info.compacted_pyarrow_write_result.records
         )
 
-    s3_utils.upload(
+    _upload_audit_data(
+        params,
         mutable_compaction_audit.audit_url,
         str(json.dumps(mutable_compaction_audit)),
-        **params.s3_client_kwargs,
     )
     return
 
@@ -725,11 +727,10 @@ def _write_new_round_completion_file(
         rcf_source_partition_locator = compacted_partition.locator
 
     round_completion_file_s3_url = rcf.write_round_completion_file(
-        params.compaction_artifact_s3_bucket,
+        params.compaction_artifact_path,
         rcf_source_partition_locator,
         compacted_partition.locator,
         new_round_completion_info,
-        **params.s3_client_kwargs,
     )
 
     return ExecutionCompactionResult(
@@ -776,3 +777,56 @@ def _commit_compaction_result(
         logger.warning("No new partition was committed during compaction.")
 
     logger.info(f"Completed compaction session for: {params.source_partition_locator}")
+
+
+def _upload_audit_data(
+    params: CompactPartitionParams,
+    audit_url: str,
+    audit_data: str,
+) -> None:
+    """
+    Upload audit data to the specified URL using the filesystem from catalog properties.
+    """
+    if params.catalog and params.catalog.filesystem:
+        # Use the filesystem from catalog properties
+        filesystem = params.catalog.filesystem
+        parsed_url = urlparse(audit_url)
+        # For filesystem paths, use the path component
+        path = parsed_url.path if parsed_url.scheme else audit_url
+
+        # Ensure parent directories exist
+        import os
+
+        parent_dir = os.path.dirname(path)
+        if (
+            parent_dir
+            and not filesystem.get_file_info(parent_dir).type
+            == pyarrow.fs.FileType.Directory
+        ):
+            try:
+                filesystem.create_dir(parent_dir, recursive=True)
+            except Exception as e:
+                logger.warning(f"Failed to create directory {parent_dir}: {e}")
+
+        with filesystem.open_output_stream(path) as output_stream:
+            output_stream.write(audit_data.encode("utf-8"))
+    else:
+        # Fallback: resolve filesystem from the URL
+        path, filesystem = resolve_path_and_filesystem(audit_url)
+
+        # Ensure parent directories exist
+        import os
+
+        parent_dir = os.path.dirname(path)
+        if (
+            parent_dir
+            and not filesystem.get_file_info(parent_dir).type
+            == pyarrow.fs.FileType.Directory
+        ):
+            try:
+                filesystem.create_dir(parent_dir, recursive=True)
+            except Exception as e:
+                logger.warning(f"Failed to create directory {parent_dir}: {e}")
+
+        with filesystem.open_output_stream(path) as output_stream:
+            output_stream.write(audit_data.encode("utf-8"))

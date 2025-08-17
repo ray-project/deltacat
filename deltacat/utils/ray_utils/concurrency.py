@@ -88,7 +88,7 @@ def round_robin_options_provider(
     **kwargs,
 ) -> Dict[str, Any]:
     """Returns a resource dictionary that can be included with ray remote
-    options to round robin indexed tasks or actors across a list of resource
+    options to round-robin indexed tasks or actors across a list of resource
     keys. For example, the following code round-robins 100 tasks across all
     live cluster nodes:
     ```

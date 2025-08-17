@@ -1,10 +1,12 @@
 import math
 from random import shuffle
 import pytest
-from deltacat.storage.rivulet.dataset import Dataset
-from deltacat.storage.rivulet.schema.datatype import Datatype
-from deltacat.storage.rivulet.reader.query_expression import QueryExpression
-from deltacat.storage.rivulet.schema.schema import Schema
+from deltacat.experimental.storage.rivulet.dataset import Dataset
+from deltacat.experimental.storage.rivulet.schema.datatype import Datatype
+from deltacat.experimental.storage.rivulet.reader.query_expression import (
+    QueryExpression,
+)
+from deltacat.experimental.storage.rivulet.schema.schema import Schema
 from deltacat.benchmarking.benchmark_engine import BenchmarkEngine
 from deltacat.benchmarking.benchmark_report import BenchmarkRun, BenchmarkReport
 from deltacat.benchmarking.benchmark_suite import BenchmarkSuite

@@ -11,15 +11,15 @@ from deltacat.exceptions import (
     UnclassifiedDeltaCatError,
 )
 from daft.exceptions import DaftTransientError
-from deltacat.tests.local_deltacat_storage.exceptions import (
+from deltacat.tests.utils.exceptions import (
     InvalidNamespaceError,
-    LocalStorageValidationError,
+    MainStorageValidationError,
 )
+from deltacat.tests.utils import main_deltacat_storage_mock as ds
 from botocore.exceptions import NoCredentialsError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from pyarrow.lib import ArrowCapacityError
-import deltacat.tests.local_deltacat_storage as ds
 
 
 class MockUnknownException(Exception):
@@ -41,7 +41,7 @@ def mock_remote_task(exception_to_raise):
     mock_raise_exception(exception_to_raise)
 
 
-class TestCategorizeErrors(unittest.TestCase):
+class TestCategorizeErrorsMain(unittest.TestCase):
     def test_pyarrow_exception_categorizer(self):
         self.assertRaises(
             DependencyPyarrowCapacityError,
@@ -50,7 +50,7 @@ class TestCategorizeErrors(unittest.TestCase):
 
     def test_storage_exception_categorizer(self):
         self.assertRaises(
-            LocalStorageValidationError,
+            MainStorageValidationError,
             lambda: mock_raise_exception(InvalidNamespaceError, deltacat_storage=ds),
         )
 
@@ -98,3 +98,7 @@ class TestCategorizeErrors(unittest.TestCase):
             return
 
         self.assertFalse(True)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -12,6 +12,9 @@ from deltacat.storage.model.types import (
 from deltacat.storage.model.schema import FieldLocator
 from deltacat.storage.model.transform import Transform
 
+UNSORTED_SCHEME_NAME = "unsorted_scheme"
+UNSORTED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
+
 
 class SortKey(tuple):
     @staticmethod
@@ -112,6 +115,19 @@ class SortScheme(dict):
         scheme_id: Optional[str] = None,
         native_object: Optional[Any] = None,
     ) -> SortScheme:
+        # Validate keys if provided
+        if keys is not None:
+            # Check for empty keys list
+            if len(keys) == 0:
+                raise ValueError("Sort scheme cannot have empty keys list")
+
+            # Check for duplicate keys
+            key_names = []
+            for key in keys:
+                if key.key[0] in key_names:
+                    raise ValueError(f"Duplicate sort key found: {key.key[0]}")
+                key_names.append(key.key[0])
+
         return SortScheme(
             {
                 "keys": keys,
@@ -132,6 +148,15 @@ class SortScheme(dict):
             return False
         if not isinstance(other, SortScheme):
             other = SortScheme(other)
+        # If both have None keys, they are equivalent (for unsorted schemes)
+        if self.keys is None and other.keys is None:
+            return not check_identifiers or (
+                self.name == other.name and self.id == other.id
+            )
+        # If only one has None keys, they are not equivalent
+        if self.keys is None or other.keys is None:
+            return False
+        # Compare keys if both have them
         for i in range(len(self.keys)):
             if not self.keys[i].equivalent_to(other.keys[i]):
                 return False
@@ -171,6 +196,13 @@ class SortScheme(dict):
     @property
     def native_object(self) -> Optional[Any]:
         return self.get("nativeObject")
+
+
+UNSORTED_SCHEME = SortScheme.of(
+    keys=None,
+    name=UNSORTED_SCHEME_NAME,
+    scheme_id=UNSORTED_SCHEME_ID,
+)
 
 
 class SortSchemeList(List[SortScheme]):

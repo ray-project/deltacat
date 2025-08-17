@@ -6,23 +6,27 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from ray.data.dataset import Dataset
+import polars as pl
+from ray.data.dataset import Dataset as RayDataset
 from daft import DataFrame as DaftDataFrame
 
 
 LocalTable = Union[
     pa.Table,
     pd.DataFrame,
+    pl.DataFrame,
     np.ndarray,
     pa.parquet.ParquetFile,
 ]
-LocalDataset = List[LocalTable]
-DistributedDataset = Union[Dataset, DaftDataFrame]
+LocalDataset = Union[LocalTable, List[LocalTable]]
+DistributedDataset = Union[RayDataset, DaftDataFrame]
+Dataset = Union[LocalDataset, DistributedDataset]
 
 
 class StreamFormat(str, Enum):
     DELTACAT = "deltacat"
     ICEBERG = "iceberg"
+    HIVE = "hive"
     HUDI = "hudi"
     DELTA_LAKE = "delta_lake"
     SQLITE3 = "SQLITE3"  # used by tests
@@ -91,6 +95,14 @@ class TransactionOperationType(str, Enum):
 
     def is_read_operation(self) -> bool:
         return self in TransactionOperationType.read_operatins()
+
+
+class TransactionState(str, Enum):
+    FAILED = "CLEANING"
+    PURGED = "CLEANED"
+    TIMEOUT = "TIMEOUT"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
 
 
 class LifecycleState(str, Enum):

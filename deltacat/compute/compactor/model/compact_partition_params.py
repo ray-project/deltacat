@@ -2,6 +2,7 @@ from __future__ import annotations
 import importlib
 import copy
 import json
+import posixpath
 from typing import Any, Dict, List, Optional
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.common import ReadKwargsProvider
@@ -9,10 +10,11 @@ from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
 from deltacat.io.ray_plasma_object_store import RayPlasmaObjectStore
 from deltacat.storage import (
-    interface as unimplemented_deltacat_storage,
+    metastore,
     PartitionLocator,
     SortKey,
 )
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.compute.resource_estimation import (
     ResourceEstimationMethod,
     EstimateResourcesParams,
@@ -52,9 +54,7 @@ class CompactPartitionParams(dict):
         assert (
             params.get("source_partition_locator") is not None
         ), "source_partition_locator is a required arg"
-        assert (
-            params.get("compaction_artifact_s3_bucket") is not None
-        ), "compaction_artifact_s3_bucket is a required arg"
+        assert params.get("catalog") is not None, "catalog is a required arg"
 
         result = CompactPartitionParams(params)
 
@@ -65,15 +65,17 @@ class CompactPartitionParams(dict):
             "compacted_file_content_type", ContentType.PARQUET
         )
         result.object_store = params.get("object_store", RayPlasmaObjectStore())
+        result.table_writer_kwargs = params.get("table_writer_kwargs", {})
 
         result.enable_profiler = params.get("enable_profiler", False)
-        result.deltacat_storage = params.get(
-            "deltacat_storage", unimplemented_deltacat_storage
-        )
-        result.s3_client_kwargs = params.get("s3_client_kwargs", {})
+        result.deltacat_storage = params.get("deltacat_storage", metastore)
+        result.catalog = params.get("catalog")
         result.deltacat_storage_kwargs = params.get("deltacat_storage_kwargs", {})
         result.list_deltas_kwargs = params.get("list_deltas_kwargs", {})
-        result.s3_table_writer_kwargs = params.get("s3_table_writer_kwargs", {})
+
+        # Add catalog to deltacat_storage_kwargs
+        result.deltacat_storage_kwargs["catalog"] = result.catalog
+
         result.bit_width_of_sort_keys = validate_sort_keys(
             result.source_partition_locator,
             result.sort_keys,
@@ -177,20 +179,31 @@ class CompactPartitionParams(dict):
         self["source_partition_locator"] = locator
 
     @property
-    def compaction_artifact_s3_bucket(self) -> str:
-        return self["compaction_artifact_s3_bucket"]
-
-    @compaction_artifact_s3_bucket.setter
-    def compaction_artifact_s3_bucket(self, s3_bucket: str) -> None:
-        self["compaction_artifact_s3_bucket"] = s3_bucket
+    def compaction_artifact_path(self) -> str:
+        """
+        Returns the compaction artifact path based on catalog root.
+        """
+        return posixpath.join(self.catalog.root, "compute", "compactor")
 
     @property
-    def deltacat_storage(self) -> unimplemented_deltacat_storage:
+    def deltacat_storage(self) -> metastore:
         return self["deltacat_storage"]
 
     @deltacat_storage.setter
-    def deltacat_storage(self, storage: unimplemented_deltacat_storage) -> None:
+    def deltacat_storage(self, storage: metastore) -> None:
         self["deltacat_storage"] = storage
+
+    @property
+    def catalog(self) -> CatalogProperties:
+        return self["catalog"]
+
+    @catalog.setter
+    def catalog(self, catalog: CatalogProperties) -> None:
+        self["catalog"] = catalog
+        # Update deltacat_storage_kwargs when catalog is set
+        if "deltacat_storage_kwargs" not in self:
+            self["deltacat_storage_kwargs"] = {}
+        self["deltacat_storage_kwargs"]["catalog"] = catalog
 
     @property
     def object_store(self) -> IObjectStore:
@@ -287,28 +300,12 @@ class CompactPartitionParams(dict):
         self["list_deltas_kwargs"] = kwargs
 
     @property
-    def s3_table_writer_kwargs(self) -> dict:
-        return self["s3_table_writer_kwargs"]
-
-    @s3_table_writer_kwargs.setter
-    def s3_table_writer_kwargs(self, kwargs: dict) -> None:
-        self["s3_table_writer_kwargs"] = kwargs
-
-    @property
     def deltacat_storage_kwargs(self) -> dict:
         return self["deltacat_storage_kwargs"]
 
     @deltacat_storage_kwargs.setter
     def deltacat_storage_kwargs(self, kwargs: dict) -> None:
         self["deltacat_storage_kwargs"] = kwargs
-
-    @property
-    def s3_client_kwargs(self) -> dict:
-        return self["s3_client_kwargs"]
-
-    @s3_client_kwargs.setter
-    def s3_client_kwargs(self, kwargs: dict) -> None:
-        self["s3_client_kwargs"] = kwargs
 
     @property
     def records_per_compacted_file(self) -> int:
@@ -488,6 +485,14 @@ class CompactPartitionParams(dict):
             parquet_to_pyarrow_inflation=self.parquet_to_pyarrow_inflation,
             average_record_size_bytes=self.average_record_size_bytes,
         )
+
+    @property
+    def table_writer_kwargs(self) -> dict:
+        return self["table_writer_kwargs"]
+
+    @table_writer_kwargs.setter
+    def table_writer_kwargs(self, kwargs: dict) -> None:
+        self["table_writer_kwargs"] = kwargs
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

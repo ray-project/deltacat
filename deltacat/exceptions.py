@@ -87,9 +87,12 @@ class DeltaCatError(Exception):
         super().__init__(*args, **kwargs)
 
     def _get_ray_task_id_and_node_ip(self):
-        task_id = get_current_ray_task_id()
-        node_ip = ray.util.get_node_ip_address()
-        return task_id, node_ip
+        if ray.is_initialized():
+            task_id = get_current_ray_task_id()
+            node_ip = ray.util.get_node_ip_address()
+            return task_id, node_ip
+        else:
+            return None, None
 
 
 class NonRetryableError(DeltaCatError):
