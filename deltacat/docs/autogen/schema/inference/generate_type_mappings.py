@@ -188,9 +188,39 @@ def get_comprehensive_test_types() -> List[Tuple[str, str, List[Any]]]:
             [Decimal("123.45"), Decimal("-67.89"), Decimal("999.99")],
         ),
         (
+            "decimal128_38_0",
+            "pa.decimal128(38, 0)",
+            [Decimal("12345678901234567890123456789012345678"), Decimal("-12345678901234567890123456789012345678"), Decimal("0")],
+        ),
+        (
+            "decimal128_1_0",
+            "pa.decimal128(1, 0)",
+            [Decimal("1"), Decimal("2"), Decimal("3")],
+        ),
+        (
+            "decimal128_38_10",
+            "pa.decimal128(38, 10)",
+            [Decimal("1234567890123456789012345678.9012345678"), Decimal("-1234567890123456789012345678.9012345678"), Decimal("0.0000000000")],
+        ),
+        (
+            "decimal256_76_0",
+            "pa.decimal256(76, 0)",
+            [Decimal("1234567890123456789012345678901234567812345678901234567890123456789012345678"), Decimal("-0"), Decimal("0")],
+        ),
+        (
+            "decimal256_1_0",
+            "pa.decimal256(1, 0)",
+            [Decimal("1"), Decimal("2"), Decimal("3")],
+        ),
+        (
+            "decimal256_5_2",
+            "pa.decimal256(5, 2)",
+            [Decimal("123.45"), Decimal("-67.89"), Decimal("999.99")],
+        ),
+        (
             "decimal256_76_38",
             "pa.decimal256(76, 38)",
-            [Decimal("123.45"), Decimal("-67.89"), Decimal("999.99")],
+            [Decimal("12345678901234567890123456789012345678.12345678901234567890123456789012345678"), Decimal("-0.00000000000000000000000000000000000000"), Decimal("0.00000000000000000000000000000000000000")],
         ),
         # List types
         ("list_int32", "pa.list_(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
@@ -639,10 +669,11 @@ def main():
     version_info = get_version_info()
     output_data = {"metadata": version_info, "test_results": all_results}
 
-    with open("proper_physical_schema_test_results.json", "w") as f:
+    output_file_name = "generate_type_mappings_results.json"
+    with open(output_file_name, "w") as f:
         json.dump(output_data, f, indent=2, default=str)
 
-    print(f"Detailed results saved to: proper_physical_schema_test_results.json")
+    print(f"Detailed results saved to: {output_file_name}")
     print(f"Catalog directory: {temp_dir}")
 
     # Don't cleanup for manual inspection
