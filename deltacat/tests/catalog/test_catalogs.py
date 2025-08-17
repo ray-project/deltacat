@@ -4,6 +4,7 @@ import shutil
 import uuid
 from unittest import mock
 import os
+import yaml
 
 from deltacat.catalog import (
     CatalogProperties,
@@ -151,6 +152,49 @@ class TestCatalogsIntegration:
         default_catalog = get_catalog()
         assert default_catalog.impl == MockCatalogImpl
         assert default_catalog.inner["kwargs"]["id"] == 2
+
+    def test_init_with_config_yaml(self, tmp_path, reset_catalogs):
+        """
+        Test initializing Catalogs from a YAML config file.
+        CatalogProperties will infer filesystem and storage, so we don't
+        put actual Python objects in the YAML.
+        - load_catalog_configs_from_yaml returns a dict[str, CatalogProperties],
+        so we provide one entry keyed by a catalog name.
+        - get_catalog() with no arguments should always return the *default*
+        catalog, even if multiple catalogs are loaded. In this case we only
+        provide one catalog ("test_catalog"), so it should automatically
+        become the default.
+        """
+        # YAML data compatible with CatalogProperties
+        config_data = {
+            "test-catalog": {
+                "root": str(tmp_path),  # path for catalog metadata/data
+                "filesystem": None,  # leave None; CatalogProperties will infer filesystem
+                "storage": None,  # leave None; CatalogProperties will infer storage
+            }
+        }
+
+        # Write the YAML config file
+        config_path = tmp_path / "config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f)
+
+        # Initialize from the YAML config
+        init(config_path=str(config_path), force=True)
+
+        # Retrieve the default catalog (returns CatalogProperties directly)
+        catalog_props = get_catalog()  # no args → default "test-catalog"
+
+        # Should be a CatalogProperties instance
+        assert isinstance(catalog_props, CatalogProperties)
+        assert catalog_props.root == str(tmp_path)
+
+        # filesystem and storage are inferred by CatalogProperties; check types
+        import pyarrow.fs
+
+        assert isinstance(catalog_props.filesystem, pyarrow.fs.FileSystem)
+        # TODO: If storage has a default class, check its type here
+        # assert isinstance(inner.storage, ExpectedStorageClass)
 
     def test_put_catalog(self, reset_catalogs):
         """Test adding a catalog after initialization."""

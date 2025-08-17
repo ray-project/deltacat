@@ -45,6 +45,8 @@ DELTACAT_ROOT = env_string(
     "",
 )
 
+DELTACAT_CONFIG_PATH = env_string("DELTACAT_CONFIG_PATH", "~/.deltacat/config.yaml")
+
 # CLI Args
 METAFILE_FORMAT_JSON = "json"
 METAFILE_FORMAT_MSGPACK = "msgpack"
