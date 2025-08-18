@@ -547,10 +547,18 @@ class Dataset:
                         f = tar.extractfile(member)
                         if f:
                             try:
+                                if not merge_keys or not isinstance(merge_keys, str):
+                                    if len(merge_keys) == 1:
+                                        merge_keys = merge_keys[0]
+                                    else:
+                                        raise ValueError(
+                                            "Multiple merge keys are not supported in from_webdataset(). Please specify only 1 merge key as a string."
+                                        )
+                                
                                 merge_key = merge_keys
 
                                 pyarrow_table = pyarrow.json.read_json(f)
-                                image_filename = pyarrow_table[merge_key][0].as_py() 
+                                image_filename = pyarrow_table[merge_key][0].as_py()
 
                                 # truncated_filename = normalize_filename(image_filename[image_filename.index('/') + 1:])
                                 truncated_filename = normalize_filename(os.path.basename(image_filename))

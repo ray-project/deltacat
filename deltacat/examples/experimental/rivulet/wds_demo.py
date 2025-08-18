@@ -84,9 +84,9 @@ for batch in ds.scan().to_arrow():
         rows_to_write = [
             {
                 "filename": fname,
-                "bird_species": bird_labels[idx]
+                "bird_species": bird_species
             }
-            for idx, fname in enumerate(filenames)
+            for fname, bird_species in zip(filenames, bird_labels)
         ]
     print("ROWS", rows_to_write)  # Print rows to be written
     dataset_writer.write(rows_to_write)  # Write the output to dataset
