@@ -99,19 +99,19 @@ class SchemaUpdateOperation(tuple):
     """
 
     @staticmethod
-    def add_field(field: "Field") -> "SchemaUpdateOperation":
+    def add_field(field: Field) -> SchemaUpdateOperation:
         """Create an operation to add a new field."""
         return SchemaUpdateOperation(("add", None, field))
 
     @staticmethod
-    def remove_field(field_locator: FieldLocator) -> "SchemaUpdateOperation":
+    def remove_field(field_locator: FieldLocator) -> SchemaUpdateOperation:
         """Create an operation to remove an existing field."""
         return SchemaUpdateOperation(("remove", field_locator, None))
 
     @staticmethod
     def update_field(
-        field_locator: FieldLocator, field: "Field"
-    ) -> "SchemaUpdateOperation":
+        field_locator: FieldLocator, field: Field
+    ) -> SchemaUpdateOperation:
         """Create an operation to update an existing field."""
         return SchemaUpdateOperation(("update", field_locator, field))
 
@@ -126,7 +126,7 @@ class SchemaUpdateOperation(tuple):
         return self[1]
 
     @property
-    def field(self) -> Optional["Field"]:
+    def field(self) -> Optional[Field]:
         """The field data (None for remove operations)."""
         return self[2]
 
@@ -144,7 +144,7 @@ class SchemaUpdateOperations(List[SchemaUpdateOperation]):
     """
 
     @staticmethod
-    def of(operations: List[SchemaUpdateOperation]) -> "SchemaUpdateOperations":
+    def of(operations: List[SchemaUpdateOperation]) -> SchemaUpdateOperations:
         """Create a SchemaUpdateOperations list from a list of operations."""
         typed_operations = SchemaUpdateOperations()
         for operation in operations:
@@ -823,6 +823,8 @@ class Schema(dict):
             visit=Schema._populate_fields,
             visitor_dict=visitor_dict,
         )
+        # recalculate max field ID after field population (in case new field IDs were assigned)
+        max_field_id = max(field_ids_to_fields.keys()) if field_ids_to_fields else 0
         if schema.metadata:
             schema_metadata.update(schema.metadata)
         # populate merge keys
@@ -915,7 +917,7 @@ class Schema(dict):
             schema_id=self.id + 1,
         )
 
-    def update(self, allow_incompatible_changes: bool = False) -> "SchemaUpdate":
+    def update(self, allow_incompatible_changes: bool = False) -> SchemaUpdate:
         """
         Create a SchemaUpdate instance for safely evolving this schema.
 
@@ -1066,11 +1068,8 @@ class Schema(dict):
         dataset: Union[pa.Table, Any],
         schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
         default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
-    ) -> Tuple[Union[pa.Table, Any], "Schema"]:
+    ) -> Tuple[Union[pa.Table, Any], Schema]:
         """Validate and coerce a dataset to match this schema's field types and constraints.
-
-        This method generalizes validate_and_coerce_table to work with different dataset types,
-        particularly Daft DataFrames without collecting them to memory.
 
         Args:
             dataset: Dataset to validate and coerce (PyArrow Table, Daft DataFrame, etc.)
@@ -1079,7 +1078,7 @@ class Schema(dict):
 
         Returns:
             Tuple[Dataset, Schema]: Dataset with data validated/coerced according to schema consistency types,
-                                   and the (potentially updated) schema
+            and the (potentially updated) schema
 
         Raises:
             SchemaValidationError: If validation fails or coercion is not possible
@@ -1169,7 +1168,7 @@ class Schema(dict):
         dataframe: Any,  # DaftDataFrame type
         schema_evolution_mode: Optional[SchemaEvolutionMode] = None,
         default_schema_consistency_type: Optional[SchemaConsistencyType] = None,
-    ) -> Tuple[Any, "Schema"]:
+    ) -> Tuple[Any, Schema]:
         """Validate and coerce a Daft DataFrame without collecting to memory.
 
         This method processes Daft DataFrames column by column using Daft expressions
@@ -1236,10 +1235,10 @@ class Schema(dict):
         dataframe: Any,  # DaftDataFrame type
         column_name: str,
         column_type: pa.DataType,
-        field_name_to_field: Dict[str, "Field"],
+        field_name_to_field: Dict[str, Field],
         schema_evolution_mode: Optional[SchemaEvolutionMode],
         default_schema_consistency_type: Optional[SchemaConsistencyType],
-    ) -> Tuple[Any, pa.Field, Optional["Field"], Optional["Field"]]:
+    ) -> Tuple[Any, pa.Field, Optional[Field], Optional[Field]]:
         """Process a Daft DataFrame column that exists in the dataset.
 
         Args:
@@ -1283,8 +1282,8 @@ class Schema(dict):
         dataframe: Any,  # DaftDataFrame type
         column_name: str,
         column_type: pa.DataType,
-        field: "Field",
-    ) -> Tuple[Any, pa.Field, Optional["Field"], Optional["Field"]]:
+        field: Field,
+    ) -> Tuple[Any, pa.Field, Optional[Field], Optional[Field]]:
         """Handle type promotion for a Daft column with NONE consistency type."""
         # Create a dummy array to check type promotion
         dummy_array = pa.array([None], type=column_type)
@@ -1341,7 +1340,7 @@ class Schema(dict):
         column_type: pa.DataType,
         schema_evolution_mode: Optional[SchemaEvolutionMode],
         default_schema_consistency_type: Optional[SchemaConsistencyType],
-    ) -> Tuple[Any, pa.Field, Optional["Field"], Optional["Field"]]:
+    ) -> Tuple[Any, pa.Field, Optional[Field], Optional[Field]]:
         """Handle a field that's not in the schema for Daft DataFrames."""
         if schema_evolution_mode == SchemaEvolutionMode.AUTO:
             # Create new field with default consistency type
@@ -1676,7 +1675,7 @@ class Schema(dict):
             return pa.unify_schemas(all_schemas), subschema_to_field_names
         return Schema._to_pyarrow_schema(schema), {}  # SingleSchema
 
-    def _get_fields_with_merge_order(self) -> List["Field"]:
+    def _get_fields_with_merge_order(self) -> List[Field]:
         """Get all fields that have merge_order defined.
 
         Returns:
@@ -1685,7 +1684,7 @@ class Schema(dict):
         return [field for field in self.fields if field.merge_order is not None]
 
     def _create_sort_keys_from_merge_order_fields(
-        self, fields_with_merge_order: List["Field"]
+        self, fields_with_merge_order: List[Field]
     ) -> List[SortKey]:
         """Create sort keys from fields with explicit merge_order.
 
@@ -1718,7 +1717,7 @@ class Schema(dict):
             sort_keys.append(sort_key)
         return sort_keys
 
-    def _get_event_time_fields(self) -> List["Field"]:
+    def _get_event_time_fields(self) -> List[Field]:
         """Get all fields marked as event_time.
 
         Returns:
@@ -1727,7 +1726,7 @@ class Schema(dict):
         return [field for field in self.fields if field.is_event_time]
 
     def _create_sort_keys_from_event_time_fields(
-        self, event_time_fields: List["Field"]
+        self, event_time_fields: List[Field]
     ) -> List:
         """Create sort keys from event_time fields with default DESCENDING merge_order.
 
@@ -1749,7 +1748,7 @@ class Schema(dict):
             sort_keys.append(sort_key)
         return sort_keys
 
-    def _create_field_name_mapping(self) -> Dict[str, "Field"]:
+    def _create_field_name_mapping(self) -> Dict[str, Field]:
         """Create a mapping from field names to Field objects."""
         field_name_to_field = {}
         for field in self.field_ids_to_fields.values():
@@ -1792,8 +1791,8 @@ class Schema(dict):
             )
 
     def _handle_type_promotion(
-        self, column_name: str, column_data: pa.Array, field: "Field"
-    ) -> Tuple[pa.Array, pa.Field, Optional["Field"], Optional["Field"]]:
+        self, column_name: str, column_data: pa.Array, field: Field
+    ) -> Tuple[pa.Array, pa.Field, Optional[Field], Optional[Field]]:
         """Handle type promotion for a field with NONE consistency type."""
         promoted_data, type_was_promoted = field.promote_type_if_needed(column_data)
 
@@ -1897,8 +1896,8 @@ class Schema(dict):
                 new_schema_fields.append(field.arrow)
 
     def _apply_schema_updates(
-        self, field_updates: Dict[str, "Field"], new_fields: Dict[str, "Field"]
-    ) -> "Schema":
+        self, field_updates: Dict[str, Field], new_fields: Dict[str, Field]
+    ) -> Schema:
         """Apply collected schema updates and return the updated schema."""
         if not field_updates and not new_fields:
             return self
@@ -1918,7 +1917,7 @@ class Schema(dict):
         return schema_update.apply()
 
     def _process_existing_columns_for_coercion(
-        self, pa_table: pa.Table, field_name_to_field: Dict[str, "Field"]
+        self, pa_table: pa.Table, field_name_to_field: Dict[str, Field]
     ) -> Tuple[List[pa.Array], List[pa.Field]]:
         """Process columns that exist in the table for coercion.
 
@@ -1951,7 +1950,7 @@ class Schema(dict):
     def _add_missing_fields_for_coercion(
         self,
         pa_table: pa.Table,
-        field_name_to_field: Dict[str, "Field"],
+        field_name_to_field: Dict[str, Field],
         existing_columns: List[pa.Array],
         existing_fields: List[pa.Field],
     ) -> Tuple[List[pa.Array], List[pa.Field]]:
@@ -2145,7 +2144,7 @@ class SchemaUpdate(dict):
     @staticmethod
     def of(
         base_schema: Schema, allow_incompatible_changes: bool = False
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Create a SchemaUpdate for the given base schema.
 
@@ -2199,7 +2198,7 @@ class SchemaUpdate(dict):
     def add_field(
         self,
         new_field: Field,
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Add a new field to the schema.
 
@@ -2216,7 +2215,7 @@ class SchemaUpdate(dict):
         self.operations.append(SchemaUpdateOperation.add_field(new_field))
         return self
 
-    def remove_field(self, field_locator: FieldLocator) -> "SchemaUpdate":
+    def remove_field(self, field_locator: FieldLocator) -> SchemaUpdate:
         """
         Remove an existing field from the schema.
 
@@ -2236,7 +2235,7 @@ class SchemaUpdate(dict):
         self,
         field_locator: FieldLocator,
         new_name: str,
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Rename an existing field while keeping all other properties the same.
 
@@ -2267,8 +2266,8 @@ class SchemaUpdate(dict):
         return self._update_field(field_locator, updated_field)
 
     def update_field_type(
-        self, field_locator: FieldLocator, new_type: "pa.DataType"
-    ) -> "SchemaUpdate":
+        self, field_locator: FieldLocator, new_type: pa.DataType
+    ) -> SchemaUpdate:
         """
         Update the PyArrow data type of an existing field while keeping all other properties the same.
 
@@ -2302,7 +2301,7 @@ class SchemaUpdate(dict):
         self,
         field_locator: FieldLocator,
         new_doc: Optional[str],
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Update the documentation of an existing field while keeping all other properties the same.
 
@@ -2339,7 +2338,7 @@ class SchemaUpdate(dict):
 
     def update_field_nullability(
         self, field_locator: FieldLocator, nullable: bool
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Update the nullability of an existing field while keeping all other properties the same.
 
@@ -2372,8 +2371,8 @@ class SchemaUpdate(dict):
     def update_field_consistency_type(
         self,
         field_locator: FieldLocator,
-        consistency_type: Optional["SchemaConsistencyType"],
-    ) -> "SchemaUpdate":
+        consistency_type: Optional[SchemaConsistencyType],
+    ) -> SchemaUpdate:
         """
         Update the schema consistency type of an existing field while keeping all other properties the same.
 
@@ -2411,7 +2410,7 @@ class SchemaUpdate(dict):
 
     def update_field_future_default(
         self, field_locator: FieldLocator, future_default: Optional[Any]
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Update the future default value of an existing field while keeping all other properties the same.
         The future default is validated to ensure it's compatible with the field's data type.
@@ -2455,7 +2454,7 @@ class SchemaUpdate(dict):
 
     def _update_field(
         self, field_locator: FieldLocator, updated_field: Field
-    ) -> "SchemaUpdate":
+    ) -> SchemaUpdate:
         """
         Update an existing field with compatible changes. This is the protected method
         that handles the general case of field updates.
@@ -2514,7 +2513,7 @@ class SchemaUpdate(dict):
         return current_field
 
     def _validate_default_value(
-        self, arrow_type: "pa.DataType", default_value: Any
+        self, arrow_type: pa.DataType, default_value: Any
     ) -> None:
         """
         Helper method to validate that a default value is compatible with a PyArrow data type.

@@ -98,7 +98,7 @@ if TYPE_CHECKING:
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-TABLE_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
+TABLE_TYPE_TO_S3_READER_FUNC: Dict[str, Callable] = {
     DatasetType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
     DatasetType.PYARROW.value: pa_utils.s3_file_to_table,
     DatasetType.PANDAS.value: pd_utils.s3_file_to_dataframe,
@@ -107,7 +107,7 @@ TABLE_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
 }
 
 
-TABLE_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
+TABLE_TYPE_TO_READER_FUNC: Dict[str, Callable] = {
     DatasetType.PYARROW_PARQUET.value: pa_utils.file_to_parquet,
     DatasetType.PYARROW.value: pa_utils.file_to_table,
     DatasetType.PANDAS.value: pd_utils.file_to_dataframe,
@@ -148,6 +148,29 @@ TABLE_CLASS_TO_SIZE_FUNC: Dict[
     np.ndarray: np_utils.ndarray_size,
     RayDataset: ds_utils.dataset_size,
     MaterializedDataset: ds_utils.dataset_size,
+}
+
+TABLE_CLASS_TO_COLUMN_NAMES_FUNC: Dict[
+    Type[Union[LocalTable, DistributedDataset]], Callable
+] = {
+    pa.Table: lambda table: table.schema.names,
+    papq.ParquetFile: lambda table: table.schema.names,
+    pd.DataFrame: lambda table: table.columns.tolist(),
+    pl.DataFrame: lambda table: table.columns,
+    np.ndarray: lambda table: [f"data_{i}" for i in range(table.shape[1])],
+    daft.DataFrame: lambda table: table.column_names,
+    RayDataset: lambda table: table.schema.names,
+    MaterializedDataset: lambda table: table.schema.names,
+}
+
+TABLE_TYPE_TO_EMPTY_TABLE_FUNC: Dict[str, Callable] = {
+    DatasetType.PYARROW.value: lambda: pa.Table.from_pydict({}),
+    DatasetType.PANDAS.value: lambda: pd.DataFrame(),
+    DatasetType.POLARS.value: lambda: pl.DataFrame(),
+    DatasetType.NUMPY.value: lambda: np.array([]),
+    DatasetType.DAFT.value: lambda: daft.DataFrame(),
+    DatasetType.RAY_DATASET.value: lambda: ray.data.from_items([]),
+    MaterializedDataset: lambda: ray.data.from_items([]),
 }
 
 
@@ -703,6 +726,19 @@ def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
     return table_size_func(table)
 
 
+def get_table_column_names(table: Union[LocalTable, DistributedDataset]) -> List[str]:
+    """
+    Generic function to get the column names of a table or distributed dataset.
+
+    Args:
+        table: The local table or distributed dataset to get the column names of
+
+    Returns:
+        List of column names
+    """
+    return _get_table_function(table, TABLE_CLASS_TO_COLUMN_NAMES_FUNC, "column names")
+
+
 def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     """
     Generic function to get a table writer function for a given dataset type.
@@ -851,6 +887,16 @@ def from_pyarrow(pa_table: pa.Table, target_type: DatasetType, **kwargs) -> Data
         f"{target_type} conversion",
     )
     return conversion_func(pa_table, **kwargs)
+
+
+def empty_table(table_type: DatasetType) -> Dataset:
+    """
+    Create an empty table of the given type.
+    """
+    empty_table_func = _get_table_type_function(
+        table_type, TABLE_TYPE_TO_EMPTY_TABLE_FUNC, "empty table"
+    )
+    return empty_table_func()
 
 
 def append_column_to_table(

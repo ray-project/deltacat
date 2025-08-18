@@ -54,19 +54,27 @@ def write_to_table(
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> None:
-    """Write data to a DeltaCat table.
+    """Write local or distributed data to a table. Raises an error if the
+    table does not exist and the table write mode is not CREATE or AUTO.
+
+    When creating a table, all `create_table` parameters may be optionally
+    specified as additional keyword arguments. When appending to, or replacing,
+    an existing table, all `alter_table` parameters may be optionally specified
+    as additional keyword arguments.
 
     Args:
-        data: Data to write to the table. Can be a LocalTable, LocalDataset, or DistributedDataset.
+        data: Local or distributed data to write to the table.
         table: Name of the table to write to.
-        namespace: Optional namespace of the table. Uses default namespace if not specified.
-        table_version: Optional specific version of the table to write to. Defaults to the latest active version.
-        mode: Write mode to use when writing to the table. Defaults to AUTO.
-        content_type: Content type of the data being written. Defaults to PARQUET.
-        transaction: Optional transaction to use. If None, creates a new transaction.
-
-    Returns:
-        None
+        namespace: Optional namespace for the table. Uses default if not specified.
+        table_version: Optional version of the table to write to. If specified,
+            will create this version if it doesn't exist (in CREATE mode) or
+            get this version if it exists (in other modes). If not specified,
+            uses the latest version.
+        mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
+        content_type: Content type used to write the data files. Defaults to PARQUET.
+        transaction: Optional transaction to append write operations to instead of
+            creating and committing a new transaction.
+        **kwargs: Additional keyword arguments.
     """
     raise NotImplementedError("write_to_table not implemented")
 
@@ -76,7 +84,7 @@ def read_table(
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    read_as: Optional[DatasetType] = DatasetType.DAFT,
+    read_as: DatasetType = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -115,7 +123,7 @@ def alter_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema_updates: Optional[SchemaUpdateOperations] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    sort_key_updates: Optional[SortScheme] = None,
+    sort_scheme: Optional[SortScheme] = None,
     table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
@@ -133,13 +141,13 @@ def alter_table(
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         table_version: Optional specific version of the table to alter. Defaults to the latest active version.
         lifecycle_state: New lifecycle state for the table.
-        schema_updates: Map of schema updates to apply.
-        partition_updates: Map of partition scheme updates to apply.
-        sort_key_updates: New sort keys scheme.
+        schema_updates: Schema updates to apply.
+        partition_updates: Partition scheme updates to apply.
+        sort_scheme: New sort scheme.
         table_description: New description for the table.
-        table_version_description: New description for the table version.
+        table_version_description: New description for the table version. Defaults to `table_description` if not  specified.
         table_properties: New table properties.
-        table_version_properties: New table version properties.
+        table_version_properties: New table version properties. Defaults to the current parent table properties if not specified.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -179,7 +187,7 @@ def create_table(
     Args:
         table: Name of the table to create.
         namespace: Optional namespace for the table. Uses default namespace if not specified.
-        table_version: Optional version identifier for the table.
+        version: Optional version identifier for the table.
         lifecycle_state: Lifecycle state of the new table. Defaults to ACTIVE.
         schema: Schema definition for the table.
         partition_scheme: Optional partitioning scheme for the table.
@@ -187,7 +195,7 @@ def create_table(
         table_description: Optional description of the table.
         table_version_description: Optional description for the table version.
         table_properties: Optional properties for the table.
-        table_version_properties: Optional properties for the table version.
+        table_version_properties: Optional properties for the table version. Defaults to the current parent table properties if not specified.
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
@@ -200,6 +208,7 @@ def create_table(
         TableAlreadyExistsError: If the table already exists and fail_if_exists is True.
         NamespaceNotFoundError: If the provided namespace does not exist.
     """
+
     raise NotImplementedError("create_table not implemented")
 
 
@@ -285,18 +294,16 @@ def get_table(
     """Get table definition metadata.
 
     Args:
-        table: Name of the table to retrieve.
+        name: Name of the table to retrieve.
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         table_version: Optional specific version of the table to retrieve. Defaults to the latest active version.
         stream_format: Optional stream format to retrieve. Defaults to DELTACAT.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
-        Deltacat TableDefinition if the table exists, None otherwise.
-
-    Raises:
-        TableVersionNotFoundError: If the table version does not exist.
-        StreamNotFoundError: If the stream does not exist.
+        Deltacat TableDefinition if the table exists, None otherwise. The table definition's table version will be
+        None if the requested version is not found. The table definition's stream will be None if the requested stream
+        format is not found.
     """
     raise NotImplementedError("get_table not implemented")
 

@@ -5733,7 +5733,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
         )
 
-        # Verify initial data can be read back
+        # Verify schemaless table returns flattened manifest metadata
         result1 = dc.read_table(
             table=table_name,
             namespace=namespace,
@@ -5741,15 +5741,37 @@ class TestSchemaConsistency:
             read_as=DatasetType.PYARROW,
         )
 
-        # For schemaless tables, we now get a list of tables
-        if isinstance(result1, list):
-            # Combine the list of tables into a single DataFrame
-            result1 = to_pandas(result1)
+        # Expect a single pyarrow table of flattened manifest metadata
+        assert isinstance(
+            result1, pa.Table
+        ), "Schemaless tables should return a single PyArrow table with flattened manifest metadata"
+        combined_result1 = to_pandas(result1)
 
-        assert get_table_length(result1) == 2
-        assert set(result1.columns) == {"id", "name", "value"}
-        assert list(result1["id"]) == [1, 2]
-        assert list(result1["name"]) == ["Alice", "Bob"]
+        # Should have 1 row (1 manifest entry) with flattened manifest metadata
+        assert get_table_length(combined_result1) == 1
+
+        # Verify expected manifest metadata columns are present
+        expected_columns = {
+            "path",
+            "meta_record_count",
+            "meta_content_type",
+            "stream_position",
+            "previous_stream_position",
+        }
+        assert expected_columns.issubset(
+            set(combined_result1.columns)
+        ), f"Missing expected columns: {expected_columns - set(combined_result1.columns)}"
+
+        # Verify manifest metadata values
+        assert (
+            combined_result1["meta_record_count"].iloc[0] == 2
+        )  # 2 rows of data in the manifest entry
+        assert (
+            combined_result1["stream_position"].iloc[0] == 1
+        )  # First delta is at stream position 1
+        assert (
+            combined_result1["previous_stream_position"].iloc[0] == 0
+        )  # Previous stream position is 0
 
         # Test 2: Append more data to schemaless table
         append_data = pd.DataFrame(
@@ -5765,7 +5787,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
         )
 
-        # Verify all data is present
+        # Verify appended data creates additional manifest entries
         result2 = dc.read_table(
             table=table_name,
             namespace=namespace,
@@ -5773,15 +5795,21 @@ class TestSchemaConsistency:
             read_as=DatasetType.PYARROW,
         )
 
-        # For schemaless tables, we now get a list of tables
-        if isinstance(result2, list):
-            # Combine the list of tables into a single DataFrame
-            result2 = to_pandas(result2)
+        # For schemaless tables, we get a single concatenated table of flattened manifest metadata
+        assert isinstance(
+            result2, pa.Table
+        ), "Schemaless tables should return a single PyArrow table with flattened manifest metadata"
+        combined_result2 = to_pandas(result2)
 
-        assert get_table_length(result2) == 4
-        assert set(result2.columns) == {"id", "name", "value"}
-        assert sorted(result2["id"]) == [1, 2, 3, 4]
-        assert sorted(result2["name"]) == ["Alice", "Bob", "Charlie", "Diana"]
+        # Should have 2 rows (2 manifest entries) after append
+        assert get_table_length(combined_result2) == 2
+
+        # Verify record counts in manifest entries
+        record_counts = sorted(combined_result2["meta_record_count"].tolist())
+        assert record_counts == [
+            2,
+            2,
+        ], f"Expected record counts [2, 2], got {record_counts}"
 
         # Test 3: Append data with same structure (should work for schemaless)
         more_data = pd.DataFrame(
@@ -5797,7 +5825,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
         )
 
-        # Verify all data is present
+        # Verify third append creates additional manifest entry
         result3 = dc.read_table(
             table=table_name,
             namespace=namespace,
@@ -5805,20 +5833,30 @@ class TestSchemaConsistency:
             read_as=DatasetType.PYARROW,
         )
 
-        # For schemaless tables, we now get a list of tables
-        if isinstance(result3, list):
-            # Combine the list of tables into a single DataFrame
-            result3 = to_pandas(result3)
+        # For schemaless tables, we get a single concatenated table of flattened manifest metadata
+        assert isinstance(
+            result3, pa.Table
+        ), "Schemaless tables should return a single PyArrow table with flattened manifest metadata"
+        combined_result3 = to_pandas(result3)
 
-        assert get_table_length(result3) == 6
-        # Should have original columns
-        expected_columns = {"id", "name", "value"}
-        assert set(result3.columns) == expected_columns
+        # Should have 3 rows (3 manifest entries) after second append
+        assert get_table_length(combined_result3) == 3
 
-        # Verify all data is correctly written
-        assert sorted(result3["id"]) == [1, 2, 3, 4, 5, 6]
-        expected_names = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank"]
-        assert sorted(result3["name"]) == sorted(expected_names)
+        # Verify record counts in all manifest entries
+        record_counts = sorted(combined_result3["meta_record_count"].tolist())
+        assert record_counts == [
+            2,
+            2,
+            2,
+        ], f"Expected record counts [2, 2, 2], got {record_counts}"
+
+        # Verify stream positions are sequential (starting from 1)
+        stream_positions = sorted(combined_result3["stream_position"].tolist())
+        assert stream_positions == [
+            1,
+            2,
+            3,
+        ], f"Expected stream positions [1, 2, 3], got {stream_positions}"
 
     def test_schemaless_table_merge_delete_mode(self, temp_catalog_properties):
         """Test write_to_table with schema=None - MERGE and DELETE modes should fail."""
@@ -5839,7 +5877,7 @@ class TestSchemaConsistency:
             }
         )
 
-        # Create table without schema - note: merge_keys are ignored for schemaless tables
+        # Create table without schema
         dc.write_to_table(
             data=initial_data,
             table=table_name,
@@ -5849,7 +5887,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
         )
 
-        # Verify initial data
+        # Verify initial data returns flattened manifest metadata
         result1 = dc.read_table(
             table=table_name,
             namespace=namespace,
@@ -5857,13 +5895,19 @@ class TestSchemaConsistency:
             read_as=DatasetType.PYARROW,
         )
 
-        # For schemaless tables, we now get a list of tables
-        if isinstance(result1, list):
-            # Combine the list of tables into a single DataFrame
-            result1 = to_pandas(result1)
+        # For schemaless tables, we get a single concatenated table of flattened manifest metadata
+        assert isinstance(
+            result1, pa.Table
+        ), "Schemaless tables should return a single PyArrow table with flattened manifest metadata"
+        combined_result1 = to_pandas(result1)
 
-        assert get_table_length(result1) == 3
-        assert set(result1.columns) == {"id", "name", "value", "status"}
+        # Should have 1 manifest entry with 3 data records
+        assert (
+            get_table_length(combined_result1) == 1
+        ), f"Expected 1 manifest entry, got {get_table_length(combined_result1)}"
+        assert (
+            combined_result1["meta_record_count"].iloc[0] == 3
+        ), f"Expected 3 records in manifest, got {combined_result1['meta_record_count'].iloc[0]}"
 
         # Test 2: MERGE operation should fail for schemaless tables
         merge_data = pd.DataFrame(
@@ -5875,7 +5919,7 @@ class TestSchemaConsistency:
             }
         )
 
-        # MERGE mode should raise ValueError for schemaless tables
+        # MERGE mode should raise TableValidationError for schemaless tables
         with pytest.raises(
             TableValidationError,
             match="MERGE mode requires tables to have at least one merge key",
@@ -5899,7 +5943,7 @@ class TestSchemaConsistency:
             }
         )
 
-        # DELETE mode should raise ValueError for schemaless tables
+        # DELETE mode should raise TableValidationError for schemaless tables
         with pytest.raises(
             TableValidationError,
             match="DELETE mode requires tables to have at least one merge key",
@@ -5932,7 +5976,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
         )
 
-        # Verify append results
+        # Verify append results - should have 2 manifest entries
         result2 = dc.read_table(
             table=table_name,
             namespace=namespace,
@@ -5940,14 +5984,23 @@ class TestSchemaConsistency:
             read_as=DatasetType.PYARROW,
         )
 
-        # For schemaless tables, we now get a list of tables
-        if isinstance(result2, list):
-            # Combine the list of tables into a single DataFrame
-            result2 = to_pandas(result2)
+        # For schemaless tables, we get a single concatenated table of flattened manifest metadata
+        assert isinstance(
+            result2, pa.Table
+        ), "Schemaless tables should return a single PyArrow table with flattened manifest metadata"
+        combined_result2 = to_pandas(result2)
 
-        # Should have 5 records total (3 original + 2 appended)
-        assert get_table_length(result2) == 5
-        assert set(result2.columns) == {"id", "name", "value", "status"}
+        # Should have 2 manifest entries (CREATE + APPEND)
+        assert (
+            get_table_length(combined_result2) == 2
+        ), f"Expected 2 manifest entries, got {get_table_length(combined_result2)}"
+
+        # Verify record counts (3 in first, 2 in second)
+        record_counts = sorted(combined_result2["meta_record_count"].tolist())
+        assert record_counts == [
+            2,
+            3,
+        ], f"Expected record counts [2, 3], got {record_counts}"
 
     def test_schemaless_table_with_evolving_schema(self, temp_catalog_properties):
         """Test write_to_table with schema=None when new columns are added over time."""
@@ -5992,8 +6045,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
         )
 
-        # Test 3: Read back the data - this might fail due to schema mismatches
-        # Force local storage to test our schemaless table fix
+        # Test 3: Read back flattened manifest data for schemaless table
         result = dc.read_table(
             table=table_name,
             namespace=namespace,
@@ -6001,35 +6053,41 @@ class TestSchemaConsistency:
             read_as=DatasetType.PYARROW,
         )
 
-        # Check if result is a list (which it should be for schemaless tables)
-        if isinstance(result, list):
-            # For a list of tables, we should manually combine them
-            # This is what the user would need to do for schemaless tables
-            all_tables = []
-            for table in result:
-                table = to_pandas(table)
-                all_tables.append(table)
+        # For schemaless tables, we get a single concatenated table of flattened manifest metadata
+        assert isinstance(
+            result, pa.Table
+        ), "Schemaless tables should return a single PyArrow table with flattened manifest metadata"
+        combined_result = to_pandas(result)
 
-            # Combine with pandas concat to handle different schemas
-            result = pd.concat(all_tables, ignore_index=True, sort=False)
-        else:
-            result = to_pandas(result)
+        # Should have 2 manifest entries (initial CREATE + APPEND)
+        assert (
+            get_table_length(combined_result) == 2
+        ), f"Expected 2 manifest entries, got {get_table_length(combined_result)}"
 
-        # For schemaless tables with evolving schema, we should expect all columns
-        # but some records will have NaN/None for missing columns
-        expected_columns = {"id", "name", "value", "status", "category"}
-        assert set(result.columns) == expected_columns
-        assert get_table_length(result) == 4
+        # Verify expected manifest metadata columns are present
+        expected_columns = {
+            "path",
+            "meta_record_count",
+            "meta_content_type",
+            "stream_position",
+        }
+        assert expected_columns.issubset(
+            set(combined_result.columns)
+        ), f"Missing expected columns: {expected_columns - set(combined_result.columns)}"
 
-        # Check that early records have NaN for new columns
-        early_records = result[result["id"].isin([1, 2])]
-        assert early_records["status"].isna().all()
-        assert early_records["category"].isna().all()
+        # Verify record counts (2 records each write operation)
+        record_counts = sorted(combined_result["meta_record_count"].tolist())
+        assert record_counts == [
+            2,
+            2,
+        ], f"Expected record counts [2, 2], got {record_counts}"
 
-        # Check that later records have values for all columns
-        later_records = result[result["id"].isin([3, 4])]
-        assert not later_records["status"].isna().any()
-        assert not later_records["category"].isna().any()
+        # Verify stream positions are sequential
+        stream_positions = sorted(combined_result["stream_position"].tolist())
+        assert stream_positions == [
+            1,
+            2,
+        ], f"Expected stream positions [1, 2], got {stream_positions}"
 
     def test_schemaless_table_with_distributed_datasets(self, temp_catalog_properties):
         """Test schemaless tables with distributed dataset types (RAY_DATASET, DAFT)."""
@@ -6073,59 +6131,83 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
         )
 
-        # Test 1: DAFT should raise NotImplementedError for schemaless tables
-        with pytest.raises(
-            NotImplementedError,
-            match="Distributed dataset reading is not yet supported for schemaless tables",
-        ):
-            dc.read_table(
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-            )
-
-        # Test 2: RAY_DATASET should also raise NotImplementedError for schemaless tables
-        with pytest.raises(
-            NotImplementedError,
-            match="Distributed dataset reading is not yet supported for schemaless tables",
-        ):
-            dc.read_table(
-                table=table_name,
-                namespace=namespace,
-                catalog=catalog_name,
-                read_as=DatasetType.RAY_DATASET,
-            )
-
-        # Test 3: Local storage should still work (explicit None)
-        result_local = dc.read_table(
+        # Test 1: DAFT should now work with schemaless tables (returns flattened manifest metadata)
+        result_daft = dc.read_table(
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
-            read_as=DatasetType.PYARROW,  # Explicitly use local storage
         )
 
-        # For schemaless tables with local storage, we expect a list of tables
+        # For schemaless tables, we expect a DAFT DataFrame with flattened manifest metadata
         assert isinstance(
-            result_local, list
-        ), "Local storage should return list for schemaless tables"
+            result_daft, daft.DataFrame
+        ), f"Expected daft.DataFrame, got {type(result_daft)}"
+        combined_daft = result_daft.to_pandas()
 
-        # Manually combine the tables to check all columns are preserved
-        all_tables = []
-        for table in result_local:
-            table = to_pandas(table)
-            all_tables.append(table)
-
-        # Use pandas concat to handle different schemas
-        df_local = pd.concat(all_tables, ignore_index=True, sort=False)
-
-        # Check if we got all columns
-        expected_columns = {"id", "name", "value", "status", "category"}
+        # Should have 2 manifest entries (one per write operation)
         assert (
-            set(df_local.columns) == expected_columns
-        ), f"Local storage missing columns: {expected_columns - set(df_local.columns)}"
+            len(combined_daft) == 2
+        ), f"Expected 2 manifest entries, got {len(combined_daft)}"
+
+        # Test 2: RAY_DATASET should also work with schemaless tables
+        result_ray = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.RAY_DATASET,
+        )
+
+        # For schemaless tables, we expect a Ray Dataset with flattened manifest metadata
+        from ray.data.dataset import Dataset as RayDataset
+
+        assert isinstance(
+            result_ray, RayDataset
+        ), f"Expected ray.data.Dataset, got {type(result_ray)}"
+        combined_ray = result_ray.to_pandas()
+
+        # Should have 2 manifest entries (one per write operation)
         assert (
-            get_table_length(df_local) == 4
-        ), f"Local storage should have 4 rows, got {get_table_length(df_local)}"
+            len(combined_ray) == 2
+        ), f"Expected 2 manifest entries, got {len(combined_ray)}"
+
+        # Test 3: DAFT should also work with schemaless tables (test another distributed type)
+        result_daft_second = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.DAFT,
+        )
+
+        # For schemaless tables, we expect a DAFT DataFrame with flattened manifest metadata
+        assert isinstance(
+            result_daft_second, daft.DataFrame
+        ), f"Expected daft.DataFrame, got {type(result_daft_second)}"
+
+        # Convert the flattened manifest table
+        combined_local = result_daft_second.to_pandas()
+
+        # Should have 2 manifest entries (one per write operation)
+        assert (
+            get_table_length(combined_local) == 2
+        ), f"Expected 2 manifest entries, got {get_table_length(combined_local)}"
+
+        # Verify expected manifest metadata columns are present
+        expected_columns = {
+            "path",
+            "meta_record_count",
+            "meta_content_type",
+            "stream_position",
+        }
+        assert expected_columns.issubset(
+            set(combined_local.columns)
+        ), f"Missing expected columns: {expected_columns - set(combined_local.columns)}"
+
+        # Verify record counts (2 records each)
+        record_counts = sorted(combined_local["meta_record_count"].tolist())
+        assert record_counts == [
+            2,
+            2,
+        ], f"Expected record counts [2, 2], got {record_counts}"
 
     def test_schema_type_promotion_with_none_consistency(self, temp_catalog_properties):
         """Test automatic type promotion for fields with SchemaConsistencyType.NONE."""
@@ -6267,7 +6349,7 @@ class TestSchemaConsistency:
         # Note: PyArrow's permissive promotion doesn't support float64 -> string promotion
         # This test validates that the simplified promotion logic correctly rejects incompatible types
         # instead of using the old custom fallback logic
-        
+
         # Test 4: Attempt to write string data to float field - should raise SchemaValidationError
         string_data = pd.DataFrame(
             {"id": [7], "count": ["not_a_number"], "name": ["Grace"]}  # String value
@@ -6275,6 +6357,7 @@ class TestSchemaConsistency:
 
         # This should now raise SchemaValidationError since float64 + string is incompatible
         from deltacat.exceptions import SchemaValidationError
+
         with pytest.raises(SchemaValidationError, match="Cannot unify types"):
             dc.write_to_table(
                 data=string_data,
@@ -6456,13 +6539,16 @@ class TestSchemaConsistency:
         promoted_data, was_promoted = field_binary.promote_type_if_needed(
             string_data_array
         )
-        assert not was_promoted, "binary + string unifies to binary (same type, no promotion needed)"
+        assert (
+            not was_promoted
+        ), "binary + string unifies to binary (same type, no promotion needed)"
         assert pa.types.is_binary(
             promoted_data.type
         ), f"binary + string should result in binary type, got {promoted_data.type}"
-        
+
         # Test int → binary should fail (incompatible types)
         from deltacat.exceptions import SchemaValidationError
+
         field_int = Field.of(
             pa.field("test", pa.int32()), consistency_type=SchemaConsistencyType.NONE
         )
@@ -7378,18 +7464,14 @@ class TestSchemaConsistency:
 
 class TestAlterTable:
     """
-    Test suite for alter_table functionality with SchemaUpdateOperations.
+    Test suite for alter_table functionality with SchemaUpdate.
 
-    Tests schema evolution through the alter_table API using the new
-    SchemaUpdateOperations interface.
+    Tests schema evolution through the alter_table API using the
+    SchemaUpdate interface.
     """
 
     def test_alter_table_add_field(self, temp_catalog_properties):
         """Test altering a table to add a new field."""
-        from deltacat.storage.model.schema import (
-            SchemaUpdateOperations,
-            SchemaUpdateOperation,
-        )
 
         # Setup catalog for testing
         namespace = "test_namespace"
@@ -7419,9 +7501,7 @@ class TestAlterTable:
         new_field = Field.of(
             pa.field("email", pa.string(), nullable=True),
         )
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field(new_field)]
-        )
+        schema_updates = original_schema.update().add_field(new_field)
 
         # Alter the table - no need to specify table version since newly created versions are now ACTIVE
         dc.alter_table(
@@ -7457,10 +7537,6 @@ class TestAlterTable:
 
     def test_alter_table_multiple_operations(self, temp_catalog_properties):
         """Test altering a table with multiple schema update operations."""
-        from deltacat.storage.model.schema import (
-            SchemaUpdateOperations,
-            SchemaUpdateOperation,
-        )
 
         # Setup catalog for testing
         namespace = "test_namespace"
@@ -7485,7 +7561,8 @@ class TestAlterTable:
             namespace=namespace,
             catalog=catalog_name,
         )
-        original_schema_id = original_table.table_version.schema.id
+        original_schema = original_table.table_version.schema
+        original_schema_id = original_schema.id
 
         # Create multiple schema update operations
         email_field = Field.of(
@@ -7496,11 +7573,8 @@ class TestAlterTable:
             past_default="active",
         )
 
-        schema_updates = SchemaUpdateOperations.of(
-            [
-                SchemaUpdateOperation.add_field(email_field),
-                SchemaUpdateOperation.add_field(status_field),
-            ]
+        schema_updates = (
+            original_schema.update().add_field(email_field).add_field(status_field)
         )
 
         # Alter the table - uses latest active table version automatically
@@ -7536,10 +7610,6 @@ class TestAlterTable:
 
     def test_alter_table_update_field_type_widening(self, temp_catalog_properties):
         """Test altering a table to update a field with compatible type widening."""
-        from deltacat.storage.model.schema import (
-            SchemaUpdateOperations,
-            SchemaUpdateOperation,
-        )
 
         # Setup catalog for testing
         namespace = "test_namespace"
@@ -7564,8 +7634,9 @@ class TestAlterTable:
             namespace=namespace,
             catalog=catalog_name,
         )
-        original_schema_id = original_table.table_version.schema.id
-        original_age_field = original_table.table_version.schema.field("age")
+        original_schema = original_table.table_version.schema
+        original_schema_id = original_schema.id
+        original_age_field = original_schema.field("age")
 
         # Note: Even though schema specifies int32, data gets stored as int64 due to pandas defaults
         # This is expected behavior in current DeltaCAT implementation
@@ -7574,8 +7645,8 @@ class TestAlterTable:
             pa.field("age", original_age_field.arrow.type, nullable=True),
             field_id=original_age_field.id,
         )
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.update_field("age", updated_age_field)]
+        schema_updates = original_schema.update().update_field_type(
+            "age", updated_age_field.arrow.type
         )
 
         # Alter the table - uses latest active table version automatically
@@ -7605,10 +7676,6 @@ class TestAlterTable:
 
     def test_alter_table_no_active_version_raises_error(self, temp_catalog_properties):
         """Test that alter_table raises an error when no active table version exists."""
-        from deltacat.storage.model.schema import (
-            SchemaUpdateOperations,
-            SchemaUpdateOperation,
-        )
 
         # Setup catalog for testing
         namespace = "test_namespace"
@@ -7616,13 +7683,12 @@ class TestAlterTable:
         table_name = "alter_table_error_test"
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
-        # Create schema update operation
+        # Create a dummy schema to create a schema update from
+        dummy_schema = create_basic_schema()
         new_field = Field.of(
             pa.field("email", pa.string(), nullable=True), field_id=100
         )
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field(new_field)]
-        )
+        schema_updates = dummy_schema.update().add_field(new_field)
 
         # Try to alter a completely non-existent table - should fail because no table exists
         with pytest.raises(TableNotFoundError):
@@ -7638,10 +7704,6 @@ class TestAlterTable:
         self, temp_catalog_properties
     ):
         """Test that alter_table raises an error for invalid table version."""
-        from deltacat.storage.model.schema import (
-            SchemaUpdateOperations,
-            SchemaUpdateOperation,
-        )
 
         # Setup catalog for testing
         namespace = "test_namespace"
@@ -7660,13 +7722,19 @@ class TestAlterTable:
             mode=TableWriteMode.CREATE,
         )
 
+        # Get original schema for creating updates
+        original_table = dc.get_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+        )
+        original_schema = original_table.table_version.schema
+
         # Create schema update operation
         new_field = Field.of(
             pa.field("email", pa.string(), nullable=True), field_id=100
         )
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field(new_field)]
-        )
+        schema_updates = original_schema.update().add_field(new_field)
 
         # Try to alter with invalid table version - should raise an error
         with pytest.raises(ValueError, match="Invalid table version invalid_version"):

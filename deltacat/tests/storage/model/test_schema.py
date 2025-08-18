@@ -406,9 +406,7 @@ def test_default_value_type_promotion():
     assert promoted_future_float == 100.0
 
     # Test casting to string
-    promoted_past_str = original_field._cast_default_to_promoted_type(
-        42, pa.string()
-    )
+    promoted_past_str = original_field._cast_default_to_promoted_type(42, pa.string())
     promoted_future_str = original_field._cast_default_to_promoted_type(
         100, pa.string()
     )
@@ -446,12 +444,8 @@ def test_default_value_backfill_with_promotion():
     )
 
     # Test promotion to string (a common "catch-all" type in type promotion)
-    string_past = field_with_defaults._cast_default_to_promoted_type(
-        42, pa.string()
-    )
-    string_future = field_with_defaults._cast_default_to_promoted_type(
-        100, pa.string()
-    )
+    string_past = field_with_defaults._cast_default_to_promoted_type(42, pa.string())
+    string_future = field_with_defaults._cast_default_to_promoted_type(100, pa.string())
 
     assert string_past == "42", f"Expected '42', got {string_past}"
     assert string_future == "100", f"Expected '100', got {string_future}"

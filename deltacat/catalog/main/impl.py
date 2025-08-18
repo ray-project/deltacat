@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 from collections import defaultdict
 
-import pandas as pd
 import pyarrow as pa
 import daft
 import deltacat as dc
@@ -11,7 +10,6 @@ from deltacat.storage.model.manifest import ManifestAuthor
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
-    StreamNotFoundError,
     TableAlreadyExistsError,
     TableVersionNotFoundError,
     TableNotFoundError,
@@ -25,7 +23,7 @@ from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.namespace import Namespace, NamespaceProperties
 from deltacat.storage.model.schema import (
     Schema,
-    SchemaUpdateOperations,
+    SchemaUpdate,
 )
 from deltacat.storage.model.table import TableProperties, Table
 from deltacat.storage.model.types import (
@@ -58,11 +56,15 @@ from deltacat.types.media import (
 from deltacat.types.tables import (
     SchemaEvolutionMode,
     TableProperty,
+    TablePropertyDefaultValues,
     TableReadOptimizationLevel,
     TableWriteMode,
+    from_pyarrow,
     concat_tables,
+    empty_table,
     infer_table_schema,
 )
+from deltacat.utils import pyarrow as pa_utils
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
 
@@ -136,64 +138,63 @@ def _validate_write_mode_and_table_existence(
     return table_exists_flag
 
 
-def _validate_write_mode_and_table_version_existence(
+def _get_table_and_validate_write_mode(
     table: str,
     namespace: str,
     table_version: Optional[str],
     mode: TableWriteMode,
     **kwargs,
-) -> Tuple[bool, bool]:
+) -> Tuple[bool, TableDefinition]:
     """Validate write mode against table and table version existence.
 
     Returns:
-        Tuple of (table_exists_flag, table_version_exists_flag)
+        Tuple of (table_exists_flag, table_definition)
     """
-    # First validate table existence
-    table_exists_flag = table_exists(
+    # First validate table, table version, and stream existence
+    existing_table_def = get_table(
         table,
         namespace=namespace,
+        table_version=table_version,
         **kwargs,
+    )
+    table_exists_flag = (
+        existing_table_def is not None
+        and existing_table_def.table_version
+        and existing_table_def.stream
     )
     logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
 
-    # Validate table existence constraints
+    # Then validate table existence constraints
     if mode == TableWriteMode.CREATE and table_exists_flag and table_version is None:
         raise TableAlreadyExistsError(
-            f"Table {namespace}.{table} already exists and mode is CREATE"
+            f"Table {namespace}.{table} already exists and mode is CREATE."
         )
     elif (
         mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
-        and not table_exists_flag
+        and existing_table_def is None
     ):
         raise TableNotFoundError(
-            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}"
+            f"Table {namespace}.{table} does not exist and write mode is {mode}. Use CREATE or AUTO mode to create a new table."
         )
 
-    # Check table version existence if specified
-    table_version_exists_flag = False
+    # Then validate table version existence constraints
     if table_version is not None and table_exists_flag:
-        try:
-            existing_table_def = get_table(
-                table,
-                namespace=namespace,
-                table_version=table_version,
-                **kwargs,
-            )
-            table_version_exists_flag = existing_table_def is not None
-        except (TableVersionNotFoundError, TableNotFoundError, StreamNotFoundError):
-            table_version_exists_flag = False
-
-        logger.info(
-            f"Table version ({namespace}.{table}.{table_version}) exists: {table_version_exists_flag}"
-        )
-
-        # Validate table version constraints
-        if mode == TableWriteMode.CREATE and table_version_exists_flag:
+        if mode == TableWriteMode.CREATE:
             raise TableVersionAlreadyExistsError(
-                f"Table version {namespace}.{table}.{table_version} already exists and mode is CREATE"
+                f"Table version {namespace}.{table}.{table_version} already exists and mode is CREATE."
             )
-
-    return table_exists_flag, table_version_exists_flag
+        logger.info(f"Table version ({namespace}.{table}.{table_version}) exists.")
+    elif (
+        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
+        and table_version is not None
+        and not table_exists_flag
+    ):
+        raise TableVersionNotFoundError(
+            f"Table version {namespace}.{table}.{table_version} does not exist and write mode is {mode}. "
+            f"Use CREATE or AUTO mode to create a new table version, or omit table_version "
+            f"to use the latest version."
+        )
+    return table_exists_flag, existing_table_def
 
 
 def _validate_content_type_against_supported_content_types(
@@ -209,114 +210,34 @@ def _validate_content_type_against_supported_content_types(
         )
 
 
-def _get_or_create_table_and_version(
+def _create_table_for_write(
     data: Dataset,
     table: str,
     namespace: str,
     table_version: Optional[str],
-    table_exists_flag: bool,
-    table_version_exists_flag: bool,
     content_type: ContentType,
-    mode: TableWriteMode,
+    existing_table_definition: Optional[TableDefinition],
     *args,
     **kwargs,
 ) -> TableDefinition:
-    """Get existing table/version or create new one based on existence flags."""
-    if not table_exists_flag:
-        # Table doesn't exist - create new table with specified version
-        if "schema" not in kwargs:
-            kwargs["schema"] = infer_table_schema(data)
+    """Creates a new table, table version, and/or stream in preparation for a write operation."""
+    if "schema" not in kwargs:
+        kwargs["schema"] = infer_table_schema(data)
 
-        _validate_content_type_against_supported_content_types(
-            namespace,
-            table,
-            content_type,
-            kwargs.get("content_types"),
-        )
-
-        return create_table(
-            table,
-            namespace=namespace,
-            table_version=table_version,  # Pass the specific version
-            *args,
-            **kwargs,
-        )
-    elif table_version is not None:
-        if table_version_exists_flag:
-            # Table version exists - get it
-            return get_table(
-                table,
-                namespace=namespace,
-                table_version=table_version,
-                **kwargs,
-            )
-        else:
-            # Table exists but version doesn't - create new version if allowed
-            if mode in (TableWriteMode.CREATE, TableWriteMode.AUTO):
-                # For CREATE/AUTO mode, we want to create a new table version
-                if "schema" not in kwargs:
-                    kwargs["schema"] = infer_table_schema(data)
-
-                _validate_content_type_against_supported_content_types(
-                    namespace,
-                    table,
-                    content_type,
-                    kwargs.get("content_types"),
-                )
-
-                # Create a new table version directly using storage API
-                # We need to bypass the create_table function's existence check
-                (table_obj, table_version_obj, stream) = _get_storage(
-                    **kwargs
-                ).create_table_version(
-                    *args,
-                    namespace=namespace,
-                    table_name=table,
-                    table_version=table_version,
-                    schema=kwargs.get("schema"),
-                    partition_scheme=kwargs.get("partition_scheme"),
-                    sort_keys=kwargs.get("sort_keys"),
-                    table_version_description=kwargs.get("table_version_description"),
-                    table_version_properties=kwargs.get("table_version_properties"),
-                    table_description=kwargs.get("description"),
-                    table_properties=kwargs.get("table_properties"),
-                    lifecycle_state=kwargs.get(
-                        "lifecycle_state", LifecycleState.ACTIVE
-                    ),
-                    supported_content_types=kwargs.get("content_types"),
-                    **{
-                        k: v
-                        for k, v in kwargs.items()
-                        if k
-                        not in [
-                            "schema",
-                            "partition_scheme",
-                            "sort_keys",
-                            "description",
-                            "table_properties",
-                            "lifecycle_state",
-                        ]
-                    },
-                )
-
-                return TableDefinition.of(
-                    table=table_obj,
-                    table_version=table_version_obj,
-                    stream=stream,
-                )
-            else:
-                raise TableVersionNotFoundError(
-                    f"Table version {namespace}.{table}.{table_version} does not exist. "
-                    f"Use CREATE or AUTO mode to create a new table version, or omit table_version "
-                    f"to use the latest version."
-                )
-    else:
-        # No specific version requested - get latest
-        return get_table(
-            table,
-            namespace=namespace,
-            **kwargs,
-        )
+    _validate_content_type_against_supported_content_types(
+        namespace,
+        table,
+        content_type,
+        kwargs.get("content_types"),
+    )
+    return create_table(
+        table,
+        namespace=namespace,
+        table_version=table_version,
+        existing_table_definition=existing_table_definition,
+        *args,
+        **kwargs,
+    )
 
 
 def write_to_table(
@@ -348,9 +269,6 @@ def write_to_table(
             uses the latest version.
         mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
         content_type: Content type used to write the data files. Defaults to PARQUET.
-        schema: Optional DeltaCAT schema for the table. Used when creating tables
-            and updating existing table version schemas.
-        lifecycle_state: Lifecycle state of any new table version created. Defaults to ACTIVE.
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
@@ -362,11 +280,8 @@ def write_to_table(
     kwargs["transaction"] = write_transaction
 
     try:
-        # Validate write mode and table/table version existence
-        (
-            table_exists_flag,
-            table_version_exists_flag,
-        ) = _validate_write_mode_and_table_version_existence(
+        # Validate write mode and table/table version/stream existence
+        (table_exists_flag, table_definition,) = _get_table_and_validate_write_mode(
             table,
             namespace,
             table_version,
@@ -374,19 +289,37 @@ def write_to_table(
             **kwargs,
         )
 
-        # Get or create table and table version
-        table_definition = _get_or_create_table_and_version(
-            data,
-            table,
-            namespace,
-            table_version,
-            table_exists_flag,
-            table_version_exists_flag,
-            content_type,
-            mode,
-            *args,
-            **kwargs,
-        )
+        # Get or create table, table version, and/or stream
+        if not table_exists_flag:
+            table_definition = _create_table_for_write(
+                data,
+                table,
+                namespace,
+                table_version,
+                content_type,
+                table_definition,
+                *args,
+                **kwargs,
+            )
+        else:
+            # call alter_table if there are any alter_table kwargs provided
+            if (
+                "lifecycle_state" in kwargs
+                or "schema_updates" in kwargs
+                or "partition_updates" in kwargs
+                or "sort_scheme" in kwargs
+                or "table_description" in kwargs
+                or "table_version_description" in kwargs
+                or "table_properties" in kwargs
+                or "table_version_properties" in kwargs
+            ):
+                alter_table(
+                    table,
+                    namespace=namespace,
+                    table_version=table_version,
+                    *args,
+                    **kwargs,
+                )
 
         # Get the active table version and stream
         table_version_obj = _get_latest_active_or_given_table_version(
@@ -763,7 +696,6 @@ def _validate_and_coerce_data_against_schema(
     if not schema:
         return data, False, None
 
-    # Use the new generalized validation method that handles all dataset types
     validated_data, updated_schema = schema.validate_and_coerce_dataset(
         data,
         schema_evolution_mode=schema_evolution_mode,
@@ -800,7 +732,9 @@ def _stage_commit_and_compact(
         partition=partition,
         delta_type=delta_type,
         content_type=content_type,
-        author=ManifestAuthor.of(name="write_to_table", version="1.0"),
+        author=ManifestAuthor.of(
+            name="deltacat.write_to_table", version=dc.__version__
+        ),
         schema=table_version_obj.schema,
         **kwargs,
     )
@@ -1007,7 +941,7 @@ def _create_compaction_params(
     kwargs.pop("fail_if_exists", None)
     kwargs.pop("schema_updates", None)
     kwargs.pop("partition_updates", None)
-    kwargs.pop("sort_key_updates", None)
+    kwargs.pop("sort_scheme", None)
 
     table_writer_kwargs = kwargs.pop("table_writer_kwargs", {})
     table_writer_kwargs["schema"] = table_version_obj.schema
@@ -1231,11 +1165,45 @@ def _get_max_parallelism(
     return max_parallelism
 
 
+def _handle_schemaless_table_read(
+    qualified_deltas: List[Delta],
+    read_as: DatasetType,
+    **kwargs,
+) -> Dataset:
+    """Handle reading schemaless tables by flattening manifest entries."""
+    # Create a PyArrow table for each delta
+    # TODO(pdames): More efficient implementation for tables with millions/billions of entries
+    tables = []
+    for delta in qualified_deltas:
+        # Get the manifest for this delta
+        if delta.manifest:
+            manifest = delta.manifest
+        else:
+            # Fetch manifest from storage
+            manifest = _get_storage(**kwargs).get_delta_manifest(
+                delta.locator,
+                transaction=kwargs.get("transaction"),
+                **kwargs,
+            )
+        # Create flattened table from this delta's manifest
+        table = pa_utils.delta_manifest_to_table(
+            manifest,
+            delta,
+        )
+        tables.append(table)
+
+    # Concatenate all PyArrow tables
+    final_table = pa_utils.concat_tables(tables)
+
+    # Convert from PyArrow to the requested dataset type
+    return from_pyarrow(final_table, read_as)
+
+
 def _download_and_process_table_data(
     namespace: str,
     table: str,
     qualified_deltas: List[Delta],
-    read_as: Optional[DatasetType],
+    read_as: DatasetType,
     max_parallelism: Optional[int],
     columns: Optional[List[str]],
     file_path_column: Optional[str],
@@ -1243,7 +1211,21 @@ def _download_and_process_table_data(
     **kwargs,
 ) -> Dataset:
     """Download delta data and process result based on storage type."""
+
     # Merge deltas and download data
+    if not qualified_deltas:
+        # Return empty table
+        return empty_table(read_as)
+
+    # Special handling for non-empty schemaless tables
+    if table_schema is None:
+        return _handle_schemaless_table_read(
+            qualified_deltas,
+            read_as,
+            **kwargs,
+        )
+
+    # Standard non-empty schema table read path - merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
 
     # Convert read parameters to download parameters
@@ -1268,7 +1250,6 @@ def _download_and_process_table_data(
         max_parallelism,
         distributed_dataset_type,
     )
-
     result = _get_storage(**kwargs).download_delta(
         merged_delta,
         table_type=read_as,
@@ -1296,67 +1277,15 @@ def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dat
     return deltacat_schema.coerce(dataset)
 
 
-def _extract_pyarrow_schema(table_result: Dataset) -> Optional[pa.Schema]:
-    """Extract PyArrow schema from various table result types."""
-    if isinstance(table_result, pa.Table):
-        return table_result.schema
-    elif hasattr(table_result, "to_arrow"):
-        return table_result.to_arrow().schema
-    elif isinstance(table_result, pd.DataFrame):
-        return pa.Table.from_pandas(table_result).schema
-    else:
-        return None
-
-
-def _collect_all_column_names(results: List[Dataset]) -> set:
-    """Collect all column names across all table results."""
-    all_columns = set()
-    for table_result in results:
-        temp_schema = _extract_pyarrow_schema(table_result)
-        if temp_schema:
-            all_columns.update(temp_schema.names)
-    return all_columns
-
-
-def _build_target_schema(
-    table_schema: Schema, all_columns: set, results: List[Dataset]
-) -> Optional[pa.Schema]:
-    """Build target schema combining table schema fields with additional columns from results."""
-    latest_schema = table_schema.arrow
-    target_fields = []
-    table_column_names = {field.name for field in latest_schema}
-
-    # First, add fields from table schema that are present in results
-    for field in latest_schema:
-        if field.name in all_columns:
-            target_fields.append(field)
-
-    # Then, add any additional columns from results that aren't in table schema
-    for table_result in results:
-        temp_schema = _extract_pyarrow_schema(table_result)
-        if temp_schema:
-            for field in temp_schema:
-                if field.name in all_columns and field.name not in table_column_names:
-                    target_fields.append(field)
-                    table_column_names.add(field.name)
-            break  # Only need to check first result for additional columns
-
-    return pa.schema(target_fields) if target_fields else None
-
-
 def _coerce_results_to_schema(
     results: Dataset, target_schema: pa.Schema
 ) -> List[Dataset]:
     """Coerce all table results to match the target schema."""
     coerced_results = []
     for i, table_result in enumerate(results):
-        try:
-            coerced_result = _coerce_dataset_to_schema(table_result, target_schema)
-            coerced_results.append(coerced_result)
-            logger.debug(f"Coerced table {i} to unified schema")
-        except Exception as e:
-            logger.warning(f"Failed to coerce table {i}: {e}. Using original result.")
-            coerced_results.append(table_result)
+        coerced_result = _coerce_dataset_to_schema(table_result, target_schema)
+        coerced_results.append(coerced_result)
+        logger.debug(f"Coerced table {i} to unified schema")
     return coerced_results
 
 
@@ -1364,38 +1293,16 @@ def _handle_local_table_concatenation(
     results: Dataset, table_type: DatasetType, table_schema: Optional[Schema]
 ) -> Dataset:
     """Handle concatenation of local table results with schema coercion."""
-    if table_schema is None:
-        logger.debug(
-            f"Returning raw list of {len(results)} tables for schemaless table"
-        )
-        return results
+    logger.debug(f"Target table schema for coercion: {table_schema}")
+    coerced_results = _coerce_results_to_schema(results, table_schema.arrow)
 
-    try:
-        # Collect all column names and build unified schema
-        all_columns = _collect_all_column_names(results)
-        target_schema = _build_target_schema(table_schema, all_columns, results)
-
-        if target_schema:
-            logger.debug(f"Target schema for coercion: {target_schema}")
-            coerced_results = _coerce_results_to_schema(results, target_schema)
-        else:
-            coerced_results = results
-
-        # Attempt concatenation
-        logger.debug(
-            f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type}"
-        )
-        concatenated_result = concat_tables(coerced_results, table_type)
-        logger.debug(
-            f"Concatenation complete, result type: {type(concatenated_result)}"
-        )
-        return concatenated_result
-
-    except Exception as e:
-        logger.warning(
-            f"Schema coercion or concatenation failed: {e}. Returning original results."
-        )
-        return results
+    # Attempt concatenation
+    logger.debug(
+        f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type}"
+    )
+    concatenated_result = concat_tables(coerced_results, table_type)
+    logger.debug(f"Concatenation complete, result type: {type(concatenated_result)}")
+    return concatenated_result
 
 
 def read_table(
@@ -1403,7 +1310,7 @@ def read_table(
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    read_as: Optional[DatasetType] = DatasetType.DAFT,
+    read_as: DatasetType = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -1491,9 +1398,9 @@ def alter_table(
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
-    schema_updates: Optional[SchemaUpdateOperations] = None,
+    schema_updates: Optional[SchemaUpdate] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    sort_key_updates: Optional[SortScheme] = None,
+    sort_scheme: Optional[SortScheme] = None,
     table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
@@ -1511,13 +1418,13 @@ def alter_table(
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         table_version: Optional specific version of the table to alter. Defaults to the latest active version.
         lifecycle_state: New lifecycle state for the table.
-        schema_updates: Map of schema updates to apply.
-        partition_updates: Map of partition scheme updates to apply.
-        sort_key_updates: New sort keys scheme.
+        schema_updates: Schema updates to apply.
+        partition_updates: Partition scheme updates to apply.
+        sort_scheme: New sort scheme.
         table_description: New description for the table.
-        table_version_description: New description for the table version.
+        table_version_description: New description for the table version. Defaults to `table_description` if not  specified.
         table_properties: New table properties.
-        table_version_properties: New table version properties.
+        table_version_properties: New table version properties. Defaults to the current parent table properties if not specified.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -1527,6 +1434,21 @@ def alter_table(
         TableNotFoundError: If the table does not already exist.
         TableVersionNotFoundError: If the specified table version or active table version does not exist.
     """
+    resolved_tv_properties = (
+        table_version_properties
+        if table_version_properties is not None
+        else table_properties
+    )
+    if resolved_tv_properties:
+        read_optimization_level = resolved_tv_properties.get(
+            TableProperty.READ_OPTIMIZATION_LEVEL,
+            TablePropertyDefaultValues[TableProperty.READ_OPTIMIZATION_LEVEL],
+        )
+        if read_optimization_level != TableReadOptimizationLevel.MAX:
+            raise NotImplementedError(
+                f"Table read optimization level `{read_optimization_level} is not yet supported. Please use {TableReadOptimizationLevel.MAX}"
+            )
+
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
@@ -1536,10 +1458,10 @@ def alter_table(
     try:
         if partition_updates:
             raise NotImplementedError("Partition updates are not yet supported.")
-        if sort_key_updates:
-            raise NotImplementedError("Sort key updates are not yet supported.")
+        if sort_scheme:
+            raise NotImplementedError("Sort scheme updates are not yet supported.")
 
-        _get_storage(**kwargs).update_table(
+        new_table: Table = _get_storage(**kwargs).update_table(
             *args,
             namespace=namespace,
             table_name=table,
@@ -1548,10 +1470,13 @@ def alter_table(
             **kwargs,
         )
 
+        # inherit properties from the parent table if not specified
+        resolved_tv_properties = resolved_tv_properties or new_table.properties
+
         if table_version is None:
-            table_version = _get_storage(**kwargs).get_latest_active_table_version(
-                namespace, table, **kwargs
-            )
+            table_version: Optional[TableVersion] = _get_storage(
+                **kwargs
+            ).get_latest_active_table_version(namespace, table, **kwargs)
             if table_version is None:
                 raise TableVersionNotFoundError(
                     f"No active table version found for table {namespace}.{table}. "
@@ -1571,28 +1496,13 @@ def alter_table(
         if schema_updates is not None:
             # Get the current schema from the table version
             current_schema = table_version.schema
-
-            # Create a SchemaUpdate from the current schema
-            schema_update = current_schema.update()
-
-            # Apply each operation in the list
-            for operation in schema_updates:
-                if operation.operation == "add":
-                    schema_update = schema_update.add_field(operation.field)
-                elif operation.operation == "remove":
-                    schema_update = schema_update.remove_field(operation.field_locator)
-                elif operation.operation == "update":
-                    schema_update = schema_update._update_field(
-                        operation.field_locator,
-                        operation.field,
-                    )
-                else:
-                    raise ValueError(
-                        f"Unknown schema update operation: {operation.operation}"
-                    )
+            if current_schema != schema_updates.base_schema:
+                raise ValueError(
+                    f"Schema updates are not compatible with the current schema for table `{namespace}.{table}`. Current schema: {current_schema}, Schema update base schema: {schema_updates.base_schema}"
+                )
 
             # Apply all the updates to get the final schema
-            updated_schema = schema_update.apply()
+            updated_schema = schema_updates.apply()
 
         _get_storage(**kwargs).update_table_version(
             *args,
@@ -1602,7 +1512,7 @@ def alter_table(
             lifecycle_state=lifecycle_state,
             description=table_version_description or table_description,
             schema=updated_schema,
-            properties=table_version_properties,
+            properties=resolved_tv_properties,
             **kwargs,
         )
 
@@ -1652,7 +1562,7 @@ def create_table(
         table_description: Optional description of the table.
         table_version_description: Optional description for the table version.
         table_properties: Optional properties for the table.
-        table_version_properties: Optional properties for the table version.
+        table_version_properties: Optional properties for the table version. Defaults to the current parent table properties if not specified.
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
@@ -1665,6 +1575,21 @@ def create_table(
         TableAlreadyExistsError: If the table already exists and fail_if_exists is True.
         NamespaceNotFoundError: If the provided namespace does not exist.
     """
+    resolved_tv_properties = (
+        table_version_properties
+        if table_version_properties is not None
+        else table_properties
+    )
+    if resolved_tv_properties:
+        read_optimization_level = resolved_tv_properties.get(
+            TableProperty.READ_OPTIMIZATION_LEVEL,
+            TablePropertyDefaultValues[TableProperty.READ_OPTIMIZATION_LEVEL],
+        )
+        if read_optimization_level != TableReadOptimizationLevel.MAX:
+            raise NotImplementedError(
+                f"Table read optimization level `{read_optimization_level} is not yet supported. Please use {TableReadOptimizationLevel.MAX}"
+            )
+
     namespace = namespace or default_namespace()
 
     # Set up transaction handling
@@ -1672,33 +1597,42 @@ def create_table(
     kwargs["transaction"] = create_transaction
 
     try:
-        existing_table = get_table(
-            table,
-            namespace=namespace,
-            table_version=table_version,
-            *args,
-            **kwargs,
-        )
-        if existing_table is not None:
-            if fail_if_exists:
-                table_identifier = (
-                    f"{namespace}.{table}"
-                    if not table_version
-                    else f"{namespace}.{table}.{table_version}"
-                )
-                raise TableAlreadyExistsError(
-                    f"Table {table_identifier} already exists"
-                )
-            return existing_table
-
-        if not namespace_exists(namespace, **kwargs):
-            create_namespace(
+        existing_table = (
+            get_table(
+                table,
                 namespace=namespace,
-                properties=namespace_properties,
+                table_version=table_version,
                 *args,
                 **kwargs,
             )
-
+            if "existing_table_definition" not in kwargs
+            else kwargs["existing_table_definition"]
+        )
+        if existing_table is not None:
+            if existing_table.table_version and existing_table.stream:
+                if fail_if_exists:
+                    table_identifier = (
+                        f"{namespace}.{table}"
+                        if not table_version
+                        else f"{namespace}.{table}.{table_version}"
+                    )
+                    raise TableAlreadyExistsError(
+                        f"Table {table_identifier} already exists"
+                    )
+                return existing_table
+            # the table exists but the table version doesn't - inherit the existing table properties
+            resolved_tv_properties = (
+                resolved_tv_properties or existing_table.table.properties
+            )
+        else:
+            # create the namespace if it doesn't exist
+            if not namespace_exists(namespace, **kwargs):
+                create_namespace(
+                    namespace=namespace,
+                    properties=namespace_properties,
+                    *args,
+                    **kwargs,
+                )
         (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
             namespace=namespace,
             table_name=table,
@@ -1711,9 +1645,7 @@ def create_table(
             else table_description,
             table_description=table_description,
             table_properties=table_properties,
-            table_version_properties=table_version_properties
-            if table_version_properties is not None
-            else table_properties,
+            table_version_properties=resolved_tv_properties,
             lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
             supported_content_types=content_types,
             *args,
@@ -1914,11 +1846,9 @@ def get_table(
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
-        Deltacat TableDefinition if the table exists, None otherwise.
-
-    Raises:
-        TableVersionNotFoundError: If the table version does not exist.
-        StreamNotFoundError: If the stream does not exist.
+        Deltacat TableDefinition if the table exists, None otherwise. The table definition's table version will be
+        None if the requested version is not found. The table definition's stream will be None if the requested stream
+        format is not found.
     """
     namespace = namespace or default_namespace()
 
@@ -1937,7 +1867,7 @@ def get_table(
         if table_obj is None:
             return None
 
-        table_version: Optional[TableVersion] = _get_storage(
+        table_version_obj: Optional[TableVersion] = _get_storage(
             **kwargs
         ).get_table_version(
             namespace,
@@ -1947,33 +1877,22 @@ def get_table(
             **kwargs,
         )
 
-        if table_version is None:
-            raise TableVersionNotFoundError(
-                f"TableVersion {namespace}.{table}.{table_version} does not exist."
+        stream = None
+        if table_version_obj:
+            stream = _get_storage(**kwargs).get_stream(
+                namespace=namespace,
+                table_name=table,
+                table_version=table_version_obj.id,
+                stream_format=stream_format,
+                *args,
+                **kwargs,
             )
 
-        stream = _get_storage(**kwargs).get_stream(
-            namespace=namespace,
-            table_name=table,
-            table_version=table_version.id,
-            stream_format=stream_format,
-            *args,
-            **kwargs,
-        )
-
-        if stream is None:
-            raise StreamNotFoundError(
-                f"Stream {namespace}.{table}.{table_version}.{stream} does not exist."
-            )
-
-        result = TableDefinition.of(
+        return TableDefinition.of(
             table=table_obj,
-            table_version=table_version,
+            table_version=table_version_obj,
             stream=stream,
         )
-
-        return result
-
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         commit_transaction = False

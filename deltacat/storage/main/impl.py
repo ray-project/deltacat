@@ -1426,7 +1426,7 @@ def update_table(
     *args,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> None:
+) -> Table:
     """
     Update table metadata describing the table versions it contains. By default,
     a table's properties are empty, and its description is equal to that given
@@ -1464,6 +1464,7 @@ def update_table(
 
     if commit_transaction:
         transaction.seal()
+    return new_table
 
 
 def update_table_version(
@@ -1479,7 +1480,7 @@ def update_table_version(
     *args,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> None:
+) -> Tuple[Optional[Table], TableVersion, Optional[Stream]]:
     """
     Update a table version. Notably, updating an unreleased table version's
     lifecycle state to 'ACTIVE' telegraphs that it is ready for external
@@ -1493,10 +1494,6 @@ def update_table_version(
     partition_scheme must be explicitly set to UNPARTITIONED_SCHEME. Similarly
     to transition a table version from sorted to unsorted, sort_keys must be
     explicitly set to UNSORTED_SCHEME.
-
-    Args:
-        transaction: Optional transaction to append operations to instead of
-                    creating and committing a new transaction.
     """
     transaction, commit_transaction = setup_transaction(transaction, **kwargs)
     old_table_version = get_table_version(
@@ -1588,6 +1585,7 @@ def update_table_version(
         *args,
         **kwargs,
     )
+    new_table: Table = None
     if (
         lifecycle_state == LifecycleState.ACTIVE
         and old_table_version.state != LifecycleState.ACTIVE
@@ -1602,7 +1600,7 @@ def update_table_version(
         _, new_version_number = TableVersion.parse_table_version(table_version)
         if old_version_number is None or old_version_number < new_version_number:
             # update the table's latest table version
-            new_table: Table = Metafile.update_for(old_table)
+            new_table = Metafile.update_for(old_table)
             new_table.latest_active_table_version = table_version
             transaction.step(
                 TransactionOperation.of(
@@ -1626,6 +1624,7 @@ def update_table_version(
 
     # TODO(pdames): Push changes down to non-deltacat streams via sync module.
     #   Also copy sort scheme changes down to deltacat child stream?
+    new_stream: Stream = None
     if partition_scheme:
         old_stream = get_stream(
             namespace=namespace,
@@ -1635,7 +1634,7 @@ def update_table_version(
             *args,
             **kwargs,
         )
-        new_stream: Stream = Metafile.update_for(old_stream)
+        new_stream = Metafile.update_for(old_stream)
         new_stream.partition_scheme = partition_scheme
         transaction.step(
             TransactionOperation.of(
@@ -1646,6 +1645,7 @@ def update_table_version(
         )
     if commit_transaction:
         transaction.seal()
+    return new_table, new_table_version, new_stream
 
 
 def stage_stream(

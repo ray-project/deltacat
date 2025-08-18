@@ -4,34 +4,50 @@ DeltaCAT tables may either be schemaless or backed by a schema based on the [Arr
 
 ## Schemaless Tables
 A schemaless table is created via `dc.create_table(table_name, schema=None)`. Schemaless tables only save a
-record of files written to them over time without schema inference, data validation, or data coercion. 
-Since it may not be possible to derive a unified schema on read, data returned via `dc.read_table(table_name)` is 
-always an ordered list of files written to the table and their manifest entry info (e.g., size, content type, 
-content encoding, etc.).
+record of files written to them over time without schema inference, data validation, or data coercion.
+Since it may not be possible to derive a unified schema on read, data returned via `dc.read_table(table_name)` is
+always an ordered list of files written to the table and their manifest entry info (e.g., size, content type,
+content encoding, etc.). For example:
+
+| Column                     | Value                     | Type     | Description                                          |
+|----------------------------|---------------------------|----------|------------------------------------------------------|
+| author_name                | "deltacat.write_to_table" | str      | Manifest producer name.                              |
+| author_version             | "2.0.0b12"                | str      | Manifest producer version.                           |
+| id                         | None                      | str      | Manifest entry ID (can be None)                      |
+| mandatory                  | True                      | bool     | Raise error if file is missing (True/False).         |
+| meta_content_encoding      | "identity"                | str      | File content encoding (identity = no encoding)       |
+| meta_content_length        | 2413                      | int64    | File size in bytes (2.4 KB)                          |
+| meta_content_type          | "application/parquet"     | str      | File format (Parquet)                                |
+| meta_record_count          | 2                         | int64    | Number of records in this file                       |
+| meta_source_content_length | 176                       | int64    | Original data size in memory (176 bytes)             |
+| previous_stream_position   | 1                         | int64    | Previous delta stream position                       |
+| stream_position            | 2                         | int64    | This delta's stream position                         |
+| path                       | /my_catalog/data/file.pq  | str      | File path relative to catalog root                   |
+
 
 ## Standard Tables
-Tables with schemas have their data validation and schema evolution behavior governed by **Schema 
+Tables with schemas have their data validation and schema evolution behavior governed by **Schema
 Consistency Types** and **Schema Evolution Modes** to ensure that the table can always be materialized
-with a unified schema at read time. By default, a DeltaCAT table created via `dc.create_table(table_name)` 
+with a unified schema at read time. By default, a DeltaCAT table created via `dc.create_table(table_name)`
 infers a unified Arrow schema on write.
 
 ## Schema Consistency Types
-DeltaCAT table schemas can either be inferred, or used to enforce different data consistency 
-checks run for each schema field. The default schema consistency type of all fields in a DeltaCAT 
-table schema is configured by setting the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property to one 
-of the following values: 
+DeltaCAT table schemas can either be inferred, or used to enforce different data consistency
+checks run for each schema field. The default schema consistency type of all fields in a DeltaCAT
+table schema is configured by setting the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property to one
+of the following values:
 
 
 
-**NONE** (default): No data consistency checks are run. The schema field's type will be automatically 
-promoted to the most permissive Arrow data type that all values can be safely cast to using 
-`pyarrow.unify_schemas(schemas, promote_options="permissive")`. If safe casting is impossible, 
+**NONE** (default): No data consistency checks are run. The schema field's type will be automatically
+promoted to the most permissive Arrow data type that all values can be safely cast to using
+`pyarrow.unify_schemas(schemas, promote_options="permissive")`. If safe casting is impossible,
 then a `SchemaValidationError` will be raised.
 
 
 
 **COERCE**: Coerce fields to fit the schema whenever possible, even if data truncation is required. Fields
-will be coerced using either `pyarrow.compute.cast` or `daft.expression.cast` with default options. If the 
+will be coerced using either `pyarrow.compute.cast` or `daft.expression.cast` with default options. If the
 field cannot be coerced to fit the given type, then a `SchemaValidationError` will be raised.
 
 
@@ -42,7 +58,7 @@ A field's Schema Consistency Type can only be updated from least to most permiss
 
 ## Schema Evolution Modes
 Schema evolution modes control how schema changes are handled when writing to a table.
-A table's schema evolution mode is configured by setting the `SCHEMA_EVOLUTION_MODE` 
+A table's schema evolution mode is configured by setting the `SCHEMA_EVOLUTION_MODE`
 table property to one of the following values:
 
 
@@ -64,7 +80,7 @@ created with is immutable.
 A table's Schema Evolution Mode can be updated at any time.
 
 ## Arrow to File Format Type Mappings
-The tables below show DeltaCAT's actual Arrow write type mappings across all supported dataset and content types. 
+The tables below show DeltaCAT's actual Arrow write type mappings across all supported dataset and content types.
 These mappings are generated by:
 
 1. Creating a PyArrow table with the target PyArrow data type via `pa.Table.from_arrays([pa.array(test_data, type=arrow_type)])`.

@@ -1,0 +1,265 @@
+# Tables
+
+DeltaCAT tables are made to be natively written and read using any Arrow-compatible **Dataset Type** with Ray.
+They may either be schemaless or backed by an [Arrow type system](https://arrow.apache.org/docs/python/api/datatypes.html) schema.
+For more information, see [DeltaCAT Schemas](../schema/README.md). They can be optionally organized by **Namespace** or written
+into a catalog's global namespace. DeltaCAT natively supports multi-table transactions spanning any number of tables and
+namespaces.
+
+## Supported Dataset Types
+
+DeltaCAT tables can be written and read via both local and distributed dataset types.
+Suported local dataset types include [PyArrow](https://arrow.apache.org/docs/python),
+[Pandas](https://pandas.pydata.org/docs/), and [Polars](https://docs.pola.rs/).
+Supported distributed dataset types include [Daft](https://github.com/Eventual-Inc/Daft) and
+[Ray Data](https://docs.ray.io/en/latest/data/data.html).
+
+For example, the following code automatically creates the DeltaCAT table `"my_table"` from a Pandas DataFrame:
+```python
+import pandas as pd
+import deltacat as dc
+
+data = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [25, 30, 35],
+    "city": ["New York", "Los Angeles", "Chicago"],
+})
+dc.write_to_table(
+    data,
+    "my_table",
+)
+```
+
+A subsequent PyArrow table can then be appended via:
+```python
+pyarrow_table = pa.Table.from_pydict({
+    "id": [4, 5, 6],
+    "name": ["Dave", "Eve", "Frank"],
+    "age": [40, 45, 50],
+    "city": ["San Francisco", "Seattle", "Boston"],
+})
+dc.write_to_table(
+    pyarrow_table,
+    "my_table",
+)
+```
+
+The following code reads from the same table using Daft (DeltaCAT's default dataset reader):
+```python
+daft_dataframe = dc.read_table("my_table")
+```
+Daft dataframes are distributed and lazily evaluated, so the data is not loaded into memory until it is needed.
+This makes them ideal for reading from large tables. For more information, see the [Daft DataFrame API](https://docs.daft.ai/en/stable/api/dataframe/).
+
+Small tables that fit in local memory can also be read using PyArrow, Pandas, or Polars. For example,
+the following code reads the same table into a Polars DataFrame:
+```python
+polars_dataframe = dc.read_table("my_table", read_as=DatasetType.POLARS)
+```
+This dataframe will be eagerly materialized at read time. To read a local table without eager materialization,
+use the `PYARROW_PARQUET` dataset type, which returns a list of unmaterialized PyArrow `ParquetFile` objects:
+```python
+pyarrow_parquet_files = dc.read_table("my_table", read_as=DatasetType.PYARROW_PARQUET)
+```
+Each `ParquetFile` can then be materialized by calling `read` on each `ParquetFile` reference. For more information,
+see the [PyArrow ParquetFile API](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html).
+
+## Write Modes
+Data from any supported dataset type is written to a table using `dc.write_to_table` with one of the following write modes:
+
+**AUTO (default)**
+Create the table if it doesn't exist, APPEND if the table exists without merge keys, and MERGE if the table exists with merge keys.
+
+**CREATE**
+Create the table if it doesn't exist, throw an error if it does.
+
+**APPEND**
+Append to the table if it exists, throw an error if it doesn't.
+
+**REPLACE**
+Replace existing table contents with the data to write.
+
+**MERGE**
+Insert or update records matching table merge keys.
+
+**DELETE**
+Delete records matching table merge keys.
+
+## Merge Keys
+Table schemas may be defined with one more more merge keys. Merge keys are used to identify records that
+should be updated or deleted when writing to a table. They are defined in the table's schema via by setting
+the `is_merge_key` Field property to `True`.
+
+For example, the following schema defines a table with a merge key on the `id` field:
+```python
+import pyarrow as pa
+from deltacat import Schema, Field
+
+schema = Schema.of(
+    [
+        Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+        Field.of(pa.field("name", pa.string())),
+        Field.of(pa.field("age", pa.int32())),
+        Field.of(pa.field("city", pa.string())),
+    ]
+)
+```
+
+## Table Properties
+Table properties are used to configure the table's behavior. They are set when the table is created via `dc.create_table` or updated via `dc.alter_table`.
+Table properties can be read via a table version's `read_table_property` method and updated via `dc.alter_table`.
+
+For example, the following code reads the schema evolution mode of a table and updates it to `MANUAL`:
+```python
+import deltacat as dc
+
+table_info = dc.get_table("my_table")
+schema_evolution_mode = table_info.table_version.read_table_property(
+    TableProperty.SCHEMA_EVOLUTION_MODE
+)
+dc.alter_table(
+    "my_table",
+    table_version_properties={
+        TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.MANUAL,
+    },
+)
+```
+
+DeltaCAT table's support the following properties:
+
+**READ_OPTIMIZATION_LEVEL (default: MAX)**
+Controls the read optimization level for the table. For more information, see [DeltaCAT Table Read Optimization Levels](#table-read-optimization-levels).
+
+**RECORDS_PER_COMPACTED_FILE (default: 4000000)**
+Target number of output records to write per file.
+
+**APPENDED_RECORD_COUNT_COMPACTION_TRIGGER (default: 8000000)**
+Number of records that can be appended to the table before a compaction job will be triggered to merge them into a single delta with `RECORDS_PER_COMPACTED_FILE` records per file.
+
+**APPENDED_FILE_COUNT_COMPACTION_TRIGGER (default: 1000)**
+Number of files that can be appended to the table before a compaction job will be triggered to merge them into a single delta with `RECORDS_PER_COMPACTED_FILE` records per file.
+
+**APPENDED_DELTA_COUNT_COMPACTION_TRIGGER (default: 100)**
+Number of deltas that can be appended to the table before a compaction job will be triggered to merge them into a single delta with `RECORDS_PER_COMPACTED_FILE` records per file.
+
+**SCHEMA_EVOLUTION_MODE (default: AUTO)**
+Controls how schema changes are handled when writing to a table. For more information, see [DeltaCAT Schemas](../schema/README.md).
+
+**DEFAULT_SCHEMA_CONSISTENCY_TYPE (default: COERCE)**
+Controls the default schema consistency type for new fields added to the table. For more information, see [DeltaCAT Schemas](../schema/README.md).
+
+**SUPPORTED_READER_TYPES (default: [PANDAS, POLARS, PYARROW, DAFT, RAY_DATASET])**
+Supported dataset types that should be able to read from the table. Writes that would break one or more of these readers will be rejected.
+
+## Table Read Optimization Levels
+Table read optimization levels let you choose the most appropriate balance between read and write performance.
+DeltaCAT table's support the following read optimization levels:
+
+**NONE**
+No read optimization. Deletes and updates are resolved by finding the values
+that match merge key predicates by running compaction at read time. Provides the
+fastest/cheapest writes but slow/expensive reads. Resilient to conflicts with concurrent
+writes, including table management jobs like compaction.
+
+**MODERATE**
+Discover record indexes that match merge key predicates at write time and record
+those values as logically deleted (e.g., using a bitmask). Provides faster/cheaper reads but
+slower/more-expensive writes. May conflict with concurrent writes that remove/replace data
+files like compaction.
+
+**MAX (default)**
+Materialize all deletes and updates at write time by running compaction during
+every write. Provides fast/cheap reads but slow/expensive writes. May conflict with
+concurrent writes, including table management jobs like compaction.
+
+## Altering Tables
+Tables can be altered via `dc.alter_table`. This API lets you alter the table's schema, partition scheme, sort keys,
+lifecycle state, description, and properties.
+
+### Schema Evolution
+By default, DeltaCAT will automatically evolve the table's schema to match the schema of the data being written.
+This is controlled by the `SCHEMA_EVOLUTION_MODE` table property.
+
+To manually evolve the table's schema, you can use the `update` method on the table's schema.
+For example, the following code updates the documentation of the `name` field of the table to `"full name"`:
+
+```python
+table_info = dc.get_table(
+    table=table_name, namespace=namespace, catalog=catalog_name
+)
+base_schema = table_info.table_version.schema
+schema_updates = (
+    base_schema.update()
+    .update_field_doc("name", "full name")
+)
+dc.alter_table(
+    "my_table",
+    schema_updates=schema_updates.operations,
+)
+```
+
+### Future and Past Defaults
+When writing data to a table that doesn't contain a field defined in the table's schema, DeltaCAT will use the
+field's **Future Default** value to determine the field's value. When reading data from a table that doesn't
+contain a field defined in the table's schema, DeltaCAT will use the field's **Past Default** value to determine
+the field's value.
+
+For example, you can define a `"priority"` Schema field with past default of `"low"` and future default of `"medium"` via:
+```python
+# Create field with both past_default and explicit future_default
+field = Field.of(
+    field=pa.field("priority", pa.string(), nullable=True),
+    field_id=1,
+    past_default="low",
+    future_default="medium",  # Explicitly set to different value
+)
+```
+All future reads of data missing the `"priority"` field will inherit the past default of `"low"`, and all future
+writes of data missing the `"priority"` field will inherit the future default of `"medium"`.
+
+
+## Table Lifecycle Management and Versioning
+Internally, all DeltaCAT tables are versioned. Unless you specify an explicit table version to write to
+or read from, DeltaCAT automatically resolves each operation to the latest **ACTIVE** table version. The
+latest active table version is determined by its version number (max is latest) and lifecycle state,
+which is one of the following:
+
+**CREATED**: The table version has been created but is not ready for others to write to it or read from it.
+**UNRELEASED**: The table version is not yet ready for public consumption.
+**ACTIVE**: The table version is ready for public consumption.
+**DEPRECATED**: The table version is deprecated. Consumers should migrate off of this version before it is deleted.
+**BETA**: The table version is ready for public consumption beta testing.
+**DELETED**: The table version and its underlying data has been physically deleted.
+
+You can specify an explicit table version to write to or read from by passing the `table_version` parameter to `dc.write_to_table` or `dc.read_table`.
+For example, the following code will attempt to write to the `v1` version of "my_table", regardless of its lifecycle state:
+```python
+dc.write_to_table(
+    data,
+    "my_table",
+    table_version="v1",
+)
+```
+By default, any new table that you write to will have a new table version created with its lifecycle state set to **ACTIVE**.
+You can specify a different lifecycle state by passing the `lifecycle_state` parameter to `dc.write_to_table`, `dc.create_table`,
+or `dc.alter_table`.
+
+For example, the following code will write to a new table version with its lifecycle state set to **UNRELEASED**:
+
+```python
+dc.write_to_table(
+    data,
+    "my_table",
+    lifecycle_state=LifecycleState.UNRELEASED,
+)
+```
+
+By default, table versions inherit their properties from their parent table's properties at creation time.
+
+
+## Sort Keys (coming soon)
+Sort keys are used to control how a table's data is sorted at write time.
+
+## Partition Scheme (coming soon)
+Partition schemes are used to control how a table's data is partitioned at write time.

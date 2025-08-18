@@ -338,7 +338,7 @@ def update_table(
     new_table_name: Optional[str] = None,
     *args,
     **kwargs,
-) -> None:
+) -> Table:
     """
     Update table metadata describing the table versions it contains. By default,
     a table's properties are empty, and its description is equal to that given
@@ -361,7 +361,7 @@ def update_table_version(
     sort_keys: Optional[SortScheme] = None,
     *args,
     **kwargs,
-) -> None:
+) -> Tuple[Optional[Table], TableVersion, Optional[Stream]]:
     """
     Update a table version. Notably, updating an unreleased table version's
     lifecycle state to 'active' telegraphs that it is ready for external

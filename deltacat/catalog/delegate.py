@@ -48,7 +48,22 @@ def write_to_table(
     When creating a table, all `create_table` parameters may be optionally
     specified as additional keyword arguments. When appending to, or replacing,
     an existing table, all `alter_table` parameters may be optionally specified
-    as additional keyword arguments."""
+    as additional keyword arguments.
+
+    Args:
+        data: Local or distributed data to write to the table.
+        table: Name of the table to write to.
+        namespace: Optional namespace for the table. Uses default if not specified.
+        table_version: Optional version of the table to write to. If specified,
+            will create this version if it doesn't exist (in CREATE mode) or
+            get this version if it exists (in other modes). If not specified,
+            uses the latest version.
+        mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
+        content_type: Content type used to write the data files. Defaults to PARQUET.
+        transaction: Optional transaction to append write operations to instead of
+            creating and committing a new transaction.
+        **kwargs: Additional keyword arguments.
+    """
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.write_to_table(
         data,
@@ -69,7 +84,7 @@ def read_table(
     *args,
     namespace: Optional[str] = None,
     table_version: Optional[str] = None,
-    read_as: Optional[DatasetType] = DatasetType.DAFT,
+    read_as: DatasetType = DatasetType.DAFT,
     partition_filter: Optional[List[Union[Partition, PartitionLocator]]] = None,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -78,7 +93,26 @@ def read_table(
     catalog: Optional[str] = None,
     **kwargs,
 ) -> Dataset:
-    """Read a table into a dataset."""
+    """Read a table into a dataset.
+
+    Args:
+        table: Name of the table to read.
+        namespace: Optional namespace of the table. Uses default if not specified.
+        table_version: Optional specific version of the table to read.
+        read_as: Dataset type to use for reading table files. Defaults to DatasetType.DAFT.
+        partition_filter: Optional list of partitions to read from.
+        max_parallelism: Optional maximum parallelism for data download. Defaults to the number of
+            available CPU cores for local dataset type reads (i.e., members of DatasetType.local())
+            and 100 for distributed dataset type reads (i.e., members of DatasetType.distributed()).
+        columns: Optional list of columns to include in the result.
+        file_path_column: Optional column name to add file paths to the result.
+        transaction: Optional transaction to chain this read operation to. If provided, uncommitted
+            changes from the transaction will be visible to this read operation.
+        **kwargs: Additional keyword arguments.
+
+    Returns:
+        Dataset containing the table data.
+    """
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.read_table(
         table,
@@ -104,7 +138,7 @@ def alter_table(
     lifecycle_state: Optional[LifecycleState] = None,
     schema_updates: Optional[SchemaUpdateOperations] = None,
     partition_updates: Optional[Dict[str, Any]] = None,
-    sort_key_updates: Optional[SortScheme] = None,
+    sort_scheme: Optional[SortScheme] = None,
     table_description: Optional[str] = None,
     table_version_description: Optional[str] = None,
     table_properties: Optional[TableProperties] = None,
@@ -123,13 +157,13 @@ def alter_table(
         namespace: Optional namespace of the table. Uses default namespace if not specified.
         table_version: Optional specific version of the table to alter. Defaults to the latest active version.
         lifecycle_state: New lifecycle state for the table.
-        schema_updates: Map of schema updates to apply.
-        partition_updates: Map of partition scheme updates to apply.
-        sort_key_updates: New sort keys scheme.
+        schema_updates: Schema updates to apply.
+        partition_updates: Partition scheme updates to apply.
+        sort_scheme: New sort scheme.
         table_description: New description for the table.
-        table_version_description: New description for the table version.
+        table_version_description: New description for the table version. Defaults to `table_description` if not  specified.
         table_properties: New table properties.
-        table_version_properties: New table version properties.
+        table_version_properties: New table version properties. Defaults to the current parent table properties if not specified.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -148,7 +182,7 @@ def alter_table(
         lifecycle_state=lifecycle_state,
         schema_updates=schema_updates,
         partition_updates=partition_updates,
-        sort_key_updates=sort_key_updates,
+        sort_scheme=sort_scheme,
         table_description=table_description,
         table_version_description=table_version_description,
         table_properties=table_properties,
@@ -187,7 +221,7 @@ def create_table(
     Args:
         table: Name of the table to create.
         namespace: Optional namespace for the table. Uses default namespace if not specified.
-        table_version: Optional version identifier for the table.
+        version: Optional version identifier for the table.
         lifecycle_state: Lifecycle state of the new table. Defaults to ACTIVE.
         schema: Schema definition for the table.
         partition_scheme: Optional partitioning scheme for the table.
@@ -195,7 +229,7 @@ def create_table(
         table_description: Optional description of the table.
         table_version_description: Optional description for the table version.
         table_properties: Optional properties for the table.
-        table_version_properties: Optional properties for the table version.
+        table_version_properties: Optional properties for the table version. Defaults to the current parent table properties if not specified.
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
@@ -351,11 +385,9 @@ def get_table(
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
-        Deltacat TableDefinition if the table exists, None otherwise.
-
-    Raises:
-        TableVersionNotFoundError: If the table version does not exist.
-        StreamNotFoundError: If the stream does not exist.
+        Deltacat TableDefinition if the table exists, None otherwise. The table definition's table version will be
+        None if the requested version is not found. The table definition's stream will be None if the requested stream
+        format is not found.
     """
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.get_table(

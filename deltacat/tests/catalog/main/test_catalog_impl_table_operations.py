@@ -14,8 +14,6 @@ from deltacat.catalog import get_catalog_properties
 from deltacat.storage.model.schema import (
     Schema,
     Field,
-    SchemaUpdateOperations,
-    SchemaUpdateOperation,
 )
 from deltacat.storage.model.types import SchemaConsistencyType
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
@@ -460,9 +458,7 @@ class TestCatalogTableOperations:
 
         # Create schema update operations to add a new field
         new_field = Field.of(pa.field("count", pa.float64(), nullable=True))
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.add_field(new_field)]
-        )
+        schema_update = old_schema.update().add_field(new_field)
 
         # Create updated properties
         updated_properties = {
@@ -475,7 +471,7 @@ class TestCatalogTableOperations:
         catalog.alter_table(
             table=table_name,
             namespace=namespace_name,
-            schema_updates=schema_updates,
+            schema_updates=schema_update,
             table_description="Updated description",
             table_properties=updated_properties,
             inner=catalog_properties,
@@ -540,6 +536,7 @@ class TestCatalogTableOperations:
 
         # Create initial schema
         schema = Schema.of(schema=sample_arrow_schema)
+        print("schema.max_field_id", schema.max_field_id)
 
         # Create the table
         table = catalog.create_table(
@@ -559,18 +556,20 @@ class TestCatalogTableOperations:
             past_default="active",
         )
 
-        schema_updates = SchemaUpdateOperations.of(
-            [
-                SchemaUpdateOperation.add_field(new_field1),
-                SchemaUpdateOperation.add_field(new_field2),
-            ]
+        schema_update = (
+            original_schema.update().add_field(new_field1).add_field(new_field2)
+        )
+        print("original_schema.max_field_id", original_schema.max_field_id)
+        print(
+            "schema_update.base_schema.max_field_id",
+            schema_update.base_schema.max_field_id,
         )
 
         # Alter the table
         catalog.alter_table(
             table=table_name,
             namespace=namespace_name,
-            schema_updates=schema_updates,
+            schema_updates=schema_update,
             table_description="Updated with multiple fields",
             inner=catalog_properties,
         )
@@ -619,46 +618,44 @@ class TestCatalogTableOperations:
         schema = Schema.of(initial_fields)
 
         # Create the table
-        catalog.create_table(
+        table = catalog.create_table(
             table=table_name,
             namespace=namespace_name,
             schema=schema,
             inner=catalog_properties,
         )
+        original_schema = table.table_version.schema
+        temp_field = original_schema.field("temp_field")
+        assert temp_field is not None
 
-        # Note: Field removal would normally require allow_incompatible_changes in SchemaUpdate
-        # For this test, we're just testing the API structure
-        # In practice, removing fields may fail due to compatibility restrictions
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.remove_field("temp_field")]
+        schema_update = original_schema.update(True).remove_field("temp_field")
+
+        catalog.alter_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema_updates=schema_update,
+            inner=catalog_properties,
         )
 
-        # This may raise SchemaCompatibilityError depending on SchemaUpdate validation
-        # The test verifies the API works correctly even if the operation fails
-        try:
-            catalog.alter_table(
-                table=table_name,
-                namespace=namespace_name,
-                schema_updates=schema_updates,
-                inner=catalog_properties,
-            )
+        # If successful, verify the field was removed
+        updated_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+        updated_schema = updated_table_def.table_version.schema
 
-            # If successful, verify the field was removed
-            updated_table_def = catalog.get_table(
-                table_name,
-                namespace=namespace_name,
-                inner=catalog_properties,
-            )
-            updated_schema = updated_table_def.table_version.schema
+        # temp_field should be removed
+        with pytest.raises(KeyError):
+            updated_schema.field("temp_field")
 
-            # temp_field should be removed
-            with pytest.raises(ValueError):
-                updated_schema.field("temp_field")
-
-        except Exception as e:
-            # Expected if SchemaUpdate validation prevents field removal
-            # The key point is that the API accepts SchemaUpdateOperations correctly
-            assert "compatibility" in str(e).lower() or "remove" in str(e).lower()
+        # all other fields should be present
+        assert updated_schema.field("id") is not None
+        assert updated_schema.field("id").arrow.type == pa.int64()
+        assert updated_schema.field("id").id == 1
+        assert updated_schema.field("name") is not None
+        assert updated_schema.field("name").arrow.type == pa.string()
+        assert updated_schema.field("name").id == 2
 
     def test_alter_table_with_update_operation(self, test_namespace):
         """Test altering a table with field update operation."""
@@ -687,16 +684,13 @@ class TestCatalogTableOperations:
         original_schema = table.table_version.schema
 
         # Update the value field to int64 (compatible type widening)
-        updated_field = Field.of(pa.field("value", pa.int64(), nullable=True))
-        schema_updates = SchemaUpdateOperations.of(
-            [SchemaUpdateOperation.update_field("value", updated_field)]
-        )
+        schema_update = original_schema.update().update_field_type("value", pa.int64())
 
         # Alter the table
         catalog.alter_table(
             table=table_name,
             namespace=namespace_name,
-            schema_updates=schema_updates,
+            schema_updates=schema_update,
             inner=catalog_properties,
         )
 
@@ -1125,7 +1119,10 @@ class TestWriteToTable:
         table_name = "test_append_fail"
         data = self._create_test_pandas_data()
 
-        with pytest.raises(TableNotFoundError, match="does not exist and mode is"):
+        with pytest.raises(
+            TableNotFoundError,
+            match="does not exist and write mode is append. Use CREATE or AUTO mode",
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
