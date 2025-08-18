@@ -131,13 +131,9 @@ def sample_wds_inconsistent(temp_dir):
 
 
 class TestFromWebDataset:
-    file_store: FileStore
-
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        path, filesystem = FileStore.filesystem(cls.temp_dir)
-        cls.file_store = FileStore(path, filesystem)
 
     @classmethod
     def teardown_class(cls):
