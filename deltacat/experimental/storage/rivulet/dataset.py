@@ -497,7 +497,7 @@ class Dataset:
         """
         Create a Dataset from a single webdataset tar file.
 
-        TODO: Add support for reading directories with multiple JSON files.
+        TODO: Add support for reading directories with multiple WDS files.
 
         Args:
             name: Unique identifier for the dataset.
@@ -510,7 +510,8 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred
                      from the tar file.
         """
-        def normalize_filename(filename): # helper function for from_webdataset()
+
+        def normalize_filename(filename):  # helper function for from_webdataset()
             return (filename).lower().replace(".jpeg", ".jpg")
 
         # TODO: Integrate this with filesystem from deltacat catalog
@@ -527,13 +528,21 @@ class Dataset:
                 raise ValueError(
                     "File URI and metadata URI must be on the same filesystem."
                 )
+        if not merge_keys or not isinstance(merge_keys, str):
+            if len(merge_keys) == 1:
+                merge_keys = merge_keys[0]
+            else:
+                raise ValueError(
+                    "Multiple merge keys are not supported in from_webdataset(). Please specify only 1 merge key as a string."
+                )
+
         dataset_schema = Schema()
         media_binaries = []
 
         with tarfile.open(file_uri, "r") as tar:
             tar_members = tar.getmembers()
             current_batch = None
-            reading_frame_size = batch_size # TODO: Use batch size 1 for now.
+            reading_frame_size = batch_size
             total_batches = math.ceil(len(tar_members) / reading_frame_size)
 
             for i in range(total_batches):
@@ -547,56 +556,72 @@ class Dataset:
                         f = tar.extractfile(member)
                         if f:
                             try:
-                                if not merge_keys or not isinstance(merge_keys, str):
-                                    if len(merge_keys) == 1:
-                                        merge_keys = merge_keys[0]
-                                    else:
-                                        raise ValueError(
-                                            "Multiple merge keys are not supported in from_webdataset(). Please specify only 1 merge key as a string."
-                                        )
-                                
                                 merge_key = merge_keys
 
                                 pyarrow_table = pyarrow.json.read_json(f)
                                 image_filename = pyarrow_table[merge_key][0].as_py()
 
-                                # truncated_filename = normalize_filename(image_filename[image_filename.index('/') + 1:])
-                                truncated_filename = normalize_filename(os.path.basename(image_filename))
-                                if truncated_filename in [normalize_filename(t.name) for t in tar_members]:
-                                    image_member = next((t for t in tar_members if t.name == truncated_filename), None)
+                                truncated_filename = normalize_filename(
+                                    os.path.basename(image_filename)
+                                )
+                                if truncated_filename in [
+                                    normalize_filename(t.name) for t in tar_members
+                                ]:
+                                    image_member = next(
+                                        (
+                                            t
+                                            for t in tar_members
+                                            if t.name == truncated_filename
+                                        ),
+                                        None,
+                                    )
                                     if image_member:
                                         fi = tar.extractfile(image_member)
                                         if fi:
                                             media_binary = fi.read()
                                             media_binaries.extend([media_binary])
-  
+
                                 if current_batch is None:
                                     current_batch = pyarrow_table
                                 else:
-                                    current_batch = pa.concat_tables([current_batch, pyarrow_table])
+                                    current_batch = pa.concat_tables(
+                                        [current_batch, pyarrow_table]
+                                    )
                             except Exception as e:
                                 print(f"Error with {member.name}:", e)
-                            
+
                             if current_batch is not None:
                                 try:
-                                    dataset_schema.merge(Schema.from_pyarrow(current_batch.schema, merge_keys=merge_keys))
+                                    dataset_schema.merge(
+                                        Schema.from_pyarrow(
+                                            current_batch.schema, merge_keys=merge_keys
+                                        )
+                                    )
                                 except Exception as e:
                                     print(f"Error merging schema: {e}")
 
             if current_batch is not None and media_binaries:
                 if len(media_binaries) == current_batch.num_rows:
                     try:
-                        image_column = pyarrow.array(media_binaries, type=pyarrow.binary())
+                        image_column = pyarrow.array(
+                            media_binaries, type=pyarrow.binary()
+                        )
                         current_batch = current_batch.add_column(
-                            len(current_batch.schema),
-                            'media_binary',
-                            image_column
+                            len(current_batch.schema), "media_binary", image_column
                         )
                         # Edit dataset_schema to have media_binaries as a field object
-                        dataset_schema.add_field(Field('media_binary', Datatype.binary(image_filename[image_filename.index('.') + 1:].lower())))
+                        dataset_schema.add_field(
+                            Field(
+                                "media_binary",
+                                Datatype.binary(
+                                    image_filename[
+                                        image_filename.index(".") + 1 :
+                                    ].lower()
+                                ),
+                            )
+                        )
                     except Exception as e:
                         print(f"Mismatch between media binaries and batch rows: {e}")
-        
 
         dataset = cls(
             dataset_name=name,
