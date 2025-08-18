@@ -17,7 +17,7 @@ class TestWebDataset():
             for sample in samples:
                 writer.write(sample)
     def cleanup_tar_file(tmp_path):
-        
+        pass
 
     def process_tar(tar_path):
         """
