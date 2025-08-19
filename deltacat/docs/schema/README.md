@@ -32,8 +32,8 @@ with a unified schema at read time. By default, a DeltaCAT table created via `dc
 infers a unified Arrow schema on write.
 
 ## Schema Consistency Types
-DeltaCAT table schemas can either be inferred, or used to enforce different data consistency
-checks run for each schema field. The default schema consistency type of all fields in a DeltaCAT
+DeltaCAT table schemas can either be **inferred** to follow the shape of written data or **enforced** 
+to define the shape of written data. The default schema consistency type of all fields in a DeltaCAT
 table schema is configured by setting the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property to one
 of the following values:
 
