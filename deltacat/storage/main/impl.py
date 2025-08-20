@@ -1545,9 +1545,10 @@ def update_table_version(
         TableProperty.SUPPORTED_READER_TYPES
     )
     if new_supported_reader_types:
-        old_supported_reader_types = old_table_version.read_table_property(
-            TableProperty.SUPPORTED_READER_TYPES
-        ) or {}
+        old_supported_reader_types = (
+            old_table_version.read_table_property(TableProperty.SUPPORTED_READER_TYPES)
+            or {}
+        )
         added_supported_reader_types = set(new_supported_reader_types) - set(
             old_supported_reader_types
         )

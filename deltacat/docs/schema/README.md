@@ -11,10 +11,10 @@ content encoding, etc.). For example:
 
 | Column                     | Value                     | Type     | Description                                          |
 |----------------------------|---------------------------|----------|------------------------------------------------------|
-| author_name                | "deltacat.write_to_table" | str      | Manifest producer name.                              |
-| author_version             | "2.0.0b12"                | str      | Manifest producer version.                           |
+| author_name                | "deltacat.write_to_table" | str      | Manifest producer name                               |
+| author_version             | "2.0.0b12"                | str      | Manifest producer version                            |
 | id                         | None                      | str      | Manifest entry ID (can be None)                      |
-| mandatory                  | True                      | bool     | Raise error if file is missing (True/False).         |
+| mandatory                  | True                      | bool     | Raise error if file is missing (True/False)          |
 | meta_content_encoding      | "identity"                | str      | File content encoding (identity = no encoding)       |
 | meta_content_length        | 2413                      | int64    | File size in bytes (2.4 KB)                          |
 | meta_content_type          | "application/parquet"     | str      | File format (Parquet)                                |
@@ -439,6 +439,51 @@ More details are available in the [type mapping generation script](../../deltaca
 | `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Time(isAdjustedToUTC=true, timeUnit=microseconds))` |
 | `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Time(isAdjustedToUTC=true, timeUnit=microseconds))` |
 
+#### **timestamp[ms]**
+| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
+|--------------|---------|---------|------|-----|---------------|
+| `pyarrow` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms]`; Avro:`{'logicalType': 'local-timestamp-millis', 'type': 'long'}`; Orc:`timestamp[ns]` |
+| `pandas` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms]`; Avro:`{'logicalType': 'local-timestamp-millis', 'type': 'long'}`; Orc:`timestamp[ns]` |
+| `polars` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms]`; Avro:`{'logicalType': 'local-timestamp-millis', 'type': 'long'}`; Orc:`timestamp[ns]` |
+| `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+| `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+
+#### **timestamp[ms, tz=UTC]**
+| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
+|--------------|---------|---------|------|-----|---------------|
+| `pyarrow` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `pandas` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `polars` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+| `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+
+#### **timestamp[ns]**
+| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
+|--------------|---------|---------|------|-----|---------------|
+| `pyarrow` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ns]`; Orc:`timestamp[ns]` |
+| `pandas` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ns]`; Orc:`timestamp[ns]` |
+| `polars` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ns]`; Orc:`timestamp[ns]` |
+| `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+| `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+
+#### **timestamp[ns, tz=UTC]**
+| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
+|--------------|---------|---------|------|-----|---------------|
+| `pyarrow` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ns, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `pandas` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ns, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `polars` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ns, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+| `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=nanoseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+
+#### **timestamp[s]**
+| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
+|--------------|---------|---------|------|-----|---------------|
+| `pyarrow` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[s]`; Avro:`{'logicalType': 'local-timestamp-millis', 'type': 'long'}`; Orc:`timestamp[ns]` |
+| `pandas` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[s]`; Avro:`{'logicalType': 'local-timestamp-millis', 'type': 'long'}`; Orc:`timestamp[ns]` |
+| `polars` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[ms]`; Avro:`{'logicalType': 'local-timestamp-millis', 'type': 'long'}`; Orc:`timestamp[ns]` |
+| `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+| `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=milliseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+
 #### **timestamp[s, tz=UTC]**
 | Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
 |--------------|---------|---------|------|-----|---------------|
@@ -456,6 +501,15 @@ More details are available in the [type mapping generation script](../../deltaca
 | `polars` | ✅ | ✅ | ✅ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[us]`; Avro:`{'logicalType': 'local-timestamp-micros', 'type': 'long'}`; Orc:`timestamp[ns]` |
 | `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))` |
 | `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=false, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+
+#### **timestamp[us, tz=UTC]**
+| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
+|--------------|---------|---------|------|-----|---------------|
+| `pyarrow` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[us, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `pandas` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[us, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `polars` | ✅ | ✅ | ❌ | ✅ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))`; Feather:`timestamp[us, tz=UTC]`; Orc:`timestamp[ns, tz=UTC]` |
+| `daft` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))` |
+| `ray_dataset` | ✅ | ❌ | ❌ | ❌ | Parquet:`INT64 (Timestamp(isAdjustedToUTC=true, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false))` |
 
 #### **uint16**
 | Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |
@@ -510,27 +564,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ❌ | ❌ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -547,24 +607,37 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### bool
 
 
-#### application/parquet
+#### application/avro
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
-### date32[day]
-
-
-#### application/parquet
+#### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
-### date64[ms]
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -572,187 +645,892 @@ written cannot be read by one or more supported reader types, then a `TableValid
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
 | **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 
-### decimal128(1, 0)
+### date32[day]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### date64[ms]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### decimal128(1, 0)
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 
 ### decimal128(38, 0)
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 
 ### decimal128(38, 10)
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 
 ### decimal128(5, 2)
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 
 ### decimal256(1, 0)
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
-
-
-### decimal256(5, 2)
-
-
-#### application/orc
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
-
-
-### decimal256(76, 0)
-
-
-#### application/feather
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **pandas** | ❌ | ✅ | ❌ | ✅ | ✅ |
-
-
-### decimal256(76, 38)
-
-
-#### application/feather
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **pandas** | ❌ | ✅ | ❌ | ✅ | ✅ |
-
-
-### dictionary<values=string, indices=int32, ordered=0>
-
-
-#### application/feather
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **polars** | ❌ | ❌ | ✅ | ❌ | ❌ |
-
-
-### double
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### decimal256(5, 2)
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### decimal256(76, 0)
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### decimal256(76, 38)
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ✅ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### dictionary<values=string, indices=int32, ordered=0>
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### double
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 
 ### duration[ms]
 
 
-#### application/parquet
+#### application/avro
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### duration[ns]
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### duration[s]
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### duration[us]
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### float
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### halffloat
-
-
-#### application/orc
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
-
-
-### int16
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### duration[ns]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### duration[s]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### duration[us]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### float
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### halffloat
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### int16
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -773,27 +1551,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -814,27 +1598,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -851,22 +1641,37 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### int8
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -887,27 +1692,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ❌ | ❌ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -928,27 +1739,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ❌ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -965,41 +1782,189 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### list<item: int32>
 
 
-#### application/parquet
+#### application/avro
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### list<item: string>
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### map<string, int32>
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ❌ | ❌ | ✅ | ✅ |
-
-
-### month_day_nano_interval
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### list<item: string>
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### map<string, int32>
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ❌ | ❌ |
+| **pyarrow** | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ❌ | ❌ | ✅ | ✅ |
+| **pandas** | — | — | — | — | — |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ❌ | ❌ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ❌ | ❌ | ✅ | ✅ |
+
+
+### month_day_nano_interval
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | ❌ | ✅ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 ### null
@@ -1009,16 +1974,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ❌ | ❌ | ✅ |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -1039,27 +2021,33 @@ written cannot be read by one or more supported reader types, then a `TableValid
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ❌ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -1076,83 +2064,648 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### struct<name: string, age: int32>
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ❌ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ❌ | ✅ | ✅ | ✅ |
 
 
 ### time32[ms]
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
 
 
-### time32[s]
-
-
-#### application/feather
+#### application/orc
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
-| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
-
-
-### time64[ns]
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### time32[s]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ❌ | ✅ | ❌ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+### time64[ns]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **pandas** | — | — | — | — | — |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ❌ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ❌ | ✅ | ✅ | ✅ |
 
 
 ### time64[us]
 
 
-#### application/parquet
+#### application/avro
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ❌ | ✅ | ✅ | ✅ |
-
-
-### timestamp[s, tz=UTC]
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### timestamp[us]
-
-
-#### application/parquet
-
-| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
-|---|---|---|---|---|---|
-| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-
-### uint16
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **pandas** | — | — | — | — | — |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ❌ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ❌ | ✅ | ✅ | ✅ |
+
+
+### timestamp[ms, tz=UTC]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[ms]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[ns, tz=UTC]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[ns]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[s, tz=UTC]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[s]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[us, tz=UTC]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### timestamp[us]
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/parquet
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pandas** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+
+### uint16
+
+
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/feather
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -1169,13 +2722,37 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### uint32
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -1192,13 +2769,37 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### uint64
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet
@@ -1215,13 +2816,37 @@ written cannot be read by one or more supported reader types, then a `TableValid
 ### uint8
 
 
+#### application/avro
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
+
+
 #### application/feather
 
 | Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
 |---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
 | **pandas** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **polars** | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **ray_dataset** | — | — | — | — | — |
+
+
+#### application/orc
+
+| Writer \ Reader | daft | pandas | polars | pyarrow | ray_dataset |
+|---|---|---|---|---|---|
+| **daft** | — | — | — | — | — |
+| **pandas** | — | — | — | — | — |
+| **polars** | — | — | — | — | — |
+| **pyarrow** | — | — | — | — | — |
+| **ray_dataset** | — | — | — | — | — |
 
 
 #### application/parquet

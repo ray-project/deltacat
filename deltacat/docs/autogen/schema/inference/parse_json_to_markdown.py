@@ -183,37 +183,41 @@ def generate_read_compatibility_matrix_markdown(
     )  # arrow_type -> writer_dataset -> content_type -> {reader_dataset: success}
 
     for result in results:
-        if not result.get("success", False):
-            continue
-
         arrow_type = result["arrow_type"]
         arrow_type_description = arrow_type_descriptions.get(arrow_type, arrow_type)
         writer_dataset = result["dataset_type"]
         content_type = result["content_type"]
+        write_success = result.get("success", False)
         dataset_read_results = result.get("dataset_read_results", [])
 
-        if arrow_type not in read_compat_data:
+        if arrow_type_description not in read_compat_data:
             read_compat_data[arrow_type_description] = {}
         if writer_dataset not in read_compat_data[arrow_type_description]:
             read_compat_data[arrow_type_description][writer_dataset] = {}
         if content_type not in read_compat_data[arrow_type_description][writer_dataset]:
             read_compat_data[arrow_type_description][writer_dataset][content_type] = {}
 
-        # Add PyArrow read result based on actual read success
-        # If pyarrow_read_success field is missing, we can't assume it succeeded
-        pyarrow_read_success = result.get("pyarrow_read_success")
-        if pyarrow_read_success is not None:
-            read_compat_data[arrow_type_description][writer_dataset][content_type][
-                "pyarrow"
-            ] = pyarrow_read_success
+        if write_success:
+            # Only process read results if the write was successful
+            # Add PyArrow read result based on actual read success
+            # If pyarrow_read_success field is missing, we can't assume it succeeded
+            pyarrow_read_success = result.get("pyarrow_read_success")
+            if pyarrow_read_success is not None:
+                read_compat_data[arrow_type_description][writer_dataset][content_type][
+                    "pyarrow"
+                ] = pyarrow_read_success
 
-        # Add other dataset type read results
-        for read_result in dataset_read_results:
-            reader_dataset = read_result["dataset_type"]
-            success = read_result["success"]
-            read_compat_data[arrow_type_description][writer_dataset][content_type][
-                reader_dataset
-            ] = success
+            # Add other dataset type read results
+            for read_result in dataset_read_results:
+                reader_dataset = read_result["dataset_type"]
+                success = read_result["success"]
+                read_compat_data[arrow_type_description][writer_dataset][content_type][
+                    reader_dataset
+                ] = success
+        else:
+            # Write failed - mark all readers as incompatible (represented by "—")
+            # This ensures the writer appears in the table but shows no compatibility data
+            pass
 
     if not read_compat_data:
         return (
@@ -282,6 +286,150 @@ written cannot be read by one or more supported reader types, then a `TableValid
     return markdown
 
 
+def _normalize_complex_types(arrow_type: str) -> str:
+    """Normalize complex arrow types to their base type names without parameters."""
+    # Only normalize specific complex types, otherwise return as-is
+    if arrow_type.startswith("list<"):
+        return "list"
+    elif arrow_type.startswith("map<"):
+        return "map"
+    elif arrow_type.startswith("struct<"):
+        return "struct"
+    elif arrow_type.startswith("dictionary<"):
+        return "dictionary"
+    elif arrow_type.startswith("decimal128"):
+        return "decimal128"
+    elif arrow_type.startswith("decimal256"):
+        return "decimal256"
+    elif arrow_type.startswith("timestamp["):
+        # For timestamps, check timezone info and extract precision
+        if "UTC" in arrow_type.upper() or "utc" in arrow_type:
+            # Extract precision from the string (e.g., "timestamp[s, tz=UTC]" -> "s")
+            import re
+
+            precision_match = re.search(r"timestamp\[([^,\]]+)", arrow_type)
+            if precision_match:
+                precision = precision_match.group(1)
+                return f"timestamp_tz[{precision}]"
+            else:
+                return "timestamp_tz"
+        else:
+            return arrow_type
+    else:
+        return arrow_type
+
+
+def generate_reader_compatibility_mapping(
+    results: List[Dict[str, Any]],
+    output_file: str = "./reader_compatibility_mapping.py",
+) -> str:
+    """Generate reader compatibility mapping Python file from test results."""
+
+    # Collect compatibility data: (arrow_type, writer_dataset) -> list of compatible readers
+    compatibility_mapping = {}
+
+    for result in results:
+        if not result.get("success", False):
+            continue
+
+        # Use original_arrow_type which contains the base PyArrow DataType name
+        raw_arrow_type = result.get("original_arrow_type", result["arrow_type"])
+
+        # Normalize complex types to base type names
+        arrow_type = _normalize_complex_types(raw_arrow_type)
+        writer_dataset = result["dataset_type"]
+        content_type = result["content_type"]
+
+        # Create key tuple
+        key = (arrow_type, writer_dataset, content_type)
+
+        compatible_readers = []
+
+        # Check PyArrow read success
+        pyarrow_read_success = result.get("pyarrow_read_success")
+        if pyarrow_read_success:
+            compatible_readers.append("PYARROW")
+
+        # Check other dataset type read results
+        dataset_read_results = result.get("dataset_read_results", [])
+        for read_result in dataset_read_results:
+            reader_dataset = read_result["dataset_type"]
+            success = read_result["success"]
+            if success:
+                # Map to DatasetType enum values
+                dataset_type_mapping = {
+                    "pyarrow": "PYARROW",
+                    "pandas": "PANDAS",
+                    "polars": "POLARS",
+                    "daft": "DAFT",
+                    "ray_dataset": "RAY_DATASET",
+                }
+                enum_value = dataset_type_mapping.get(reader_dataset)
+                if enum_value and enum_value not in compatible_readers:
+                    compatible_readers.append(enum_value)
+
+        if compatible_readers:
+            # Merge with existing compatibility for same key (union of compatible readers)
+            if key in compatibility_mapping:
+                existing_readers = set(compatibility_mapping[key])
+                new_readers = set(compatible_readers)
+                compatibility_mapping[key] = list(existing_readers.union(new_readers))
+            else:
+                compatibility_mapping[key] = compatible_readers
+
+    # Generate Python file content
+    python_content = '''"""
+Reader compatibility mapping generated from test results.
+
+This mapping shows which DatasetType readers can successfully read data
+written by each (arrow_type, writer_dataset_type, content_type) combination.
+
+Keys: (arrow_type, writer_dataset_type, content_type)
+Values: List of compatible DatasetType enum values
+"""
+
+from deltacat.types.tables import DatasetType
+
+# Mapping of (arrow_type, writer_dataset_type, content_type) -> list of compatible readers
+READER_COMPATIBILITY_MAPPING = {
+'''
+
+    # Sort keys for consistent output
+    for key in sorted(compatibility_mapping.keys()):
+        compatible_readers = compatibility_mapping[key]
+        arrow_type, writer_dataset, content_type = key
+
+        # Format as Python tuple and list
+        readers_str = (
+            "["
+            + ", ".join(
+                [f"DatasetType.{reader}" for reader in sorted(compatible_readers)]
+            )
+            + "]"
+        )
+        python_content += f'    ("{arrow_type}", "{writer_dataset}", "{content_type}"): {readers_str},\n'
+
+    python_content += '''}
+
+def get_compatible_readers(arrow_type: str, writer_dataset_type: str, content_type: str):
+    """Get list of compatible reader DatasetTypes for given combination."""
+    key = (arrow_type, writer_dataset_type, content_type)
+    return READER_COMPATIBILITY_MAPPING.get(key, [])
+
+def is_reader_compatible(arrow_type: str, writer_dataset_type: str, content_type: str, reader_dataset_type: DatasetType) -> bool:
+    """Check if a specific reader is compatible with given combination."""
+    compatible_readers = get_compatible_readers(arrow_type, writer_dataset_type, content_type)
+    return reader_dataset_type in compatible_readers
+'''
+
+    # Write to file
+    with open(output_file, "w") as f:
+        f.write(python_content)
+
+    print(f"✅ Generated reader compatibility mapping: {output_file}")
+    return output_file
+
+
 def generate_complete_markdown_from_json(
     json_file: str, output_file: str = "./docs/schema/README.md"
 ):
@@ -338,10 +486,10 @@ content encoding, etc.). For example:
 
 | Column                     | Value                     | Type     | Description                                          |
 |----------------------------|---------------------------|----------|------------------------------------------------------|
-| author_name                | "deltacat.write_to_table" | str      | Manifest producer name.                              |
-| author_version             | "2.0.0b12"                | str      | Manifest producer version.                           |
+| author_name                | "deltacat.write_to_table" | str      | Manifest producer name                               |
+| author_version             | "2.0.0b12"                | str      | Manifest producer version                            |
 | id                         | None                      | str      | Manifest entry ID (can be None)                      |
-| mandatory                  | True                      | bool     | Raise error if file is missing (True/False).         |
+| mandatory                  | True                      | bool     | Raise error if file is missing (True/False)          |
 | meta_content_encoding      | "identity"                | str      | File content encoding (identity = no encoding)       |
 | meta_content_length        | 2413                      | int64    | File size in bytes (2.4 KB)                          |
 | meta_content_type          | "application/parquet"     | str      | File format (Parquet)                                |
@@ -478,18 +626,37 @@ More details are available in the [type mapping generation script](../../deltaca
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python parse_json_to_markdown.py <json_results_file>")
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print(
+            "Usage: python parse_json_to_markdown.py <json_results_file> [--generate-mapping]"
+        )
         sys.exit(1)
 
     json_file = sys.argv[1]
-    # keep navigating to parent directories until we find the docs directory
-    docs_dir = Path(__file__)
-    while docs_dir.name != "docs":
-        docs_dir = docs_dir.parent
-    output_file_path = docs_dir / "schema" / "README.md"
-    print(f"Writing to {output_file_path}")
-    generate_complete_markdown_from_json(json_file, output_file_path)
+    generate_mapping = len(sys.argv) == 3 and sys.argv[2] == "--generate-mapping"
+
+    if generate_mapping:
+        # Generate reader compatibility mapping
+        print(f"Loading results from {json_file} for compatibility mapping...")
+        results, _ = load_test_data(json_file)
+        print(f"Loaded {len(results)} test results")
+
+        # Navigate to project root for output
+        project_root = Path(__file__)
+        while project_root.name != "deltacat":
+            project_root = project_root.parent
+        output_file_path = project_root / "utils" / "reader_compatibility_mapping.py"
+        print(f"Writing reader compatibility mapping to {output_file_path}")
+        generate_reader_compatibility_mapping(results, str(output_file_path))
+    else:
+        # Generate markdown documentation
+        # keep navigating to parent directories until we find the docs directory
+        docs_dir = Path(__file__)
+        while docs_dir.name != "docs":
+            docs_dir = docs_dir.parent
+        output_file_path = docs_dir / "schema" / "README.md"
+        print(f"Writing to {output_file_path}")
+        generate_complete_markdown_from_json(json_file, output_file_path)
 
 
 if __name__ == "__main__":

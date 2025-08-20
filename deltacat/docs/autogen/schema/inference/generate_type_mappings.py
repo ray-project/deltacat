@@ -141,6 +141,24 @@ def get_comprehensive_test_types() -> List[Tuple[str, str, List[Any]]]:
             [1754962113000000000, 1754962114000000000, 1754962115000000000],
         ),
         (
+            "timestamp_s",
+            "pa.timestamp('s')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ms",
+            "pa.timestamp('ms')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
             "timestamp_us",
             "pa.timestamp('us')",
             [
@@ -150,8 +168,44 @@ def get_comprehensive_test_types() -> List[Tuple[str, str, List[Any]]]:
             ],
         ),
         (
+            "timestamp_ns",
+            "pa.timestamp('ns')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
             "timestamp_s_utc",
             "pa.timestamp('s', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ms_utc",
+            "pa.timestamp('ms', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_us_utc",
+            "pa.timestamp('us', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ns_utc",
+            "pa.timestamp('ns', tz='UTC')",
             [
                 datetime(2023, 1, 1, 12, 0, 0),
                 datetime(2023, 12, 31, 23, 59, 59),
@@ -589,7 +643,7 @@ def run_single_test(
 
         print(f"    Writing to table: {table_name}")
 
-        # Write to DeltaCAT
+        # Write to DeltaCAT with reader compatibility validation disabled
         dc.write_to_table(
             data=write_dataset,
             table=table_name,
@@ -597,6 +651,9 @@ def run_single_test(
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
             content_type=content_type,
+            table_properties={
+                "supported_reader_types": None  # Disable reader compatibility validation
+            },
         )
 
         # Try to read back with PyArrow for type verification

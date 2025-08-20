@@ -59,12 +59,15 @@ from deltacat.types.tables import (
     TablePropertyDefaultValues,
     TableReadOptimizationLevel,
     TableWriteMode,
+    get_dataset_type,
+    get_table_schema,
     from_pyarrow,
     concat_tables,
     empty_table,
     infer_table_schema,
 )
 from deltacat.utils import pyarrow as pa_utils
+from deltacat.utils.reader_compatibility_mapping import get_compatible_readers
 from deltacat import logs
 from deltacat.constants import DEFAULT_NAMESPACE
 
@@ -390,6 +393,16 @@ def write_to_table(
         # Convert validated data to supported format for storage
         converted_data = _convert_data_if_needed(validated_data)
 
+        # Validate reader compatibility against supported reader types
+        supported_reader_types = table_version_obj.read_table_property(
+            TableProperty.SUPPORTED_READER_TYPES
+        )
+        _validate_reader_compatibility(
+            converted_data,
+            content_type,
+            supported_reader_types,
+        )
+
         # Update table version if schema was modified during evolution
         if schema_modified:
             # Extract catalog properties and filter kwargs
@@ -708,6 +721,121 @@ def _validate_and_coerce_data_against_schema(
     updated_schema = updated_schema if schema_modified else None
 
     return validated_data, schema_modified, updated_schema
+
+
+def _get_base_arrow_type_name(arrow_type) -> str:
+    """Get the base type name from a PyArrow type for compatibility lookup."""
+    import pyarrow as pa
+
+    # Only normalize specific complex types, otherwise return str(arrow_type)
+    if pa.types.is_list(arrow_type):
+        return "list"
+    elif pa.types.is_map(arrow_type):
+        return "map"
+    elif pa.types.is_struct(arrow_type):
+        return "struct"
+    elif pa.types.is_dictionary(arrow_type):
+        return "dictionary"
+    elif pa.types.is_decimal(arrow_type):
+        if isinstance(arrow_type, pa.Decimal128Type):
+            return "decimal128"
+        elif isinstance(arrow_type, pa.Decimal256Type):
+            return "decimal256"
+    elif pa.types.is_timestamp(arrow_type):
+        # Check if it has timezone info and include precision
+        if arrow_type.tz is not None:
+            return f"timestamp_tz[{arrow_type.unit}]"
+        else:
+            return str(arrow_type)
+    else:
+        # For all other types, return the string representation
+        return str(arrow_type)
+
+
+def _validate_reader_compatibility(
+    data: Dataset,
+    content_type: ContentType,
+    supported_reader_types: Optional[List[DatasetType]],
+) -> None:
+    """Validate that the data types being written are compatible with all supported reader types.
+
+    Args:
+        data: The dataset to validate
+        content_type: Content type being written
+        supported_reader_types: List of DatasetTypes that must be able to read this data
+
+    Raises:
+        TableValidationError: If any data types would break supported reader compatibility
+    """
+    if not supported_reader_types:
+        return
+
+    # Get the schema from the data
+    schema = get_table_schema(data)
+
+    # Get the dataset type of the current data
+    writer_dataset_type = get_dataset_type(data)
+
+    # PYARROW_PARQUET is equivalent to PYARROW for compatibility
+    writer_type_str = (
+        writer_dataset_type.value
+        if writer_dataset_type != DatasetType.PYARROW_PARQUET
+        else "pyarrow"
+    )
+
+    content_type_str = content_type.value
+
+    # Check each field type for compatibility
+    incompatible_fields = []
+
+    for field in schema:
+        field_name = field.name
+        arrow_type_str = str(field.type)
+
+        # Get the base type name from PyArrow field type
+        base_type_name = _get_base_arrow_type_name(field.type)
+
+        # Get compatible readers for this (arrow_type, writer_dataset_type, content_type) combination
+        compatible_readers = get_compatible_readers(
+            base_type_name, writer_type_str, content_type_str
+        )
+
+        # Check if all supported reader types are compatible
+        for required_reader in supported_reader_types:
+            reader_is_compatible = required_reader in compatible_readers
+
+            # Special case: PYARROW_PARQUET is equivalent to PYARROW for compatibility
+            if (
+                not reader_is_compatible
+                and required_reader == DatasetType.PYARROW_PARQUET
+            ):
+                reader_is_compatible = DatasetType.PYARROW in compatible_readers
+
+            if not reader_is_compatible:
+                incompatible_fields.append(
+                    {
+                        "field_name": field_name,
+                        "arrow_type": arrow_type_str,
+                        "incompatible_reader": required_reader,
+                        "writer_type": writer_dataset_type,
+                        "content_type": content_type,
+                    }
+                )
+
+    # Raise error if any incompatibilities found
+    if incompatible_fields:
+        error_details = []
+        for incompatible in incompatible_fields:
+            error_details.append(
+                f"Field '{incompatible['field_name']}' with type '{incompatible['arrow_type']}' "
+                f"written by {incompatible['writer_type']} to {incompatible['content_type']} "
+                f"cannot be read by required reader type {incompatible['incompatible_reader']}"
+            )
+
+        raise TableValidationError(
+            f"Reader compatibility validation failed. The following fields would break "
+            f"supported reader types:\n" + "\n".join(error_details)
+        )
 
 
 def _stage_commit_and_compact(

@@ -31,7 +31,7 @@ from deltacat.storage.model.table import (
     TableLocator,
     Table,
 )
-from deltacat.types.media import ContentType
+from deltacat.types.media import ContentType, DatasetType
 from deltacat.storage.model.sort_key import SortScheme, SortSchemeList
 from deltacat.storage.model.types import LifecycleState
 from deltacat.types.tables import TableProperty, TablePropertyDefaultValues
@@ -365,7 +365,13 @@ class TableVersion(Metafile):
 
     def read_table_property(self, property: TableProperty) -> Any:
         properties = self.properties or {}
-        return properties.get(property.value, TablePropertyDefaultValues[property])
+        value = properties.get(property.value, TablePropertyDefaultValues[property])
+
+        # Handle type conversion for complex properties
+        if property == TableProperty.SUPPORTED_READER_TYPES and isinstance(value, list):
+            # Convert string values back to DatasetType enums
+            return [DatasetType(v) for v in value]
+        return value
 
     @staticmethod
     def next_version(previous_version: Optional[str] = None) -> str:
