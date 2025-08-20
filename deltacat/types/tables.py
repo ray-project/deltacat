@@ -159,8 +159,21 @@ TABLE_CLASS_TO_COLUMN_NAMES_FUNC: Dict[
     pl.DataFrame: lambda table: table.columns,
     np.ndarray: lambda table: [f"data_{i}" for i in range(table.shape[1])],
     daft.DataFrame: lambda table: table.column_names,
-    RayDataset: lambda table: table.schema.names,
-    MaterializedDataset: lambda table: table.schema.names,
+    RayDataset: lambda table: table.schema().names,
+    MaterializedDataset: lambda table: table.schema().names,
+}
+
+TABLE_CLASS_TO_SCHEMA_FUNC: Dict[
+    Type[Union[LocalTable, DistributedDataset]], Callable
+] = {
+    pa.Table: lambda table: table.schema,
+    papq.ParquetFile: lambda table: table.schema_arrow,
+    pd.DataFrame: lambda table: pa.Schema.from_pandas(table),
+    pl.DataFrame: lambda table: table.to_arrow().schema,
+    np.ndarray: lambda table: pa.Schema.from_pandas(pd.DataFrame(table)),
+    daft.DataFrame: lambda table: table.schema().to_pyarrow_schema(),
+    RayDataset: lambda table: table.schema().base_schema,
+    MaterializedDataset: lambda table: table.schema().base_schema,
 }
 
 TABLE_TYPE_TO_EMPTY_TABLE_FUNC: Dict[str, Callable] = {
@@ -736,7 +749,24 @@ def get_table_column_names(table: Union[LocalTable, DistributedDataset]) -> List
     Returns:
         List of column names
     """
-    return _get_table_function(table, TABLE_CLASS_TO_COLUMN_NAMES_FUNC, "column names")
+    column_names_func = _get_table_function(
+        table, TABLE_CLASS_TO_COLUMN_NAMES_FUNC, "column names"
+    )
+    return column_names_func(table)
+
+
+def get_table_schema(table: Union[LocalTable, DistributedDataset]) -> pa.Schema:
+    """
+    Generic function to get the PyArrow schema of a table or distributed dataset.
+
+    Args:
+        table: The local table or distributed dataset to get the schema of
+
+    Returns:
+        PyArrow Schema object
+    """
+    schema_func = _get_table_function(table, TABLE_CLASS_TO_SCHEMA_FUNC, "schema")
+    return schema_func(table)
 
 
 def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:

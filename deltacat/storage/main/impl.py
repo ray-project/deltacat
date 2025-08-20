@@ -103,6 +103,7 @@ from deltacat.utils.common import ReadKwargsProvider
 import pyarrow as pa
 
 from deltacat.types.tables import (
+    TableProperty,
     get_table_writer,
     get_table_slicer,
     write_sliced_table,
@@ -1540,6 +1541,20 @@ def update_table_version(
     new_table_version.properties = (
         properties if properties is not None else old_table_version.properties
     )
+    new_supported_reader_types = new_table_version.read_table_property(
+        TableProperty.SUPPORTED_READER_TYPES
+    )
+    if new_supported_reader_types:
+        old_supported_reader_types = old_table_version.read_table_property(
+            TableProperty.SUPPORTED_READER_TYPES
+        ) or {}
+        added_supported_reader_types = set(new_supported_reader_types) - set(
+            old_supported_reader_types
+        )
+        if added_supported_reader_types:
+            raise TableValidationError(
+                f"Cannot add new supported reader types: {added_supported_reader_types}"
+            )
     new_table_version.partition_scheme = (
         partition_scheme or old_table_version.partition_scheme
     )

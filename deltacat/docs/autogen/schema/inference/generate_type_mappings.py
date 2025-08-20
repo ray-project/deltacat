@@ -1,8 +1,3 @@
-"""
-Proper approach: Use dc.list with recursive=True and table-specific URLs
-to correctly map files to the tests that wrote them.
-"""
-
 import os
 import json
 import tempfile
@@ -17,7 +12,14 @@ import deltacat as dc
 from deltacat import Catalog
 from deltacat.catalog import CatalogProperties
 from deltacat.types.media import ContentType, DatasetType
-from deltacat.types.tables import from_pyarrow, TableWriteMode
+from deltacat.types.tables import (
+    from_pyarrow,
+    TableWriteMode,
+    get_dataset_type,
+    get_table_length,
+    get_table_column_names,
+    get_table_schema,
+)
 from deltacat.storage import Metafile, Delta
 
 import pyarrow as pa
@@ -485,6 +487,81 @@ def inspect_specific_file_physical_schema(
         }
 
 
+def test_dataset_read_compatibility(
+    table_name: str,
+    namespace: str,
+    catalog_name: str,
+    dataset_types: List[DatasetType],
+) -> List[Dict[str, Any]]:
+    """Test reading the table with different dataset types."""
+    read_results = []
+
+    for read_dataset_type in dataset_types:
+        print(f"      Testing read with {read_dataset_type.value}")
+        try:
+            read_result = dc.read_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                read_as=read_dataset_type,
+                max_parallelism=1,
+            )
+
+            # Verify the actual dataset type matches what we expected
+            actual_dataset_type = get_dataset_type(read_result)
+
+            # Extract basic information about the read result
+            result_info = {
+                "dataset_type": read_dataset_type.value,
+                "actual_dataset_type": actual_dataset_type.value,
+                "success": True,
+                "error": None,
+                "result_type": type(read_result).__name__,
+            }
+
+            # Use proper utility functions based on expected dataset type
+            try:
+                result_info["num_rows"] = get_table_length(read_result)
+            except Exception as e:
+                result_info["num_rows"] = f"Error getting length: {str(e)}"
+
+            try:
+                column_names = get_table_column_names(read_result)
+                result_info["num_columns"] = len(column_names)
+                result_info["column_names"] = column_names
+            except Exception as e:
+                result_info["num_columns"] = f"Error getting columns: {str(e)}"
+
+            # Get schema information using the utility function
+            try:
+                schema = get_table_schema(read_result)
+                result_info["schema"] = str(schema)
+                if schema.metadata is not None:
+                    result_info["has_metadata"] = True
+            except Exception as e:
+                result_info["schema"] = f"Schema error: {str(e)}"
+
+            read_results.append(result_info)
+            print(f"        ✅ Read successful")
+
+        except (PanicException, Exception) as e:
+            read_results.append(
+                {
+                    "dataset_type": read_dataset_type.value,
+                    "success": False,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "result_type": None,
+                    "schema": None,
+                    "num_columns": 0,
+                    "num_rows": 0,
+                }
+            )
+            print(f"        ❌ Read failed: {str(e)[:100]}...")
+
+    return read_results
+
+
 def run_single_test(
     arrow_type_name: str,
     arrow_type_code: str,
@@ -522,13 +599,36 @@ def run_single_test(
             content_type=content_type,
         )
 
-        # Read back and verify
-        read_result = dc.read_table(
-            table=table_name,
-            namespace=namespace,
-            catalog=catalog_name,
-            read_as=DatasetType.PYARROW,
-            max_parallelism=1,
+        # Try to read back with PyArrow for type verification
+        pyarrow_read_success = True
+        read_result = None
+        pyarrow_read_error = None
+
+        try:
+            read_result = dc.read_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                read_as=DatasetType.PYARROW,
+                max_parallelism=1,
+            )
+            print(f"    ✅ PyArrow read-back successful")
+        except Exception as e:
+            pyarrow_read_success = False
+            pyarrow_read_error = str(e)
+            print(f"    ⚠️ PyArrow read-back failed: {str(e)[:100]}...")
+
+        # Test read compatibility with different dataset types
+        print(f"    Testing read compatibility with other dataset types...")
+        additional_dataset_types = [
+            DatasetType.PANDAS,
+            DatasetType.POLARS,
+            DatasetType.DAFT,
+            DatasetType.RAY_DATASET,
+        ]
+
+        dataset_read_results = test_dataset_read_compatibility(
+            table_name, namespace, catalog_name, additional_dataset_types
         )
 
         # Use dc.list with recursive=True to find the objects for this specific table
@@ -562,17 +662,20 @@ def run_single_test(
             "arrow_type": arrow_type_name,
             "dataset_type": dataset_type.value,
             "content_type": content_type.value,
-            "success": True,
+            "success": True,  # Write was successful
+            "pyarrow_read_success": pyarrow_read_success,
+            "pyarrow_read_error": pyarrow_read_error,
             "original_arrow_type": str(arrow_type),
             "read_back_type": str(read_result.schema.field(0).type)
-            if hasattr(read_result, "schema")
+            if read_result and hasattr(read_result, "schema")
             else "unknown",
             "physical_schema": physical_schema,
             "type_preserved": str(arrow_type) == str(read_result.schema.field(0).type)
-            if hasattr(read_result, "schema")
+            if read_result and hasattr(read_result, "schema")
             else False,
             "error": None,
             "table_name": table_name,
+            "dataset_read_results": dataset_read_results,
         }
 
     except (PanicException, Exception) as e:
@@ -581,20 +684,25 @@ def run_single_test(
             "arrow_type": arrow_type_name,
             "dataset_type": dataset_type.value,
             "content_type": content_type.value,
-            "success": False,
+            "success": False,  # Write failed
+            "pyarrow_read_success": False,
+            "pyarrow_read_error": None,  # Write failed, not read
             "original_arrow_type": str(eval(arrow_type_code))
             if "eval" not in str(e)
             else "unknown",
+            "read_back_type": "unknown",
             "physical_schema": {},
+            "type_preserved": False,
             "error": str(e),
             "error_category": "unknown",
             "table_name": f"failed_{arrow_type_name}_{dataset_type.value}",
+            "dataset_read_results": [],
         }
 
 
 def main():
     print("=" * 80)
-    print("PROPER PHYSICAL SCHEMA EXTRACTION TEST")
+    print("PHYSICAL SCHEMA EXTRACTION TEST")
     print("=" * 80)
     print("Using dc.list with table-specific URLs to map files to tests")
 
@@ -650,9 +758,14 @@ def main():
                 )
 
                 if result["success"]:
+                    # Write was successful, check read status
+                    read_status = (
+                        "✅" if result.get("pyarrow_read_success", True) else "⚠️"
+                    )
+
                     if result["physical_schema"].get("error"):
                         print(
-                            f"    ❌ Physical schema error: {result['physical_schema']['error']}"
+                            f"    {read_status} Write ✅, Physical schema error: {result['physical_schema']['error']}"
                         )
                     else:
                         # Show extracted physical type
@@ -663,24 +776,37 @@ def main():
                                 physical_type = first_col.get(
                                     "parquet_physical_type", "unknown"
                                 )
-                                print(f"    ✅ Physical type: {physical_type}")
+                                print(
+                                    f"    {read_status} Write ✅, Physical type: {physical_type}"
+                                )
                             elif content_type == ContentType.FEATHER:
                                 physical_type = first_col.get(
                                     "feather_preserved_type", "unknown"
                                 )
-                                print(f"    ✅ Physical type: {physical_type}")
+                                print(
+                                    f"    {read_status} Write ✅, Physical type: {physical_type}"
+                                )
                             elif content_type == ContentType.AVRO:
                                 physical_type = first_col.get("avro_type", "unknown")
-                                print(f"    ✅ Physical type: {physical_type}")
+                                print(
+                                    f"    {read_status} Write ✅, Physical type: {physical_type}"
+                                )
                             elif content_type == ContentType.ORC:
                                 physical_type = first_col.get(
                                     "orc_type_kind", "unknown"
                                 )
-                                print(f"    ✅ Physical type: {physical_type}")
+                                print(
+                                    f"    {read_status} Write ✅, Physical type: {physical_type}"
+                                )
                         else:
-                            print(f"    ❌ No column info found")
+                            print(f"    {read_status} Write ✅, No column info found")
+
+                    # Show read error if any
+                    if not result.get("pyarrow_read_success", True):
+                        read_error = result.get("pyarrow_read_error", "unknown")
+                        print(f"      PyArrow read failed: {read_error[:100]}...")
                 else:
-                    print(f"    ❌ {result.get('error', 'unknown')}")
+                    print(f"    ❌ Write failed: {result.get('error', 'unknown')}")
 
                 all_results.append(result)
         print()

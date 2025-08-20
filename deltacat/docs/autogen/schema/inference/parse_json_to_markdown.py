@@ -40,6 +40,9 @@ def extract_physical_type_mapping_from_json(
     if not result.get("success", False):
         return None
 
+    # Even if PyArrow read failed, we can still extract physical schema if files were written
+    # The physical schema inspection happens at the file level, not via PyArrow read
+
     physical_schema = result.get("physical_schema", {})
 
     if physical_schema.get("error"):
@@ -88,7 +91,9 @@ def generate_type_table_markdown(
     type_results = [r for r in results if r["arrow_type"] == arrow_type]
 
     if not type_results:
-        return f"\n#### **{arrow_type}** (`{arrow_description}`)\nNo test results found for this type.\n"
+        return (
+            f"\n#### **{arrow_description}** \nNo test results found for this type.\n"
+        )
 
     # Organize results by dataset type and content type
     dataset_types = ["pyarrow", "pandas", "polars", "daft", "ray_dataset"]
@@ -121,9 +126,12 @@ def generate_type_table_markdown(
             )
 
             if specific_result:
-                result_matrix[dataset_type][content_type] = (
-                    "✅" if specific_result["success"] else "❌"
-                )
+                write_success = specific_result["success"]
+
+                if write_success:
+                    result_matrix[dataset_type][content_type] = "✅"
+                else:
+                    result_matrix[dataset_type][content_type] = "❌"  # Write failed
 
                 # Extract physical type mapping for this dataset type
                 content_key = content_type.replace("application/", "")
@@ -136,7 +144,7 @@ def generate_type_table_markdown(
                 result_matrix[dataset_type][content_type] = "❓"
 
     # Generate markdown table
-    markdown = f"\n#### **{arrow_type}** (`{arrow_description}`)\n"
+    markdown = f"\n#### **{arrow_description}**\n"
     markdown += "| Dataset Type | Parquet | Feather | Avro | ORC | Physical Types |\n"
     markdown += "|--------------|---------|---------|------|-----|---------------|\n"
 
@@ -160,6 +168,116 @@ def generate_type_table_markdown(
         physical_col = "; ".join(physical_parts) if physical_parts else ""
 
         markdown += f"| `{dataset_type}` | {parquet_result} | {feather_result} | {avro_result} | {orc_result} | {physical_col} |\n"
+
+    return markdown
+
+
+def generate_read_compatibility_matrix_markdown(
+    results: List[Dict[str, Any]], arrow_type_descriptions: Dict[str, str]
+) -> str:
+    """Generate read compatibility matrix markdown from test results."""
+
+    # Collect all read compatibility data
+    read_compat_data = (
+        {}
+    )  # arrow_type -> writer_dataset -> content_type -> {reader_dataset: success}
+
+    for result in results:
+        if not result.get("success", False):
+            continue
+
+        arrow_type = result["arrow_type"]
+        arrow_type_description = arrow_type_descriptions.get(arrow_type, arrow_type)
+        writer_dataset = result["dataset_type"]
+        content_type = result["content_type"]
+        dataset_read_results = result.get("dataset_read_results", [])
+
+        if arrow_type not in read_compat_data:
+            read_compat_data[arrow_type_description] = {}
+        if writer_dataset not in read_compat_data[arrow_type_description]:
+            read_compat_data[arrow_type_description][writer_dataset] = {}
+        if content_type not in read_compat_data[arrow_type_description][writer_dataset]:
+            read_compat_data[arrow_type_description][writer_dataset][content_type] = {}
+
+        # Add PyArrow read result based on actual read success
+        # If pyarrow_read_success field is missing, we can't assume it succeeded
+        pyarrow_read_success = result.get("pyarrow_read_success")
+        if pyarrow_read_success is not None:
+            read_compat_data[arrow_type_description][writer_dataset][content_type][
+                "pyarrow"
+            ] = pyarrow_read_success
+
+        # Add other dataset type read results
+        for read_result in dataset_read_results:
+            reader_dataset = read_result["dataset_type"]
+            success = read_result["success"]
+            read_compat_data[arrow_type_description][writer_dataset][content_type][
+                reader_dataset
+            ] = success
+
+    if not read_compat_data:
+        return (
+            "\n## Read Compatibility Tables\n\nNo read compatibility data available.\n"
+        )
+
+    # Generate markdown
+    markdown = """\n## Read Compatibility Tables\n\n
+The following tables show read compatibility for each Arrow type across available writer/reader combinations.\n
+
+This information is automatically used by DeltaCAT at write time to ensure that data written in one format can be
+read by all supported reader types defined in a table's `SUPPORTED_READER_TYPES` table property. If data to be
+written cannot be read by one or more supported reader types, then a `TableValidationError` will be raised.
+"""
+
+    # Get all dataset types that appear as readers
+    all_readers = set()
+    for arrow_data in read_compat_data.values():
+        for writer_data in arrow_data.values():
+            for content_data in writer_data.values():
+                all_readers.update(content_data.keys())
+    all_readers = sorted(list(all_readers))
+
+    # Generate table for each arrow type
+    for arrow_type in sorted(read_compat_data.keys()):
+        markdown += f"\n### {arrow_type}\n\n"
+
+        # Organize by content type
+        content_types = set()
+        for writer_data in read_compat_data[arrow_type].values():
+            content_types.update(writer_data.keys())
+        content_types = sorted(list(content_types))
+
+        for content_type in content_types:
+            markdown += f"\n#### {content_type}\n\n"
+
+            # Find all writers for this content type
+            writers = []
+            for writer_dataset in sorted(read_compat_data[arrow_type].keys()):
+                if content_type in read_compat_data[arrow_type][writer_dataset]:
+                    writers.append(writer_dataset)
+
+            if not writers:
+                continue
+
+            # Create table header
+            markdown += "| Writer \\ Reader | " + " | ".join(all_readers) + " |\n"
+            markdown += "|" + "---|" * (len(all_readers) + 1) + "\n"
+
+            # Create table rows
+            for writer in writers:
+                row = [f"**{writer}**"]
+                reader_data = read_compat_data[arrow_type][writer][content_type]
+
+                for reader in all_readers:
+                    if reader in reader_data:
+                        result = reader_data[reader]
+                        row.append("✅" if result else "❌")
+                    else:
+                        row.append("—")
+
+                markdown += "| " + " | ".join(row) + " |\n"
+
+            markdown += "\n"
 
     return markdown
 
@@ -216,7 +334,23 @@ A schemaless table is created via `dc.create_table(table_name, schema=None)`. Sc
 record of files written to them over time without schema inference, data validation, or data coercion.
 Since it may not be possible to derive a unified schema on read, data returned via `dc.read_table(table_name)` is
 always an ordered list of files written to the table and their manifest entry info (e.g., size, content type,
-content encoding, etc.).
+content encoding, etc.). For example:
+
+| Column                     | Value                     | Type     | Description                                          |
+|----------------------------|---------------------------|----------|------------------------------------------------------|
+| author_name                | "deltacat.write_to_table" | str      | Manifest producer name.                              |
+| author_version             | "2.0.0b12"                | str      | Manifest producer version.                           |
+| id                         | None                      | str      | Manifest entry ID (can be None)                      |
+| mandatory                  | True                      | bool     | Raise error if file is missing (True/False).         |
+| meta_content_encoding      | "identity"                | str      | File content encoding (identity = no encoding)       |
+| meta_content_length        | 2413                      | int64    | File size in bytes (2.4 KB)                          |
+| meta_content_type          | "application/parquet"     | str      | File format (Parquet)                                |
+| meta_record_count          | 2                         | int64    | Number of records in this file                       |
+| meta_source_content_length | 176                       | int64    | Original data size in memory (176 bytes)             |
+| previous_stream_position   | 1                         | int64    | Previous delta stream position                       |
+| stream_position            | 2                         | int64    | This delta's stream position                         |
+| path                       | /my_catalog/data/file.pq  | str      | File path relative to catalog root                   |
+
 
 ## Standard Tables
 Tables with schemas have their data validation and schema evolution behavior governed by **Schema
@@ -225,8 +359,8 @@ with a unified schema at read time. By default, a DeltaCAT table created via `dc
 infers a unified Arrow schema on write.
 
 ## Schema Consistency Types
-DeltaCAT table schemas can either be inferred, or used to enforce different data consistency
-checks run for each schema field. The default schema consistency type of all fields in a DeltaCAT
+DeltaCAT table schemas can either be **inferred** to follow the shape of written data or **enforced**
+to define the shape of written data. The default schema consistency type of all fields in a DeltaCAT
 table schema is configured by setting the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property to one
 of the following values:
 
@@ -267,7 +401,6 @@ These mappings are generated by:
 1. Creating a PyArrow table with the target PyArrow data type via `pa.Table.from_arrays([pa.array(test_data, type=arrow_type)])`.
 2. Casting to the target dataset type via `data = dc.from_pyarrow(pyarrow_table, target_dataset_type)`.
 3. Writing to the target content type via `dc.write_to_table(data, table_name, content_type=target_content_type)`.
-4. Reading the table via `dc.read_table(table_name)`.
 
 More details are available in the [type mapping generation script](../../deltacat/docs/autogen/schema/inference/generate_type_mappings.py).
 
@@ -289,6 +422,7 @@ More details are available in the [type mapping generation script](../../deltaca
 
     markdown += f"""
 
+### Type Mapping Tables
 """
 
     # Generate tables for each arrow type
@@ -297,6 +431,14 @@ More details are available in the [type mapping generation script](../../deltaca
         type_table = generate_type_table_markdown(arrow_type, description, results)
         markdown += type_table
         print(f"Generated table for {arrow_type}")
+
+    # Generate read compatibility matrix
+    print("Generating read compatibility matrix...")
+    read_compat_markdown = generate_read_compatibility_matrix_markdown(
+        results, arrow_type_descriptions
+    )
+    markdown += read_compat_markdown
+    print("Generated read compatibility matrix")
 
     # Write to file
     with open(output_file, "w") as f:
