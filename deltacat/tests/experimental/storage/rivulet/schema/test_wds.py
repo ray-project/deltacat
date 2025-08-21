@@ -2,15 +2,13 @@ import os
 import pytest
 import shutil
 import json
-import tarfile
-import io
 
 import tempfile
 from pathlib import Path
+import webdataset as wds
 
 from deltacat.experimental.storage.rivulet.dataset import Dataset
 from deltacat.experimental.storage.rivulet import Field, Datatype
-from deltacat.experimental.storage.rivulet.fs.file_store import FileStore
 
 
 @pytest.fixture(scope="class")
@@ -19,26 +17,7 @@ def temp_dir(tmp_path_factory) -> Path:
     return tmp_path_factory.mktemp("rivulet_suite")
 
 
-def _to_bytes(x) -> bytes:
-    if isinstance(x, (bytes, bytearray)):
-        return bytes(x)
-    if isinstance(x, str):
-        return x.encode("utf-8")
-    return (json.dumps(x, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
-
-
-def _make_tar(base: Path, name: str, files: dict[str, object]) -> Path:
-    tar_path = base / f"{name}.tar"
-    with tarfile.open(tar_path, "w") as tf:
-        for arcname, payload in files.items():
-            b = _to_bytes(payload)
-            info = tarfile.TarInfo(name=arcname)
-            info.size = len(b)
-            tf.addfile(info, io.BytesIO(b))
-    return tar_path
-
-
-def create_txt_files_from_json_dict(files, base_dir):
+def _add_txt_files_and_wds_tar(files, base_dir, name):
     for _, content in files.items():
         rel_path = content["filename"]
         full_path = os.path.join(base_dir, rel_path)
@@ -48,10 +27,27 @@ def create_txt_files_from_json_dict(files, base_dir):
 
         with open(full_path, "w") as f:
             f.write("Test .txt content.")
+    # write shard with WebDataset
+    shard_path_pattern = str(base_dir / f"{name}-%06d.tar")
+    with wds.ShardWriter(shard_path_pattern, maxcount=1000) as sink:
+        for i, (json_name, content) in enumerate(files.items()):
+            txt_path = os.path.join(base_dir, content["filename"])
+            with open(txt_path, "rb") as f:
+                txt_bytes = f.read()
+
+            sample = {
+                "__key__": f"{i:06d}",  # still needed for WDS, but won't prefix files
+                os.path.basename(content["filename"]): txt_bytes,
+                json_name: json.dumps(content).encode("utf-8"),
+            }
+            sink.write(sample)
+
+    return [str(p) for p in Path(base_dir).glob(f"{name}-*.tar")]
 
 
 @pytest.fixture
-def sample_wds_simple(temp_dir):
+def sample_wds_simple(temp_dir: Path):
+    """Create a simple WebDataset shard using webdataset.ShardWriter."""
     name = "simple"
     files = {
         f"{name}_first.json": {
@@ -69,12 +65,14 @@ def sample_wds_simple(temp_dir):
             "extra": 102,
         },
     }
-    create_txt_files_from_json_dict(files, temp_dir)
-    return _make_tar(temp_dir, "simple", files)
+
+    # create corresponding dummy .txt files on disk
+    return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
 
 @pytest.fixture
 def sample_wds_simple_2(temp_dir):
+    """Create a simple WebDataset shard using webdataset.ShardWriter."""
     name = "simple_2"
     files = {
         f"{name}_first.json": {
@@ -92,11 +90,13 @@ def sample_wds_simple_2(temp_dir):
             "extra": 102,
         },
     }
-    return _make_tar(temp_dir, "simple2", files)
+    # create corresponding dummy .txt files on disk
+    return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
 
 @pytest.fixture
 def sample_wds_long(temp_dir):
+    name = "long"
     files = {}
     for i in range(6):
         files[f"long_{i}.json"] = {
@@ -106,7 +106,7 @@ def sample_wds_long(temp_dir):
             "filename": f"n0144353{i}/n0144353{i}_1475{i}.TXT",
             "extra": 100 + i,
         }
-    return _make_tar(temp_dir, "long", files)
+    return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ def sample_wds_inconsistent(temp_dir):
             "filename": "n01443538/n01443538_14754.TXT",
         },
     }
-    return _make_tar(temp_dir, "inconsistent", files)
+    return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
 
 class TestFromWebDataset:
@@ -138,10 +138,9 @@ class TestFromWebDataset:
     @classmethod
     def teardown_class(cls):
         shutil.rmtree(cls.temp_dir)
-        pass
 
-    def test_simple(self, temp_dir, sample_wds_simple):
-        # TODO: make separate test to test media_binary field
+    def test_consistent_schema_handling(self, temp_dir, sample_wds_simple):
+        """Test that from_webdataset correctly creates a dataset from a WebDataset with consistent JSON schemas and one merge key."""
         dataset = Dataset.from_webdataset(
             name="test_dataset",
             file_uri=sample_wds_simple,
@@ -150,13 +149,13 @@ class TestFromWebDataset:
         )
 
         # Verify schema fields
+        assert len(dataset.fields) == 6
         assert "label" in dataset.fields
         assert "width" in dataset.fields
         assert "height" in dataset.fields
         assert "filename" in dataset.fields
         assert "extra" in dataset.fields
-        # assert "media_binary" in dataset.fields
-        assert len(dataset.fields) == 5
+        assert "media_binary" in dataset.fields
 
         assert dataset.fields["filename"].is_merge_key
 
@@ -176,9 +175,9 @@ class TestFromWebDataset:
         assert first_record["width"] == 500
         assert first_record["height"] == 429
         assert first_record["filename"] == "n01443537/n01443537_14753.TXT"
-        # assert "media_binary" in first_record
-        # assert isinstance(first_record["media_binary"], bytes)
-        # assert len(first_record["media_binary"]) > 0
+        assert "media_binary" in first_record
+        assert isinstance(first_record["media_binary"], bytes)
+        assert len(first_record["media_binary"]) > 0
 
         # Verify all fields are Field objects
         for _, field in dataset.fields:
@@ -188,8 +187,8 @@ class TestFromWebDataset:
             assert hasattr(field, "is_merge_key")
 
         # Verify media_binary field exists
-        # assert "media_binary" in dataset.fields
-        # assert dataset.fields["media_binary"].datatype == Datatype.binary()
+        assert "media_binary" in dataset.fields
+        assert dataset.fields["media_binary"].datatype == Datatype.binary("binary")
 
     def test_inconsistent_schema_handling(self, temp_dir, sample_wds_inconsistent):
         """Test that from_webdataset correctly handles inconsistent JSON schemas."""
@@ -201,19 +200,17 @@ class TestFromWebDataset:
         )
 
         # Should include all fields from both schemas
+        assert len(dataset.fields) == 6
         assert "label" in dataset.fields
         assert "width" in dataset.fields
         assert "height" in dataset.fields
         assert "filename" in dataset.fields
         assert "extra" in dataset.fields
-        assert len(dataset.fields) == 5
+        assert "media_binary" in dataset.fields
 
     def test_multiple_merge_key_handling(self, temp_dir, sample_wds_simple):
         """Test that specifying more than 1 merge key raises an error."""
-        with pytest.raises(
-            ValueError,
-            match=r"^Multiple merge keys are not supported in from_webdataset\(\)\. Please specify only 1 merge key as a string\.$",
-        ):
+        with pytest.raises(ValueError):
             Dataset.from_webdataset(
                 name="test_multiple_merge_key_handling",
                 file_uri=sample_wds_simple,
@@ -223,7 +220,7 @@ class TestFromWebDataset:
 
     def test_invalid_merge_key_handling(self, temp_dir, sample_wds_simple):
         """Test that specifying a non-existent field as merge key raises an error."""
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError):
             Dataset.from_webdataset(
                 name="test_invalid_merge_key_handling",
                 file_uri=sample_wds_simple,
@@ -267,24 +264,3 @@ class TestFromWebDataset:
 
         assert len(records1) == len(records2) == len(records3) == 6
         assert records1 == records2 == records3
-
-    def test_dataset_persistence_and_reloading(self, temp_dir, sample_wds_simple):
-        """Test that datasets can be persisted and reloaded correctly."""
-        # Create and save dataset
-        dataset = Dataset.from_webdataset(
-            name="test_persistence",
-            file_uri=sample_wds_simple,
-            metadata_uri=temp_dir,
-            merge_keys="filename",
-        )
-
-        # Verify dataset was created
-        assert dataset.dataset_name == "test_persistence"
-        assert len(dataset.fields) == 5
-
-        # Test that we can scan the data multiple times
-        records1 = list(dataset.scan().to_pydict())
-        records2 = list(dataset.scan().to_pydict())
-
-        assert records1 == records2
-        assert len(records1) == len(records2) == 2

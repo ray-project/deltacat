@@ -511,10 +511,31 @@ class Dataset:
                      from the tar file.
         """
 
-        def normalize_filename(filename):  # helper function for from_webdataset()
-            return (filename).lower().replace(".jpeg", ".jpg")
+        def align_table_to_schema(tbl: pa.Table, schema: pa.Schema) -> pa.Table:
+            # Start with existing columns (may need casts)
+            arrays = []
+            cols = {f.name: i for i, f in enumerate(tbl.schema)}
+            for field in schema:
+                if field.name in cols:
+                    arr = tbl.column(field.name)
+                    # If type differs, cast the column
+                    if not arr.type.equals(field.type):
+                        arr = arr.cast(field.type, safe=False)
+                    arrays.append(arr)
+                else:
+                    # Add a null-filled column of the right type
+                    arrays.append(pa.nulls(tbl.num_rows, type=field.type))
 
-        # TODO: Integrate this with filesystem from deltacat catalog
+            return pa.Table.from_arrays(arrays, schema=schema)
+
+        def concat_with_schema_union(t1: pa.Table, t2: pa.Table) -> pa.Table:
+            unified = pa.unify_schemas([t1.schema, t2.schema])
+            t1a = align_table_to_schema(t1, unified)
+            t2a = align_table_to_schema(t2, unified)
+            # promote=True lets Arrow upcast (e.g., int32→int64) if needed
+            return pa.concat_tables([t1a, t2a], promote=True, ignore_metadata=True)
+
+        # TODO: integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
         if metadata_uri is None:
             metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
@@ -523,11 +544,13 @@ class Dataset:
                 metadata_uri, filesystem=filesystem
             )
 
-            # TODO: When integrating deltacat consider if we can support multiple filesystems
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
             if file_fs.type_name != metadata_fs.type_name:
                 raise ValueError(
                     "File URI and metadata URI must be on the same filesystem."
                 )
+
+        # Validate merge_keys field (check that we only have one merge key)
         if not merge_keys or not isinstance(merge_keys, str):
             if len(merge_keys) == 1:
                 merge_keys = merge_keys[0]
@@ -536,6 +559,7 @@ class Dataset:
                     "Multiple merge keys are not supported in from_webdataset(). Please specify only 1 merge key as a string."
                 )
 
+        # Read the WebDataset into a PyArrow Table
         dataset_schema = Schema()
         media_binaries = []
 
@@ -559,34 +583,36 @@ class Dataset:
                                 merge_key = merge_keys
 
                                 pyarrow_table = pyarrow.json.read_json(f)
-                                image_filename = pyarrow_table[merge_key][0].as_py()
-
-                                truncated_filename = normalize_filename(
-                                    os.path.basename(image_filename)
+                                media_filename = pyarrow_table[merge_key][0].as_py()
+                                media_basename = os.path.basename(media_filename)
+                                media_member = next(
+                                    (
+                                        t
+                                        for t in tar_members
+                                        if t.name.endswith(media_basename)
+                                    ),
+                                    None,
                                 )
-                                if truncated_filename in [
-                                    normalize_filename(t.name) for t in tar_members
-                                ]:
-                                    image_member = next(
-                                        (
-                                            t
-                                            for t in tar_members
-                                            if t.name == truncated_filename
-                                        ),
-                                        None,
-                                    )
-                                    if image_member:
-                                        fi = tar.extractfile(image_member)
-                                        if fi:
-                                            media_binary = fi.read()
-                                            media_binaries.extend([media_binary])
+
+                                if media_member:
+                                    fi = tar.extractfile(media_member)
+                                    if fi:
+                                        media_binary = fi.read()
+                                        media_binaries.extend([media_binary])
 
                                 if current_batch is None:
                                     current_batch = pyarrow_table
                                 else:
-                                    current_batch = pa.concat_tables(
-                                        [current_batch, pyarrow_table]
-                                    )
+                                    # TODO: batch size 1 but still concating?
+                                    if current_batch.schema == pyarrow_table.schema:
+                                        current_batch = pa.concat_tables(
+                                            [current_batch, pyarrow_table],
+                                            unify_schemas=True,
+                                        )
+                                    else:
+                                        current_batch = concat_with_schema_union(
+                                            current_batch, pyarrow_table
+                                        )
                             except Exception as e:
                                 print(f"Error with {member.name}:", e)
 
@@ -611,17 +637,13 @@ class Dataset:
                         )
                         # Edit dataset_schema to have media_binaries as a field object
                         dataset_schema.add_field(
-                            Field(
-                                "media_binary",
-                                Datatype.binary(
-                                    image_filename[
-                                        image_filename.index(".") + 1 :
-                                    ].lower()
-                                ),
-                            )
+                            Field("media_binary", Datatype.from_pyarrow(pa.binary()))
                         )
                     except Exception as e:
                         print(f"Mismatch between media binaries and batch rows: {e}")
+
+        if current_batch is None:
+            raise ValueError("No valid JSON files found in the webdataset tar file.")
 
         dataset = cls(
             dataset_name=name,
@@ -630,6 +652,7 @@ class Dataset:
             filesystem=file_fs,
             namespace=namespace,
         )
+
         writer = dataset.writer()
         writer.write(current_batch.to_batches())
         writer.flush()
