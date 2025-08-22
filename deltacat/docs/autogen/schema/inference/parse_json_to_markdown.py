@@ -5,8 +5,12 @@ This separates the physical schema extraction from the markdown generation.
 
 import json
 import sys
+import pickle
+import base64
 from typing import Dict, List, Any
 from pathlib import Path
+
+from deltacat.utils.pyarrow import get_base_arrow_type_name
 
 
 def load_test_data(json_file: str) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -286,37 +290,31 @@ written cannot be read by one or more supported reader types, then a `TableValid
     return markdown
 
 
-def _normalize_complex_types(arrow_type: str) -> str:
-    """Normalize complex arrow types to their base type names without parameters."""
-    # Only normalize specific complex types, otherwise return as-is
-    if arrow_type.startswith("list<"):
-        return "list"
-    elif arrow_type.startswith("map<"):
-        return "map"
-    elif arrow_type.startswith("struct<"):
-        return "struct"
-    elif arrow_type.startswith("dictionary<"):
-        return "dictionary"
-    elif arrow_type.startswith("decimal128"):
-        return "decimal128"
-    elif arrow_type.startswith("decimal256"):
-        return "decimal256"
-    elif arrow_type.startswith("timestamp["):
-        # For timestamps, check timezone info and extract precision
-        if "UTC" in arrow_type.upper() or "utc" in arrow_type:
-            # Extract precision from the string (e.g., "timestamp[s, tz=UTC]" -> "s")
-            import re
+def _normalize_complex_types(serialized_arrow_type: str) -> str:
+    """Normalize complex arrow types to their base type names without parameters.
 
-            precision_match = re.search(r"timestamp\[([^,\]]+)", arrow_type)
-            if precision_match:
-                precision = precision_match.group(1)
-                return f"timestamp_tz[{precision}]"
-            else:
-                return "timestamp_tz"
-        else:
-            return arrow_type
-    else:
-        return arrow_type
+    This function uses the serialized PyArrow type for reliable normalization.
+
+    Args:
+        serialized_arrow_type: Base64-encoded pickled PyArrow type (required)
+
+    Returns:
+        Normalized type name using the common utility function
+
+    Raises:
+        ValueError: If serialized_arrow_type is None or deserialization fails
+    """
+    if not serialized_arrow_type:
+        raise ValueError(
+            "serialized_arrow_type is required for reliable type normalization"
+        )
+
+    # Deserialize the PyArrow type from base64-encoded pickle
+    serialized_bytes = base64.b64decode(serialized_arrow_type)
+    pa_type = pickle.loads(serialized_bytes)
+
+    # Use the common utility function for normalization
+    return get_base_arrow_type_name(pa_type)
 
 
 def generate_reader_compatibility_mapping(
@@ -332,11 +330,11 @@ def generate_reader_compatibility_mapping(
         if not result.get("success", False):
             continue
 
-        # Use original_arrow_type which contains the base PyArrow DataType name
-        raw_arrow_type = result.get("original_arrow_type", result["arrow_type"])
+        # Get serialized arrow type (required for normalization)
+        serialized_arrow_type = result.get("serialized_arrow_type")
 
-        # Normalize complex types to base type names
-        arrow_type = _normalize_complex_types(raw_arrow_type)
+        # Normalize complex types to base type names using serialized type
+        arrow_type = _normalize_complex_types(serialized_arrow_type)
         writer_dataset = result["dataset_type"]
         content_type = result["content_type"]
 

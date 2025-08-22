@@ -24,7 +24,7 @@ from deltacat.exceptions import (
     TableValidationError,
     SchemaValidationError,
 )
-from deltacat.types.tables import TableWriteMode, DatasetType
+from deltacat.types.tables import TableWriteMode
 from deltacat.types.media import ContentType
 
 

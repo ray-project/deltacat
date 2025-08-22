@@ -34,6 +34,7 @@ from deltacat.exceptions import (
     TableValidationError,
     SchemaValidationError,
 )
+from deltacat.catalog.main.impl import _validate_reader_compatibility
 from deltacat.storage.model.schema import (
     Schema,
     Field,
@@ -55,6 +56,10 @@ from deltacat.types.tables import (
     TableProperty,
     TableReadOptimizationLevel,
     SchemaEvolutionMode,
+)
+from deltacat.utils.pyarrow import (
+    get_supported_test_types,
+    get_base_arrow_type_name,
 )
 
 COPY_ON_WRITE_TABLE_PROPERTIES = {
@@ -4227,6 +4232,240 @@ class TestContentTypeDatasetCompatibility:
 
         # Cleanup
         dc.clear_catalogs()
+
+    def test_reader_compatibility_validation_with_default_supported_readers(
+        self, temp_catalog_properties
+    ):
+        """Test that TableValidationError is raised when data is incompatible with default supported reader types."""
+        namespace = "test_namespace"
+        catalog_name = f"reader-compat-default-test-{uuid.uuid4()}"
+        table_name = "reader_compat_test_table"
+
+        # Create catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Use boolean data written by pandas in AVRO format - this is known to be incompatible with DAFT
+        # From reader compatibility mapping: ("bool", "pandas", "application/avro") is missing DatasetType.DAFT
+        test_data = pa.table({"bool_column": [True, False, True, False]})
+        pandas_data = test_data.to_pandas()
+
+        # This should raise TableValidationError because DAFT is in the default supported reader types
+        # but DAFT cannot read boolean data written by pandas in AVRO format
+        with pytest.raises(
+            TableValidationError,
+            match="Field 'bool_column' with type 'bool' written by pandas to application/avro cannot be read by required reader type daft",
+        ):
+            dc.write_to_table(
+                data=pandas_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                content_type=ContentType.AVRO,
+                mode=TableWriteMode.CREATE,
+            )
+
+        # Cleanup
+        dc.clear_catalogs()
+
+    def test_reader_compatibility_validation_with_custom_supported_readers(
+        self, temp_catalog_properties
+    ):
+        """Test that TableValidationError is raised when data is incompatible with custom supported reader types."""
+        namespace = "test_namespace"
+        catalog_name = f"reader-compat-custom-test-{uuid.uuid4()}"
+        table_name = "reader_compat_test_table"
+
+        # Create catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Use boolean data written by pandas in AVRO format
+        test_data = pa.table({"bool_column": [True, False, True, False]})
+        pandas_data = test_data.to_pandas()
+
+        # Set custom supported reader types that include only DAFT (which is incompatible)
+        custom_supported_readers = [DatasetType.DAFT]
+
+        with pytest.raises(
+            TableValidationError,
+            match="Field 'bool_column' with type 'bool' written by pandas to application/avro cannot be read by required reader type daft",
+        ):
+            dc.write_to_table(
+                data=pandas_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                content_type=ContentType.AVRO,
+                mode=TableWriteMode.CREATE,
+                table_properties={"supported_reader_types": custom_supported_readers},
+            )
+
+        # Cleanup
+        dc.clear_catalogs()
+
+    def test_reader_compatibility_no_validation_when_supported_readers_none(
+        self, temp_catalog_properties
+    ):
+        """Test that no validation occurs when supported_reader_types is None."""
+        namespace = "test_namespace"
+        catalog_name = f"reader-compat-none-test-{uuid.uuid4()}"
+        table_name = "reader_compat_test_table"
+
+        # Create catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Use boolean data written by pandas in AVRO format (normally incompatible with DAFT)
+        test_data = pa.table({"bool_column": [True, False, True, False]})
+        pandas_data = test_data.to_pandas()
+
+        # This should succeed because supported_reader_types is None (no validation)
+        try:
+            dc.write_to_table(
+                data=pandas_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                content_type=ContentType.AVRO,
+                mode=TableWriteMode.CREATE,
+                table_properties={"supported_reader_types": None},
+            )
+
+            # Verify the table was created successfully by reading with PyArrow (which supports AVRO)
+            result = dc.read_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                read_as=DatasetType.PYARROW,
+            )
+            assert len(result) == 4
+
+        except Exception as e:
+            pytest.fail(
+                f"Write should have succeeded with supported_reader_types=None, but got: {e}"
+            )
+
+        # Cleanup
+        dc.clear_catalogs()
+
+    def test_reader_compatibility_no_validation_when_supported_readers_empty(
+        self, temp_catalog_properties
+    ):
+        """Test that no validation occurs when supported_reader_types is an empty list."""
+        namespace = "test_namespace"
+        catalog_name = f"reader-compat-empty-test-{uuid.uuid4()}"
+        table_name = "reader_compat_test_table"
+
+        # Create catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Use boolean data written by pandas in AVRO format (normally incompatible with DAFT)
+        test_data = pa.table({"bool_column": [True, False, True, False]})
+        pandas_data = test_data.to_pandas()
+
+        # This should succeed because supported_reader_types is empty (no validation)
+        try:
+            dc.write_to_table(
+                data=pandas_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                content_type=ContentType.AVRO,
+                mode=TableWriteMode.CREATE,
+                table_properties={"supported_reader_types": []},
+            )
+
+            # Verify the table was created successfully by reading with PyArrow (which supports AVRO)
+            result = dc.read_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                read_as=DatasetType.PYARROW,
+            )
+            assert len(result) == 4
+
+        except Exception as e:
+            pytest.fail(
+                f"Write should have succeeded with supported_reader_types=[], but got: {e}"
+            )
+
+        # Cleanup
+        dc.clear_catalogs()
+
+    def test_reader_compatibility_validation_resolves_all_supported_types(
+        self,
+    ):
+        """Test that _validate_reader_compatibility can resolve all supported PyArrow types
+        across all dataset types (except NUMPY) and validates both supported and unsupported combinations.
+
+        This comprehensive test ensures:
+        1. No sync issues between type normalization and reader compatibility mapping
+        2. TableValidationError is properly thrown for unsupported combinations
+        3. Error combinations are correctly absent from READER_COMPATIBILITY_MAPPING
+        """
+        from deltacat.utils.reader_compatibility_mapping import get_compatible_readers
+
+        # Get all supported test types
+        test_types = get_supported_test_types()
+
+        # Test all dataset types except NUMPY (as requested)
+        test_dataset_types = [dt for dt in DatasetType if dt != DatasetType.NUMPY]
+
+        content_types = [
+            ContentType.PARQUET,
+            ContentType.AVRO,
+            ContentType.ORC,
+            ContentType.FEATHER,
+        ]
+
+        for arrow_type_name, arrow_type_code, test_data in test_types:
+            # Create PyArrow type and table
+            arrow_type = eval(arrow_type_code)
+            arrow_table = pa.Table.from_arrays(
+                [pa.array(test_data, type=arrow_type)], names=[arrow_type_name]
+            )
+
+            # Test type normalization
+            normalized_name = get_base_arrow_type_name(arrow_type)
+            assert isinstance(
+                normalized_name, str
+            ), f"Normalization must return string for {arrow_type_name}"
+            assert (
+                len(normalized_name) > 0
+            ), f"Normalization must return non-empty string for {arrow_type_name}"
+
+            # Test with PyArrow writer and various readers to validate mapping logic
+            for content_type in content_types:
+                writer_type_str = "pyarrow"
+
+                # Get compatible readers for this combination from the mapping
+                compatible_readers = get_compatible_readers(
+                    normalized_name, writer_type_str, content_type.value
+                )
+                # If PYARROW is supported and the content type is parquet then PYARROW_PARQUET is implicitly supported
+                if (
+                    DatasetType.PYARROW in compatible_readers
+                    and content_type == ContentType.PARQUET
+                ):
+                    compatible_readers.append(DatasetType.PYARROW_PARQUET)
+
+                # Test 1: Validate with compatible readers (should succeed)
+                if compatible_readers:
+                    _validate_reader_compatibility(
+                        data=arrow_table,
+                        content_type=content_type,
+                        supported_reader_types=compatible_readers,
+                    )
+
+                # Test 2: Validate with known incompatible readers (should fail)
+                incompatible_readers = set(test_dataset_types) - set(compatible_readers)
+
+                # Test with a known incompatible reader
+                for incompatible_reader in incompatible_readers:
+                    with pytest.raises(TableValidationError):
+                        _validate_reader_compatibility(
+                            data=arrow_table,
+                            content_type=content_type,
+                            supported_reader_types=[incompatible_reader],
+                        )
 
 
 class TestTableVersionWriteModes:

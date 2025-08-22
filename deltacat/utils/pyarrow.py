@@ -7,14 +7,15 @@ import gzip
 import io
 import logging
 from functools import partial
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
-from pyarrow.parquet import ParquetFile
-from deltacat.exceptions import ContentTypeValidationError
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Tuple
+from datetime import datetime, date
+from decimal import Decimal
 
 import pyarrow as pa
 import numpy as np
 import pyarrow.compute as pc
 import pyarrow.fs as pafs
+from pyarrow.parquet import ParquetFile
 
 from fsspec import AbstractFileSystem
 from pyarrow import csv as pacsv
@@ -25,6 +26,7 @@ from pyarrow import orc as paorc
 from ray.data.datasource import FilenameProvider
 
 from deltacat import logs
+from deltacat.exceptions import ContentTypeValidationError
 from deltacat.types.media import (
     DELIMITED_TEXT_CONTENT_TYPES,
     TABULAR_CONTENT_TYPES,
@@ -1718,3 +1720,313 @@ def delta_manifest_to_table(
         )
 
     return pa.table(arrays_dict)
+
+
+def get_base_arrow_type_name(arrow_type: pa.DataType) -> str:
+    """Get the base type name from a PyArrow DataType for compatibility lookup.
+
+    This function normalizes complex PyArrow types to their base type names for
+    use in reader compatibility validation. Only specific complex types are
+    normalized; all others return their string representation.
+
+    Args:
+        arrow_type: The PyArrow DataType to normalize
+
+    Returns:
+        str: The normalized type name for compatibility lookup
+
+    Examples:
+        >>> get_base_arrow_type_name(pa.int32())
+        'int32'
+        >>> get_base_arrow_type_name(pa.list_(pa.int32()))
+        'list'
+        >>> get_base_arrow_type_name(pa.timestamp('s', tz='UTC'))
+        'timestamp_tz'
+    """
+    import pyarrow as pa
+
+    # Only normalize specific complex types, otherwise return str(arrow_type)
+    if pa.types.is_list(arrow_type):
+        return "list"
+    elif pa.types.is_map(arrow_type):
+        return "map"
+    elif pa.types.is_struct(arrow_type):
+        return "struct"
+    elif pa.types.is_dictionary(arrow_type):
+        return "dictionary"
+    elif pa.types.is_decimal(arrow_type):
+        if isinstance(arrow_type, pa.Decimal128Type):
+            return "decimal128"
+        elif isinstance(arrow_type, pa.Decimal256Type):
+            return "decimal256"
+    elif pa.types.is_timestamp(arrow_type):
+        # Check if it has timezone info
+        if arrow_type.tz is not None:
+            return f"timestamp_tz[{arrow_type.unit}]"
+        else:
+            return str(arrow_type)
+    else:
+        # For all other types, return the string representation
+        return str(arrow_type)
+
+
+def get_supported_test_types() -> List[Tuple[str, str, List[Any]]]:
+    """Get comprehensive PyArrow types supported by DeltaCAT writers and readers.
+
+    This utility function returns example Arrow arrays for every Arrow type
+    supported by DeltaCAT writers and readers of tables with schemas. The data
+    is used for testing compatibility between different dataset types and
+    content types.
+
+    Returns:
+        List[Tuple[str, str, List[Any]]]: List of tuples containing:
+            - Test name (str): Human-readable name for the test case
+            - Arrow type code (str): Python code to create the PyArrow DataType
+            - Test data (List[Any]): Sample data values for testing
+
+    Examples:
+        >>> test_types = get_supported_test_types()
+        >>> for name, type_code, data in test_types[:2]:
+        ...     print(f"{name}: {type_code} -> {data}")
+        int8: pa.int8() -> [127, -128, 0]
+        int16: pa.int16() -> [32767, -32768, 1000]
+    """
+
+    return [
+        # Integer types
+        ("int8", "pa.int8()", [127, -128, 0]),
+        ("int16", "pa.int16()", [32767, -32768, 1000]),
+        ("int32", "pa.int32()", [2147483647, -2147483648, 1000]),
+        ("int64", "pa.int64()", [9223372036854775807, -9223372036854775808, 1000]),
+        ("uint8", "pa.uint8()", [255, 0, 128]),
+        ("uint16", "pa.uint16()", [65535, 0, 1000]),
+        ("uint32", "pa.uint32()", [4294967295, 0, 1000]),
+        ("uint64", "pa.uint64()", [18446744073709551615, 0, 1000]),
+        # Float types
+        ("float16", "pa.float16()", np.array([1.5, np.nan], dtype=np.float16)),
+        ("float32", "pa.float32()", [3.14159, -2.71828, 1.41421]),
+        ("float64", "pa.float64()", [1.123456789, -2.987654321, 3.141592653589793]),
+        # Boolean and null
+        ("bool_", "pa.bool_()", [True, False, True]),
+        ("null", "pa.null()", [None, None, None]),
+        # String types
+        ("string", "pa.string()", ["hello", "world", "test"]),
+        (
+            "large_string",
+            "pa.large_string()",
+            ["large hello", "large world", "large test"],
+        ),
+        # Binary types
+        ("binary", "pa.binary()", [b"hello", b"world", b"test"]),
+        (
+            "large_binary",
+            "pa.large_binary()",
+            [b"large hello", b"large world", b"large test"],
+        ),
+        # Date and time types
+        (
+            "date32",
+            "pa.date32()",
+            [date(2023, 1, 1), date(2023, 12, 31), date(2024, 6, 15)],
+        ),
+        (
+            "date64",
+            "pa.date64()",
+            [date(2023, 1, 1), date(2023, 12, 31), date(2024, 6, 15)],
+        ),
+        ("time32_s", "pa.time32('s')", [1754962113, 1754962114, 1754962115]),
+        ("time32_ms", "pa.time32('ms')", [1754962113, 1754962114, 1754962115]),
+        (
+            "time64_us",
+            "pa.time64('us')",
+            [1754962113000000, 1754962114000000, 1754962115000000],
+        ),
+        (
+            "time64_ns",
+            "pa.time64('ns')",
+            [1754962113000000000, 1754962114000000000, 1754962115000000000],
+        ),
+        (
+            "timestamp_s",
+            "pa.timestamp('s')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ms",
+            "pa.timestamp('ms')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_us",
+            "pa.timestamp('us')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ns",
+            "pa.timestamp('ns')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_s_utc",
+            "pa.timestamp('s', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ms_utc",
+            "pa.timestamp('ms', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_us_utc",
+            "pa.timestamp('us', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        (
+            "timestamp_ns_utc",
+            "pa.timestamp('ns', tz='UTC')",
+            [
+                datetime(2023, 1, 1, 12, 0, 0),
+                datetime(2023, 12, 31, 23, 59, 59),
+                datetime(2024, 6, 15, 10, 30, 45),
+            ],
+        ),
+        ("duration_s", "pa.duration('s')", [1754962113, 1754962114, 1754962115]),
+        (
+            "duration_ms",
+            "pa.duration('ms')",
+            [1754962113000, 1754962114000, 1754962115000],
+        ),
+        (
+            "duration_us",
+            "pa.duration('us')",
+            [1754962113000000, 1754962114000000, 1754962115000000],
+        ),
+        (
+            "duration_ns",
+            "pa.duration('ns')",
+            [1754962113000000000, 1754962114000000000, 1754962115000000000],
+        ),
+        (
+            "month_day_nano",
+            "pa.month_day_nano_interval()",
+            [
+                pa.scalar((1, 15, -30), type=pa.month_day_nano_interval()),
+                pa.scalar((2, 15, -30), type=pa.month_day_nano_interval()),
+                pa.scalar((3, 15, -30), type=pa.month_day_nano_interval()),
+            ],
+        ),
+        # Decimal
+        (
+            "decimal128_5_2",
+            "pa.decimal128(5, 2)",
+            [Decimal("123.45"), Decimal("-67.89"), Decimal("999.99")],
+        ),
+        (
+            "decimal128_38_0",
+            "pa.decimal128(38, 0)",
+            [
+                Decimal("12345678901234567890123456789012345678"),
+                Decimal("-12345678901234567890123456789012345678"),
+                Decimal("0"),
+            ],
+        ),
+        (
+            "decimal128_1_0",
+            "pa.decimal128(1, 0)",
+            [Decimal("1"), Decimal("2"), Decimal("3")],
+        ),
+        (
+            "decimal128_38_10",
+            "pa.decimal128(38, 10)",
+            [
+                Decimal("1234567890123456789012345678.9012345678"),
+                Decimal("-1234567890123456789012345678.9012345678"),
+                Decimal("0.0000000000"),
+            ],
+        ),
+        (
+            "decimal256_76_0",
+            "pa.decimal256(76, 0)",
+            [
+                Decimal(
+                    "1234567890123456789012345678901234567812345678901234567890123456789012345678"
+                ),
+                Decimal("-0"),
+                Decimal("0"),
+            ],
+        ),
+        (
+            "decimal256_1_0",
+            "pa.decimal256(1, 0)",
+            [Decimal("1"), Decimal("2"), Decimal("3")],
+        ),
+        (
+            "decimal256_5_2",
+            "pa.decimal256(5, 2)",
+            [Decimal("123.45"), Decimal("-67.89"), Decimal("999.99")],
+        ),
+        (
+            "decimal256_76_38",
+            "pa.decimal256(76, 38)",
+            [
+                Decimal(
+                    "12345678901234567890123456789012345678.12345678901234567890123456789012345678"
+                ),
+                Decimal("-0.00000000000000000000000000000000000000"),
+                Decimal("0.00000000000000000000000000000000000000"),
+            ],
+        ),
+        # List types
+        ("list_int32", "pa.list_(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
+        ("list_string", "pa.list_(pa.string())", [["a", "b"], ["c", "d", "e"], ["f"]]),
+        # Struct type
+        (
+            "struct_simple",
+            "pa.struct([('name', pa.string()), ('age', pa.int32())])",
+            [
+                {"name": "Alice", "age": 30},
+                {"name": "Bob", "age": 25},
+                {"name": "Charlie", "age": 35},
+            ],
+        ),
+        # Dictionary type
+        (
+            "dictionary_string",
+            "pa.dictionary(pa.int32(), pa.string())",
+            ["apple", "banana", "apple"],
+        ),
+        # Map type
+        (
+            "map_string_int32",
+            "pa.map_(pa.string(), pa.int32())",
+            [{"a": 1, "b": 2}, {"c": 3, "d": 4}, {"e": 5}],
+        ),
+    ]
