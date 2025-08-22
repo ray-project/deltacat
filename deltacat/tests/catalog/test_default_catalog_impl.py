@@ -4496,6 +4496,7 @@ class TestContentTypeDatasetCompatibility:
 
         # Create a table WITH a schema (infer from test data)
         from deltacat.types.tables import infer_table_schema
+
         inferred_schema = infer_table_schema(test_data)
         dc.create_table(
             table=table_name,

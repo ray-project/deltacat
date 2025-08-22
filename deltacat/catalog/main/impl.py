@@ -339,7 +339,9 @@ def write_to_table(
             content_type.value not in SCHEMA_CONTENT_TYPES
             and table_version_obj.schema is not None
         ):
-            schemaless_types = {ct for ct in ContentType if ct.value not in SCHEMA_CONTENT_TYPES}
+            schemaless_types = {
+                ct for ct in ContentType if ct.value not in SCHEMA_CONTENT_TYPES
+            }
             raise TableValidationError(
                 f"Content type '{content_type.value}' cannot be written to a table with a schema. "
                 f"Table '{namespace}.{table}' has a schema, but content type '{content_type.value}' "
@@ -1615,7 +1617,9 @@ def alter_table(
             TableProperty.SCHEMA_EVOLUTION_MODE
         )
         if schema_updates and schema_evolution_mode == SchemaEvolutionMode.DISABLED:
-            raise TableValidationError("Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates.")
+            raise TableValidationError(
+                "Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates."
+            )
 
         # Apply schema updates if provided
         updated_schema = None

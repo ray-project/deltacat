@@ -24,7 +24,7 @@ from deltacat.exceptions import (
     TableValidationError,
     SchemaValidationError,
 )
-from deltacat.types.tables import TableWriteMode
+from deltacat.types.tables import TableWriteMode, TableProperty, SchemaEvolutionMode
 from deltacat.types.media import ContentType
 
 
@@ -709,6 +709,89 @@ class TestCatalogTableOperations:
 
         # Verify schema ID was incremented
         assert updated_schema.id == original_schema.id + 1
+
+    def test_alter_table_with_schema_evolution_disabled(self, test_namespace):
+        """Test that alter_table raises TableValidationError when schema evolution is disabled."""
+        namespace_name, catalog_properties = test_namespace
+        table_name = "test_alter_table_schema_evolution_disabled"
+
+        # Create initial schema
+        initial_fields = [
+            Field.of(
+                pa.field("id", pa.int64(), nullable=False),
+                is_merge_key=True,
+                field_id=1,
+            ),
+            Field.of(pa.field("value", pa.int32(), nullable=True), field_id=2),
+        ]
+        schema = Schema.of(initial_fields)
+
+        # Create table with SCHEMA_EVOLUTION_MODE.DISABLED
+        table_properties = {
+            TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.DISABLED
+        }
+
+        table = catalog.create_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema=schema,
+            table_properties=table_properties,
+            inner=catalog_properties,
+        )
+
+        original_schema = table.table_version.schema
+
+        # Try to add a new field - this should be blocked
+        new_field = Field.of(pa.field("description", pa.string(), nullable=True))
+        schema_update = original_schema.update().add_field(new_field)
+
+        # Alter table with schema updates should raise TableValidationError
+        with pytest.raises(
+            TableValidationError,
+            match="Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates.",
+        ):
+            catalog.alter_table(
+                table=table_name,
+                namespace=namespace_name,
+                schema_updates=schema_update,
+                inner=catalog_properties,
+            )
+
+        # Verify the schema wasn't changed
+        unchanged_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+        unchanged_schema = unchanged_table_def.table_version.schema
+
+        # Schema should be unchanged
+        assert unchanged_schema.id == original_schema.id
+        assert len(unchanged_schema.fields) == len(original_schema.fields)
+
+        # Verify the new field was not added
+        field_names = [field.arrow.name for field in unchanged_schema.fields]
+        assert "description" not in field_names
+
+        # Test that alter_table works without schema_updates even when schema evolution is disabled
+        catalog.alter_table(
+            table=table_name,
+            namespace=namespace_name,
+            table_description="Updated description without schema changes",
+            inner=catalog_properties,
+        )
+
+        # Verify that table description was updated but schema remains unchanged
+        final_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+        assert (
+            final_table_def.table_version.description
+            == "Updated description without schema changes"
+        )
+        assert final_table_def.table_version.schema.id == original_schema.id
 
     def test_drop_with_purge_validation(self, test_namespace):
         """Test that using purge flag raises ValidationError"""
