@@ -52,6 +52,7 @@ from deltacat.types.media import (
     ContentType,
     DatasetType,
     StorageType,
+    SCHEMA_CONTENT_TYPES,
 )
 from deltacat.types.tables import (
     SchemaEvolutionMode,
@@ -332,6 +333,19 @@ def write_to_table(
             table_version=table_version or table_definition.table_version.table_version,
             **kwargs,
         )
+
+        # Validate schema compatibility for schemaless content types with schema tables
+        if (
+            content_type.value not in SCHEMA_CONTENT_TYPES
+            and table_version_obj.schema is not None
+        ):
+            schemaless_types = {ct for ct in ContentType if ct.value not in SCHEMA_CONTENT_TYPES}
+            raise TableValidationError(
+                f"Content type '{content_type.value}' cannot be written to a table with a schema. "
+                f"Table '{namespace}.{table}' has a schema, but content type '{content_type.value}' "
+                f"is schemaless. Schemaless content types ({', '.join(sorted([ct.value for ct in schemaless_types]))}) "
+                f"can only be written to schemaless tables."
+            )
 
         # Handle different write modes and get stream and delta type
         stream, delta_type = _handle_write_mode(
@@ -1595,6 +1609,13 @@ def alter_table(
                 raise TableVersionNotFoundError(
                     f"Table version '{table_version}' not found for table {namespace}.{table}"
                 )
+
+        # Get table properties for schema evolution
+        schema_evolution_mode = table_version.read_table_property(
+            TableProperty.SCHEMA_EVOLUTION_MODE
+        )
+        if schema_updates and schema_evolution_mode == SchemaEvolutionMode.DISABLED:
+            raise TableValidationError("Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates.")
 
         # Apply schema updates if provided
         updated_schema = None

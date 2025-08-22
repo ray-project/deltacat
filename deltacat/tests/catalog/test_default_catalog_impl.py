@@ -4467,6 +4467,241 @@ class TestContentTypeDatasetCompatibility:
                             supported_reader_types=[incompatible_reader],
                         )
 
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.JSON,
+        ],
+    )
+    def test_schemaless_content_type_blocked_from_schema_table(
+        self, temp_catalog_properties, content_type
+    ):
+        """
+        Test that schemaless content types (CSV, TSV, PSV, JSON) cannot be written
+        to tables that have a schema.
+        """
+        catalog_name = "test-catalog"
+        namespace = "test-namespace"
+        table_name = "test-table"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, Catalog(config=temp_catalog_properties))
+
+        # Create test data
+        test_data = self._create_test_data()
+
+        # Create a table WITH a schema (infer from test data)
+        from deltacat.types.tables import infer_table_schema
+        inferred_schema = infer_table_schema(test_data)
+        dc.create_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=inferred_schema,  # Explicit schema
+            table_properties={
+                "supported_reader_types": None  # Disable reader compatibility validation
+            },
+        )
+
+        # Attempt to write schemaless content type to schema table - should fail
+        with pytest.raises(TableValidationError) as exc_info:
+            dc.write_to_table(
+                data=test_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                content_type=content_type,
+            )
+
+        # Verify error message mentions schema incompatibility
+        error_message = str(exc_info.value)
+        assert "cannot be written to a table with a schema" in error_message
+        assert content_type.value in error_message
+        assert "has a schema" in error_message
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            ContentType.CSV,
+            ContentType.TSV,
+            ContentType.UNESCAPED_TSV,
+            ContentType.PSV,
+            ContentType.JSON,
+        ],
+    )
+    def test_schemaless_content_type_allows_schemaless_table(
+        self, temp_catalog_properties, content_type
+    ):
+        """
+        Test that schemaless content types (CSV, TSV, PSV, JSON) can be written
+        to schemaless tables without error.
+        """
+        catalog_name = "test-catalog"
+        namespace = "test-namespace"
+        table_name = "test-table"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, Catalog(config=temp_catalog_properties))
+
+        # Create test data
+        test_data = self._create_test_data()
+
+        # Create a schemaless table (schema=None)
+        dc.create_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly schemaless
+            table_properties={
+                "supported_reader_types": None  # Disable reader compatibility validation for schemaless table
+            },
+        )
+
+        # This should succeed - schemaless content types can be written to schemaless tables
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            content_type=content_type,
+        )
+
+        # If we got here without an exception, the test passed
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            ContentType.PARQUET,
+            ContentType.ORC,
+            ContentType.FEATHER,
+            ContentType.AVRO,
+        ],
+    )
+    def test_schema_content_type_allows_schema_table(
+        self, temp_catalog_properties, content_type
+    ):
+        """
+        Test that schema-supporting content types (PARQUET, ORC, FEATHER, AVRO)
+        can be written to tables that have schemas.
+        """
+        catalog_name = "test-catalog"
+        namespace = "test-namespace"
+        table_name = "test-table"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, Catalog(config=temp_catalog_properties))
+
+        # Create test data
+        test_data = self._create_test_data()
+
+        # Create a table WITH a schema (infer from test data)
+        from deltacat.types.tables import infer_table_schema
+
+        inferred_schema = infer_table_schema(test_data)
+
+        # Set compatible readers based on content type
+        if content_type == ContentType.PARQUET:
+            supported_readers = [
+                DatasetType.PYARROW,
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+                DatasetType.DAFT,
+                DatasetType.RAY_DATASET,
+            ]
+        elif content_type == ContentType.ORC:
+            supported_readers = [
+                DatasetType.PYARROW,
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+            ]
+        elif content_type == ContentType.FEATHER:
+            supported_readers = [
+                DatasetType.PYARROW,
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+            ]
+        elif content_type == ContentType.AVRO:
+            supported_readers = [
+                DatasetType.PYARROW,
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+                DatasetType.RAY_DATASET,
+            ]
+        else:
+            supported_readers = [DatasetType.PYARROW]  # fallback
+
+        dc.create_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=inferred_schema,  # Explicit schema
+            table_properties={"supported_reader_types": supported_readers},
+        )
+
+        # This should succeed - schema-supporting content types work with schema tables
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            content_type=content_type,
+        )
+
+        # If we got here without an exception, the test passed
+        # (The schema validation in write_to_table didn't raise an error)
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            ContentType.PARQUET,
+            ContentType.ORC,
+            ContentType.FEATHER,
+            ContentType.AVRO,
+        ],
+    )
+    def test_schema_content_type_allows_schemaless_table(
+        self, temp_catalog_properties, content_type
+    ):
+        """
+        Test that schema-supporting content types (PARQUET, ORC, FEATHER, AVRO)
+        can also be written to schemaless tables.
+        """
+        catalog_name = "test-catalog"
+        namespace = "test-namespace"
+        table_name = "test-table"
+
+        # Setup catalog
+        dc.put_catalog(catalog_name, Catalog(config=temp_catalog_properties))
+
+        # Create test data
+        test_data = self._create_test_data()
+
+        # Create a schemaless table (schema=None)
+        dc.create_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=None,  # Explicitly schemaless
+            table_properties={
+                "supported_reader_types": None  # Disable reader compatibility validation
+            },
+        )
+
+        # This should succeed - schema content types can also be written to schemaless tables
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            content_type=content_type,
+        )
+
+        # If we got here without an exception, the test passed
+
 
 class TestTableVersionWriteModes:
     """

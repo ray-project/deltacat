@@ -85,6 +85,12 @@ CONTENT_ENCODING_TO_EXT: Dict[ContentEncoding, str] = {
     v: k for k, v in EXT_TO_CONTENT_ENCODING.items()
 }
 
+SCHEMA_CONTENT_TYPES: Set[str] = {
+    ContentType.PARQUET.value,
+    ContentType.ORC.value,
+    ContentType.FEATHER.value,
+    ContentType.AVRO.value,
+}
 
 DELIMITED_TEXT_CONTENT_TYPES: Set[str] = {
     ContentType.UNESCAPED_TSV.value,
