@@ -55,19 +55,19 @@ setuptools.setup(
         "google-cloud-storage",
         "gcsfs == 2025.3.2",
         # Misc
-        "daft == 0.4.15",
+        "daft == 0.4.15",  # run `make type-mappings` if you change this! See README-development.md
         "intervaltree == 3.1.0",
         "numpy == 1.22.4",
-        "pandas == 2.2.3",
-        "polars == 1.28.1",
+        "pandas == 2.2.3",  # run `make type-mappings` if you change this! See README-development.md
+        "polars == 1.28.1",  # run `make type-mappings` if you change this! See README-development.md
         # upgrade to pyarrow 18.0.0 causes test
         # TestCompactionSession::test_compact_partition_when_incremental_then_rcf_stats_accurate to fail
         # due to input_inflation exceeding 1e-5
         # Daft requires pyarrow == 16.00. TODO discuss upgrade with Daft
-        "pyarrow == 16.0.0",
+        "pyarrow == 16.0.0",  # run `make type-mappings` if you change this! See README-development.md
         "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
         "pymemcache == 4.0.0",
-        "ray[default] == 2.46.0",
+        "ray[default] == 2.46.0",  # run `make type-mappings`` if you change this! See README-development.md
         "tenacity == 8.2.3",
         "typing-extensions == 4.6.1",
         "redis == 5.0.0",

@@ -4,6 +4,7 @@ import pickle
 import tempfile
 import uuid
 import base64
+import shutil
 from datetime import datetime
 from polars.exceptions import PanicException
 from typing import List, Dict, Any, Tuple
@@ -538,20 +539,8 @@ def run_single_test(
         }
 
 
-def main():
-    print("=" * 80)
-    print("PHYSICAL SCHEMA EXTRACTION TEST")
-    print("=" * 80)
-    print("Using dc.list with table-specific URLs to map files to tests")
-
-    # Setup
-    temp_dir = tempfile.mkdtemp()
-    catalog_name = f"test-catalog-{uuid.uuid4()}"
-    catalog_props = CatalogProperties(root=temp_dir)
-    dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_props))
-
-    print(f"Using catalog directory: {temp_dir}")
-
+def run_type_mapping_tests(catalog_name: str) -> List[Dict[str, Any]]:
+    """Run the actual type mapping tests and return results."""
     arrow_types = get_comprehensive_test_types()
     dataset_types = [
         DatasetType.PYARROW,
@@ -647,21 +636,51 @@ def main():
                     print(f"    ❌ Write failed: {result.get('error', 'unknown')}")
 
                 all_results.append(result)
-        print()
+    print()
 
-    # Save detailed results with version information
-    version_info = get_version_info()
-    output_data = {"metadata": version_info, "test_results": all_results}
+    return all_results
 
-    output_file_name = "generate_type_mappings_results.json"
-    with open(output_file_name, "w") as f:
-        json.dump(output_data, f, indent=2, default=str)
 
-    print(f"Detailed results saved to: {output_file_name}")
-    print(f"Catalog directory: {temp_dir}")
+def main():
+    print("=" * 80)
+    print("PHYSICAL SCHEMA EXTRACTION TEST")
+    print("=" * 80)
+    print("Using dc.list with table-specific URLs to map files to tests")
 
-    # Don't cleanup for manual inspection
-    print("NOTE: Catalog directory not cleaned up for manual inspection")
+    # Setup
+    temp_dir = tempfile.mkdtemp()
+    catalog_name = f"test-catalog-{uuid.uuid4()}"
+    catalog_props = CatalogProperties(root=temp_dir)
+    dc.put_catalog(catalog_name, catalog=Catalog(config=catalog_props))
+
+    print(f"Using catalog directory: {temp_dir}")
+
+    try:
+        # Run the tests
+        all_results = run_type_mapping_tests(catalog_name)
+
+        # Save detailed results with version information
+        version_info = get_version_info()
+        output_data = {"metadata": version_info, "test_results": all_results}
+
+        output_file_name = "generate_type_mappings_results.json"
+        with open(output_file_name, "w") as f:
+            json.dump(output_data, f, indent=2, default=str)
+
+        print(f"Detailed results saved to: {output_file_name}")
+        print(f"Catalog directory: {temp_dir}")
+
+    finally:
+        # Clean up test catalog and temporary directory
+        try:
+            dc.clear_catalogs()  # Clear catalog from memory
+            shutil.rmtree(temp_dir)  # Remove temporary directory and all contents
+            print(f"✅ Cleaned up test catalog directory: {temp_dir}")
+        except Exception as cleanup_error:
+            print(
+                f"⚠️ Warning: Failed to clean up catalog directory {temp_dir}: {cleanup_error}"
+            )
+            print("NOTE: You may need to manually delete this directory")
 
 
 if __name__ == "__main__":
