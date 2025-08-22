@@ -143,6 +143,9 @@ Number of files that can be appended to the table before a compaction job will b
 **APPENDED_DELTA_COUNT_COMPACTION_TRIGGER (default: 100)**
 Number of deltas that can be appended to the table before a compaction job will be triggered to merge them into a single delta with `RECORDS_PER_COMPACTED_FILE` records per file.
 
+**DEFAULT_COMPACTION_HASH_BUCKET_COUNT (default: 8)**
+Number of hash buckets to use during compaction for distributing records across multiple files. Higher values enable better parallelism for large datasets but may create more files for small datasets. Set to 1 to guarantee a single compacted file per partition.
+
 **SCHEMA_EVOLUTION_MODE (default: AUTO)**
 Controls how schema changes are handled when writing to a table. For more information, see [DeltaCAT Schemas](../schema/README.md).
 

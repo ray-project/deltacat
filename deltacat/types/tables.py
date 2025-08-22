@@ -601,6 +601,7 @@ class TableProperty(str, Enum):
     )
     APPENDED_FILE_COUNT_COMPACTION_TRIGGER = "appended_file_count_compaction_trigger"
     APPENDED_DELTA_COUNT_COMPACTION_TRIGGER = "appended_delta_count_compaction_trigger"
+    DEFAULT_COMPACTION_HASH_BUCKET_COUNT = "default_compaction_hash_bucket_count"
     SCHEMA_EVOLUTION_MODE = "schema_evolution_mode"
     DEFAULT_SCHEMA_CONSISTENCY_TYPE = "default_schema_consistency_type"
     SUPPORTED_READER_TYPES = "supported_reader_types"
@@ -638,6 +639,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     * 2,
     TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
+    TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 8,
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
     TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
     TableProperty.SUPPORTED_READER_TYPES: [

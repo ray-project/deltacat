@@ -951,6 +951,140 @@ class TestCopyOnWrite:
 
         self._verify_dataframe_contents(result, expected_final_data)
 
+    def test_append_delta_count_compaction(self):
+        """Test that compaction is triggered by appended delta count for APPEND mode writes."""
+        table_name = "test_append_delta_compaction"
+
+        # Create table with appended_delta_count_compaction_trigger=2
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count triggers compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for APPEND mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),  # No merge keys
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+        )
+
+        # First APPEND write - should not trigger compaction yet
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Verify we have 1 delta after first write (no compaction yet)
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        objects_after_first = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        first_deltas = [
+            obj for obj in objects_after_first if Metafile.get_class(obj) == Delta
+        ]
+        assert (
+            len(first_deltas) == 1
+        ), f"Expected 1 delta after first write, but found {len(first_deltas)}"
+
+        # Second APPEND write - should trigger compaction (delta count = 2)
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "city": ["Chicago", "Houston"],
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Use dc.list() to verify compaction result
+        # Note: Compaction runs synchronously during the second write, so by this point
+        # the 2 separate append deltas should have been compacted into 1 delta
+        all_objects = dc.list(table_url, recursive=True)
+
+        # Filter for Delta objects after compaction
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: After compaction, should have exactly 1 delta
+        # This proves that compaction was triggered and consolidated the 2 append deltas
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction, but found {len(final_deltas)}"
+
+        compacted_delta = final_deltas[0]
+
+        # Verify the compacted delta properties
+        assert (
+            compacted_delta.stream_position == 2
+        ), f"Expected compacted delta at stream position 2, but found {compacted_delta.stream_position}"
+        assert (
+            "append" in str(compacted_delta.type).lower()
+        ), f"Expected APPEND delta type, but found {compacted_delta.type}"
+
+        # Verify the compacted delta has files
+        assert (
+            compacted_delta.manifest and compacted_delta.manifest.entries
+        ), "Compacted delta should have manifest entries"
+        file_count = len(compacted_delta.manifest.entries)
+
+        # With DEFAULT_COMPACTION_HASH_BUCKET_COUNT=1, we should get exactly 1 file
+        print(f"Compaction resulted in 1 delta with {file_count} files")
+        assert (
+            file_count == 1
+        ), f"Expected exactly 1 compacted file with hash bucket count=1, but found {file_count}"
+
+        # Verify we can still read all the data correctly
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Verify the data content is correct
+        expected_data = {
+            1: {"name": "Alice", "age": 25, "city": "NYC"},
+            2: {"name": "Bob", "age": 30, "city": "LA"},
+            3: {"name": "Charlie", "age": 35, "city": "Chicago"},
+            4: {"name": "Dave", "age": 40, "city": "Houston"},
+        }
+
+        self._verify_dataframe_contents(result, expected_data)
+
     def test_verify_delta_types_created(self):
         """
         Verify that MERGE operations create UPSERT deltas as expected.

@@ -1005,9 +1005,9 @@ def _get_compaction_primary_keys(table_version_obj: TableVersion) -> set:
     )
 
 
-def _get_compaction_hash_bucket_count(partition: Partition) -> int:
-    """Determine hash bucket count from previous compaction or default."""
-    hash_bucket_count = 8  # Default
+def _get_compaction_hash_bucket_count(partition: Partition, table_version_obj: TableVersion) -> int:
+    """Determine hash bucket count from previous compaction, table property, or default."""
+    # First check if we have a hash bucket count from previous compaction
     if (
         partition.compaction_round_completion_info
         and partition.compaction_round_completion_info.hash_bucket_count
@@ -1016,8 +1016,13 @@ def _get_compaction_hash_bucket_count(partition: Partition) -> int:
         logger.info(
             f"Using hash bucket count {hash_bucket_count} from previous compaction"
         )
-    else:
-        logger.info(f"Using default hash bucket count {hash_bucket_count}")
+        return hash_bucket_count
+    
+    # Otherwise use the table property for default compaction hash bucket count
+    hash_bucket_count = table_version_obj.read_table_property(
+        TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT
+    )
+    logger.info(f"Using hash bucket count {hash_bucket_count} from table property")
     return hash_bucket_count
 
 
@@ -1115,7 +1120,7 @@ def _run_compaction_session(
     try:
         # Extract compaction configuration
         primary_keys = _get_compaction_primary_keys(table_version_obj)
-        hash_bucket_count = _get_compaction_hash_bucket_count(partition)
+        hash_bucket_count = _get_compaction_hash_bucket_count(partition, table_version_obj)
 
         # Create compaction parameters
         compact_partition_params = _create_compaction_params(
