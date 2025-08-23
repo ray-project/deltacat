@@ -3,6 +3,7 @@ import logging
 from collections import defaultdict
 
 import pyarrow as pa
+import pandas as pd
 import daft
 import deltacat as dc
 
@@ -1337,30 +1338,41 @@ def _download_and_process_table_data(
     **kwargs,
 ) -> Dataset:
     """Download delta data and process result based on storage type."""
+    
+    # Handle NUMPY read requests by translating to PANDAS internally
+    original_read_as = read_as
+    effective_read_as = read_as
+    if read_as == DatasetType.NUMPY:
+        effective_read_as = DatasetType.PANDAS
+        logger.debug("Translating NUMPY read request to PANDAS for internal processing")
 
     # Merge deltas and download data
     if not qualified_deltas:
-        # Return empty table
-        return empty_table(read_as)
+        # Return empty table with original read_as type
+        return empty_table(original_read_as)
 
     # Special handling for non-empty schemaless tables
     if table_schema is None:
-        return _handle_schemaless_table_read(
+        result = _handle_schemaless_table_read(
             qualified_deltas,
-            read_as,
+            effective_read_as,
             **kwargs,
         )
+        # Convert to numpy if original request was for numpy
+        if original_read_as == DatasetType.NUMPY:
+            return _convert_pandas_to_numpy(result)
+        return result
 
     # Standard non-empty schema table read path - merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
 
     # Convert read parameters to download parameters
     table_type = (
-        read_as
-        if read_as in DatasetType.local()
+        effective_read_as
+        if effective_read_as in DatasetType.local()
         else (kwargs.pop("table_type", None) or DatasetType.PYARROW)
     )
-    distributed_dataset_type = read_as if read_as in DatasetType.distributed() else None
+    distributed_dataset_type = effective_read_as if effective_read_as in DatasetType.distributed() else None
 
     # Validate input parameters
     _validate_read_table_input(
@@ -1378,7 +1390,7 @@ def _download_and_process_table_data(
     )
     result = _get_storage(**kwargs).download_delta(
         merged_delta,
-        table_type=read_as,
+        table_type=effective_read_as,
         storage_type=StorageType.DISTRIBUTED
         if distributed_dataset_type
         else StorageType.LOCAL,
@@ -1391,9 +1403,20 @@ def _download_and_process_table_data(
 
     # Handle local storage table concatenation
     if not distributed_dataset_type and table_type and isinstance(result, list):
-        return _handle_local_table_concatenation(result, table_type, table_schema)
+        result = _handle_local_table_concatenation(result, table_type, table_schema)
+        
+    # Convert to numpy if original request was for numpy
+    if original_read_as == DatasetType.NUMPY:
+        return _convert_pandas_to_numpy(result)
 
     return result
+
+
+def _convert_pandas_to_numpy(dataset: Dataset):
+    """Convert pandas DataFrame to numpy ndarray.""" 
+    if not isinstance(dataset, pd.DataFrame):
+        raise ValueError(f"Expected pandas DataFrame but found {type(dataset)}")
+    return dataset.to_numpy()
 
 
 def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dataset:

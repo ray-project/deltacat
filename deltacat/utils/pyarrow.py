@@ -1743,10 +1743,18 @@ def get_base_arrow_type_name(arrow_type: pa.DataType) -> str:
         >>> get_base_arrow_type_name(pa.timestamp('s', tz='UTC'))
         'timestamp_tz'
     """
-    import pyarrow as pa
-
     # Only normalize specific complex types, otherwise return str(arrow_type)
-    if pa.types.is_list(arrow_type):
+    if isinstance(arrow_type, pa.FixedShapeTensorType):
+        return "fixed_shape_tensor"
+    elif pa.types.is_large_list(arrow_type):
+        return "large_list"
+    elif pa.types.is_list_view(arrow_type):
+        return "list_view"
+    elif pa.types.is_large_list_view(arrow_type):
+        return "large_list_view"
+    elif pa.types.is_fixed_size_list(arrow_type):
+        return "fixed_size_list"
+    elif pa.types.is_list(arrow_type):
         return "list"
     elif pa.types.is_map(arrow_type):
         return "map"
@@ -2017,6 +2025,10 @@ def get_supported_test_types() -> List[Tuple[str, str, List[Any]]]:
                 {"name": "Charlie", "age": 35},
             ],
         ),
+        ("large_list_int32", "pa.large_list(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
+        ("fixed_size_list_int32", "pa.list_(pa.int32(), 3)", [[1, 2, 3], [4, 5, 6], [7, 8, 9]]),
+        ("list_view_int32", "pa.list_view(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
+        ("large_list_view_int32", "pa.large_list_view(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
         # Dictionary type
         (
             "dictionary_string",
@@ -2029,4 +2041,6 @@ def get_supported_test_types() -> List[Tuple[str, str, List[Any]]]:
             "pa.map_(pa.string(), pa.int32())",
             [{"a": 1, "b": 2}, {"c": 3, "d": 4}, {"e": 5}],
         ),
+        # Extension Types
+        ("fixed_shape_tensor", "pa.fixed_shape_tensor(pa.int32(), [3, 3])", [1, 2, 3, 4, 5, 6, 7, 8, 9]),
     ]

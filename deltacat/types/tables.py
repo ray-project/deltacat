@@ -255,7 +255,7 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     pa.Table: lambda table, *, schema, **kwargs: table,
     papq.ParquetFile: lambda table, *, schema, **kwargs: table.read(**kwargs),
     pd.DataFrame: lambda table, *, schema, **kwargs: pa.Table.from_pandas(
-        table, **kwargs
+        table, schema=schema, **kwargs
     ),
     pl.DataFrame: lambda table, *, schema, **kwargs: pl.DataFrame.to_arrow(
         table, **kwargs
@@ -643,7 +643,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
     TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
     TableProperty.SUPPORTED_READER_TYPES: [
-        d for d in DatasetType if d != DatasetType.NUMPY
+        d for d in DatasetType
     ],
 }
 
