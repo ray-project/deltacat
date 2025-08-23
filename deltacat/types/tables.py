@@ -98,15 +98,6 @@ if TYPE_CHECKING:
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
-TABLE_TYPE_TO_S3_READER_FUNC: Dict[str, Callable] = {
-    DatasetType.PYARROW_PARQUET.value: pa_utils.s3_file_to_parquet,
-    DatasetType.PYARROW.value: pa_utils.s3_file_to_table,
-    DatasetType.PANDAS.value: pd_utils.s3_file_to_dataframe,
-    DatasetType.NUMPY.value: np_utils.s3_file_to_ndarray,
-    DatasetType.POLARS.value: pl_utils.s3_file_to_dataframe,
-}
-
-
 TABLE_TYPE_TO_READER_FUNC: Dict[str, Callable] = {
     DatasetType.PYARROW_PARQUET.value: pa_utils.file_to_parquet,
     DatasetType.PYARROW.value: pa_utils.file_to_table,
@@ -527,23 +518,12 @@ def concat_tables(tables: List[LocalTable], table_type: DatasetType) -> LocalTab
     return concat_func(tables)
 
 
-def _daft_s3_reader_wrapper(*args, **kwargs):
-    """Wrapper for daft s3 reader with lazy import to avoid circular import."""
-    from deltacat.utils.daft import s3_files_to_dataframe
-
-    return s3_files_to_dataframe(*args, **kwargs)
-
-
 def _daft_reader_wrapper(*args, **kwargs):
     """Wrapper for daft reader with lazy import to avoid circular import."""
     from deltacat.utils.daft import files_to_dataframe
 
     return files_to_dataframe(*args, **kwargs)
 
-
-DISTRIBUTED_DATASET_TYPE_TO_S3_READER_FUNC: Dict[int, Callable] = {
-    DistributedDatasetType.DAFT.value: _daft_s3_reader_wrapper,
-}
 
 DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC: Dict[int, Callable] = {
     DistributedDatasetType.DAFT.value: _daft_reader_wrapper,

@@ -450,41 +450,6 @@ def _add_column_kwargs(
                 )
 
 
-def s3_file_to_dataframe(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
-) -> pd.DataFrame:
-
-    from deltacat.aws import s3u as s3_utils
-
-    logger.debug(
-        f"Reading {s3_url} to Pandas. Content type: {content_type}. "
-        f"Encoding: {content_encoding}"
-    )
-    s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
-    logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
-    pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC[content_type]
-    args = [io.BytesIO(s3_obj["Body"].read())]
-    kwargs = content_type_to_reader_kwargs(content_type)
-    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
-
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-        kwargs["compression"] = ENCODING_TO_PD_COMPRESSION.get(
-            content_encoding, "infer"
-        )
-    if pd_read_func_kwargs_provider:
-        kwargs = pd_read_func_kwargs_provider(content_type, kwargs)
-    logger.debug(f"Reading {s3_url} via {pd_read_func} with kwargs: {kwargs}")
-    dataframe, latency = timed_invocation(pd_read_func, *args, **kwargs)
-    logger.debug(f"Time to read {s3_url} into Pandas Dataframe: {latency}s")
-    return dataframe
-
-
 def file_to_dataframe(
     path: str,
     content_type: str,

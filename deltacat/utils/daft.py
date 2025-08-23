@@ -719,64 +719,6 @@ class DaftPartitionKeyMapper(ModelMapper[DaftPartitionField, PartitionKey]):
         )
 
 
-def s3_files_to_dataframe(
-    uris: List[str],
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    ray_options_provider: Optional[Callable[[int, Any], Dict[str, Any]]] = None,
-    s3_client_kwargs: Optional[Any] = None,
-    ray_init_options: Optional[Dict[str, Any]] = None,
-) -> DataFrame:
-
-    if ray_init_options is None:
-        ray_init_options = {}
-
-    assert (
-        content_type == ContentType.PARQUET.value
-    ), f"daft native reader currently only supports parquet, got {content_type}"
-
-    assert (
-        content_encoding == ContentEncoding.IDENTITY.value
-    ), f"daft native reader currently only supports identity encoding, got {content_encoding}"
-
-    if not ray.is_initialized():
-        ray.init(**ray_init_options)
-
-    daft.context.set_runner_ray(noop_if_initialized=True)
-
-    if s3_client_kwargs is None:
-        s3_client_kwargs = {}
-
-    kwargs = {}
-    if read_func_kwargs_provider is not None:
-        kwargs = read_func_kwargs_provider(content_type, kwargs)
-
-    # TODO(raghumdani): pass in coerce_int96_timestamp arg
-    # https://github.com/Eventual-Inc/Daft/issues/1894
-
-    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
-
-    logger.debug(
-        f"Preparing to read S3 object from {len(uris)} files into daft dataframe"
-    )
-
-    df, latency = timed_invocation(daft.read_parquet, path=uris, io_config=io_config)
-
-    logger.debug(f"Time to create daft dataframe from {len(uris)} files is {latency}s")
-
-    columns_to_read = include_columns or column_names
-
-    logger.debug(f"Taking columns {columns_to_read} from the daft df.")
-
-    if columns_to_read:
-        return df.select(*columns_to_read)
-    else:
-        return df
-
-
 def files_to_dataframe(
     uris: List[str],
     content_type: str,
@@ -926,16 +868,17 @@ def files_to_dataframe(
         return df
 
 
-def daft_s3_file_to_table(
-    s3_url: str,
+def daft_file_to_pyarrow_table(
+    path: str,
     content_type: str,
     content_encoding: str,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
     partial_file_download_params: Optional[PartialFileDownloadParams] = None,
-    **s3_client_kwargs,
-):
+    **kwargs,
+) -> pa.Table:
     assert (
         content_type == ContentType.PARQUET.value
     ), f"daft native reader currently only supports parquet, got {content_type}"
@@ -960,13 +903,16 @@ def daft_s3_file_to_table(
     ):
         row_groups = partial_file_download_params.row_groups_to_download
 
-    io_config = _get_s3_io_config(s3_client_kwargs=s3_client_kwargs)
+    # Extract io_config from kwargs if provided
+    io_config = kwargs.pop("io_config", None)
+    if not io_config and path.startswith("s3://"):
+        io_config = _get_s3_io_config(kwargs)
 
-    logger.debug(f"Preparing to read S3 object from {s3_url} into daft table")
+    logger.debug(f"Preparing to read object from {path} into daft table")
 
     pa_table, latency = timed_invocation(
         read_parquet_into_pyarrow,
-        path=s3_url,
+        path=path,
         columns=include_columns or column_names,
         row_groups=row_groups,
         io_config=io_config,
@@ -975,7 +921,7 @@ def daft_s3_file_to_table(
         file_timeout_ms=file_timeout_ms,
     )
 
-    logger.debug(f"Time to read S3 object from {s3_url} into daft table: {latency}s")
+    logger.debug(f"Time to read object from {path} into daft table: {latency}s")
 
     if kwargs.get("schema") is not None:
         input_schema = kwargs["schema"]

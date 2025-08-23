@@ -895,15 +895,16 @@ def _add_column_kwargs(
                 )
 
 
-def s3_partial_parquet_file_to_table(
-    s3_url: str,
+def partial_parquet_file_to_table(
+    path: str,
     content_type: str,
     content_encoding: str,
+    filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]] = None,
     column_names: Optional[List[str]] = None,
     include_columns: Optional[List[str]] = None,
     pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
     partial_file_download_params: Optional[PartialParquetParameters] = None,
-    **s3_client_kwargs,
+    **kwargs,
 ) -> pa.Table:
 
     assert (
@@ -913,13 +914,18 @@ def s3_partial_parquet_file_to_table(
         partial_file_download_params.row_groups_to_download is not None
     ), "No row groups to download"
 
-    pq_file = s3_file_to_parquet(
-        s3_url=s3_url,
+    # Resolve filesystem and path
+    if not filesystem or isinstance(filesystem, pafs.FileSystem):
+        path, filesystem = resolve_path_and_filesystem(path, filesystem)
+
+    pq_file = file_to_parquet(
+        path=path,
         content_type=content_type,
         content_encoding=content_encoding,
+        filesystem=filesystem,
         partial_file_download_params=partial_file_download_params,
         pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
-        **s3_client_kwargs,
+        **kwargs,
     )
 
     table, latency = timed_invocation(
@@ -928,7 +934,7 @@ def s3_partial_parquet_file_to_table(
         columns=include_columns or column_names,
     )
 
-    logger.debug(f"Successfully read from s3_url={s3_url} in {latency}s")
+    logger.debug(f"Successfully read from path={path} in {latency}s")
 
     kwargs = {}
 
@@ -960,149 +966,6 @@ def s3_partial_parquet_file_to_table(
         return coerced_table
 
     return table
-
-
-def s3_file_to_table(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
-    **s3_client_kwargs,
-) -> pa.Table:
-    from deltacat.utils.s3fs import create_s3_file_system
-
-    logger.debug(
-        f"Reading {s3_url} to PyArrow. Content type: {content_type}. "
-        f"Encoding: {content_encoding}"
-    )
-
-    kwargs = content_type_to_reader_kwargs(content_type)
-    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
-
-    if pa_read_func_kwargs_provider is not None:
-        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
-
-    if OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG in kwargs:
-        new_content_encoding = kwargs.pop(OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG)
-        if content_type == ContentType.PARQUET.value:
-            logger.debug(
-                f"Overriding {s3_url} content encoding from {content_encoding} "
-                f"to {new_content_encoding}"
-            )
-            content_encoding = new_content_encoding
-
-    if (
-        content_type == ContentType.PARQUET.value
-        and content_encoding == ContentEncoding.IDENTITY.value
-    ):
-        logger.debug(
-            f"Performing read using parquet reader for encoding={content_encoding} "
-            f"and content_type={content_type}"
-        )
-
-        parquet_reader_func = None
-        if kwargs.get(READER_TYPE_KWARG, "daft") == "daft":
-            from deltacat.utils.daft import daft_s3_file_to_table
-
-            parquet_reader_func = daft_s3_file_to_table
-        elif partial_file_download_params and isinstance(
-            partial_file_download_params, PartialParquetParameters
-        ):
-            parquet_reader_func = s3_partial_parquet_file_to_table
-
-        if parquet_reader_func is not None:
-            return parquet_reader_func(
-                s3_url=s3_url,
-                content_type=content_type,
-                content_encoding=content_encoding,
-                column_names=column_names,
-                include_columns=include_columns,
-                pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
-                partial_file_download_params=partial_file_download_params,
-                **s3_client_kwargs,
-            )
-
-    if READER_TYPE_KWARG in kwargs:
-        kwargs.pop(READER_TYPE_KWARG)
-
-    filesystem = io
-    if s3_url.startswith("s3://"):
-        filesystem = create_s3_file_system(s3_client_kwargs)
-
-    logger.debug(f"Read S3 object from {s3_url} using filesystem: {filesystem}")
-    input_file_init = ENCODING_TO_FILE_INIT[content_encoding]
-    pa_read_func = CONTENT_TYPE_TO_PA_S3_READ_FUNC[content_type]
-
-    with filesystem.open(s3_url, "rb") as s3_file, input_file_init(
-        s3_file
-    ) as input_file:
-        args = [input_file]
-        logger.debug(f"Reading {s3_url} via {pa_read_func} with kwargs: {kwargs}")
-        table, latency = timed_invocation(pa_read_func, *args, **kwargs)
-        logger.debug(f"Time to read {s3_url} into PyArrow table: {latency}s")
-        return table
-
-
-def s3_file_to_parquet(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pa_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    partial_file_download_params: Optional[PartialFileDownloadParams] = None,
-    **s3_client_kwargs,
-) -> ParquetFile:
-
-    from deltacat.utils.s3fs import create_s3_file_system
-
-    logger.debug(
-        f"Reading {s3_url} to PyArrow ParquetFile. "
-        f"Content type: {content_type}. Encoding: {content_encoding}"
-    )
-    kwargs = {}
-    if pa_read_func_kwargs_provider:
-        kwargs = pa_read_func_kwargs_provider(content_type, kwargs)
-
-    if OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG in kwargs:
-        new_content_encoding = kwargs.pop(OVERRIDE_CONTENT_ENCODING_FOR_PARQUET_KWARG)
-        if content_type == ContentType.PARQUET.value:
-            logger.debug(
-                f"Overriding {s3_url} content encoding from {content_encoding} "
-                f"to {new_content_encoding}"
-            )
-            content_encoding = new_content_encoding
-    if (
-        content_type != ContentType.PARQUET.value
-        or content_encoding != ContentEncoding.IDENTITY.value
-    ):
-        raise ContentTypeValidationError(
-            f"S3 file with content type: {content_type} and content encoding: {content_encoding} "
-            "cannot be read into pyarrow.parquet.ParquetFile"
-        )
-
-    if s3_client_kwargs is None:
-        s3_client_kwargs = {}
-
-    if s3_url.startswith("s3://"):
-        s3_file_system = create_s3_file_system(s3_client_kwargs)
-        kwargs["filesystem"] = s3_file_system
-
-    logger.debug(f"Pre-sanitize kwargs for {s3_url}: {kwargs}")
-
-    kwargs = sanitize_kwargs_to_callable(ParquetFile.__init__, kwargs)
-
-    logger.debug(
-        f"Reading the file from {s3_url} into ParquetFile with kwargs: {kwargs}"
-    )
-    pqFile, latency = timed_invocation(ParquetFile, s3_url, **kwargs)
-
-    logger.debug(f"Time to get {s3_url} into parquet file: {latency}s")
-
-    return pqFile
 
 
 def table_size(table: pa.Table) -> int:
@@ -1450,6 +1313,43 @@ def file_to_table(
         f"Reading {path} to PyArrow. Content type: {content_type}. "
         f"Encoding: {content_encoding}"
     )
+    
+    if (
+        content_type == ContentType.PARQUET.value
+        and content_encoding == ContentEncoding.IDENTITY.value
+        and not filesystem
+        and path.startswith("s3://")
+    ):
+        # Use optimized partial parquet reader for s3 if possible
+        logger.debug(
+            f"Reading {path} using parquet reader for encoding={content_encoding} "
+            f"and content_type={content_type}"
+        )
+
+        parquet_reader_func = None
+        if kwargs.get(READER_TYPE_KWARG, "daft") == "daft":
+            from deltacat.utils.daft import daft_file_to_pyarrow_table
+            parquet_reader_func = daft_file_to_pyarrow_table
+        elif partial_file_download_params and isinstance(
+            partial_file_download_params, PartialParquetParameters
+        ):
+            parquet_reader_func = partial_parquet_file_to_table
+
+        if parquet_reader_func is not None:
+            return parquet_reader_func(
+                path=path,
+                content_type=content_type,
+                content_encoding=content_encoding,
+                filesystem=filesystem,
+                column_names=column_names,
+                include_columns=include_columns,
+                pa_read_func_kwargs_provider=pa_read_func_kwargs_provider,
+                partial_file_download_params=partial_file_download_params,
+                **kwargs,
+            )
+
+    if READER_TYPE_KWARG in kwargs:
+        kwargs.pop(READER_TYPE_KWARG)
 
     pa_read_func = CONTENT_TYPE_TO_READ_FN.get(content_type)
     if not pa_read_func:
@@ -1498,7 +1398,6 @@ def file_to_parquet(
     """
     Read a file into a PyArrow ParquetFile using any filesystem.
 
-    This function is equivalent to s3_file_to_parquet but works with any filesystem.
     It returns a ParquetFile object which provides metadata access and lazy loading.
 
     Args:
@@ -1522,7 +1421,7 @@ def file_to_parquet(
         f"Reading {path} to PyArrow ParquetFile. "
         f"Content type: {content_type}. Encoding: {content_encoding}"
     )
-    # Validate content type and encoding (same validation as s3_file_to_parquet)
+    # Validate content type and encoding
     if (
         content_type != ContentType.PARQUET.value
         or content_encoding != ContentEncoding.IDENTITY.value

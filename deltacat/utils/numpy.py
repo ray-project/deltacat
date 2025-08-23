@@ -29,28 +29,6 @@ def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarr
     return [np_array[i : i + max_len] for i in range(0, len(np_array), max_len)]
 
 
-def s3_file_to_ndarray(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
-) -> np.ndarray:
-    # TODO: Compare perf to s3 -> pyarrow -> pandas [Series/DataFrame] -> numpy
-    dataframe = pd_utils.s3_file_to_dataframe(
-        s3_url,
-        content_type,
-        content_encoding,
-        column_names,
-        include_columns,
-        pd_read_func_kwargs_provider,
-        **s3_client_kwargs,
-    )
-    return dataframe.to_numpy()
-
-
 def file_to_ndarray(
     path: str,
     content_type: str,
