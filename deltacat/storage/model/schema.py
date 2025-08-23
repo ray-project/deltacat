@@ -1115,6 +1115,7 @@ class Schema(dict):
     def coerce(
         self,
         dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
+        manifest_entry_schema: Optional[Schema] = None,
     ) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
         """Coerce a dataset to match this schema using field type promotion.
 
@@ -1130,14 +1131,15 @@ class Schema(dict):
         For each column, it:
         - Fields that exist in both dataset and schema: applies type promotion
         - Fields in dataset but not in schema: preserves as-is
-        - Fields in schema but not in dataset: adds with null values
+        - Fields in schema but not in dataset: adds with null or past default values
         - Reorders columns to match schema order
 
         Args:
             dataset: Dataset to coerce to this schema
+            manifest_entry_schema: Original manifest entry schema used to write the dataset.
 
         Returns:
-            Dataset of the same type, coerced to match this schema
+            Dataset of the same type, coerced to match this schema.
 
         Raises:
             SchemaValidationError: If coercion fails
@@ -1147,7 +1149,7 @@ class Schema(dict):
             return dataset
 
         # Convert dataset to PyArrow table for processing
-        pa_table = to_pyarrow(dataset, schema=self.arrow)
+        pa_table = to_pyarrow(dataset, schema=manifest_entry_schema.arrow)
 
         # Process columns using field coercion
         coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)

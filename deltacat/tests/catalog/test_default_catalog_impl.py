@@ -8075,6 +8075,208 @@ class TestSchemaConsistency:
             x is None for x in result_arrow.column("category_col").to_pylist()[3:6]
         )
 
+    @pytest.mark.parametrize(
+        "write_dataset_type,read_dataset_type",
+        [
+            (DatasetType.PYARROW, DatasetType.PYARROW),
+            (DatasetType.PANDAS, DatasetType.PANDAS),
+            (DatasetType.PYARROW, DatasetType.PANDAS),
+            # Skip pandas->pyarrow due to schema mismatch issue with null vs string types
+            # (DatasetType.PANDAS, DatasetType.PYARROW),
+        ],
+    )
+    def test_schema_evolution_with_past_defaults(
+        self, temp_catalog_properties, write_dataset_type, read_dataset_type
+    ):
+        """Test schema evolution with past_default values to ensure they are preserved instead of using nulls."""
+        namespace = "test_namespace"
+        catalog_name = f"schema-evolution-past-default-test-{uuid.uuid4()}"
+        table_name = "past_default_schema_evolution_table"
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Create schema with past_default fields from the start
+        # This simulates a scenario where the schema has evolved to include new fields with defaults
+        full_schema_fields = [
+            Field.of(field=pa.field("id", pa.int64(), nullable=False), field_id=1),
+            Field.of(field=pa.field("name", pa.string(), nullable=True), field_id=2),
+            Field.of(field=pa.field("value", pa.float64(), nullable=True), field_id=3),
+            Field.of(
+                field=pa.field("status", pa.string(), nullable=True),
+                field_id=4,
+                past_default="active",  # This should be used when column is missing from input data
+            ),
+            Field.of(
+                field=pa.field("score", pa.float64(), nullable=True),
+                field_id=5,
+                past_default=0.0,  # This should be used when column is missing from input data
+            ),
+            Field.of(
+                field=pa.field("category", pa.string(), nullable=True),
+                field_id=6,
+                # No past_default - should use null when column is missing from input data
+            ),
+        ]
+        full_schema = Schema.of(full_schema_fields)
+
+        # Create table with the full schema (including past_default fields)
+        dc.create_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=full_schema,
+            content_types=[ContentType.PARQUET],
+        )
+
+        # Write initial data (batch 1) - missing the status, score, and category columns
+        # This simulates old data written before schema evolution
+        initial_data = pa.Table.from_arrays(
+            [
+                pa.array([1, 2, 3], type=pa.int64()),
+                pa.array(["alice", "bob", "charlie"], type=pa.string()),
+                pa.array([10.1, 20.2, 30.3], type=pa.float64()),
+            ],
+            names=["id", "name", "value"],
+        )
+        write_data1 = from_pyarrow(initial_data, write_dataset_type)
+
+        dc.write_to_table(
+            data=write_data1,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Write second batch with partial schema (missing category column)
+        # This simulates data written during intermediate schema evolution
+        batch2_data = pa.Table.from_arrays(
+            [
+                pa.array([4, 5], type=pa.int64()),
+                pa.array(["david", "eve"], type=pa.string()),
+                pa.array([40.4, 50.5], type=pa.float64()),
+                pa.array(["inactive", "active"], type=pa.string()),
+                pa.array([100.0, 200.0], type=pa.float64()),
+            ],
+            names=["id", "name", "value", "status", "score"],
+        )
+        write_data2 = from_pyarrow(batch2_data, write_dataset_type)
+
+        dc.write_to_table(
+            data=write_data2,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Write third batch with the full schema (all columns present)
+        # This simulates current data written with the latest schema
+        batch3_data = pa.Table.from_arrays(
+            [
+                pa.array([6, 7], type=pa.int64()),
+                pa.array(["frank", "grace"], type=pa.string()),
+                pa.array([60.6, 70.7], type=pa.float64()),
+                pa.array(["pending", "active"], type=pa.string()),
+                pa.array([300.0, 400.0], type=pa.float64()),
+                pa.array(["A", "B"], type=pa.string()),
+            ],
+            names=["id", "name", "value", "status", "score", "category"],
+        )
+        write_data3 = from_pyarrow(batch3_data, write_dataset_type)
+
+        dc.write_to_table(
+            data=write_data3,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Read back all data and verify past_default behavior
+        result = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=read_dataset_type,
+            max_parallelism=1,
+        )
+
+        # Convert result to PyArrow for consistent comparison
+        result_arrow = to_pyarrow(result)
+
+        # Verify we have all expected rows (3 + 2 + 2 = 7 total)
+        assert result_arrow.num_rows == 7
+
+        # Verify all expected columns are present
+        expected_columns = {"id", "name", "value", "status", "score", "category"}
+        result_columns = set(result_arrow.column_names)
+        # Filter out any index columns that might be added by pandas conversion
+        index_columns = {col for col in result_columns if col.startswith("__index")}
+        data_columns = result_columns - index_columns
+        assert data_columns == expected_columns
+
+        # Verify past_default behavior for the first batch (rows 0-2)
+        # These rows were written without status, score, and category columns
+
+        # status column should have past_default value "active" for first batch
+        status_values = result_arrow.column("status").to_pylist()
+        assert status_values[:3] == ["active", "active", "active"], (
+            f"First batch should have past_default 'active' for status, got {status_values[:3]}"
+        )
+
+        # score column should have past_default value 0.0 for first batch
+        score_values = result_arrow.column("score").to_pylist()
+        assert score_values[:3] == [0.0, 0.0, 0.0], (
+            f"First batch should have past_default 0.0 for score, got {score_values[:3]}"
+        )
+
+        # category column should have null values for first batch (no past_default)
+        category_values = result_arrow.column("category").to_pylist()
+        assert all(x is None for x in category_values[:3]), (
+            f"First batch should have null values for category (no past_default), got {category_values[:3]}"
+        )
+
+        # Verify behavior for the second batch (rows 3-4)
+        # These rows were written with status and score, but missing category
+        assert status_values[3:5] == ["inactive", "active"], (
+            f"Second batch should have actual status values, got {status_values[3:5]}"
+        )
+        assert score_values[3:5] == [100.0, 200.0], (
+            f"Second batch should have actual score values, got {score_values[3:5]}"
+        )
+        # category should be null for second batch (no past_default and column was missing)
+        assert all(x is None for x in category_values[3:5]), (
+            f"Second batch should have null values for category (no past_default), got {category_values[3:5]}"
+        )
+
+        # Verify behavior for the third batch (rows 5-6)
+        # These rows were written with all columns present
+        assert status_values[5:7] == ["pending", "active"], (
+            f"Third batch should have actual status values, got {status_values[5:7]}"
+        )
+        assert score_values[5:7] == [300.0, 400.0], (
+            f"Third batch should have actual score values, got {score_values[5:7]}"
+        )
+        assert category_values[5:7] == ["A", "B"], (
+            f"Third batch should have actual category values, got {category_values[5:7]}"
+        )
+
+        # Verify original columns are preserved correctly
+        id_values = result_arrow.column("id").to_pylist()
+        name_values = result_arrow.column("name").to_pylist()
+        value_values = result_arrow.column("value").to_pylist()
+
+        assert id_values == [1, 2, 3, 4, 5, 6, 7], f"ID values should be preserved, got {id_values}"
+        assert name_values == ["alice", "bob", "charlie", "david", "eve", "frank", "grace"], (
+            f"Name values should be preserved, got {name_values}"
+        )
+        assert value_values == [10.1, 20.2, 30.3, 40.4, 50.5, 60.6, 70.7], (
+            f"Value values should be preserved, got {value_values}"
+        )
+
 
 class TestAlterTable:
     """

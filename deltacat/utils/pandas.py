@@ -592,6 +592,48 @@ def write_csv(
                     dataframe.to_csv(out, **kwargs)
 
 
+def _preprocess_dataframe_for_parquet(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocess DataFrame to convert PyArrow types to native Python types for parquet compatibility.
+
+    This handles the case where from_pyarrow() creates pandas DataFrames with PyArrow array objects
+    that cannot be serialized by pandas.to_parquet().
+    """
+    # Check if any columns contain PyArrow arrays
+    needs_conversion = False
+    for col in dataframe.columns:
+        if dataframe[col].dtype == object:
+            # Check if the column contains PyArrow arrays
+            sample_val = dataframe[col].iloc[0] if len(dataframe) > 0 else None
+            if sample_val is not None and hasattr(sample_val, '__class__') and 'pyarrow' in str(type(sample_val)):
+                needs_conversion = True
+                break
+
+    if not needs_conversion:
+        return dataframe
+
+    # Create a copy and convert PyArrow types
+    df_copy = dataframe.copy()
+
+    for col in df_copy.columns:
+        if df_copy[col].dtype == object and len(df_copy) > 0:
+            sample_val = df_copy[col].iloc[0]
+
+            # Convert PyArrow arrays to Python lists
+            if hasattr(sample_val, '__class__') and 'pyarrow' in str(type(sample_val)):
+                try:
+                    if hasattr(sample_val, 'to_pylist'):
+                        # PyArrow array - convert to Python list
+                        df_copy[col] = df_copy[col].apply(lambda x: x.to_pylist() if hasattr(x, 'to_pylist') else x)
+                    elif hasattr(sample_val, 'as_py'):
+                        # PyArrow scalar - convert to Python value
+                        df_copy[col] = df_copy[col].apply(lambda x: x.as_py() if hasattr(x, 'as_py') else x)
+                except Exception as e:
+                    logger.warning(f"Could not convert PyArrow column {col}: {e}. Keeping original values.")
+
+    return df_copy
+
+
 def write_parquet(
     dataframe: pd.DataFrame,
     path: str,
@@ -600,13 +642,16 @@ def write_parquet(
     fs_open_kwargs: Dict[str, any] = {},
     **kwargs,
 ) -> None:
+    # Preprocess DataFrame to handle PyArrow types
+    processed_df = _preprocess_dataframe_for_parquet(dataframe)
+    
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            dataframe.to_parquet(f, **kwargs)
+            processed_df.to_parquet(f, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            dataframe.to_parquet(f, **kwargs)
+            processed_df.to_parquet(f, **kwargs)
 
 
 def write_orc(

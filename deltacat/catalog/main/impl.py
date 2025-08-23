@@ -439,6 +439,7 @@ def write_to_table(
             )
 
         # Stage and commit delta, handle compaction
+        # Use updated schema if schema evolution occurred, otherwise use original schema
         _stage_commit_and_compact(
             converted_data,
             partition,
@@ -448,6 +449,7 @@ def write_to_table(
             table_version_obj,
             namespace,
             table,
+            schema=updated_schema if schema_modified else table_version_obj.schema,
             **kwargs,
         )
     except Exception as e:
@@ -841,11 +843,12 @@ def _stage_commit_and_compact(
     table_version_obj: TableVersion,
     namespace: str,
     table: str,
+    schema: Schema,
     **kwargs,
 ) -> None:
     """Stage and commit delta, then handle compaction if needed."""
     # Remove schema from kwargs to avoid duplicate parameter conflict
-    # We explicitly pass the correct schema from table_version_obj
+    # We explicitly pass the correct schema parameter
     kwargs.pop("schema", None)
 
     # Stage a delta with the data
@@ -857,7 +860,7 @@ def _stage_commit_and_compact(
         author=ManifestAuthor.of(
             name="deltacat.write_to_table", version=dc.__version__
         ),
-        schema=table_version_obj.schema,
+        schema=schema,
         **kwargs,
     )
 
@@ -1018,7 +1021,7 @@ def _get_compaction_hash_bucket_count(partition: Partition, table_version_obj: T
             f"Using hash bucket count {hash_bucket_count} from previous compaction"
         )
         return hash_bucket_count
-    
+
     # Otherwise use the table property for default compaction hash bucket count
     hash_bucket_count = table_version_obj.read_table_property(
         TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT
@@ -1334,7 +1337,7 @@ def _download_and_process_table_data(
     max_parallelism: Optional[int],
     columns: Optional[List[str]],
     file_path_column: Optional[str],
-    table_schema: Optional[Schema],
+    table_version_obj: Optional[TableVersion],
     **kwargs,
 ) -> Dataset:
     """Download delta data and process result based on storage type."""
@@ -1352,7 +1355,7 @@ def _download_and_process_table_data(
         return empty_table(original_read_as)
 
     # Special handling for non-empty schemaless tables
-    if table_schema is None:
+    if table_version_obj.schema is None:
         result = _handle_schemaless_table_read(
             qualified_deltas,
             effective_read_as,
@@ -1363,6 +1366,38 @@ def _download_and_process_table_data(
             return _convert_pandas_to_numpy(result)
         return result
 
+    # Get schemas for each manifest entry
+    entry_index_to_schema = []
+    for delta in qualified_deltas:
+        if delta.manifest:
+            manifest = delta.manifest
+        else:
+            # Fetch manifest from storage
+            manifest = _get_storage(**kwargs).get_delta_manifest(
+                delta.locator,
+                **kwargs,
+            )
+        # Map manifest entry index to schema ID
+        schema_id = manifest.meta.schema_id
+
+        # Find the schema that matches this manifest's schema_id
+        matching_schema = None
+        if table_version_obj.schemas:
+            for schema in table_version_obj.schemas:
+                if schema.id == schema_id:
+                    matching_schema = schema
+                    break
+
+        if matching_schema is None:
+            available_schema_ids = [s.id for s in table_version_obj.schemas] if table_version_obj.schemas else []
+            raise ValueError(
+                f"Manifest schema ID {schema_id} not found in table version schemas. "
+                f"Available schema IDs: {available_schema_ids}. "
+            )
+
+        # Add the matching schema for each entry in this manifest
+        for _ in range(len(manifest.entries)):
+            entry_index_to_schema.append(matching_schema)
     # Standard non-empty schema table read path - merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
 
@@ -1378,7 +1413,7 @@ def _download_and_process_table_data(
     _validate_read_table_input(
         namespace,
         table,
-        table_schema,
+        table_version_obj.schema,
         table_type,
         distributed_dataset_type,
     )
@@ -1403,8 +1438,7 @@ def _download_and_process_table_data(
 
     # Handle local storage table concatenation
     if not distributed_dataset_type and table_type and isinstance(result, list):
-        result = _handle_local_table_concatenation(result, table_type, table_schema)
-        
+        result = _handle_local_table_concatenation(result, table_type, table_version_obj.schema, entry_index_to_schema)
     # Convert to numpy if original request was for numpy
     if original_read_as == DatasetType.NUMPY:
         return _convert_pandas_to_numpy(result)
@@ -1419,37 +1453,95 @@ def _convert_pandas_to_numpy(dataset: Dataset):
     return dataset.to_numpy()
 
 
-def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema) -> Dataset:
+def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema, manifest_entry_schema: Schema) -> Dataset:
     """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method."""
     # Convert target PyArrow schema to DeltaCAT schema and use its coerce method
     deltacat_schema = Schema.of(schema=target_schema)
-    return deltacat_schema.coerce(dataset)
+    return deltacat_schema.coerce(dataset, manifest_entry_schema)
 
 
 def _coerce_results_to_schema(
-    results: Dataset, target_schema: pa.Schema
+    results: Dataset, target_schema: pa.Schema, entry_index_to_schema: List[Schema]
 ) -> List[Dataset]:
     """Coerce all table results to match the target schema."""
     coerced_results = []
     for i, table_result in enumerate(results):
-        coerced_result = _coerce_dataset_to_schema(table_result, target_schema)
+        coerced_result = _coerce_dataset_to_schema(table_result, target_schema, entry_index_to_schema[i])
         coerced_results.append(coerced_result)
         logger.debug(f"Coerced table {i} to unified schema")
     return coerced_results
 
 
-def _handle_local_table_concatenation(
-    results: Dataset, table_type: DatasetType, table_schema: Optional[Schema]
-) -> Dataset:
-    """Handle concatenation of local table results with schema coercion."""
-    logger.debug(f"Target table schema for coercion: {table_schema}")
-    coerced_results = _coerce_results_to_schema(results, table_schema.arrow)
+def _add_missing_columns_only(pa_table: pa.Table, target_schema: pa.Schema) -> pa.Table:
+    """Add missing columns as nulls without any type coercion."""
+    # Get existing columns
+    existing_columns = {name: pa_table[name] for name in pa_table.column_names}
+    
+    # Build final columns list in target schema order
+    final_columns = []
+    final_names = []
+    
+    for field in target_schema:
+        if field.name in existing_columns:
+            # Use existing column as-is (no type coercion)
+            final_columns.append(existing_columns[field.name])
+            final_names.append(field.name)
+        else:
+            # Add missing column as nulls
+            null_column = pa.nulls(len(pa_table), type=field.type)
+            final_columns.append(null_column)
+            final_names.append(field.name)
+    
+    # Create table with target schema column order but preserve original types for existing columns
+    return pa.table(final_columns, names=final_names)
 
-    # Attempt concatenation
+
+def _unify_schemas_for_concatenation(
+    results: Dataset, target_schema: pa.Schema, table_type: DatasetType
+) -> Dataset:
+    """Unify schemas for concatenation by adding missing columns as nulls, without type coercion."""
+    from deltacat.types.tables import to_pyarrow, from_pyarrow
+    
+    unified_results = []
+    for i, table_result in enumerate(results):
+        # Convert to PyArrow for schema operations
+        if table_type == DatasetType.PYARROW:
+            pa_table = table_result
+        else:
+            pa_table = to_pyarrow(table_result)
+        
+        # Add missing columns without type coercion
+        try:
+            unified_table = _add_missing_columns_only(pa_table, target_schema)
+            
+            # Convert back to original type if needed
+            if table_type == DatasetType.PYARROW:
+                unified_results.append(unified_table)
+            else:
+                unified_results.append(from_pyarrow(unified_table, table_type))
+                
+        except Exception as e:
+            logger.warning(f"Schema unification failed for table {i}: {e}. Using original table.")
+            unified_results.append(table_result)
+            
+    return unified_results
+
+
+def _handle_local_table_concatenation(
+    results: Dataset, table_type: DatasetType, table_schema: Optional[Schema], entry_index_to_schema: List[Schema]
+) -> Dataset:
+    """Handle concatenation of local table results with schema propagation."""
+    logger.debug(f"Target table schema for concatenation: {table_schema}")
+    
+    # With schema propagation, each file was read with its original schema.
+    # We need to unify schemas for concatenation by adding missing columns as nulls,
+    # but without problematic type coercion (especially for struct field order).
+    unified_results = _unify_schemas_for_concatenation(results, table_schema.arrow, table_type)
+    
     logger.debug(
-        f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type}"
+        f"Concatenating {len(unified_results)} LOCAL tables of type {table_type} with unified schemas"
     )
-    concatenated_result = concat_tables(coerced_results, table_type)
+    concatenated_result = concat_tables(unified_results, table_type)
     logger.debug(f"Concatenation complete, result type: {type(concatenated_result)}")
     return concatenated_result
 
@@ -1526,7 +1618,7 @@ def read_table(
             max_parallelism,
             columns,
             file_path_column,
-            table_version_obj.schema,
+            table_version_obj,
             **kwargs,
         )
         return result

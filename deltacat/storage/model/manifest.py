@@ -140,7 +140,7 @@ class Manifest(dict):
 
             # Keep the latest schema ID
             # Schema IDs are >= 0, and schema evolution always increments the last schema ID
-            entry_schema_ids = [entry.meta.schema_id or -1 for entry in entries]
+            entry_schema_ids = [entry.meta.schema_id if entry.meta.schema_id is not None else -1 for entry in entries]
             max_schema_id = max(entry_schema_ids) if entry_schema_ids else -1
             schema_id = max_schema_id if max_schema_id >= 0 else None
 

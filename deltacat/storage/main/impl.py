@@ -2586,6 +2586,7 @@ def stage_delta(
     schema_id = None
     if isinstance(schema, Schema):
         schema_id = schema.id
+        table_writer_kwargs["schema_id"] = schema_id
         # Add PyArrow schema to table_writer_kwargs if not already present
         if "schema" not in table_writer_kwargs:
             table_writer_kwargs["schema"] = schema.arrow
@@ -2593,9 +2594,7 @@ def stage_delta(
         # For PyArrow schemas or other types, add directly
         table_writer_kwargs["schema"] = schema
 
-    # Add schema_id and sort_scheme_id to table_writer_kwargs for manifest entry creation
-    if schema_id is not None:
-        table_writer_kwargs["schema_id"] = schema_id
+    # Add sort_scheme_id to table_writer_kwargs for manifest entry creation
     if sort_scheme_id is not None:
         table_writer_kwargs["sort_scheme_id"] = sort_scheme_id
 
