@@ -123,7 +123,6 @@ def _decode_metadata_value(encoded_bytes: bytes) -> Any:
             raise ValueError(f"Failed to decode metadata value: {e}") from e
 
 
-
 # Default name assigned to the base, unnamed single schema when a new named
 # subschema is first added.
 BASE_SCHEMA_NAME = "_base"
@@ -896,7 +895,9 @@ class Schema(dict):
             schema_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
         if schema_metadata.get(SCHEMA_ID_KEY_NAME) is None:
             schema_metadata[SCHEMA_ID_KEY_NAME] = str(0)
-        schema_metadata[SUBSCHEMAS_KEY_NAME] = _encode_metadata_value(subschema_to_field_ids)
+        schema_metadata[SUBSCHEMAS_KEY_NAME] = _encode_metadata_value(
+            subschema_to_field_ids
+        )
         final_schema = pyarrow_schema.with_metadata(schema_metadata)
         return Schema(
             {
@@ -2492,7 +2493,9 @@ class SchemaUpdate(dict):
         new_metadata.pop(FIELD_FUTURE_DEFAULT_KEY_NAME, None)
 
         if future_default is not None:
-            new_metadata[FIELD_FUTURE_DEFAULT_KEY_NAME] = _encode_metadata_value(future_default)
+            new_metadata[FIELD_FUTURE_DEFAULT_KEY_NAME] = _encode_metadata_value(
+                future_default
+            )
 
         updated_field["arrow"] = pa.field(
             existing_field.arrow.name,

@@ -1,5 +1,4 @@
 import csv
-import io
 import logging
 import math
 import bz2
@@ -16,7 +15,6 @@ from ray.data.datasource import FilenameProvider
 from deltacat import logs
 from deltacat.types.media import (
     DELIMITED_TEXT_CONTENT_TYPES,
-    EXPLICIT_COMPRESSION_CONTENT_TYPES,
     TABULAR_CONTENT_TYPES,
     ContentEncoding,
     ContentType,
@@ -570,7 +568,11 @@ def _preprocess_dataframe_for_parquet(dataframe: pd.DataFrame) -> pd.DataFrame:
         if dataframe[col].dtype == object:
             # Check if the column contains PyArrow arrays
             sample_val = dataframe[col].iloc[0] if len(dataframe) > 0 else None
-            if sample_val is not None and hasattr(sample_val, '__class__') and 'pyarrow' in str(type(sample_val)):
+            if (
+                sample_val is not None
+                and hasattr(sample_val, "__class__")
+                and "pyarrow" in str(type(sample_val))
+            ):
                 needs_conversion = True
                 break
 
@@ -585,16 +587,22 @@ def _preprocess_dataframe_for_parquet(dataframe: pd.DataFrame) -> pd.DataFrame:
             sample_val = df_copy[col].iloc[0]
 
             # Convert PyArrow arrays to Python lists
-            if hasattr(sample_val, '__class__') and 'pyarrow' in str(type(sample_val)):
+            if hasattr(sample_val, "__class__") and "pyarrow" in str(type(sample_val)):
                 try:
-                    if hasattr(sample_val, 'to_pylist'):
+                    if hasattr(sample_val, "to_pylist"):
                         # PyArrow array - convert to Python list
-                        df_copy[col] = df_copy[col].apply(lambda x: x.to_pylist() if hasattr(x, 'to_pylist') else x)
-                    elif hasattr(sample_val, 'as_py'):
+                        df_copy[col] = df_copy[col].apply(
+                            lambda x: x.to_pylist() if hasattr(x, "to_pylist") else x
+                        )
+                    elif hasattr(sample_val, "as_py"):
                         # PyArrow scalar - convert to Python value
-                        df_copy[col] = df_copy[col].apply(lambda x: x.as_py() if hasattr(x, 'as_py') else x)
+                        df_copy[col] = df_copy[col].apply(
+                            lambda x: x.as_py() if hasattr(x, "as_py") else x
+                        )
                 except Exception as e:
-                    logger.warning(f"Could not convert PyArrow column {col}: {e}. Keeping original values.")
+                    logger.warning(
+                        f"Could not convert PyArrow column {col}: {e}. Keeping original values."
+                    )
 
     return df_copy
 
@@ -609,7 +617,7 @@ def write_parquet(
 ) -> None:
     # Preprocess DataFrame to handle PyArrow types
     processed_df = _preprocess_dataframe_for_parquet(dataframe)
-    
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:

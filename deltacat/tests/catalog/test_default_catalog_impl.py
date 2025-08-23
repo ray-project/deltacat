@@ -46,7 +46,11 @@ from deltacat.storage.model.types import (
     SortOrder,
     NullOrder,
 )
-from deltacat.types.media import DatasetType, ContentType
+from deltacat.types.media import (
+    SCHEMA_CONTENT_TYPES, 
+    DatasetType, 
+    ContentType,
+)
 from deltacat.types.tables import (
     get_table_length,
     to_pandas,
@@ -4049,13 +4053,16 @@ def _generate_read_test_parameters():
     combinations = []
 
     # Define matrices inline for static access
+    # For now, we focus on PYARROW since it can write all supported content types,
+    # and since we already test all write/read permutations comprehensively when
+    # running `make type-mappings`.
     write_support_matrix = {
-        DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
-        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types()),
-        DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
-        DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
-        DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.writable_content_types()),
-        DatasetType.DAFT: list(DatasetType.DAFT.writable_content_types()),
+        # DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
+        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types() & {ContentType(t) for t in SCHEMA_CONTENT_TYPES}),
+        # DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
+        # DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
+        # DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.writable_content_types()),
+        # DatasetType.DAFT: list(DatasetType.DAFT.writable_content_types()),
     }
 
     read_support_matrix = {
@@ -4076,12 +4083,13 @@ def _generate_read_test_parameters():
     # For each read dataset type
     for read_dataset_type in read_dataset_types:
         supported_content_types = read_support_matrix[read_dataset_type]
-        # Test reading files written by different writers
+        # Test reading files written by the given writers
         for write_dataset_type in write_dataset_types:
             # Only test reading content types that both the writer and reader support
             write_supported = write_support_matrix[write_dataset_type]
             common_types = set(supported_content_types) & set(write_supported)
             for content_type in common_types:
+                print(f"Writing {content_type.value} with {write_dataset_type.value}, reading with {read_dataset_type.value}")
                 combinations.append(
                     pytest.param(
                         write_dataset_type,
@@ -4274,6 +4282,7 @@ class TestContentTypeDatasetCompatibility:
             catalog=catalog_name,
             content_type=content_type,
             mode=TableWriteMode.CREATE,
+            table_properties={TableProperty.SUPPORTED_READER_TYPES: None},
             **write_kwargs,
         )
 
@@ -4430,7 +4439,7 @@ class TestContentTypeDatasetCompatibility:
                 catalog=catalog_name,
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
-                table_properties={"supported_reader_types": custom_supported_readers},
+                table_properties={TableProperty.SUPPORTED_READER_TYPES: custom_supported_readers},
             )
 
         # Cleanup
@@ -4460,7 +4469,7 @@ class TestContentTypeDatasetCompatibility:
                 catalog=catalog_name,
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
-                table_properties={"supported_reader_types": None},
+                table_properties={TableProperty.SUPPORTED_READER_TYPES: None},
             )
 
             # Verify the table was created successfully by reading with PyArrow (which supports AVRO)
@@ -4504,7 +4513,7 @@ class TestContentTypeDatasetCompatibility:
                 catalog=catalog_name,
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
-                table_properties={"supported_reader_types": []},
+                table_properties={TableProperty.SUPPORTED_READER_TYPES: []},
             )
 
             # Verify the table was created successfully by reading with PyArrow (which supports AVRO)
@@ -4638,7 +4647,7 @@ class TestContentTypeDatasetCompatibility:
             catalog=catalog_name,
             schema=inferred_schema,  # Explicit schema
             table_properties={
-                "supported_reader_types": None  # Disable reader compatibility validation
+                TableProperty.SUPPORTED_READER_TYPES: None  # Disable reader compatibility validation
             },
         )
 
@@ -4691,9 +4700,6 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             schema=None,  # Explicitly schemaless
-            table_properties={
-                "supported_reader_types": None  # Disable reader compatibility validation for schemaless table
-            },
         )
 
         # This should succeed - schemaless content types can be written to schemaless tables
@@ -4774,7 +4780,7 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             schema=inferred_schema,  # Explicit schema
-            table_properties={"supported_reader_types": supported_readers},
+            table_properties={TableProperty.SUPPORTED_READER_TYPES: supported_readers},
         )
 
         # This should succeed - schema-supporting content types work with schema tables
@@ -4821,9 +4827,6 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             schema=None,  # Explicitly schemaless
-            table_properties={
-                "supported_reader_types": None  # Disable reader compatibility validation
-            },
         )
 
         # This should succeed - schema content types can also be written to schemaless tables
@@ -8086,7 +8089,6 @@ class TestSchemaConsistency:
             (DatasetType.PYARROW, DatasetType.PYARROW_PARQUET),
             (DatasetType.PYARROW, DatasetType.DAFT),
             (DatasetType.PYARROW, DatasetType.RAY_DATASET),
-            
             (DatasetType.PANDAS, DatasetType.PYARROW),
             (DatasetType.PANDAS, DatasetType.PANDAS),
             (DatasetType.PANDAS, DatasetType.POLARS),
@@ -8094,7 +8096,6 @@ class TestSchemaConsistency:
             (DatasetType.PANDAS, DatasetType.PYARROW_PARQUET),
             (DatasetType.PANDAS, DatasetType.DAFT),
             (DatasetType.PANDAS, DatasetType.RAY_DATASET),
-            
             (DatasetType.POLARS, DatasetType.PYARROW),
             (DatasetType.POLARS, DatasetType.PANDAS),
             (DatasetType.POLARS, DatasetType.POLARS),
@@ -8102,7 +8103,13 @@ class TestSchemaConsistency:
             (DatasetType.POLARS, DatasetType.PYARROW_PARQUET),
             (DatasetType.POLARS, DatasetType.DAFT),
             (DatasetType.POLARS, DatasetType.RAY_DATASET),
-            
+            (DatasetType.NUMPY, DatasetType.PYARROW),
+            (DatasetType.NUMPY, DatasetType.PANDAS),
+            (DatasetType.NUMPY, DatasetType.POLARS),
+            (DatasetType.NUMPY, DatasetType.NUMPY),
+            (DatasetType.NUMPY, DatasetType.PYARROW_PARQUET),
+            (DatasetType.NUMPY, DatasetType.DAFT),
+            (DatasetType.NUMPY, DatasetType.RAY_DATASET),
         ],
     )
     def test_schema_evolution_with_past_defaults(
@@ -8231,7 +8238,9 @@ class TestSchemaConsistency:
             table_info = dc.get_table(
                 table=table_name, namespace=namespace, catalog=catalog_name
             )
-            result_arrow = to_pyarrow(result, schema=table_info.table_version.schema.arrow)
+            result_arrow = to_pyarrow(
+                result, schema=table_info.table_version.schema.arrow
+            )
         else:
             result_arrow = to_pyarrow(result)
 
@@ -8251,59 +8260,88 @@ class TestSchemaConsistency:
 
         # status column should have past_default value "active" for first batch
         status_values = result_arrow.column("status").to_pylist()
-        assert status_values[:3] == ["active", "active", "active"], (
-            f"First batch should have past_default 'active' for status, got {status_values[:3]}"
-        )
+        assert status_values[:3] == [
+            "active",
+            "active",
+            "active",
+        ], f"First batch should have past_default 'active' for status, got {status_values[:3]}"
 
         # score column should have past_default value 0.0 for first batch
         score_values = result_arrow.column("score").to_pylist()
-        assert score_values[:3] == [0.0, 0.0, 0.0], (
-            f"First batch should have past_default 0.0 for score, got {score_values[:3]}"
-        )
+        assert score_values[:3] == [
+            0.0,
+            0.0,
+            0.0,
+        ], f"First batch should have past_default 0.0 for score, got {score_values[:3]}"
 
         # category column should have null values for first batch (no past_default)
         category_values = result_arrow.column("category").to_pylist()
-        assert all(x is None for x in category_values[:3]), (
-            f"First batch should have null values for category (no past_default), got {category_values[:3]}"
-        )
+        assert all(
+            x is None for x in category_values[:3]
+        ), f"First batch should have null values for category (no past_default), got {category_values[:3]}"
 
         # Verify behavior for the second batch (rows 3-4)
         # These rows were written with status and score, but missing category column
-        assert status_values[3:5] == ["inactive", "active"], (
-            f"Second batch should have actual status values, got {status_values[3:5]}"
-        )
-        assert score_values[3:5] == [100.0, 200.0], (
-            f"Second batch should have actual score values, got {score_values[3:5]}"
-        )
+        assert status_values[3:5] == [
+            "inactive",
+            "active",
+        ], f"Second batch should have actual status values, got {status_values[3:5]}"
+        assert score_values[3:5] == [
+            100.0,
+            200.0,
+        ], f"Second batch should have actual score values, got {score_values[3:5]}"
         # category should be null for second batch (no past_default, column was missing)
-        assert all(x is None for x in category_values[3:5]), (
-            f"Second batch should have null values for category (no past_default), got {category_values[3:5]}"
-        )
+        assert all(
+            x is None for x in category_values[3:5]
+        ), f"Second batch should have null values for category (no past_default), got {category_values[3:5]}"
 
         # Verify behavior for the third batch (rows 5-6)
         # These rows were written with all columns present
-        assert status_values[5:7] == ["pending", "active"], (
-            f"Third batch should have actual status values, got {status_values[5:7]}"
-        )
-        assert score_values[5:7] == [300.0, 400.0], (
-            f"Third batch should have actual score values, got {score_values[5:7]}"
-        )
-        assert category_values[5:7] == ["A", "B"], (
-            f"Third batch should have actual category values, got {category_values[5:7]}"
-        )
+        assert status_values[5:7] == [
+            "pending",
+            "active",
+        ], f"Third batch should have actual status values, got {status_values[5:7]}"
+        assert score_values[5:7] == [
+            300.0,
+            400.0,
+        ], f"Third batch should have actual score values, got {score_values[5:7]}"
+        assert category_values[5:7] == [
+            "A",
+            "B",
+        ], f"Third batch should have actual category values, got {category_values[5:7]}"
 
         # Verify original columns are preserved correctly
         id_values = result_arrow.column("id").to_pylist()
         name_values = result_arrow.column("name").to_pylist()
         value_values = result_arrow.column("value").to_pylist()
 
-        assert id_values == [1, 2, 3, 4, 5, 6, 7], f"ID values should be preserved, got {id_values}"
-        assert name_values == ["alice", "bob", "charlie", "david", "eve", "frank", "grace"], (
-            f"Name values should be preserved, got {name_values}"
-        )
-        assert value_values == [10.1, 20.2, 30.3, 40.4, 50.5, 60.6, 70.7], (
-            f"Value values should be preserved, got {value_values}"
-        )
+        assert id_values == [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+        ], f"ID values should be preserved, got {id_values}"
+        assert name_values == [
+            "alice",
+            "bob",
+            "charlie",
+            "david",
+            "eve",
+            "frank",
+            "grace",
+        ], f"Name values should be preserved, got {name_values}"
+        assert value_values == [
+            10.1,
+            20.2,
+            30.3,
+            40.4,
+            50.5,
+            60.6,
+            70.7,
+        ], f"Value values should be preserved, got {value_values}"
 
 
 class TestAlterTable:

@@ -1313,7 +1313,7 @@ def file_to_table(
         f"Reading {path} to PyArrow. Content type: {content_type}. "
         f"Encoding: {content_encoding}"
     )
-    
+
     if (
         content_type == ContentType.PARQUET.value
         and content_encoding == ContentEncoding.IDENTITY.value
@@ -1329,6 +1329,7 @@ def file_to_table(
         parquet_reader_func = None
         if kwargs.get(READER_TYPE_KWARG, "daft") == "daft":
             from deltacat.utils.daft import daft_file_to_pyarrow_table
+
             parquet_reader_func = daft_file_to_pyarrow_table
         elif partial_file_download_params and isinstance(
             partial_file_download_params, PartialParquetParameters
@@ -1924,10 +1925,26 @@ def get_supported_test_types() -> List[Tuple[str, str, List[Any]]]:
                 {"name": "Charlie", "age": 35},
             ],
         ),
-        ("large_list_int32", "pa.large_list(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
-        ("fixed_size_list_int32", "pa.list_(pa.int32(), 3)", [[1, 2, 3], [4, 5, 6], [7, 8, 9]]),
-        ("list_view_int32", "pa.list_view(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
-        ("large_list_view_int32", "pa.large_list_view(pa.int32())", [[1, 2, 3], [4, 5], [6, 7, 8, 9]]),
+        (
+            "large_list_int32",
+            "pa.large_list(pa.int32())",
+            [[1, 2, 3], [4, 5], [6, 7, 8, 9]],
+        ),
+        (
+            "fixed_size_list_int32",
+            "pa.list_(pa.int32(), 3)",
+            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+        ),
+        (
+            "list_view_int32",
+            "pa.list_view(pa.int32())",
+            [[1, 2, 3], [4, 5], [6, 7, 8, 9]],
+        ),
+        (
+            "large_list_view_int32",
+            "pa.large_list_view(pa.int32())",
+            [[1, 2, 3], [4, 5], [6, 7, 8, 9]],
+        ),
         # Dictionary type
         (
             "dictionary_string",
@@ -1941,5 +1958,9 @@ def get_supported_test_types() -> List[Tuple[str, str, List[Any]]]:
             [{"a": 1, "b": 2}, {"c": 3, "d": 4}, {"e": 5}],
         ),
         # Extension Types
-        ("fixed_shape_tensor", "pa.fixed_shape_tensor(pa.int32(), [3, 3])", [1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        (
+            "fixed_shape_tensor",
+            "pa.fixed_shape_tensor(pa.int32(), [3, 3])",
+            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        ),
     ]

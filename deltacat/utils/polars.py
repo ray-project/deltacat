@@ -1,5 +1,4 @@
 import logging
-import io
 import bz2
 import gzip
 from functools import partial
@@ -21,7 +20,6 @@ from deltacat.types.media import (
     ContentType,
     ContentEncoding,
     DELIMITED_TEXT_CONTENT_TYPES,
-    EXPLICIT_COMPRESSION_CONTENT_TYPES,
     TABULAR_CONTENT_TYPES,
 )
 from deltacat.types.partial_download import PartialFileDownloadParams

@@ -1,7 +1,9 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
+import copy
 from collections import defaultdict
 
+import numpy as np
 import pyarrow as pa
 import pandas as pd
 import daft
@@ -67,6 +69,7 @@ from deltacat.types.tables import (
     concat_tables,
     empty_table,
     infer_table_schema,
+    to_pandas,
 )
 from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.reader_compatibility_mapping import get_compatible_readers
@@ -395,20 +398,30 @@ def write_to_table(
             TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE
         )
 
-        # Validate and coerce data against schema BEFORE conversion
-        # This ensures we can properly handle Daft DataFrames without memory collection
+        # Convert unsupported dataset types and NumPy arrays that need schema validation
+        if isinstance(data, np.ndarray) and table_version_obj.schema is not None:
+            # NumPy arrays need conversion to Pandas for proper column naming in schema validation
+            converted_data = _convert_numpy_for_schema_validation(
+                data, table_version_obj.schema
+            )
+        else:
+            # Convert other unsupported dataset types (e.g., Daft) or keep NumPy as-is for schemaless tables
+            converted_data = _convert_data_if_needed(data)
+
+        # Validate and coerce data against schema
+        # This ensures proper schema evolution and type handling
         (
             validated_data,
             schema_modified,
             updated_schema,
         ) = _validate_and_coerce_data_against_schema(
-            data,  # Use original data, not converted
+            converted_data,  # Use converted data for NumPy, original for others
             table_version_obj.schema,
             schema_evolution_mode=schema_evolution_mode,
             default_schema_consistency_type=default_schema_consistency_type,
         )
 
-        # Convert validated data to supported format for storage
+        # Convert validated data to supported format for storage if needed
         converted_data = _convert_data_if_needed(validated_data)
 
         # Validate reader compatibility against supported reader types
@@ -439,6 +452,8 @@ def write_to_table(
             )
 
         # Stage and commit delta, handle compaction
+        # Remove schema from kwargs to avoid duplicate parameter conflict
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k != "schema"}
         # Use updated schema if schema evolution occurred, otherwise use original schema
         _stage_commit_and_compact(
             converted_data,
@@ -450,7 +465,7 @@ def write_to_table(
             namespace,
             table,
             schema=updated_schema if schema_modified else table_version_obj.schema,
-            **kwargs,
+            **filtered_kwargs,
         )
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
@@ -686,6 +701,95 @@ def _handle_partition_creation(
             commit_staged_partition = True
 
         return partition, commit_staged_partition
+
+
+def _convert_numpy_for_schema_validation(
+    data: np.ndarray, schema: Optional[Schema]
+) -> Dataset:
+    """Convert NumPy array to Pandas DataFrame with proper column names for schema validation.
+
+    Args:
+        data: NumPy array to convert
+        schema: DeltaCAT Schema object for column naming
+
+    Returns:
+        Pandas DataFrame with proper column names matching schema
+
+    Raises:
+        ValueError: If array has more columns than schema or schema is invalid
+    """
+    if not isinstance(schema, Schema) or not schema.arrow:
+        raise ValueError(f"Expected DeltaCAT schema for Numpy schema validation, but found: {schema}")
+
+    # Use schema subset matching NumPy array dimensions
+    arrow_schema = schema.arrow
+    num_cols = data.shape[1] if data.ndim > 1 else 1
+
+    if len(arrow_schema) >= num_cols:
+        # Use the first N columns from the schema to match data dimensions
+        subset_fields = [arrow_schema.field(i) for i in range(num_cols)]
+        subset_schema = pa.schema(subset_fields)
+        return to_pandas(data, schema=subset_schema)
+    else:
+        raise ValueError(
+            f"NumPy array has {num_cols} columns but table schema only has {len(arrow_schema)} columns. "
+            f"Cannot write NumPy data with more columns than the table schema supports."
+        )
+
+
+def _build_entry_index_to_schema_mapping(
+    qualified_deltas: List[Delta], table_version_obj, **kwargs
+) -> List[Schema]:
+    """Build a mapping from manifest entry index to schema for reading operations.
+
+    Args:
+        qualified_deltas: List of deltas to process
+        table_version_obj: Table version containing schemas
+        **kwargs: Additional arguments passed to storage operations
+
+    Returns:
+        List mapping each manifest entry index to its corresponding schema
+
+    Raises:
+        ValueError: If a manifest's schema ID is not found in table version schemas
+    """
+    entry_index_to_schema = []
+    for delta in qualified_deltas:
+        if delta.manifest:
+            manifest = delta.manifest
+        else:
+            # Fetch manifest from storage
+            manifest = _get_storage(**kwargs).get_delta_manifest(
+                delta.locator,
+                **kwargs,
+            )
+        # Map manifest entry index to schema ID
+        schema_id = manifest.meta.schema_id
+
+        # Find the schema that matches this manifest's schema_id
+        matching_schema = None
+        if table_version_obj.schemas:
+            for schema in table_version_obj.schemas:
+                if schema.id == schema_id:
+                    matching_schema = schema
+                    break
+
+        if matching_schema is None:
+            available_schema_ids = (
+                [s.id for s in table_version_obj.schemas]
+                if table_version_obj.schemas
+                else []
+            )
+            raise ValueError(
+                f"Manifest schema ID {schema_id} not found in table version schemas. "
+                f"Available schema IDs: {available_schema_ids}. "
+            )
+
+        # Add the matching schema for each entry in this manifest
+        for _ in range(len(manifest.entries)):
+            entry_index_to_schema.append(matching_schema)
+
+    return entry_index_to_schema
 
 
 def _convert_data_if_needed(data: Dataset) -> Dataset:
@@ -1009,7 +1113,9 @@ def _get_compaction_primary_keys(table_version_obj: TableVersion) -> set:
     )
 
 
-def _get_compaction_hash_bucket_count(partition: Partition, table_version_obj: TableVersion) -> int:
+def _get_compaction_hash_bucket_count(
+    partition: Partition, table_version_obj: TableVersion
+) -> int:
     """Determine hash bucket count from previous compaction, table property, or default."""
     # First check if we have a hash bucket count from previous compaction
     if (
@@ -1124,7 +1230,9 @@ def _run_compaction_session(
     try:
         # Extract compaction configuration
         primary_keys = _get_compaction_primary_keys(table_version_obj)
-        hash_bucket_count = _get_compaction_hash_bucket_count(partition, table_version_obj)
+        hash_bucket_count = _get_compaction_hash_bucket_count(
+            partition, table_version_obj
+        )
 
         # Create compaction parameters
         compact_partition_params = _create_compaction_params(
@@ -1367,37 +1475,9 @@ def _download_and_process_table_data(
         return result
 
     # Get schemas for each manifest entry
-    entry_index_to_schema = []
-    for delta in qualified_deltas:
-        if delta.manifest:
-            manifest = delta.manifest
-        else:
-            # Fetch manifest from storage
-            manifest = _get_storage(**kwargs).get_delta_manifest(
-                delta.locator,
-                **kwargs,
-            )
-        # Map manifest entry index to schema ID
-        schema_id = manifest.meta.schema_id
-
-        # Find the schema that matches this manifest's schema_id
-        matching_schema = None
-        if table_version_obj.schemas:
-            for schema in table_version_obj.schemas:
-                if schema.id == schema_id:
-                    matching_schema = schema
-                    break
-
-        if matching_schema is None:
-            available_schema_ids = [s.id for s in table_version_obj.schemas] if table_version_obj.schemas else []
-            raise ValueError(
-                f"Manifest schema ID {schema_id} not found in table version schemas. "
-                f"Available schema IDs: {available_schema_ids}. "
-            )
-
-        # Add the matching schema for each entry in this manifest
-        for _ in range(len(manifest.entries)):
-            entry_index_to_schema.append(matching_schema)
+    entry_index_to_schema = _build_entry_index_to_schema_mapping(
+        qualified_deltas, table_version_obj, **kwargs
+    )
     # Standard non-empty schema table read path - merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
 
@@ -1407,7 +1487,9 @@ def _download_and_process_table_data(
         if effective_read_as in DatasetType.local()
         else (kwargs.pop("table_type", None) or DatasetType.PYARROW)
     )
-    distributed_dataset_type = effective_read_as if effective_read_as in DatasetType.distributed() else None
+    distributed_dataset_type = (
+        effective_read_as if effective_read_as in DatasetType.distributed() else None
+    )
 
     # Validate input parameters
     _validate_read_table_input(
@@ -1438,7 +1520,9 @@ def _download_and_process_table_data(
 
     # Handle local storage table concatenation
     if not distributed_dataset_type and table_type and isinstance(result, list):
-        result = _handle_local_table_concatenation(result, table_type, table_version_obj.schema, entry_index_to_schema)
+        result = _handle_local_table_concatenation(
+            result, table_type, table_version_obj.schema, entry_index_to_schema
+        )
     # Convert to numpy if original request was for numpy
     if original_read_as == DatasetType.NUMPY:
         return _convert_pandas_to_numpy(result)
@@ -1453,7 +1537,9 @@ def _convert_pandas_to_numpy(dataset: Dataset):
     return dataset.to_numpy()
 
 
-def _coerce_dataset_to_schema(dataset: Dataset, target_schema: pa.Schema, manifest_entry_schema: Schema) -> Dataset:
+def _coerce_dataset_to_schema(
+    dataset: Dataset, target_schema: pa.Schema, manifest_entry_schema: Schema
+) -> Dataset:
     """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method."""
     # Convert target PyArrow schema to DeltaCAT schema and use its coerce method
     deltacat_schema = Schema.of(schema=target_schema)
@@ -1466,20 +1552,27 @@ def _coerce_results_to_schema(
     """Coerce all table results to match the target schema."""
     coerced_results = []
     for i, table_result in enumerate(results):
-        coerced_result = _coerce_dataset_to_schema(table_result, target_schema, entry_index_to_schema[i])
+        coerced_result = _coerce_dataset_to_schema(
+            table_result, target_schema, entry_index_to_schema[i]
+        )
         coerced_results.append(coerced_result)
         logger.debug(f"Coerced table {i} to unified schema")
     return coerced_results
 
 
 def _handle_local_table_concatenation(
-    results: Dataset, table_type: DatasetType, table_schema: Optional[Schema], entry_index_to_schema: List[Schema]
+    results: Dataset,
+    table_type: DatasetType,
+    table_schema: Optional[Schema],
+    entry_index_to_schema: List[Schema],
 ) -> Dataset:
     """Handle concatenation of local table results with schema coercion."""
     logger.debug(f"Target table schema for concatenation: {table_schema}")
 
     # First step: coerce all results to match the target schema (handles past_default values)
-    coerced_results = _coerce_results_to_schema(results, table_schema.arrow, entry_index_to_schema)
+    coerced_results = _coerce_results_to_schema(
+        results, table_schema.arrow, entry_index_to_schema
+    )
 
     # Second step: concatenate the coerced results
     logger.debug(
@@ -1619,20 +1712,10 @@ def alter_table(
         TableNotFoundError: If the table does not already exist.
         TableVersionNotFoundError: If the specified table version or active table version does not exist.
     """
-    resolved_tv_properties = (
-        table_version_properties
-        if table_version_properties is not None
-        else table_properties
-    )
-    if resolved_tv_properties:
-        read_optimization_level = resolved_tv_properties.get(
-            TableProperty.READ_OPTIMIZATION_LEVEL,
-            TablePropertyDefaultValues[TableProperty.READ_OPTIMIZATION_LEVEL],
-        )
-        if read_optimization_level != TableReadOptimizationLevel.MAX:
-            raise NotImplementedError(
-                f"Table read optimization level `{read_optimization_level} is not yet supported. Please use {TableReadOptimizationLevel.MAX}"
-            )
+    resolved_table_properties = None
+    if table_properties is not None:
+        resolved_table_properties = _add_default_table_properties(table_properties)
+        _validate_table_properties(resolved_table_properties)
 
     namespace = namespace or default_namespace()
 
@@ -1651,12 +1734,12 @@ def alter_table(
             namespace=namespace,
             table_name=table,
             description=table_description,
-            properties=table_properties,
+            properties=resolved_table_properties,
             **kwargs,
         )
 
         # inherit properties from the parent table if not specified
-        resolved_tv_properties = resolved_tv_properties or new_table.properties
+        default_tv_properties = new_table.properties
 
         if table_version is None:
             table_version: Optional[TableVersion] = _get_storage(
@@ -1684,6 +1767,15 @@ def alter_table(
             raise TableValidationError(
                 "Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates."
             )
+
+        if table_version.schema is None:
+            # schemaless tables don't validate reader compatibility by default
+            default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
+        resolved_tv_properties = _add_default_table_properties(
+            table_version_properties,
+            default_tv_properties,
+        )
+        _validate_table_properties(resolved_tv_properties)
 
         # Apply schema updates if provided
         updated_schema = None
@@ -1719,6 +1811,31 @@ def alter_table(
         if commit_transaction:
             # Seal the interactive transaction to commit all operations atomically
             alter_transaction.seal()
+
+
+def _add_default_table_properties(
+    table_properties: Optional[TableProperties],
+    default_table_properties: TableProperties = TablePropertyDefaultValues,
+) -> TableProperties:
+    if table_properties is None:
+        table_properties = {}
+    for k, v in default_table_properties.items():
+        if k not in table_properties:
+            table_properties[k] = v
+    return table_properties
+
+
+def _validate_table_properties(
+    table_properties: TableProperties,
+) -> None:
+    read_optimization_level = table_properties.get(
+        TableProperty.READ_OPTIMIZATION_LEVEL,
+        TablePropertyDefaultValues[TableProperty.READ_OPTIMIZATION_LEVEL],
+    )
+    if read_optimization_level != TableReadOptimizationLevel.MAX:
+        raise NotImplementedError(
+            f"Table read optimization level `{read_optimization_level} is not yet supported. Please use {TableReadOptimizationLevel.MAX}"
+        )
 
 
 def create_table(
@@ -1769,20 +1886,12 @@ def create_table(
         TableAlreadyExistsError: If the table already exists and fail_if_exists is True.
         NamespaceNotFoundError: If the provided namespace does not exist.
     """
-    resolved_tv_properties = (
-        table_version_properties
-        if table_version_properties is not None
-        else table_properties
-    )
-    if resolved_tv_properties:
-        read_optimization_level = resolved_tv_properties.get(
-            TableProperty.READ_OPTIMIZATION_LEVEL,
-            TablePropertyDefaultValues[TableProperty.READ_OPTIMIZATION_LEVEL],
-        )
-        if read_optimization_level != TableReadOptimizationLevel.MAX:
-            raise NotImplementedError(
-                f"Table read optimization level `{read_optimization_level} is not yet supported. Please use {TableReadOptimizationLevel.MAX}"
-            )
+    resolved_table_properties = _add_default_table_properties(table_properties)
+    default_tv_properties = resolved_table_properties
+    if schema is None:
+        default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
+    resolved_tv_properties = _add_default_table_properties(table_version_properties, default_tv_properties)
+    _validate_table_properties(resolved_tv_properties)
 
     namespace = namespace or default_namespace()
 
@@ -1838,7 +1947,7 @@ def create_table(
             if table_version_description is not None
             else table_description,
             table_description=table_description,
-            table_properties=table_properties,
+            table_properties=resolved_table_properties,
             table_version_properties=resolved_tv_properties,
             lifecycle_state=lifecycle_state or LifecycleState.ACTIVE,
             supported_content_types=content_types,

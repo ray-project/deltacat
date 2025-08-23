@@ -148,7 +148,7 @@ TABLE_CLASS_TO_COLUMN_NAMES_FUNC: Dict[
     papq.ParquetFile: lambda table: table.schema.names,
     pd.DataFrame: lambda table: table.columns.tolist(),
     pl.DataFrame: lambda table: table.columns,
-    np.ndarray: lambda table: [f"data_{i}" for i in range(table.shape[1])],
+    np.ndarray: lambda table: [f"{i}" for i in range(table.shape[1])],
     daft.DataFrame: lambda table: table.column_names,
     RayDataset: lambda table: table.schema().names,
     MaterializedDataset: lambda table: table.schema().names,
@@ -179,25 +179,11 @@ TABLE_TYPE_TO_EMPTY_TABLE_FUNC: Dict[str, Callable] = {
 
 
 def _numpy_array_to_pyarrow(table: np.ndarray, schema: pa.Schema) -> pa.Table:
-    """Convert NumPy array to PyArrow Table."""
-    if not schema:
-        raise ValueError("Schema is required for NumPy to PyArrow conversion")
-
-    if not isinstance(schema, pa.Schema):
-        raise ValueError(f"Schema must be a PyArrow Schema, got {type(schema)}")
-
-    if table.ndim == 1:
-        # 1D array: create single column
-        return pa.Table.from_arrays([pa.array(table)], schema=schema)
-    elif table.ndim == 2:
-        # 2D array: create multiple columns
-        arrays = [pa.array(table[:, i]) for i in range(table.shape[1])]
-        return pa.Table.from_arrays(arrays, schema=schema)
-    else:
-        raise ValueError(
-            f"NumPy arrays with {table.ndim} dimensions are not supported. "
-            f"Only 1D and 2D arrays are supported."
-        )
+    """Convert NumPy array to PyArrow Table via Pandas for complex type support."""
+    # Convert NumPy -> Pandas -> PyArrow to handle complex types like structs
+    # This follows the same path as Pandas conversion which handles all complex types properly
+    pandas_df = _numpy_array_to_pandas(table, schema=schema)
+    return pa.Table.from_pandas(pandas_df, schema=schema)
 
 
 def _numpy_array_to_pandas(
@@ -207,14 +193,14 @@ def _numpy_array_to_pandas(
     if schema and isinstance(schema, pa.Schema):
         if table.ndim == 1:
             # 1D array: single column
-            column_names = [schema.names[0]] if schema.names else ["data"]
+            column_names = [schema.names[0]] if schema.names else ["0"]
             return pd.DataFrame({column_names[0]: table}, **kwargs)
         elif table.ndim == 2:
             # 2D array: multiple columns
             column_names = (
                 schema.names
                 if len(schema.names) == table.shape[1]
-                else [f"data_{i}" for i in range(table.shape[1])]
+                else [f"{i}" for i in range(table.shape[1])]
             )
             return pd.DataFrame(table, columns=column_names, **kwargs)
         else:
@@ -623,9 +609,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 8,
     TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.AUTO,
     TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE: SchemaConsistencyType.NONE,
-    TableProperty.SUPPORTED_READER_TYPES: [
-        d for d in DatasetType
-    ],
+    TableProperty.SUPPORTED_READER_TYPES: [d for d in DatasetType],
 }
 
 

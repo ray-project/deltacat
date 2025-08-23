@@ -3138,4 +3138,3 @@ written cannot be read by one or more supported reader types, then a `TableValid
 | **polars** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **pyarrow** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ray_dataset** | ✅ | ✅ | ✅ | ✅ | ✅ |
-

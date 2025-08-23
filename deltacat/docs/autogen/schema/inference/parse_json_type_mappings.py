@@ -354,7 +354,6 @@ def generate_reader_compatibility_mapping(
                     "pyarrow": "PYARROW",
                     "pandas": "PANDAS",
                     "polars": "POLARS",
-                    "numpy": "NUMPY",
                     "daft": "DAFT",
                     "ray_dataset": "RAY_DATASET",
                 }
@@ -408,7 +407,13 @@ READER_COMPATIBILITY_MAPPING = {
 def get_compatible_readers(arrow_type: str, writer_dataset_type: str, content_type: str):
     """Get list of compatible reader DatasetTypes for given combination."""
     key = (arrow_type, writer_dataset_type, content_type)
-    return READER_COMPATIBILITY_MAPPING.get(key, [])
+    compatible_readers = READER_COMPATIBILITY_MAPPING.get(key, [])
+    if (
+        DatasetType.PANDAS in compatible_readers
+        and DatasetType.NUMPY not in compatible_readers
+    ):
+        compatible_readers = compatible_readers + [DatasetType.NUMPY]
+    return compatible_readers
 
 def is_reader_compatible(arrow_type: str, writer_dataset_type: str, content_type: str, reader_dataset_type: DatasetType) -> bool:
     """Check if a specific reader is compatible with given combination."""
