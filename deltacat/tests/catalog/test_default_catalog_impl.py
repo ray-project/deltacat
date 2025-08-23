@@ -8078,11 +8078,31 @@ class TestSchemaConsistency:
     @pytest.mark.parametrize(
         "write_dataset_type,read_dataset_type",
         [
+            # All local dataset type combinations for writing
             (DatasetType.PYARROW, DatasetType.PYARROW),
-            (DatasetType.PANDAS, DatasetType.PANDAS),
             (DatasetType.PYARROW, DatasetType.PANDAS),
-            # Skip pandas->pyarrow due to schema mismatch issue with null vs string types
-            # (DatasetType.PANDAS, DatasetType.PYARROW),
+            (DatasetType.PYARROW, DatasetType.POLARS),
+            (DatasetType.PYARROW, DatasetType.NUMPY),
+            (DatasetType.PYARROW, DatasetType.PYARROW_PARQUET),
+            (DatasetType.PYARROW, DatasetType.DAFT),
+            (DatasetType.PYARROW, DatasetType.RAY_DATASET),
+            
+            (DatasetType.PANDAS, DatasetType.PYARROW),
+            (DatasetType.PANDAS, DatasetType.PANDAS),
+            (DatasetType.PANDAS, DatasetType.POLARS),
+            (DatasetType.PANDAS, DatasetType.NUMPY),
+            (DatasetType.PANDAS, DatasetType.PYARROW_PARQUET),
+            (DatasetType.PANDAS, DatasetType.DAFT),
+            (DatasetType.PANDAS, DatasetType.RAY_DATASET),
+            
+            (DatasetType.POLARS, DatasetType.PYARROW),
+            (DatasetType.POLARS, DatasetType.PANDAS),
+            (DatasetType.POLARS, DatasetType.POLARS),
+            (DatasetType.POLARS, DatasetType.NUMPY),
+            (DatasetType.POLARS, DatasetType.PYARROW_PARQUET),
+            (DatasetType.POLARS, DatasetType.DAFT),
+            (DatasetType.POLARS, DatasetType.RAY_DATASET),
+            
         ],
     )
     def test_schema_evolution_with_past_defaults(
@@ -8205,7 +8225,15 @@ class TestSchemaConsistency:
         )
 
         # Convert result to PyArrow for consistent comparison
-        result_arrow = to_pyarrow(result)
+        # For NumPy results, we need to provide schema information
+        if read_dataset_type == DatasetType.NUMPY:
+            # Get the table info to access the schema
+            table_info = dc.get_table(
+                table=table_name, namespace=namespace, catalog=catalog_name
+            )
+            result_arrow = to_pyarrow(result, schema=table_info.table_version.schema.arrow)
+        else:
+            result_arrow = to_pyarrow(result)
 
         # Verify we have all expected rows (3 + 2 + 2 = 7 total)
         assert result_arrow.num_rows == 7
@@ -8240,14 +8268,14 @@ class TestSchemaConsistency:
         )
 
         # Verify behavior for the second batch (rows 3-4)
-        # These rows were written with status and score, but missing category
+        # These rows were written with status and score, but missing category column
         assert status_values[3:5] == ["inactive", "active"], (
             f"Second batch should have actual status values, got {status_values[3:5]}"
         )
         assert score_values[3:5] == [100.0, 200.0], (
             f"Second batch should have actual score values, got {score_values[3:5]}"
         )
-        # category should be null for second batch (no past_default and column was missing)
+        # category should be null for second batch (no past_default, column was missing)
         assert all(x is None for x in category_values[3:5]), (
             f"Second batch should have null values for category (no past_default), got {category_values[3:5]}"
         )

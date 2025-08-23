@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import copy
+import base64
 
 import msgpack
 from typing import Optional, Any, Dict, Union, List, Callable, Tuple, TYPE_CHECKING
@@ -75,6 +76,53 @@ SUBSCHEMAS_KEY_NAME = b"DELTACAT:subschemas"
 # Set max field ID to INT32.MAX_VALUE - 200 for backwards-compatibility with
 # Apache Iceberg, which sets aside this range for reserved fields
 MAX_FIELD_ID_EXCLUSIVE = 2147483447
+
+
+def _encode_metadata_value(value: Any) -> bytes:
+    """
+    Encode a value for storage in PyArrow field metadata.
+
+    Uses msgpack for efficient serialization, then base64 encoding to ensure
+    UTF-8 compatibility with all Parquet readers (Polars, Daft, etc.).
+
+    Args:
+        value: The value to encode
+
+    Returns:
+        Base64-encoded msgpack bytes that are UTF-8 safe
+    """
+    msgpack_bytes = msgpack.dumps(value)
+    return base64.b64encode(msgpack_bytes)
+
+
+def _decode_metadata_value(encoded_bytes: bytes) -> Any:
+    """
+    Decode a value from PyArrow field metadata.
+
+    Handles both new base64-encoded format and legacy raw msgpack format
+    for backward compatibility.
+
+    Args:
+        encoded_bytes: The encoded bytes from field metadata
+
+    Returns:
+        The decoded value
+
+    Raises:
+        ValueError: If the data cannot be decoded
+    """
+    try:
+        # Try new base64-encoded format first
+        msgpack_bytes = base64.b64decode(encoded_bytes)
+        return msgpack.loads(msgpack_bytes)
+    except Exception:
+        try:
+            # Fall back to legacy raw msgpack format
+            return msgpack.loads(encoded_bytes)
+        except Exception as e:
+            raise ValueError(f"Failed to decode metadata value: {e}") from e
+
+
 
 # Default name assigned to the base, unnamed single schema when a new named
 # subschema is first added.
@@ -376,7 +424,7 @@ class Field(dict):
         merge_order = None
         if field.metadata:
             bytes_val = field.metadata.get(FIELD_MERGE_ORDER_KEY_NAME)
-            merge_order = msgpack.loads(bytes_val) if bytes_val else None
+            merge_order = _decode_metadata_value(bytes_val) if bytes_val else None
         return merge_order
 
     @staticmethod
@@ -392,7 +440,7 @@ class Field(dict):
         default = None
         if field.metadata:
             bytes_val = field.metadata.get(FIELD_PAST_DEFAULT_KEY_NAME)
-            default = msgpack.loads(bytes_val) if bytes_val else None
+            default = _decode_metadata_value(bytes_val) if bytes_val else None
         return default
 
     @staticmethod
@@ -400,7 +448,7 @@ class Field(dict):
         default = None
         if field.metadata:
             bytes_val = field.metadata.get(FIELD_FUTURE_DEFAULT_KEY_NAME)
-            default = msgpack.loads(bytes_val) if bytes_val else None
+            default = _decode_metadata_value(bytes_val) if bytes_val else None
         return default
 
     @staticmethod
@@ -516,16 +564,16 @@ class Field(dict):
             meta[FIELD_MERGE_KEY_NAME] = str(is_merge_key)
         if merge_order:
             Field._validate_merge_order(field, consistency_type)
-            meta[FIELD_MERGE_ORDER_KEY_NAME] = msgpack.dumps(merge_order)
+            meta[FIELD_MERGE_ORDER_KEY_NAME] = _encode_metadata_value(merge_order)
         if is_event_time:
             Field._validate_event_time(field, consistency_type)
             meta[FIELD_EVENT_TIME_KEY_NAME] = str(is_event_time)
         if past_default is not None:
             Field._validate_default(past_default, field)
-            meta[FIELD_PAST_DEFAULT_KEY_NAME] = msgpack.dumps(past_default)
+            meta[FIELD_PAST_DEFAULT_KEY_NAME] = _encode_metadata_value(past_default)
         if future_default is not None:
             Field._validate_default(future_default, field)
-            meta[FIELD_FUTURE_DEFAULT_KEY_NAME] = msgpack.dumps(future_default)
+            meta[FIELD_FUTURE_DEFAULT_KEY_NAME] = _encode_metadata_value(future_default)
         if field_id is not None:
             meta[PARQUET_FIELD_ID_KEY_NAME] = str(field_id)
         if doc is not None:
@@ -848,7 +896,7 @@ class Schema(dict):
             schema_metadata[SCHEMA_ID_KEY_NAME] = str(schema_id)
         if schema_metadata.get(SCHEMA_ID_KEY_NAME) is None:
             schema_metadata[SCHEMA_ID_KEY_NAME] = str(0)
-        schema_metadata[SUBSCHEMAS_KEY_NAME] = msgpack.dumps(subschema_to_field_ids)
+        schema_metadata[SUBSCHEMAS_KEY_NAME] = _encode_metadata_value(subschema_to_field_ids)
         final_schema = pyarrow_schema.with_metadata(schema_metadata)
         return Schema(
             {
@@ -1106,7 +1154,8 @@ class Schema(dict):
             )
 
         # For other types, convert to PyArrow and back
-        pa_table = to_pyarrow(dataset, schema=self.arrow)
+        # Don't pass schema during conversion as it may contain columns not yet in the dataset
+        pa_table = to_pyarrow(dataset)
         coerced_table, updated_schema = self._validate_and_coerce_table(
             pa_table, schema_evolution_mode, default_schema_consistency_type
         )
@@ -1473,7 +1522,7 @@ class Schema(dict):
         subschemas = None
         if schema.metadata:
             bytes_val = schema.metadata.get(SUBSCHEMAS_KEY_NAME)
-            subschemas = msgpack.loads(bytes_val) if bytes_val else None
+            subschemas = _decode_metadata_value(bytes_val) if bytes_val else None
         return subschemas
 
     @staticmethod
@@ -2443,7 +2492,7 @@ class SchemaUpdate(dict):
         new_metadata.pop(FIELD_FUTURE_DEFAULT_KEY_NAME, None)
 
         if future_default is not None:
-            new_metadata[FIELD_FUTURE_DEFAULT_KEY_NAME] = msgpack.dumps(future_default)
+            new_metadata[FIELD_FUTURE_DEFAULT_KEY_NAME] = _encode_metadata_value(future_default)
 
         updated_field["arrow"] = pa.field(
             existing_field.arrow.name,

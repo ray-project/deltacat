@@ -255,7 +255,7 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     pa.Table: lambda table, *, schema, **kwargs: table,
     papq.ParquetFile: lambda table, *, schema, **kwargs: table.read(**kwargs),
     pd.DataFrame: lambda table, *, schema, **kwargs: pa.Table.from_pandas(
-        table, **kwargs
+        table, schema=schema, **kwargs
     ),
     pl.DataFrame: lambda table, *, schema, **kwargs: pl.DataFrame.to_arrow(
         table, **kwargs
@@ -319,6 +319,7 @@ DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]]
     DatasetType.DAFT: lambda pa_table, **kwargs: daft.from_arrow(pa_table, **kwargs),
     DatasetType.NUMPY: lambda pa_table, **kwargs: _pyarrow_to_numpy(pa_table, **kwargs),
     DatasetType.RAY_DATASET: lambda pa_table, **kwargs: ray.data.from_arrow(pa_table),
+    DatasetType.PYARROW_PARQUET: lambda pa_table, **kwargs: pa_table,  # ParquetFile is read as PyArrow Table
 }
 
 

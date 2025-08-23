@@ -1341,7 +1341,7 @@ def _download_and_process_table_data(
     **kwargs,
 ) -> Dataset:
     """Download delta data and process result based on storage type."""
-    
+
     # Handle NUMPY read requests by translating to PANDAS internally
     original_read_as = read_as
     effective_read_as = read_as
@@ -1447,7 +1447,7 @@ def _download_and_process_table_data(
 
 
 def _convert_pandas_to_numpy(dataset: Dataset):
-    """Convert pandas DataFrame to numpy ndarray.""" 
+    """Convert pandas DataFrame to numpy ndarray."""
     if not isinstance(dataset, pd.DataFrame):
         raise ValueError(f"Expected pandas DataFrame but found {type(dataset)}")
     return dataset.to_numpy()
@@ -1472,76 +1472,20 @@ def _coerce_results_to_schema(
     return coerced_results
 
 
-def _add_missing_columns_only(pa_table: pa.Table, target_schema: pa.Schema) -> pa.Table:
-    """Add missing columns as nulls without any type coercion."""
-    # Get existing columns
-    existing_columns = {name: pa_table[name] for name in pa_table.column_names}
-    
-    # Build final columns list in target schema order
-    final_columns = []
-    final_names = []
-    
-    for field in target_schema:
-        if field.name in existing_columns:
-            # Use existing column as-is (no type coercion)
-            final_columns.append(existing_columns[field.name])
-            final_names.append(field.name)
-        else:
-            # Add missing column as nulls
-            null_column = pa.nulls(len(pa_table), type=field.type)
-            final_columns.append(null_column)
-            final_names.append(field.name)
-    
-    # Create table with target schema column order but preserve original types for existing columns
-    return pa.table(final_columns, names=final_names)
-
-
-def _unify_schemas_for_concatenation(
-    results: Dataset, target_schema: pa.Schema, table_type: DatasetType
-) -> Dataset:
-    """Unify schemas for concatenation by adding missing columns as nulls, without type coercion."""
-    from deltacat.types.tables import to_pyarrow, from_pyarrow
-    
-    unified_results = []
-    for i, table_result in enumerate(results):
-        # Convert to PyArrow for schema operations
-        if table_type == DatasetType.PYARROW:
-            pa_table = table_result
-        else:
-            pa_table = to_pyarrow(table_result)
-        
-        # Add missing columns without type coercion
-        try:
-            unified_table = _add_missing_columns_only(pa_table, target_schema)
-            
-            # Convert back to original type if needed
-            if table_type == DatasetType.PYARROW:
-                unified_results.append(unified_table)
-            else:
-                unified_results.append(from_pyarrow(unified_table, table_type))
-                
-        except Exception as e:
-            logger.warning(f"Schema unification failed for table {i}: {e}. Using original table.")
-            unified_results.append(table_result)
-            
-    return unified_results
-
-
 def _handle_local_table_concatenation(
     results: Dataset, table_type: DatasetType, table_schema: Optional[Schema], entry_index_to_schema: List[Schema]
 ) -> Dataset:
-    """Handle concatenation of local table results with schema propagation."""
+    """Handle concatenation of local table results with schema coercion."""
     logger.debug(f"Target table schema for concatenation: {table_schema}")
-    
-    # With schema propagation, each file was read with its original schema.
-    # We need to unify schemas for concatenation by adding missing columns as nulls,
-    # but without problematic type coercion (especially for struct field order).
-    unified_results = _unify_schemas_for_concatenation(results, table_schema.arrow, table_type)
-    
+
+    # First step: coerce all results to match the target schema (handles past_default values)
+    coerced_results = _coerce_results_to_schema(results, table_schema.arrow, entry_index_to_schema)
+
+    # Second step: concatenate the coerced results
     logger.debug(
-        f"Concatenating {len(unified_results)} LOCAL tables of type {table_type} with unified schemas"
+        f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type} with unified schemas"
     )
-    concatenated_result = concat_tables(unified_results, table_type)
+    concatenated_result = concat_tables(coerced_results, table_type)
     logger.debug(f"Concatenation complete, result type: {type(concatenated_result)}")
     return concatenated_result
 
