@@ -995,6 +995,24 @@ def download_delta(
         if distributed_dataset_type == DatasetType.DAFT:
             kwargs["table_version_schema"] = table_version_schema.arrow
 
+    # Filter out parameters that are already passed as positional/keyword arguments
+    # to avoid "multiple values for argument" errors
+    filtered_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k
+        not in [
+            "manifest",
+            "table_type",
+            "max_parallelism",
+            "column_names",
+            "include_columns",
+            "file_reader_kwargs_provider",
+            "ray_options_provider",
+            "distributed_dataset_type",
+        ]
+    }
+
     return storage_type_to_download_func[storage_type](
         manifest,
         table_type,
@@ -1005,7 +1023,7 @@ def download_delta(
         ray_options_provider=ray_options_provider,
         distributed_dataset_type=distributed_dataset_type,
         file_path_column=file_path_column,
-        **kwargs,
+        **filtered_kwargs,
     )
 
 
@@ -1317,8 +1335,10 @@ def create_table_version(
                     f"Expected to create table version "
                     f"{expected_version_number} but found {version_number}.",
                 )
-    new_table.description = table_description or table_version_description
-    new_table.properties = table_properties
+    if table_description is not None:
+        new_table.description = table_description
+    if table_properties is not None:
+        new_table.properties = table_properties
     new_table.latest_table_version = table_version
     new_table.latest_active_table_version = (
         table_version if lifecycle_state == LifecycleState.ACTIVE else None

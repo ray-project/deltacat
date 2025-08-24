@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
-import copy
 from collections import defaultdict
 
 import numpy as np
@@ -719,7 +718,9 @@ def _convert_numpy_for_schema_validation(
         ValueError: If array has more columns than schema or schema is invalid
     """
     if not isinstance(schema, Schema) or not schema.arrow:
-        raise ValueError(f"Expected DeltaCAT schema for Numpy schema validation, but found: {schema}")
+        raise ValueError(
+            f"Expected DeltaCAT schema for Numpy schema validation, but found: {schema}"
+        )
 
     # Use schema subset matching NumPy array dimensions
     arrow_schema = schema.arrow
@@ -1505,6 +1506,22 @@ def _download_and_process_table_data(
         max_parallelism,
         distributed_dataset_type,
     )
+    # Filter out parameters that are already passed as keyword arguments
+    # to avoid "multiple values for argument" errors
+    filtered_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k
+        not in [
+            "delta_like",
+            "table_type",
+            "storage_type",
+            "max_parallelism",
+            "columns",
+            "distributed_dataset_type",
+            "file_path_column",
+        ]
+    }
     result = _get_storage(**kwargs).download_delta(
         merged_delta,
         table_type=effective_read_as,
@@ -1515,14 +1532,24 @@ def _download_and_process_table_data(
         columns=columns,
         distributed_dataset_type=distributed_dataset_type,
         file_path_column=file_path_column,
-        **kwargs,
+        **filtered_kwargs,
     )
 
-    # Handle local storage table concatenation
+    # Handle local storage table concatenation and PYARROW_PARQUET lazy materialization
     if not distributed_dataset_type and table_type and isinstance(result, list):
-        result = _handle_local_table_concatenation(
-            result, table_type, table_version_obj.schema, entry_index_to_schema
-        )
+        if table_type == DatasetType.PYARROW_PARQUET:
+            # For PYARROW_PARQUET, preserve lazy materialization:
+            return result[0] if len(result) == 1 else result
+        else:
+            # For other types, perform normal concatenation
+            result = _handle_local_table_concatenation(
+                result,
+                table_type,
+                table_version_obj.schema,
+                entry_index_to_schema,
+                file_path_column,
+                columns,
+            )
     # Convert to numpy if original request was for numpy
     if original_read_as == DatasetType.NUMPY:
         return _convert_pandas_to_numpy(result)
@@ -1560,23 +1587,78 @@ def _coerce_results_to_schema(
     return coerced_results
 
 
+def _create_target_schema(
+    arrow_schema: pa.Schema,
+    columns: Optional[List[str]] = None,
+    file_path_column: Optional[str] = None,
+) -> pa.Schema:
+    """Create target schema for concatenation with optional column selection and file_path_column."""
+    if columns is not None:
+        # Column selection - use only specified columns
+        field_map = {field.name: field for field in arrow_schema}
+        selected_fields = []
+
+        for col_name in columns:
+            if col_name in field_map:
+                selected_fields.append(field_map[col_name])
+        arrow_schema = pa.schema(selected_fields)
+    if file_path_column and file_path_column not in arrow_schema.names:
+        arrow_schema = arrow_schema.append(pa.field(file_path_column, pa.string()))
+    return arrow_schema
+
+
+def _create_entry_schemas_for_concatenation(
+    entry_index_to_schema: List[Schema],
+    columns: Optional[List[str]] = None,
+    file_path_column: Optional[str] = None,
+) -> List[Schema]:
+    """Create entry schemas for concatenation, optionally filtered by column selection."""
+    if columns is None:
+        # No column selection - return original schemas as-is
+        return entry_index_to_schema
+
+    # Column selection - filter each entry schema
+    modified_schemas = []
+    for entry_schema in entry_index_to_schema:
+        if entry_schema and entry_schema.arrow:
+            filtered_schema = _create_target_schema(
+                entry_schema.arrow, columns, file_path_column
+            )
+            modified_schemas.append(Schema.of(schema=filtered_schema))
+        else:
+            modified_schemas.append(entry_schema)
+
+    return modified_schemas
+
+
 def _handle_local_table_concatenation(
     results: Dataset,
     table_type: DatasetType,
     table_schema: Optional[Schema],
     entry_index_to_schema: List[Schema],
+    file_path_column: Optional[str] = None,
+    columns: Optional[List[str]] = None,
 ) -> Dataset:
     """Handle concatenation of local table results with schema coercion."""
     logger.debug(f"Target table schema for concatenation: {table_schema}")
 
-    # First step: coerce all results to match the target schema (handles past_default values)
+    # Create target schema for coercion, respecting column selection
+    target_schema = _create_target_schema(table_schema.arrow, columns, file_path_column)
+    logger.debug(f"Created target schema: {target_schema.names}")
+
+    # Filter entry schemas to match column selection and file_path_column
+    modified_entry_schemas = _create_entry_schemas_for_concatenation(
+        entry_index_to_schema, columns, file_path_column
+    )
+
+    # Coerce results to unified schema
     coerced_results = _coerce_results_to_schema(
-        results, table_schema.arrow, entry_index_to_schema
+        results, target_schema, modified_entry_schemas
     )
 
     # Second step: concatenate the coerced results
     logger.debug(
-        f"Concatenating {len(coerced_results)} LOCAL tables of type {table_type} with unified schemas"
+        f"Concatenating {len(coerced_results)} local tables of type {table_type} with unified schemas"
     )
     concatenated_result = concat_tables(coerced_results, table_type)
     logger.debug(f"Concatenation complete, result type: {type(concatenated_result)}")
@@ -1890,7 +1972,9 @@ def create_table(
     default_tv_properties = resolved_table_properties
     if schema is None:
         default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
-    resolved_tv_properties = _add_default_table_properties(table_version_properties, default_tv_properties)
+    resolved_tv_properties = _add_default_table_properties(
+        table_version_properties, default_tv_properties
+    )
     _validate_table_properties(resolved_tv_properties)
 
     namespace = namespace or default_namespace()

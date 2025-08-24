@@ -1136,13 +1136,17 @@ class Schema(dict):
         # Handle PyArrow tables using existing method
         if get_dataset_type(dataset) == DatasetType.PYARROW:
             return self._validate_and_coerce_table(
-                dataset, schema_evolution_mode, default_schema_consistency_type
+                dataset,
+                schema_evolution_mode,
+                default_schema_consistency_type,
             )
 
         # Handle Daft DataFrames without collecting to memory
         if get_dataset_type(dataset) == DatasetType.DAFT:
             return self._validate_and_coerce_daft_dataframe(
-                dataset, schema_evolution_mode, default_schema_consistency_type
+                dataset,
+                schema_evolution_mode,
+                default_schema_consistency_type,
             )
 
         # Handle Ray Datasets by converting to Daft
@@ -1158,7 +1162,9 @@ class Schema(dict):
         # Don't pass schema during conversion as it may contain columns not yet in the dataset
         pa_table = to_pyarrow(dataset)
         coerced_table, updated_schema = self._validate_and_coerce_table(
-            pa_table, schema_evolution_mode, default_schema_consistency_type
+            pa_table,
+            schema_evolution_mode,
+            default_schema_consistency_type,
         )
         return from_pyarrow(coerced_table, get_dataset_type(dataset)), updated_schema
 

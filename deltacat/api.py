@@ -179,7 +179,7 @@ def _copy_objects_in_order(
 
     # Group objects by type for hierarchical copying
     # Copy objects in strict hierarchical order
-    # Namespace -> TableVersion -> Stream -> Partition -> Delta
+    # Namespace -> Table -> TableVersion -> Stream -> Partition -> Delta
     ordered_objects_by_type = {
         Namespace: [],
         Table: [],

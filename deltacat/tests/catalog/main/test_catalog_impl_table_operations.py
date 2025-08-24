@@ -1622,6 +1622,7 @@ class TestWriteToTable:
                 mode=TableWriteMode.CREATE,
                 content_type=content_type,
                 inner=self.catalog_properties,
+                schema=None,
             )
 
             assert catalog.table_exists(

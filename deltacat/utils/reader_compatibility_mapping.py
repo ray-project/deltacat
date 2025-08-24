@@ -812,6 +812,50 @@ READER_COMPATIBILITY_MAPPING = {
         DatasetType.PYARROW,
         DatasetType.RAY_DATASET,
     ],
+    ("fixed_shape_tensor", "daft", "application/parquet"): [
+        DatasetType.DAFT,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "pandas", "application/avro"): [
+        DatasetType.PANDAS,
+        DatasetType.POLARS,
+        DatasetType.PYARROW,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "pandas", "application/feather"): [
+        DatasetType.PANDAS,
+        DatasetType.POLARS,
+        DatasetType.PYARROW,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "pandas", "application/orc"): [
+        DatasetType.PANDAS,
+        DatasetType.POLARS,
+        DatasetType.PYARROW,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "pandas", "application/parquet"): [
+        DatasetType.DAFT,
+        DatasetType.PANDAS,
+        DatasetType.POLARS,
+        DatasetType.PYARROW,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "pyarrow", "application/feather"): [
+        DatasetType.PANDAS,
+        DatasetType.PYARROW,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "pyarrow", "application/parquet"): [
+        DatasetType.DAFT,
+        DatasetType.PANDAS,
+        DatasetType.PYARROW,
+        DatasetType.RAY_DATASET,
+    ],
+    ("fixed_shape_tensor", "ray_dataset", "application/parquet"): [
+        DatasetType.DAFT,
+        DatasetType.RAY_DATASET,
+    ],
     ("fixed_size_list", "daft", "application/parquet"): [
         DatasetType.DAFT,
         DatasetType.PANDAS,

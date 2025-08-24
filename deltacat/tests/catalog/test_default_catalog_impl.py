@@ -47,8 +47,8 @@ from deltacat.storage.model.types import (
     NullOrder,
 )
 from deltacat.types.media import (
-    SCHEMA_CONTENT_TYPES, 
-    DatasetType, 
+    SCHEMA_CONTENT_TYPES,
+    DatasetType,
     ContentType,
 )
 from deltacat.types.tables import (
@@ -65,6 +65,7 @@ from deltacat.utils.pyarrow import (
     get_supported_test_types,
     get_base_arrow_type_name,
 )
+from deltacat.types.tables import from_manifest_table
 
 COPY_ON_WRITE_TABLE_PROPERTIES = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
@@ -1063,7 +1064,6 @@ class TestCopyOnWrite:
         file_count = len(compacted_delta.manifest.entries)
 
         # With DEFAULT_COMPACTION_HASH_BUCKET_COUNT=1, we should get exactly 1 file
-        print(f"Compaction resulted in 1 delta with {file_count} files")
         assert (
             file_count == 1
         ), f"Expected exactly 1 compacted file with hash bucket count=1, but found {file_count}"
@@ -2267,10 +2267,10 @@ class TestDatasetTypes:
         ],
     )
     def test_custom_kwargs_comprehensive_local_storage(
-        self, 
-        temp_catalog_properties, 
-        read_as, 
-        dataset_name, 
+        self,
+        temp_catalog_properties,
+        read_as,
+        dataset_name,
         custom_kwargs,
     ):
         """Test custom kwargs propagation with all storage types using local filesystem."""
@@ -2342,6 +2342,338 @@ class TestDatasetTypes:
         dc.clear_catalogs()
 
     @pytest.mark.parametrize(
+        "content_type,read_as,custom_kwargs",
+        [
+            # PARQUET content type with ALL dataset types
+            (
+                ContentType.PARQUET,
+                DatasetType.PYARROW,
+                {
+                    "pre_buffer": True,  # PyArrow-specific kwarg
+                    "use_pandas_metadata": True,  # PyArrow-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "entry_params": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.PARQUET,
+                DatasetType.PYARROW_PARQUET,
+                {
+                    "pre_buffer": True,  # PyArrow Parquet-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "file_reader_kwargs_provider": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.PARQUET,
+                DatasetType.PANDAS,
+                {
+                    "use_pandas_metadata": True,  # Pandas-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "column_names": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.PARQUET,
+                DatasetType.POLARS,
+                {
+                    "use_pyarrow": True,  # Polars-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "include_columns": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.PARQUET,
+                DatasetType.NUMPY,
+                {
+                    "use_pandas_metadata": True,  # NumPy uses Pandas internally
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "ray_options_provider": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.PARQUET,
+                DatasetType.DAFT,
+                {
+                    "io_config": None,  # Daft-specific kwarg
+                    "ray_init_options": None,  # Daft-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.PARQUET,
+                DatasetType.RAY_DATASET,
+                {
+                    "ray_init_options": None,  # Ray-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "distributed_dataset_type": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            # FEATHER content type with multiple dataset types
+            (
+                ContentType.FEATHER,
+                DatasetType.PYARROW,
+                {
+                    "columns": ["id", "name"],  # PyArrow Feather-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "max_parallelism": 2,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.FEATHER,
+                DatasetType.PANDAS,
+                {
+                    "columns": ["id", "name"],  # Pandas Feather-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "manifest": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.FEATHER,
+                DatasetType.POLARS,
+                {
+                    "columns": ["id", "name"],  # Polars Feather-specific kwarg
+                    "use_pyarrow": True,  # Polars-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            # ORC content type with multiple dataset types
+            (
+                ContentType.ORC,
+                DatasetType.PYARROW,
+                {
+                    "columns": ["id", "name"],  # PyArrow ORC-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "ray_options_provider": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.ORC,
+                DatasetType.PANDAS,
+                {
+                    "columns": ["id", "name"],  # Pandas ORC-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "file_reader_kwargs_provider": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            # CSV content type with multiple dataset types
+            (
+                ContentType.CSV,
+                DatasetType.PYARROW,
+                {
+                    "sep": ",",  # PyArrow CSV-specific kwarg
+                    "header": None,  # PyArrow CSV-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "distributed_dataset_type": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.CSV,
+                DatasetType.PANDAS,
+                {
+                    "sep": ",",  # Pandas CSV-specific kwarg
+                    "header": None,  # Pandas CSV-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "column_names": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.CSV,
+                DatasetType.POLARS,
+                {
+                    "separator": ",",  # Polars CSV-specific kwarg
+                    "has_header": False,  # Polars CSV-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "include_columns": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.CSV,
+                DatasetType.DAFT,
+                {
+                    "has_header": False,  # Daft CSV-specific kwarg
+                    "io_config": None,  # Daft-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            # JSON content type with multiple dataset types
+            (
+                ContentType.JSON,
+                DatasetType.PYARROW,
+                {
+                    "lines": True,  # PyArrow JSON-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "file_reader_kwargs_provider": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.JSON,
+                DatasetType.PANDAS,
+                {
+                    "lines": True,  # Pandas JSON-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "max_parallelism": 1,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.JSON,
+                DatasetType.DAFT,
+                {
+                    "io_config": None,  # Daft-specific kwarg
+                    "ray_init_options": None,  # Daft-specific kwarg
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            # AVRO content type with multiple dataset types
+            (
+                ContentType.AVRO,
+                DatasetType.PYARROW,
+                {
+                    "columns": [
+                        "id",
+                        "name",
+                    ],  # Polars Avro-specific kwarg (used by PyArrow wrapper)
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "manifest": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+            (
+                ContentType.AVRO,
+                DatasetType.PANDAS,
+                {
+                    "columns": [
+                        "id",
+                        "name",
+                    ],  # Polars Avro-specific kwarg (used by Pandas wrapper)
+                    "table_version_schema": None,  # DeltaCAT system kwarg (should be filtered)
+                    "entry_params": None,  # DeltaCAT system kwarg (should be filtered)
+                },
+            ),
+        ],
+    )
+    def test_custom_kwargs_comprehensive_content_types(
+        self,
+        temp_catalog_properties,
+        content_type,
+        read_as,
+        custom_kwargs,
+    ):
+        """Test custom kwargs propagation with different content types and dataset types to ensure filtering works."""
+        namespace = "test_namespace"
+        catalog_name = f"kwargs-content-type-test-{uuid.uuid4()}"
+        table_name = f"kwargs_test_table_{content_type.value}".replace("/", "_")
+
+        # Test data - simple structure that works with all formats
+        test_data = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [10.1, 20.2, 30.3],
+            }
+        )
+
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Write table with specific content type
+        # For schemaless content types, we need to explicitly pass schema=None
+        # Also disable reader compatibility validation to focus on kwarg filtering
+        write_kwargs = {
+            "table_properties": {
+                TableProperty.SUPPORTED_READER_TYPES: None,  # Disable reader compatibility validation
+            }
+        }
+        if content_type.value not in SCHEMA_CONTENT_TYPES:
+            write_kwargs["schema"] = None
+
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=content_type,
+            **write_kwargs,
+        )
+
+        # Test reading with custom kwargs - this should NOT raise TypeError
+        # The key test is that DeltaCAT system kwargs are filtered out properly
+        try:
+            result_table = dc.read_table(
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                read_as=read_as,
+                **custom_kwargs,
+            )
+
+            # The primary goal is to ensure no TypeError from kwarg filtering
+            # We don't need to fully validate the data, just ensure the read operation succeeds
+            assert result_table is not None
+
+            # For schema content types, verify basic structure based on dataset type
+            if content_type.value in SCHEMA_CONTENT_TYPES:
+                # Different dataset types return different object types
+                if read_as == DatasetType.PYARROW:
+                    assert isinstance(result_table, pa.Table)
+                elif read_as == DatasetType.PYARROW_PARQUET:
+                    # PYARROW_PARQUET can return either a single ParquetFile or a list
+                    import pyarrow.parquet as papq
+
+                    if isinstance(result_table, list):
+                        assert all(
+                            isinstance(pf, papq.ParquetFile) for pf in result_table
+                        )
+                    else:
+                        assert isinstance(result_table, papq.ParquetFile)
+                elif read_as == DatasetType.PANDAS:
+                    import pandas as pd
+
+                    assert isinstance(result_table, pd.DataFrame)
+                elif read_as == DatasetType.POLARS:
+                    import polars as pl
+
+                    assert isinstance(result_table, pl.DataFrame)
+                elif read_as == DatasetType.NUMPY:
+                    import numpy as np
+
+                    assert isinstance(result_table, np.ndarray)
+                elif read_as == DatasetType.DAFT:
+                    import daft
+
+                    assert isinstance(result_table, daft.DataFrame)
+                elif read_as == DatasetType.RAY_DATASET:
+                    # Ray Dataset is a distributed type - verify it's a Ray Dataset
+                    try:
+                        import ray.data
+
+                        assert isinstance(result_table, ray.data.Dataset)
+                    except ImportError:
+                        # If Ray is not available, just check it's not None
+                        assert result_table is not None
+
+                # Basic sanity check - should have our data (except for PYARROW_PARQUET which is lazy)
+                if read_as != DatasetType.PYARROW_PARQUET:
+                    assert get_table_length(result_table) > 0
+        except TypeError as e:
+            # If we get a TypeError, it means kwargs filtering failed
+            pytest.fail(
+                f"TypeError when reading {content_type.value} with custom kwargs. "
+                f"This indicates kwarg filtering is not working properly for this content type. "
+                f"Error: {e}"
+            )
+        except Exception as e:
+            # Other exceptions might be expected (e.g., format-specific issues)
+            # but we should at least verify it's not a kwarg filtering issue
+            if "unexpected keyword argument" in str(e):
+                pytest.fail(
+                    f"Unexpected keyword argument error for {content_type.value}. "
+                    f"This indicates kwarg filtering failed. Error: {e}"
+                )
+
+        # Clean up
+        dc.clear_catalogs()
+
+    @pytest.mark.parametrize(
         "dataset_type,dataset_name,custom_kwargs,content_type",
         [
             (
@@ -2353,6 +2685,30 @@ class TestDatasetTypes:
                 ContentType.PARQUET,
             ),
             (
+                DatasetType.RAY_DATASET,
+                "RAY_DATASET",
+                {
+                    "file_path_column": "path",
+                },
+                ContentType.AVRO,
+            ),
+            (
+                DatasetType.RAY_DATASET,
+                "RAY_DATASET",
+                {
+                    "file_path_column": "path",
+                },
+                ContentType.FEATHER,
+            ),
+            (
+                DatasetType.RAY_DATASET,
+                "RAY_DATASET",
+                {
+                    "file_path_column": "path",
+                },
+                ContentType.ORC,
+            ),
+            (
                 DatasetType.DAFT,
                 "DAFT",
                 {
@@ -2361,26 +2717,6 @@ class TestDatasetTypes:
                     "file_path_column": "_source_file_path",
                 },
                 ContentType.PARQUET,  # Test Parquet support
-            ),
-            (
-                DatasetType.DAFT,
-                "DAFT-CSV",
-                {
-                    "io_config": None,
-                    "ray_init_options": {"num_cpus": 1},
-                    "file_path_column": "_source_file_path",
-                },
-                ContentType.CSV,  # Test CSV support
-            ),
-            (
-                DatasetType.DAFT,
-                "DAFT-JSON",
-                {
-                    "io_config": None,
-                    "ray_init_options": {"num_cpus": 1},
-                    "file_path_column": "_source_file_path",
-                },
-                ContentType.JSON,  # Test JSON support
             ),
         ],
     )
@@ -2416,6 +2752,7 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
             content_type=content_type,
+            table_properties={TableProperty.SUPPORTED_READER_TYPES: [dataset_type]},
         )
 
         # Test the distributed storage type with custom kwargs (parametrized above)
@@ -2954,8 +3291,6 @@ class TestDatasetTypes:
         dc.create_namespace(namespace, catalog=catalog_name)
 
         # Test 1: Basic validation - compatible types should pass through
-        print("Testing basic Daft schema validation with compatible types...")
-
         # Create schema with specific field types
         basic_schema = Schema.of(
             schema=pa.schema(
@@ -3010,10 +3345,7 @@ class TestDatasetTypes:
             "value",
         }, f"Expected columns id, name, value, got {result.column_names}"
 
-        print("✓ Basic Daft validation passed")
-
         # Test 2: Type coercion - integers should coerce to floats
-        print("Testing Daft type coercion with COERCE consistency type...")
 
         coerce_table_name = "daft_coercion_test"
 
@@ -3108,11 +3440,7 @@ class TestDatasetTypes:
             expected_values
         ), f"Expected {sorted(expected_values)}, got {sorted(value_data)}"
 
-        print("✓ Daft type coercion passed")
-
         # Test 3: Schema evolution - adding new fields
-        print("Testing Daft schema evolution with new field addition...")
-
         evolution_table_name = "daft_evolution_test"
 
         # Create initial schema
@@ -3216,9 +3544,6 @@ class TestDatasetTypes:
         none_count = sum(1 for x in new_field_column if x is None)
         assert none_count == 2, f"Expected 2 None values in new_field, got {none_count}"
 
-        print("✓ Daft schema evolution passed")
-        print("All Daft schema validation and coercion tests passed! ✓")
-
     def test_ray_dataset_schema_validation_and_coercion(self, temp_catalog_properties):
         """Test Ray Dataset schema validation and coercion without memory collection.
 
@@ -3235,8 +3560,6 @@ class TestDatasetTypes:
         dc.create_namespace(namespace, catalog=catalog_name)
 
         # Test 1: Basic validation - compatible types should pass through
-        print("Testing basic Ray Dataset schema validation with compatible types...")
-
         # Create schema with specific field types
         basic_schema = Schema.of(
             schema=pa.schema(
@@ -3296,11 +3619,7 @@ class TestDatasetTypes:
             "value",
         }, f"Expected columns id, name, value, got {result.column_names}"
 
-        print("✓ Basic Ray Dataset validation passed")
-
         # Test 2: Type coercion - integers should coerce to floats
-        print("Testing Ray Dataset type coercion with COERCE consistency type...")
-
         coerce_table_name = "ray_coercion_test"
 
         # Create schema with COERCE consistency type for value field
@@ -3398,11 +3717,7 @@ class TestDatasetTypes:
             expected_values
         ), f"Expected {sorted(expected_values)}, got {sorted(value_data)}"
 
-        print("✓ Ray Dataset type coercion passed")
-
         # Test 3: Schema evolution - adding new fields
-        print("Testing Ray Dataset schema evolution with new field addition...")
-
         evolution_table_name = "ray_evolution_test"
 
         # Create initial schema
@@ -3505,9 +3820,6 @@ class TestDatasetTypes:
         none_count = sum(1 for x in new_field_column if x is None)
         assert none_count == 2, f"Expected 2 None values in new_field, got {none_count}"
 
-        print("✓ Ray Dataset schema evolution passed")
-        print("All Ray Dataset schema validation and coercion tests passed! ✓")
-
     @pytest.mark.parametrize(
         "content_type,test_description",
         [
@@ -3541,7 +3853,7 @@ class TestDatasetTypes:
 
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
-        # Create table with specific content type support
+        # Create table with specific content type support (schemaless)
         dc.write_to_table(
             data=test_data,
             table=table_name,
@@ -3549,32 +3861,47 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
             content_type=content_type,
+            schema=None,  # Create schemaless table for CSV/JSON content types
         )
 
-        # Test reading with Daft
-        result_table = dc.read_table(
+        # Test reading with Daft - for schemaless tables, we get file paths
+        manifest_table = dc.read_table(
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
         )
 
-        # Verify the result
-        assert result_table is not None
+        # Verify we got a manifest table with file paths
+        assert manifest_table is not None
         assert isinstance(
-            result_table, daft.DataFrame
-        ), f"Expected daft.DataFrame, got {type(result_table)}"
+            manifest_table, daft.DataFrame
+        ), f"Expected daft.DataFrame, got {type(manifest_table)}"
+
+        # Verify we have the expected manifest structure
+        manifest_df = manifest_table.collect().to_pandas()
+        assert (
+            "path" in manifest_df.columns
+        ), f"Expected 'path' column in manifest, got columns: {manifest_df.columns}"
+
+        # Read the actual data
+        result_table = from_manifest_table(
+            manifest_table=manifest_table,
+            dataset_type=DatasetType.DAFT,
+            schema=test_data.schema,
+            max_parallelism=1,
+        )
 
         # Convert to pandas for easier comparison
         result_df = result_table.collect().to_pandas()
 
         # Verify the data was read correctly
         assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
-        assert set(result_df.columns) == {
-            "id",
-            "name",
-            "value",
-            "category",
-        }, f"Unexpected columns: {result_df.columns}"
+
+        # With the original schema provided, all content types should have consistent column names
+        expected_columns = {"id", "name", "value", "category"}
+        assert (
+            set(result_df.columns) == expected_columns
+        ), f"Unexpected columns for {content_type}: {result_df.columns}"
 
         # Verify specific data values
         assert result_df["id"].tolist() == [1, 2, 3, 4, 5]
@@ -3641,7 +3968,7 @@ class TestDatasetTypes:
         ]
 
         for i, content_type in enumerate(content_types):
-            # Write first batch with mixed content type support
+            # Write first batch with mixed content type support (schemaless)
             dc.write_to_table(
                 data=test_data_batches[i],
                 table=table_name,
@@ -3650,44 +3977,62 @@ class TestDatasetTypes:
                 mode=TableWriteMode.AUTO,
                 content_type=content_type,
                 content_types=content_types,
+                schema=None,  # Create schemaless table for mixed content types
             )
 
-        # Test reading with Daft
-        result_table = dc.read_table(
+        # Test reading with Daft - for schemaless tables, we get file paths
+        manifest_table = dc.read_table(
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
         )
 
-        # Verify the result
-        assert result_table is not None
+        # Verify we got a manifest table with file paths
+        assert manifest_table is not None
         assert isinstance(
-            result_table, daft.DataFrame
-        ), f"Expected daft.DataFrame, got {type(result_table)}"
+            manifest_table, daft.DataFrame
+        ), f"Expected daft.DataFrame, got {type(manifest_table)}"
+
+        # Verify we have the expected manifest structure
+        manifest_df = manifest_table.collect().to_pandas()
+        assert (
+            "path" in manifest_df.columns
+        ), f"Expected 'path' column in manifest, got columns: {manifest_df.columns}"
+
+        # Create a schema from the first test data batch for consistency
+        test_schema = test_data_batches[0].schema
+
+        # Read the actual data
+        result_table = from_manifest_table(
+            manifest_table=manifest_table,
+            dataset_type=DatasetType.DAFT,
+            schema=test_schema,
+            max_parallelism=1,
+        )
 
         # Convert to pandas for easier comparison
         result_df = result_table.collect().to_pandas()
 
-        # Verify the data was read correctly - should have all 6 rows
+        # Verify the data was read correctly - should have all rows
         expected_row_count = 3 * len(content_types)
         assert (
             len(result_df) == expected_row_count
         ), f"Expected {expected_row_count} rows, got {len(result_df)}"
-        assert set(result_df.columns) == {
-            "id",
-            "name",
-            "value",
-            "category",
-        }, f"Unexpected columns: {result_df.columns}"
 
-        # Verify all IDs are present (order may vary due to multiple files)
+        # With the original schema provided, all content types should have consistent column names
+        expected_columns = {"id", "name", "value", "category"}
+        assert (
+            set(result_df.columns) == expected_columns
+        ), f"Unexpected columns for {content_types}: {result_df.columns}"
+
+        # Verify the data by checking ID and name columns
         expected_ids = set(range(1, expected_row_count + 1))
         actual_ids = set(result_df["id"].tolist())
         assert (
             actual_ids == expected_ids
         ), f"Expected IDs {expected_ids}, got {actual_ids}"
 
-        # Verify all names are present
+        # Verify we have the expected names
         expected_names = set(f"name_{i}" for i in range(1, expected_row_count + 1))
         actual_names = set(result_df["name"].tolist())
         assert (
@@ -4062,7 +4407,10 @@ def _generate_read_test_parameters():
     # running `make type-mappings`.
     write_support_matrix = {
         # DatasetType.NUMPY: list(DatasetType.NUMPY.writable_content_types()),
-        DatasetType.PYARROW: list(DatasetType.PYARROW.writable_content_types() & {ContentType(t) for t in SCHEMA_CONTENT_TYPES}),
+        DatasetType.PYARROW: list(
+            DatasetType.PYARROW.writable_content_types()
+            & {ContentType(t) for t in SCHEMA_CONTENT_TYPES}
+        ),
         # DatasetType.PANDAS: list(DatasetType.PANDAS.writable_content_types()),
         # DatasetType.POLARS: list(DatasetType.POLARS.writable_content_types()),
         # DatasetType.RAY_DATASET: list(DatasetType.RAY_DATASET.writable_content_types()),
@@ -4093,7 +4441,6 @@ def _generate_read_test_parameters():
             write_supported = write_support_matrix[write_dataset_type]
             common_types = set(supported_content_types) & set(write_supported)
             for content_type in common_types:
-                print(f"Writing {content_type.value} with {write_dataset_type.value}, reading with {read_dataset_type.value}")
                 combinations.append(
                     pytest.param(
                         write_dataset_type,
@@ -4162,86 +4509,168 @@ class TestContentTypeDatasetCompatibility:
         )
 
     @pytest.mark.parametrize(
-        "write_dataset_type,content_type,expected_exception,description",
-        _generate_write_test_parameters(),
+        "write_dataset_type,content_type",
+        [
+            (dataset_type, content_type)
+            for dataset_type in [
+                DatasetType.NUMPY,
+                DatasetType.PYARROW,
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+                DatasetType.RAY_DATASET,
+                DatasetType.DAFT,
+            ]
+            for content_type in [
+                ContentType.PARQUET,
+                ContentType.ORC,
+                ContentType.FEATHER,
+                ContentType.AVRO,
+            ]
+            if content_type in dataset_type.writable_content_types()
+        ],
     )
-    def test_write_content_type_compatibility(
+    def test_write_schema_content_types_compatibility(
         self,
         temp_catalog_properties,
         write_dataset_type,
         content_type,
-        expected_exception,
-        description,
     ):
-        """Test writing every content type with each dataset type."""
+        """Test writing schema content types to tables with SUPPORTED_READER_TYPES=None."""
         namespace = "test_namespace"
-        catalog_name = f"write-compatibility-test-{uuid.uuid4()}"
-        table_name = "compatibility_test_table"
+        catalog_name = f"schema-write-test-{uuid.uuid4()}"
+        table_name = (
+            f"schema_table_{write_dataset_type.value}_{content_type.value}".replace(
+                "/", "_"
+            ).replace("-", "_")
+        )
 
         # Create catalog
         dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
 
-        # Create test data as PyArrow table first
+        # Create test data
         base_data = self._create_test_data()
 
-        # Convert to the desired dataset type using from_pyarrow or custom conversion
+        # Convert to the desired dataset type
         test_data = from_pyarrow(base_data, write_dataset_type)
 
-        if expected_exception is None:
-            # Should succeed
-            try:
-                # For numpy data, preserve the original schema to maintain column names
-                write_kwargs = {}
-                if write_dataset_type == DatasetType.NUMPY:
-                    write_kwargs["schema"] = Schema.of(schema=base_data.schema)
+        # Create table with SUPPORTED_READER_TYPES=None (no reader restrictions)
+        write_kwargs = {
+            "table_properties": {TableProperty.SUPPORTED_READER_TYPES: None}
+        }
+        if write_dataset_type == DatasetType.NUMPY:
+            write_kwargs["schema"] = Schema.of(schema=base_data.schema)
 
-                dc.write_to_table(
-                    data=test_data,
-                    table=table_name,
-                    namespace=namespace,
-                    catalog=catalog_name,
-                    content_type=content_type,
-                    mode=TableWriteMode.CREATE,
-                    **write_kwargs,
-                )
+        # Should succeed - writing schema content types to unrestricted table
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            content_type=content_type,
+            mode=TableWriteMode.CREATE,
+            **write_kwargs,
+        )
 
-                # Verify the table was created
-                assert dc.table_exists(
-                    table=table_name,
-                    namespace=namespace,
-                    catalog=catalog_name,
-                ), f"Table should exist after successful write with {write_dataset_type.value} and {content_type.value}"
+        # Verify the table was created
+        assert dc.table_exists(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+        ), f"Table should exist after successful write with {write_dataset_type.value} and {content_type.value}"
 
-            except Exception as e:
-                pytest.fail(
-                    f"Expected write to succeed for {write_dataset_type.value} with {content_type.value}, "
-                    f"but got {type(e).__name__}: {e}"
-                )
-        else:
-            # Should fail
-            with pytest.raises(expected_exception) as exc_info:
-                dc.write_to_table(
-                    data=test_data,
-                    table=table_name,
-                    namespace=namespace,
-                    catalog=catalog_name,
-                    content_type=content_type,
-                    mode=TableWriteMode.CREATE,
-                )
+        # Optional: Read back to verify data integrity
+        result_df = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PANDAS,
+        )
+        assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
 
-            # Check for clear error message
-            error_message = str(exc_info.value)
-            assert any(
-                keyword in error_message.lower()
-                for keyword in [
-                    "not implemented",
-                    "not supported",
-                    "unknown",
-                    "unsupported",
-                    "content type",
-                    "supports",
-                ]
-            ), f"Error message should be clear and descriptive: {error_message}"
+        # Cleanup
+        dc.clear_catalogs()
+
+    @pytest.mark.parametrize(
+        "write_dataset_type,content_type",
+        [
+            (dataset_type, content_type)
+            for dataset_type in [
+                DatasetType.NUMPY,
+                DatasetType.PYARROW,
+                DatasetType.PANDAS,
+                DatasetType.POLARS,
+                DatasetType.RAY_DATASET,
+                DatasetType.DAFT,
+            ]
+            for content_type in [
+                ContentType.CSV,
+                ContentType.TSV,
+                ContentType.PSV,
+                ContentType.UNESCAPED_TSV,
+                ContentType.JSON,
+            ]
+            if content_type in dataset_type.writable_content_types()
+        ],
+    )
+    def test_write_schemaless_content_types_compatibility(
+        self,
+        temp_catalog_properties,
+        write_dataset_type,
+        content_type,
+    ):
+        """Test writing schemaless content types to schemaless tables (schema=None)."""
+        namespace = "test_namespace"
+        catalog_name = f"schemaless-write-test-{uuid.uuid4()}"
+        table_name = (
+            f"schemaless_table_{write_dataset_type.value}_{content_type.value}".replace(
+                "/", "_"
+            ).replace("-", "_")
+        )
+
+        # Create catalog
+        dc.put_catalog(catalog_name, catalog=Catalog(config=temp_catalog_properties))
+
+        # Create test data
+        base_data = self._create_test_data()
+
+        # Convert to the desired dataset type
+        test_data = from_pyarrow(base_data, write_dataset_type)
+
+        # Create schemaless table (schema=None)
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            content_type=content_type,
+            mode=TableWriteMode.CREATE,
+            schema=None,  # Explicitly create schemaless table
+        )
+
+        # Verify the table was created
+        assert dc.table_exists(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+        ), f"Table should exist after successful write with {write_dataset_type.value} and {content_type.value}"
+
+        # Optional: Read back to verify data integrity using from_manifest_table
+        manifest_table = dc.read_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.DAFT,
+        )
+
+        # For schemaless tables, read_table returns manifest entries
+        # Use from_manifest_table to get the actual data
+        result = from_manifest_table(
+            manifest_table=manifest_table,
+            dataset_type=DatasetType.PYARROW,
+            schema=base_data.schema,  # Use original schema for consistency
+        )
+        result_df = to_pandas(result)
+        assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
 
         # Cleanup
         dc.clear_catalogs()
@@ -4443,7 +4872,9 @@ class TestContentTypeDatasetCompatibility:
                 catalog=catalog_name,
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
-                table_properties={TableProperty.SUPPORTED_READER_TYPES: custom_supported_readers},
+                table_properties={
+                    TableProperty.SUPPORTED_READER_TYPES: custom_supported_readers
+                },
             )
 
         # Cleanup

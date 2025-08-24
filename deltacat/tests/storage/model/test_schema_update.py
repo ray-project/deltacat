@@ -511,6 +511,15 @@ class TestSchemaUpdate:
         assert "duplicate field ID 1" in str(exc_info.value)
         assert exc_info.value.field_locator == "age"
 
+    def test_cannot_remove_all_fields(self, base_schema):
+        """Test that removing all fields fails."""
+
+        update = SchemaUpdate.of(base_schema, True)
+        with pytest.raises(ValueError) as exc_info:
+            update.remove_field("name").remove_field("age").remove_field("id").apply()
+
+        assert "Schema must contain at least one field." in str(exc_info.value)
+
     def test_cannot_remove_merge_key_field(self, protected_fields_schema):
         """Test that removing merge key fields is forbidden."""
         update = SchemaUpdate.of(protected_fields_schema)

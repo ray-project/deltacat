@@ -76,6 +76,7 @@ from deltacat.utils.ray_utils import dataset as ds_utils
 from deltacat.storage.model.manifest import (
     ManifestEntryList,
     ManifestEntry,
+    ManifestMeta,
     EntryParams,
     EntryType,
     Manifest,
@@ -1340,7 +1341,9 @@ def _reconstruct_manifest_entry_uri(
     # Reconstruct full URI with scheme for external readers (see GitHub issue #567)
     from deltacat.catalog import get_catalog_properties
 
-    catalog_properties = get_catalog_properties(**kwargs)
+    # Only pass kwargs that CatalogProperties actually accepts
+    catalog_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
+    catalog_properties = get_catalog_properties(**catalog_kwargs)
 
     original_uri = manifest_entry.uri
     reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
@@ -1353,9 +1356,12 @@ def _reconstruct_manifest_entry_uri(
     return manifest_entry
 
 
-def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_kwargs_for_external_readers(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Filter out DeltaCAT system kwargs that external readers don't expect.
+    Filter out DeltaCAT system kwargs that external file readers don't expect.
+
+    Use this when passing kwargs to external libraries like PyArrow, Pandas, Polars, etc.
+    This removes all DeltaCAT-specific parameters that would cause TypeErrors in external readers.
 
     Args:
         kwargs: The dictionary of arguments to filter
@@ -1368,11 +1374,69 @@ def _filter_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         for k, v in kwargs.items()
         if k
         not in [
+            # DeltaCAT catalog/storage system kwargs
             "inner",
             "catalog",
             "ray_options_provider",
             "distributed_dataset_type",
+            # DeltaCAT schema/reader kwargs
+            "table_version_schema",
+            "entry_params",
+            # Daft-specific kwargs
+            "io_config",
+            "ray_init_options",
+            # DeltaCAT processing kwargs
+            "column_names",
+            "include_columns",
+            "file_reader_kwargs_provider",
+            "file_path_column",
+            "max_parallelism",
         ]
+    }
+
+
+def _filter_kwargs_for_catalog_properties(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Filter kwargs to only include those that CatalogProperties accepts.
+
+    Use this when calling get_catalog_properties() or CatalogProperties.__init__().
+    Uses a whitelist approach - only passes known compatible parameters.
+
+    CatalogProperties.__init__ accepts: root, filesystem, storage
+    get_catalog_properties also accepts: catalog, inner
+
+    Args:
+        kwargs: The dictionary of arguments to filter
+
+    Returns:
+        Dictionary containing only CatalogProperties-compatible kwargs
+    """
+    return {
+        k: v
+        for k, v in kwargs.items()
+        if k in ["root", "filesystem", "storage", "catalog", "inner"]
+    }
+
+
+def _filter_kwargs_for_reader_functions(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Filter kwargs for internal DeltaCAT reader functions that need most params but not catalog-specific ones.
+
+    Use this for internal DeltaCAT functions that need file reader kwargs, schema kwargs, etc.
+    but should not receive catalog/storage system parameters.
+    Preserves table_version_schema, entry_params, file reader kwargs, etc.
+
+    Args:
+        kwargs: The dictionary of arguments to filter
+
+    Returns:
+        Dictionary with catalog/storage system kwargs removed
+    """
+    return {
+        k: v
+        for k, v in kwargs.items()
+        if k
+        not in ["inner", "catalog", "ray_options_provider", "distributed_dataset_type"]
     }
 
 
@@ -1479,7 +1543,7 @@ def _prepare_download_arguments(
     Returns:
         Dictionary of arguments for the download operation
     """
-    reader_kwargs = _filter_kwargs(kwargs)
+    reader_kwargs = _filter_kwargs_for_external_readers(kwargs)
     processed_include_columns = _remove_file_path_column(
         include_columns, file_path_column
     )
@@ -1513,6 +1577,84 @@ def _handle_non_retryable_error(
     raise error_class(
         f"{operation.title()} has failed for {path}{context}: Error: {e}"
     ) from e
+
+
+def from_manifest_table(
+    manifest_table: Union[LocalDataset, DistributedDataset],
+    dataset_type: DatasetType = DatasetType.DAFT,
+    schema: Optional[pa.Schema] = None,
+    **kwargs,
+) -> Dataset:
+    """
+    Read a manifest table (containing file paths and metadata) and download the actual data.
+
+    This utility function takes the output from a schemaless table read (which returns
+    manifest entries instead of data) and downloads the actual file contents.
+
+    Args:
+        manifest_table: Dataset containing manifest entries with file paths and metadata
+        dataset_type: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        schema: Optional PyArrow schema to enforce consistent column names across formats
+        **kwargs: Additional arguments forwarded to download functions
+
+    Returns:
+        Dataset containing the actual file contents
+    """
+    # Convert the manifest table to pandas for easier processing
+    # TODO(pdames): Iterate over each input manifest table in its native format
+    manifest_df = to_pandas(manifest_table)
+
+    # Reconstruct ManifestEntry objects from the manifest data
+    manifest_entries = []
+    for _, row in manifest_df.iterrows():
+        # Create ManifestMeta from the row data
+        meta = ManifestMeta.of(
+            content_length=row.get("meta_content_length"),
+            record_count=row.get("meta_record_count"),
+            content_type=row.get("meta_content_type"),
+            content_encoding=row.get("meta_content_encoding"),
+        )
+
+        # Create ManifestEntry
+        entry = ManifestEntry.of(
+            url=row["path"],
+            meta=meta,
+            mandatory=row.get("mandatory", True),
+            uuid=row.get("id"),
+        )
+        manifest_entries.append(entry)
+
+    # Create a new Manifest from the entries
+    reconstructed_manifest = Manifest.of(entries=manifest_entries)
+
+    # Add schema to kwargs if provided
+    if schema is not None:
+        kwargs["table_version_schema"] = schema
+
+    # Choose the appropriate download function based on dataset type
+    if dataset_type in DatasetType.distributed():
+        # Use distributed download function
+        # Map DatasetType to DistributedDatasetType
+        distributed_type_map = {
+            DatasetType.DAFT: DistributedDatasetType.DAFT,
+            DatasetType.RAY_DATASET: DistributedDatasetType.RAY_DATASET,
+        }
+        distributed_dataset_type = distributed_type_map.get(dataset_type)
+        if distributed_dataset_type is None:
+            raise ValueError(f"Unsupported distributed dataset type: {dataset_type}")
+
+        return download_manifest_entries_distributed(
+            manifest=reconstructed_manifest,
+            distributed_dataset_type=distributed_dataset_type,
+            **kwargs,
+        )
+    else:
+        # Use local download function
+        return download_manifest_entries(
+            manifest=reconstructed_manifest,
+            table_type=dataset_type,
+            **kwargs,
+        )
 
 
 def download_manifest_entries(
@@ -1882,14 +2024,19 @@ def _download_manifest_entries_all_dataset_distributed(
         Distributed dataset
     """
     # Group manifest entries by content type instead of validating consistency
-    uris_by_content_type = _group_manifest_uris_by_content_type(manifest, **kwargs)
+    # Filter out table_version_schema from kwargs passed to catalog properties
+    filtered_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
+    uris_by_content_type = _group_manifest_uris_by_content_type(
+        manifest, **filtered_kwargs
+    )
 
     # If only one content type, use the original single-reader logic
     if len(uris_by_content_type) == 1:
         content_type, content_encoding = next(iter(uris_by_content_type.keys()))
         uris = next(iter(uris_by_content_type.values()))
 
-        reader_kwargs = _filter_kwargs(kwargs)
+        # Keep table_version_schema for the reader, but filter other system kwargs
+        reader_kwargs = _filter_kwargs_for_reader_functions(kwargs)
 
         try:
             reader_func = DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[
@@ -1914,13 +2061,14 @@ def _download_manifest_entries_all_dataset_distributed(
         )
 
     # Multiple content types - read each group and union them (only for Daft)
-    if distributed_dataset_type != DatasetType.DAFT:
+    if distributed_dataset_type != DistributedDatasetType.DAFT:
         raise ValueError(
             f"Mixed content types are only supported for Daft datasets. "
             f"Got {len(uris_by_content_type)} different content types with dataset type {distributed_dataset_type}"
         )
 
-    reader_kwargs = _filter_kwargs(kwargs)
+    # Keep table_version_schema for the reader, but filter other system kwargs
+    reader_kwargs = _filter_kwargs_for_reader_functions(kwargs)
 
     try:
         reader_func = DISTRIBUTED_DATASET_TYPE_TO_READER_FUNC[
@@ -2051,7 +2199,7 @@ def download_manifest_entry(
     partial_file_download_params = _extract_partial_download_params(manifest_entry)
 
     # Filter kwargs and process file path column
-    reader_kwargs = _filter_kwargs(kwargs)
+    reader_kwargs = _filter_kwargs_for_external_readers(kwargs)
     processed_include_columns = _remove_file_path_column(
         include_columns, file_path_column
     )

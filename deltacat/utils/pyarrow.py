@@ -236,6 +236,10 @@ def read_csv(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
+    from deltacat.types.tables import _filter_kwargs_for_external_readers
+
+    pyarrow_kwargs = _filter_kwargs_for_external_readers(read_kwargs)
     # TODO(pdames): Merge in decimal256 support from pure S3 path reader.
 
     # Check if compression is already indicated by file path
@@ -247,21 +251,21 @@ def read_csv(
             # Handle decompression - avoid double decompression for PyArrow filesystem
             if should_decompress:
                 # PyArrow filesystem already handles .gz decompression automatically
-                return pacsv.read_csv(f, **read_kwargs)
+                return pacsv.read_csv(f, **pyarrow_kwargs)
             else:
                 # Apply explicit decompression if needed
                 input_file_init = ENCODING_TO_FILE_INIT.get(
                     content_encoding, lambda x: x
                 )
                 with input_file_init(f) as input_file:
-                    return pacsv.read_csv(input_file, **read_kwargs)
+                    return pacsv.read_csv(input_file, **pyarrow_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
             # Handle decompression - apply explicit decompression for fsspec
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                return pacsv.read_csv(input_file, **read_kwargs)
+                return pacsv.read_csv(input_file, **pyarrow_kwargs)
 
 
 def read_feather(
@@ -272,13 +276,17 @@ def read_feather(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
+    from deltacat.types.tables import _filter_kwargs_for_external_readers
+
+    pyarrow_kwargs = _filter_kwargs_for_external_readers(read_kwargs)
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                return paf.read_table(input_file, **read_kwargs)
+                return paf.read_table(input_file, **pyarrow_kwargs)
     else:
         # fsspec AbstractFileSystem - Feather requires seekable files
         # For local files, we can use the file path directly
@@ -300,7 +308,7 @@ def read_feather(
                             return paf.read_table(temp_file.name, **read_kwargs)
             else:
                 # No compression, can read directly from file path
-                return paf.read_table(path, **read_kwargs)
+                return paf.read_table(path, **pyarrow_kwargs)
         else:
             # For non-local filesystems, always read from temporary file
             import tempfile
@@ -326,6 +334,10 @@ def read_json(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
+    from deltacat.types.tables import _filter_kwargs_for_external_readers
+
+    pyarrow_kwargs = _filter_kwargs_for_external_readers(read_kwargs)
     # Check if decompression is already indicated by file path
     should_decompress = path.endswith(".gz")
 
@@ -335,21 +347,21 @@ def read_json(
             # Handle decompression - avoid double decompression for PyArrow filesystem
             if should_decompress:
                 # PyArrow filesystem already handles .gz decompression automatically
-                return pajson.read_json(f, **read_kwargs)
+                return pajson.read_json(f, **pyarrow_kwargs)
             else:
                 # Apply explicit decompression if needed
                 input_file_init = ENCODING_TO_FILE_INIT.get(
                     content_encoding, lambda x: x
                 )
                 with input_file_init(f) as input_file:
-                    return pajson.read_json(input_file, **read_kwargs)
+                    return pajson.read_json(input_file, **pyarrow_kwargs)
     else:
         # fsspec AbstractFileSystem
         with filesystem.open(path, "rb", **fs_open_kwargs) as f:
             # Handle decompression - apply explicit decompression for fsspec
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                return pajson.read_json(input_file, **read_kwargs)
+                return pajson.read_json(input_file, **pyarrow_kwargs)
 
 
 def read_orc(
@@ -360,13 +372,17 @@ def read_orc(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
+    from deltacat.types.tables import _filter_kwargs_for_external_readers
+
+    pyarrow_kwargs = _filter_kwargs_for_external_readers(read_kwargs)
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                return paorc.read_table(input_file, **read_kwargs)
+                return paorc.read_table(input_file, **pyarrow_kwargs)
     else:
         # fsspec AbstractFileSystem - ORC requires seekable files, so handle compression differently
         if content_encoding != ContentEncoding.IDENTITY.value:
@@ -384,11 +400,11 @@ def read_orc(
                     with tempfile.NamedTemporaryFile() as temp_file:
                         shutil.copyfileobj(input_file, temp_file)
                         temp_file.flush()
-                        return paorc.read_table(temp_file.name, **read_kwargs)
+                        return paorc.read_table(temp_file.name, **pyarrow_kwargs)
         else:
             # No compression, can read directly
             with filesystem.open(path, "rb", **fs_open_kwargs) as f:
-                return paorc.read_table(f, **read_kwargs)
+                return paorc.read_table(f, **pyarrow_kwargs)
 
 
 def read_parquet(
@@ -408,7 +424,10 @@ def read_parquet(
             read_kwargs["schema"] = schema.arrow
 
     # Filter out DeltaCAT-specific parameters that PyArrow doesn't understand
-    pyarrow_kwargs = {k: v for k, v in read_kwargs.items() if k not in ["entry_params"]}
+    # Use local import to avoid circular dependency
+    from deltacat.types.tables import _filter_kwargs_for_external_readers
+
+    pyarrow_kwargs = _filter_kwargs_for_external_readers(read_kwargs)
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_input_file(path, **fs_open_kwargs) as f:
@@ -433,6 +452,10 @@ def read_avro(
     content_encoding: str = ContentEncoding.IDENTITY.value,
     **read_kwargs,
 ) -> pa.Table:
+    # Filter out DeltaCAT-specific parameters that Polars doesn't understand
+    from deltacat.types.tables import _filter_kwargs_for_external_readers
+
+    polars_kwargs = _filter_kwargs_for_external_readers(read_kwargs)
     """
     Read an Avro file using polars and convert to PyArrow.
     """
@@ -440,7 +463,7 @@ def read_avro(
 
     # If path is a file-like object, read directly
     if hasattr(path, "read"):
-        pl_df = pl.read_avro(path, **read_kwargs)
+        pl_df = pl.read_avro(path, **polars_kwargs)
         return pl_df.to_arrow()
 
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
@@ -449,12 +472,12 @@ def read_avro(
             # Handle compression
             input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
             with input_file_init(f) as input_file:
-                pl_df = pl.read_avro(input_file, **read_kwargs)
+                pl_df = pl.read_avro(input_file, **polars_kwargs)
                 return pl_df.to_arrow()
     with filesystem.open(path, "rb", **fs_open_kwargs) as f:
         input_file_init = ENCODING_TO_FILE_INIT.get(content_encoding, lambda x: x)
         with input_file_init(f) as input_file:
-            pl_df = pl.read_avro(input_file, **read_kwargs)
+            pl_df = pl.read_avro(input_file, **polars_kwargs)
             return pl_df.to_arrow()
 
 
@@ -1961,6 +1984,10 @@ def get_supported_test_types() -> List[Tuple[str, str, List[Any]]]:
         (
             "fixed_shape_tensor",
             "pa.fixed_shape_tensor(pa.int32(), [3, 3])",
-            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [
+                np.array([1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=np.int32),
+                np.array([10, 11, 12, 13, 14, 15, 16, 17, 18], dtype=np.int32),
+                np.array([19, 20, 21, 22, 23, 24, 25, 26, 27], dtype=np.int32),
+            ],
         ),
     ]

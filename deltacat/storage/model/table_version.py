@@ -34,7 +34,13 @@ from deltacat.storage.model.table import (
 from deltacat.types.media import ContentType, DatasetType
 from deltacat.storage.model.sort_key import SortScheme, SortSchemeList
 from deltacat.storage.model.types import LifecycleState
-from deltacat.types.tables import TableProperty, TablePropertyDefaultValues
+from deltacat.types.tables import (
+    SchemaConsistencyType,
+    SchemaEvolutionMode,
+    TableProperty,
+    TablePropertyDefaultValues,
+    TableReadOptimizationLevel,
+)
 
 TableVersionProperties = Dict[str, Any]
 
@@ -367,10 +373,16 @@ class TableVersion(Metafile):
         properties = self.properties or {}
         value = properties.get(property.value, TablePropertyDefaultValues[property])
 
-        # Handle type conversion for complex properties
+        # Handle property type conversion
         if property == TableProperty.SUPPORTED_READER_TYPES and isinstance(value, list):
             # Convert string values back to DatasetType enums
             return [DatasetType(v) for v in value]
+        if property == TableProperty.SCHEMA_EVOLUTION_MODE:
+            return SchemaEvolutionMode(value)
+        if property == TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE:
+            return SchemaConsistencyType(value)
+        if property == TableProperty.READ_OPTIMIZATION_LEVEL:
+            return TableReadOptimizationLevel(value)
         return value
 
     @staticmethod

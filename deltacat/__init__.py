@@ -88,9 +88,10 @@ from deltacat.types.tables import (
     TableProperty,
     TableReadOptimizationLevel,
     SchemaEvolutionMode,
-    from_pyarrow,
-    to_pyarrow,
     from_pandas,
+    from_pyarrow,
+    from_manifest_table,
+    to_pyarrow,
     to_pandas,
 )
 from deltacat.utils.url import DeltaCatUrl
@@ -146,6 +147,7 @@ __all__ = [
     "raise_if_not_initialized",
     "from_pandas",
     "from_pyarrow",
+    "from_manifest_table",
     "to_pandas",
     "to_pyarrow",
     "BucketingStrategy",
