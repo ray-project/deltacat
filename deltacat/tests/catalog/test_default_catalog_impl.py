@@ -2267,7 +2267,11 @@ class TestDatasetTypes:
         ],
     )
     def test_custom_kwargs_comprehensive_local_storage(
-        self, temp_catalog_properties, read_as, dataset_name, custom_kwargs
+        self, 
+        temp_catalog_properties, 
+        read_as, 
+        dataset_name, 
+        custom_kwargs,
     ):
         """Test custom kwargs propagation with all storage types using local filesystem."""
         namespace = "test_namespace"

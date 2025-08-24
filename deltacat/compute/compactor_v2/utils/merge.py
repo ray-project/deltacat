@@ -48,6 +48,12 @@ def materialize(
         # TODO (pdames): compare performance to pandas-native materialize path
         df = compacted_table.to_pandas(split_blocks=True, self_destruct=True)
         compacted_table = df
+    # Extract schema from table_writer_kwargs to pass as direct parameter
+    # This ensures schema_id is properly set in the manifest
+    schema = None
+    if input.table_writer_kwargs and "schema" in input.table_writer_kwargs:
+        schema = input.table_writer_kwargs["schema"]
+
     delta, stage_delta_time = timed_invocation(
         input.deltacat_storage.stage_delta,
         compacted_table,
@@ -55,6 +61,7 @@ def materialize(
         delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
         max_records_per_entry=input.max_records_per_output_file,
         content_type=input.compacted_file_content_type,
+        schema=schema,  # Pass schema as direct parameter for schema_id extraction
         table_writer_kwargs=input.table_writer_kwargs,
         **input.deltacat_storage_kwargs,
     )
