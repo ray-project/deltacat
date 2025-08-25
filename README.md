@@ -20,7 +20,7 @@ DeltaCAT provides four high-level components:
 DeltaCAT leverages its **Catalog**, **Compute**, and **Storage** components to provide unified data management for your Ray applications. It automates data indexing, change management, schema evolution, dataset read/write optimization, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
 
 <p align="center">
-  <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:55%; height:auto; text-align: center;">
+  <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:100%; height:auto; text-align: center;">
 </p>
 
 Data consumers that prefer to stay within this ecosystem of Pythonic data management tools can use DeltaCAT's native catalog and table formats to manage their data with minimal concessions. For integration with existing analytical compute frameworks (e.g., Spark, Trino, Flink), DeltaCAT's **Sync** component (under development) lets you synchronize your tables to Iceberg, Hive, and other table formats with minimal overhead.
