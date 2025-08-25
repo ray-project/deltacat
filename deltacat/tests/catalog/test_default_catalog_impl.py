@@ -9502,3 +9502,152 @@ class TestTablePropertyInheritance:
             ]
             == 1000
         ), "Table version 2 should inherit from table (1000), not from table version 1 (500)"
+
+
+class TestSchemalessContentTypeBehavior:
+    """Test behavior of schemaless content types like CSV."""
+
+    @pytest.fixture
+    def schemaless_catalog(self, temp_catalog_properties):
+        """Set up a catalog for schemaless content type tests."""
+        dc.init()
+        catalog_name = "schemaless_test_catalog"
+        catalog = dc.put_catalog(
+            catalog_name,
+            catalog=Catalog(config=temp_catalog_properties),
+        )
+        namespace = "schemaless_namespace"
+        dc.create_namespace(namespace=namespace, catalog=catalog_name)
+        return {
+            "catalog_name": catalog_name,
+            "catalog": catalog,
+            "namespace": namespace,
+        }
+
+    def test_csv_write_without_explicit_schema_fails(self, schemaless_catalog):
+        """Test that CSV write without explicit schema=None fails due to schema inference."""
+        catalog_name = schemaless_catalog["catalog_name"]
+        namespace = schemaless_catalog["namespace"]
+        table_name = "csv_inferred_schema_test"
+
+        # Test data
+        csv_data = pd.DataFrame(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+        )
+
+        # When schema is not explicitly set to None, DeltaCAT infers schema from data
+        # But CSV is a schemaless content type and cannot be written to tables with schemas
+        with pytest.raises(TableValidationError) as exc_info:
+            dc.write_to_table(
+                data=csv_data,
+                table=table_name,
+                namespace=namespace,
+                catalog=catalog_name,
+                mode=TableWriteMode.CREATE,
+                content_type=ContentType.CSV,
+                # Note: No explicit schema=None
+            )
+
+        # Verify the specific error message about schemaless content types
+        error_message = str(exc_info.value)
+        assert "schemaless" in error_message.lower()
+        assert "text/csv" in error_message
+        assert "cannot be written to a table with a schema" in error_message
+
+    def test_csv_write_with_explicit_schema_none_works(self, schemaless_catalog):
+        """Test that CSV write with explicit schema=None works correctly."""
+        catalog_name = schemaless_catalog["catalog_name"]
+        namespace = schemaless_catalog["namespace"]
+        table_name = "csv_schemaless_test"
+
+        # Test data
+        csv_data_1 = pd.DataFrame(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+        )
+
+        csv_data_2 = pd.DataFrame(
+            {"id": [4, 5, 6], "name": ["Diana", "Eve", "Frank"], "age": [28, 32, 29]}
+        )
+
+        # First write with explicit schema=None should succeed
+        dc.write_to_table(
+            data=csv_data_1,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.CSV,
+            schema=None,
+        )
+
+        # Verify table was created with no schema
+        table_info = dc.get_table(table_name, namespace=namespace, catalog=catalog_name)
+        assert (
+            table_info.table_version.schema is None
+        ), "Schemaless table should have schema=None"
+
+        # Second CSV write (APPEND) should also work
+        dc.write_to_table(
+            data=csv_data_2,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.CSV,
+        )
+
+        # Verify we can read back the data (returns manifest/file paths for schemaless tables)
+        result = dc.read_table(table_name, namespace=namespace, catalog=catalog_name)
+        assert result is not None
+        # For schemaless tables, DeltaCAT typically returns Daft DataFrame with manifest columns
+        assert hasattr(result, "columns")
+
+    def test_mixed_content_types_on_schemaless_table(self, schemaless_catalog):
+        """Test that schemaless tables can accept different content types."""
+        catalog_name = schemaless_catalog["catalog_name"]
+        namespace = schemaless_catalog["namespace"]
+        table_name = "mixed_content_test"
+
+        # Test data
+        test_data = pd.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+
+        # Create schemaless table with CSV
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.CSV,
+            schema=None,
+        )
+
+        # Append Parquet data to the same schemaless table
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+        )
+
+        # Append JSON data to the same schemaless table
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.JSON,
+        )
+
+        # Verify table still has no schema
+        table_info = dc.get_table(table_name, namespace=namespace, catalog=catalog_name)
+        assert (
+            table_info.table_version.schema is None
+        ), "Mixed content schemaless table should remain schemaless"
+
+        # Verify we can read back the data
+        result = dc.read_table(table_name, namespace=namespace, catalog=catalog_name)
+        assert result is not None

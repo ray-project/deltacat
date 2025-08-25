@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/deltacat-logo-alpha-750.png" alt="DeltaCAT Logo" style="width:55%; height:auto; text-align: center;">
+  <img src="media/deltacat-logo-alpha-750.png" alt="deltacat logo" style="width:55%; height:auto; text-align: center;">
 </p>
 
 DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
@@ -11,14 +11,110 @@ It uses the Ray distributed compute framework together with [Apache Arrow](https
 merge-on-read and copy-on-write operations.
 
 DeltaCAT provides four high-level components:
-1. **Catalog**: High-level APIs to create, discover, organize, share, and manage datasets.
-2. **Compute**: Distributed data management procedures to read, write, and optimize datasets.
-3. **Storage**: In-memory and on-disk multimodal dataset formats.
+1. [**Catalog**](deltacat/catalog/): High-level APIs to create, discover, organize, share, and manage datasets.
+2. [**Compute**](deltacat/compute/): Distributed data management procedures to read, write, and optimize datasets.
+3. [**Storage**](deltacat/storage/): In-memory and on-disk multimodal dataset formats.
 4. **Sync**: Synchronize DeltaCAT datasets to data warehouses and other table formats.
 
+## Overview
+DeltaCAT leverages its **Catalog**, **Compute**, and **Storage** components to provide unified data management for your Ray applications. It automates data indexing, change management, schema evolution, dataset read/write optimization, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
+
+<p align="center">
+  <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:55%; height:auto; text-align: center;">
+</p>
+
+Data consumers that prefer to stay within this ecosystem of Pythonic data management tools can use DeltaCAT's native catalog and table formats to manage their data with minimal concessions. For integration with existing analytical compute frameworks (e.g., Spark, Trino, Flink), DeltaCAT's **Sync** component (under development) lets you synchronize your tables to Iceberg, Hive, and other table formats with minimal overhead.
 
 ## Getting Started
+DeltaCAT applications run anywhere that Ray apps run, including your local laptop, cloud computing clusters, or on-premise clusters. Fundamentally, DeltaCAT lets you to manage **Tables** spread across one or more **Catalogs**. A **Table** can be thought of as a collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to index information about one or more tables, and can be rooted in any PyArrow-compatible file system. **Tables** can be created, read, and written using the `dc.write_to_table` and `dc.read_table` APIs.
 
-DeltaCAT is rapidly evolving. Usage instructions will be posted here soon!
+### Quick Start
 
-For now, feel free to peruse some of our [examples](https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/).
+```python
+import deltacat as dc
+import pandas as pd
+
+# Initialize DeltaCAT with a local catalog.
+# Ray will be initialized automatically.
+# Files will be stored under .deltacat/ in the current working directory.
+dc.init({"my_catalog", dc.Catalog())
+
+# Create a Pandas DataFrame to write
+data = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [25, 30, 35]
+})
+
+# Write data to a table - table creation is handled automatically.
+dc.write_to_table(data, "users")
+
+# Read the data back as a Daft DataFrame.
+# Daft lazily and automatically distributes data across your Ray cluster.
+daft_df = dc.read_table("users")  # Returns Daft DataFrame (default)
+daft_df.show()  # Materialize and print the DataFrame
+
+# Append more data to the table with a new column.
+# Compaction and zero-copy schema evolution are handled automatically.
+data = pd.DataFrame({
+    "id": [4, 5, 6],
+    "name": ["Diana", "Ethan", "Fiona"],
+    "age": [40, 45, 50],
+    "city": ["New York", "Los Angeles", "Chicago"]
+})
+dc.write_to_table(data, "users")
+
+# Read the full table back into a Daft DataFrame.
+daft_df = dc.read_table("users")
+daft_df.select("name", "city").show()  # Just print the names and cities
+```
+
+### Supported Dataset and Content Types
+DeltaCAT is designed to simplify data management at any scale by building on top of open dataset and content types already integrated with Ray and Arrow. For example, we can also read data back as a distributed Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects as follows:
+
+```python
+# Read as a distributed Ray Dataset:
+ray_dataset = dc.read_table("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ray Dataset
+
+# Or read directly into eagerly materialized local datasets:
+pandas_df = dc.read_table("users", read_as=dc.DatasetType.PANDAS)  # Returns Pandas DataFrame
+pyarrow_table = dc.read_table("users", read_as=dc.DatasetType.PYARROW)  # Returns PyArrow Table
+polars_df = dc.read_table("users", read_as=dc.DatasetType.POLARS)  # Returns Polars DataFrame
+numpy_array = dc.read_table("users", read_as=dc.DatasetType.NUMPY)  # Returns NumPy Array
+
+# Or into a lazily materialized list of PyArrow ParquetFile objects:
+pyarrow_pq_files = dc.read_table("users", read_as=dc.DatasetType.PYARROW_PARQUET)  # Returns List[ParquetFile]
+```
+
+```python
+# Write different dataset types to the default file content type (Parquet)
+dc.write_to_table(daft_df, "my_daft_table")  # Daft DataFrame
+dc.write_to_table(ray_dataset, "my_ray_dataset")  # Ray Dataset
+dc.write_to_table(pandas_df, "my_pandas_table")  # Pandas DataFrame
+dc.write_to_table(pyarrow_table, "my_pyarrow_table")  # PyArrow Table
+dc.write_to_table(polars_df, "my_polars_table")  # Polars DataFrame
+dc.write_to_table(numpy_array, "my_numpy_table")  # NumPy Array
+
+# Write content types with schemas to standard tables with schemas
+dc.write_to_table(data, "my_parquet_table", content_type=dc.ContentType.PARQUET)  # Default
+dc.write_to_table(data, "my_avro_table", content_type=dc.ContentType.AVRO)  # Write Avro
+dc.write_to_table(data, "my_orc_table", content_type=dc.ContentType.ORC)  # Write ORC
+dc.write_to_table(data, "my_feather_table", content_type=dc.ContentType.FEATHER)  # Write Feather
+
+# Write schemaless content types to schemaless tables
+dc.write_to_table(data, "my_csv_table", schema=None, content_type=dc.ContentType.CSV)  # Write Gzipped CSV
+dc.write_to_table(data, "my_json_table", schema=None, content_type=dc.ContentType.JSON)  # Write Gzipped JSON
+dc.write_to_table(data, "my_json_table", schema=None, content_type=dc.ContentType.BINARY)  # Write Binary
+```
+Note that schemaless tables cannot be transitioned back to standard tables with schemas, and vice versa. For more information, see the DeltaCAT [Schema Docs](deltacat/docs/schema/README.md) and [Table Docs](deltacat/docs/table/README.md).
+
+### Additional Resources
+#### Examples
+
+The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced application like external data source indexers and custom dataset compactors. They also demonstrate some experimental Apache Iceberg and Beam integrations.
+
+#### DeltaCAT URLs and Filesystem APIs
+The [DeltaCAT API Tests](deltacat/tests/test_deltacat_api.py) provide examples of how to efficiently explore, clone, and manipulate DeltaCAT catalogs by using DeltaCAT URLs together with filesystem-like list/copy/get/put APIs.
+
+#### DeltaCAT Catalog APIs
+The [Default Catalog Tests](deltacat/tests/catalog/test_default_catalog_impl.py) provide more exhaustive examples of DeltaCAT **Catalog** API behavior.

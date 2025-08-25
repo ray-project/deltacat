@@ -233,7 +233,7 @@ TABLE_CLASS_TO_PYARROW_FUNC: Dict[
     pa.Table: lambda table, *, schema, **kwargs: table,
     papq.ParquetFile: lambda table, *, schema, **kwargs: table.read(**kwargs),
     pd.DataFrame: lambda table, *, schema, **kwargs: pa.Table.from_pandas(
-        table, schema=schema, **kwargs
+        table, schema=schema, preserve_index=False, **kwargs
     ),
     pl.DataFrame: lambda table, *, schema, **kwargs: pl.DataFrame.to_arrow(
         table, **kwargs
