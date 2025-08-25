@@ -481,9 +481,9 @@ A schemaless table is created via `dc.create_table(new_table_name)` (schema omit
 `dc.write_to_table(data, new_table_name, schema=None)` (schema explicitly set to `None` when writing
 to a new table). Schemaless tables only save a record of files written to them over time without schema
 inference, data validation, or data coercion. Since it may not be possible to derive a unified schema on
-read, data returned via `dc.read_table(table_name)` is always an ordered list of files written to the
-table and their manifest entry info (e.g., size, content type, content encoding, etc.) referred to as a
-**Manifest Table**. For example:
+read, data returned via `manifest_table = dc.read_table(table_name)` is always a **Manifest Table**
+containing an ordered list of files written to the table and their manifest entry info (e.g., size,
+content type, content encoding, etc.). For example:
 
 | Column                     | Value                     | Type     | Description                                          |
 |----------------------------|---------------------------|----------|------------------------------------------------------|
@@ -500,24 +500,25 @@ table and their manifest entry info (e.g., size, content type, content encoding,
 | stream_position            | 2                         | int64    | This delta's stream position                         |
 | path                       | /my_catalog/data/file.pq  | str      | File path relative to catalog root                   |
 
-If you know that this data can be read into a standard DeltaCAT dataset type (e.g., Daft, Ray Data, PyArrow,
-Pandas, Polars), then you can materialize the manifest table via a call to
-`dc.from_manifest_table(manifest_table)`.
+If you know that all paths can be read into a standard DeltaCAT dataset type (e.g., Daft, Ray Data, PyArrow,
+Pandas, Polars), then this manifest table can be materialized via
+`dataframe = dc.from_manifest_table(manifest_table)`.
 
 Once created, schemaless tables cannot be altered to have a schema.
 
 ## Standard Tables
 Tables with schemas have their data validation and schema evolution behavior governed by **Schema
-Consistency Types** and **Schema Evolution Modes** to ensure that the table can always be materialized
-with a unified schema at read time. By default, a DeltaCAT table created via `dc.create_table(table_name)`
-infers a unified Arrow schema on write and rejects writes that would break reads for one or more supported
-dataset types. Once created, standard tables cannot be altered to be schemaless.
+Consistency Types** and **Schema Evolution Modes**. This ensures that the table can always be materialized
+with a unified schema at read time. By default, any DeltaCAT table created via
+`dc.write_to_table(data, new_table_name)` infers a unified Arrow schema on write, and rejects writes
+that would break reads for one or more supported dataset types. Once created, a standard table's
+schema cannot be dropped.
 
 ## Schema Consistency Types
-DeltaCAT table schemas can either be **inferred** to follow the shape of written data or **enforced**
-to define the shape of written data. The default schema consistency type of all fields in a DeltaCAT
-table schema is configured by setting the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property to one
-of the following values:
+DeltaCAT table schemas can either be **inferred** (default behavior) to follow the shape of written data
+or **enforced** to define the shape of written data. The default schema consistency type of all fields
+in a DeltaCAT table schema is configured by setting the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property
+to one of the following values:
 
 \n\n**NONE** (default): No data consistency checks are run. The schema field's type will be automatically
 promoted to the most permissive Arrow data type that all values can be safely cast to using
@@ -528,7 +529,7 @@ then a `SchemaValidationError` will be raised.
 will be coerced using either `pyarrow.compute.cast` or `daft.expression.cast` with default options. If the
 field cannot be coerced to fit the given type, then a `SchemaValidationError` will be raised.
 
-\n\n**VALIDATE**: Strict data consistency checks. An error is raised for any field that doesn't fit the schema.
+\n\n**VALIDATE**: Strict data consistency checks. An error is raised for any field that doesn't match the schema.
 
 A field's Schema Consistency Type can only be updated from least to most permissive (VALIDATE -> COERCE -> NONE).
 
@@ -537,15 +538,17 @@ Schema evolution modes control how schema changes are handled when writing to a 
 A table's schema evolution mode is configured by setting the `SCHEMA_EVOLUTION_MODE`
 table property to one of the following values:
 
-\n\n**AUTO** (default): Schema changes are automatically handled. New fields are added to
-the schema with their Schema Consistency Type determined by the
-`DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property.
+\n\n**AUTO** (default): New fields are automatically added to the table schema at write time with their
+Schema Consistency Type set by the `DEFAULT_SCHEMA_CONSISTENCY_TYPE` table property.
 
-\n\n**MANUAL**: Schema changes must be made explicitly via `dc.alter_table()`. Attempts to
-write data with fields not in the existing schema will raise a `SchemaValidationError`.
+\n\n**MANUAL**: Existing schema fields with a Schema Consistency Type of `None` will continue to be automatically
+updated to match the written data. New fields and other schema changes must be made explicitly via
+`dc.alter_table(table_name, schema_updates=new_schema_updates)`. Attempts to write data with fields not in the
+existing schema will raise a `SchemaValidationError`.
 
-\n\n**DISABLED**: Schema changes are disabled. The schema that the table was first
-created with is immutable.
+\n\n**DISABLED**: Existing schema fields with a Schema Consistency Type of `None` will continue to be automatically
+updated to match the written data. All other schema changes are disabled, and manual attempts to alter the table's
+schema will raise a `TableValidationError`.
 
 A table's Schema Evolution Mode can be updated at any time.
 
