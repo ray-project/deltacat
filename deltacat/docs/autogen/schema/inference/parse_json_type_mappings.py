@@ -477,11 +477,13 @@ def generate_complete_markdown_from_json(
 DeltaCAT tables may either be schemaless or backed by a schema based on the [Arrow type system](https://arrow.apache.org/docs/python/api/datatypes.html).
 
 ## Schemaless Tables
-A schemaless table is created via `dc.create_table(table_name, schema=None)`. Schemaless tables only save a
-record of files written to them over time without schema inference, data validation, or data coercion.
-Since it may not be possible to derive a unified schema on read, data returned via `dc.read_table(table_name)` is
-always an ordered list of files written to the table and their manifest entry info (e.g., size, content type,
-content encoding, etc.). For example:
+A schemaless table is created via `dc.create_table(new_table_name)` (schema omitted) or
+`dc.write_to_table(data, new_table_name, schema=None)` (schema explicitly set to `None` when writing
+to a new table). Schemaless tables only save a record of files written to them over time without schema
+inference, data validation, or data coercion. Since it may not be possible to derive a unified schema on
+read, data returned via `dc.read_table(table_name)` is always an ordered list of files written to the
+table and their manifest entry info (e.g., size, content type, content encoding, etc.) referred to as a
+**Manifest Table**. For example:
 
 | Column                     | Value                     | Type     | Description                                          |
 |----------------------------|---------------------------|----------|------------------------------------------------------|
@@ -498,12 +500,17 @@ content encoding, etc.). For example:
 | stream_position            | 2                         | int64    | This delta's stream position                         |
 | path                       | /my_catalog/data/file.pq  | str      | File path relative to catalog root                   |
 
+If you know that this data can be read into a standard DeltaCAT dataset type (e.g., Daft, Ray Data, PyArrow,
+Pandas, Polars), then you can materialize the manifest table via a call to
+`dc.from_manifest_table(manifest_table)`.
+
+Once created, schemaless tables cannot be altered to have a schema.
 
 ## Standard Tables
 Tables with schemas have their data validation and schema evolution behavior governed by **Schema
 Consistency Types** and **Schema Evolution Modes** to ensure that the table can always be materialized
 with a unified schema at read time. By default, a DeltaCAT table created via `dc.create_table(table_name)`
-infers a unified Arrow schema on write.
+infers a unified Arrow schema on write. Once created, standard tables cannot be altered to be schemaless.
 
 ## Schema Consistency Types
 DeltaCAT table schemas can either be **inferred** to follow the shape of written data or **enforced**
