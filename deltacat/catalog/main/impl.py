@@ -1820,9 +1820,6 @@ def alter_table(
             **kwargs,
         )
 
-        # inherit properties from the parent table if not specified
-        default_tv_properties = new_table.properties
-
         if table_version is None:
             table_version: Optional[TableVersion] = _get_storage(
                 **kwargs
@@ -1850,14 +1847,19 @@ def alter_table(
                 "Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates."
             )
 
-        if table_version.schema is None:
-            # schemaless tables don't validate reader compatibility by default
-            default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
-        resolved_tv_properties = _add_default_table_properties(
-            table_version_properties,
-            default_tv_properties,
-        )
-        _validate_table_properties(resolved_tv_properties)
+        # Only update table version properties if they are explicitly provided
+        resolved_tv_properties = None
+        if table_version_properties is not None:
+            # inherit properties from the parent table if not specified
+            default_tv_properties = new_table.properties
+            if table_version.schema is None:
+                # schemaless tables don't validate reader compatibility by default
+                default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
+            resolved_tv_properties = _add_default_table_properties(
+                table_version_properties,
+                default_tv_properties,
+            )
+            _validate_table_properties(resolved_tv_properties)
 
         # Apply schema updates if provided
         updated_schema = None
@@ -1880,7 +1882,7 @@ def alter_table(
             lifecycle_state=lifecycle_state,
             description=table_version_description or table_description,
             schema=updated_schema,
-            properties=resolved_tv_properties,
+            properties=resolved_tv_properties,  # This will be None if table_version_properties was not provided
             **kwargs,
         )
 
@@ -1969,13 +1971,7 @@ def create_table(
         NamespaceNotFoundError: If the provided namespace does not exist.
     """
     resolved_table_properties = _add_default_table_properties(table_properties)
-    default_tv_properties = resolved_table_properties
-    if schema is None:
-        default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
-    resolved_tv_properties = _add_default_table_properties(
-        table_version_properties, default_tv_properties
-    )
-    _validate_table_properties(resolved_tv_properties)
+    # Note: resolved_tv_properties will be set after checking existing table
 
     namespace = namespace or default_namespace()
 
@@ -2008,8 +2004,19 @@ def create_table(
                     )
                 return existing_table
             # the table exists but the table version doesn't - inherit the existing table properties
-            resolved_tv_properties = (
-                resolved_tv_properties or existing_table.table.properties
+            # Also ensure table properties are inherited when not explicitly provided
+            if table_properties is None:
+                resolved_table_properties = existing_table.table.properties
+
+            # Set up table version properties based on existing table or explicit properties
+            default_tv_properties = resolved_table_properties
+            if schema is None:
+                default_tv_properties = dict(
+                    default_tv_properties
+                )  # Make a copy to avoid modifying original
+                default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
+            resolved_tv_properties = _add_default_table_properties(
+                table_version_properties, default_tv_properties
             )
         else:
             # create the namespace if it doesn't exist
@@ -2020,6 +2027,20 @@ def create_table(
                     *args,
                     **kwargs,
                 )
+
+            # Set up table version properties for new table
+            default_tv_properties = resolved_table_properties
+            if schema is None:
+                default_tv_properties = dict(
+                    default_tv_properties
+                )  # Make a copy to avoid modifying original
+                default_tv_properties[TableProperty.SUPPORTED_READER_TYPES] = None
+            resolved_tv_properties = _add_default_table_properties(
+                table_version_properties, default_tv_properties
+            )
+
+        _validate_table_properties(resolved_tv_properties)
+
         (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
             namespace=namespace,
             table_name=table,

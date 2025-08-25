@@ -41,6 +41,7 @@ from deltacat.storage.model.schema import (
     MergeOrder,
 )
 from deltacat.storage.model.table import TableProperties
+from deltacat.storage.model.table_version import TableVersionProperties
 from deltacat.storage.model.types import (
     SchemaConsistencyType,
     SortOrder,
@@ -9074,3 +9075,430 @@ class TestAlterTable:
                 schema_updates=schema_updates,
                 table_description="Should fail",
             )
+
+
+class TestTablePropertyInheritance:
+    """
+    Test suite for table property inheritance behavior.
+
+    Tests that table versions inherit table properties from their parent table
+    when no explicit table_version_properties are provided, and that this
+    inheritance happens at creation time (not dynamically).
+    """
+
+    @pytest.fixture
+    def table_property_catalog(self, temp_catalog_properties):
+        """Fixture to set up catalog and namespace for table property inheritance tests."""
+        dc.init()
+
+        catalog_name = f"table-property-inheritance-test-{uuid.uuid4()}"
+        catalog = dc.put_catalog(
+            catalog_name,
+            catalog=Catalog(config=temp_catalog_properties),
+        )
+
+        # Set up test namespace
+        test_namespace = "test_inheritance"
+        dc.create_namespace(
+            namespace=test_namespace,
+            catalog=catalog_name,
+        )
+
+        yield {
+            "catalog_properties": temp_catalog_properties,
+            "catalog_name": catalog_name,
+            "catalog": catalog,
+            "test_namespace": test_namespace,
+        }
+
+    def test_table_version_inherits_parent_table_properties(
+        self, table_property_catalog
+    ):
+        """Test that table versions inherit parent table properties when created without explicit properties."""
+        catalog_name = table_property_catalog["catalog_name"]
+        namespace = table_property_catalog["test_namespace"]
+        table_name = "inheritance_test_table"
+
+        # Define initial table properties
+        initial_table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 100,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 8,
+        }
+
+        # Create initial test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "value": ["a", "b", "c"],
+                "timestamp": pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"]),
+            }
+        )
+
+        # Create table with initial properties (creates table version 1)
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            table_properties=initial_table_properties,
+            # Note: No table_version_properties specified - should inherit from table_properties
+        )
+
+        # Get table and table version 1
+        table = dc.get_table(table_name, namespace=namespace, catalog=catalog_name)
+        table_version_1 = dc.get_table(
+            table_name, namespace=namespace, table_version="1", catalog=catalog_name
+        )
+
+        # Verify table has the core properties we set (it may have additional defaults)
+        for prop, expected_value in initial_table_properties.items():
+            assert (
+                table.table.properties[prop] == expected_value
+            ), f"Table should have {prop}={expected_value}"
+
+        # Verify table version 1 has same properties as table (inheritance working)
+        assert (
+            table_version_1.table_version.properties == table.table.properties
+        ), "Table version 1 should inherit all parent table properties"
+
+        # Create table version 2 without explicit table_version_properties
+        more_test_data = pd.DataFrame(
+            {
+                "id": [4, 5, 6],
+                "value": ["d", "e", "f"],
+                "timestamp": pd.to_datetime(["2023-01-04", "2023-01-05", "2023-01-06"]),
+            }
+        )
+
+        dc.write_to_table(
+            data=more_test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            table_version="2",
+            # Note: No table_version_properties specified - should inherit from current table_properties
+        )
+
+        # Get table version 2
+        table_version_2 = dc.get_table(
+            table_name, namespace=namespace, table_version="2", catalog=catalog_name
+        )
+
+        # Verify table version 2 inherited the key properties from parent table
+        # Note: Some system properties may be different due to table version-specific defaults
+        current_table = dc.get_table(
+            table_name, namespace=namespace, catalog=catalog_name
+        )
+
+        # Check that most core properties are inherited from the parent table
+        core_properties_to_check = [
+            TableProperty.READ_OPTIMIZATION_LEVEL,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT,
+            TableProperty.SCHEMA_EVOLUTION_MODE,
+            TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE,
+        ]
+
+        for prop in core_properties_to_check:
+            assert (
+                table_version_2.table_version.properties[prop]
+                == current_table.table.properties[prop]
+            ), f"Table version 2 should inherit {prop} from parent table"
+
+        # Verify inheritance is working - should have the values we originally set
+        assert (
+            table_version_2.table_version.properties[
+                TableProperty.READ_OPTIMIZATION_LEVEL
+            ]
+            == TableReadOptimizationLevel.MAX
+        )
+        assert (
+            table_version_2.table_version.properties[
+                TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT
+            ]
+            == 8
+        )
+
+    def test_table_version_inheritance_is_at_creation_time(
+        self, table_property_catalog
+    ):
+        """Test that table property inheritance happens at creation time, not dynamically."""
+        catalog_name = table_property_catalog["catalog_name"]
+        namespace = table_property_catalog["test_namespace"]
+        table_name = "creation_time_test_table"
+
+        # Define initial table properties
+        initial_table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,  # Only MAX is supported
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 500,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 4,  # Different from default 8
+        }
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+            }
+        )
+
+        # Create table with initial properties (creates table version 1)
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            table_properties=initial_table_properties,
+        )
+
+        # Get table version 1 - should have inherited initial properties (with potential defaults added)
+        table_version_1 = dc.get_table(
+            table_name, namespace=namespace, table_version="1", catalog=catalog_name
+        )
+        table_after_create = dc.get_table(
+            table_name, namespace=namespace, catalog=catalog_name
+        )
+        assert (
+            table_version_1.table_version.properties
+            == table_after_create.table.properties
+        ), "Table version 1 should inherit table properties"
+
+        # Verify the key properties we set are preserved
+        for prop, expected_value in initial_table_properties.items():
+            assert (
+                table_version_1.table_version.properties[prop] == expected_value
+            ), f"Table version 1 should have {prop}={expected_value}"
+
+        # Capture the original table version 1 properties before table alteration
+        original_tv1_properties = dict(table_version_1.table_version.properties)
+
+        # Update table properties
+        updated_table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,  # Same as initial
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,  # Changed from 500
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 200,  # New property
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 16,  # Changed from 4
+        }
+
+        dc.alter_table(
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            table_properties=updated_table_properties,
+        )
+
+        # Verify table now has updated properties (with potential defaults)
+        table = dc.get_table(table_name, namespace=namespace, catalog=catalog_name)
+        for prop, expected_value in updated_table_properties.items():
+            assert (
+                table.table.properties[prop] == expected_value
+            ), f"Table should have updated {prop}={expected_value}"
+
+        # Verify table version 1 still has the ORIGINAL properties (creation-time inheritance)
+        table_version_1_after_update = dc.get_table(
+            table_name, namespace=namespace, table_version="1", catalog=catalog_name
+        )
+        # Check that table version 1 properties have NOT changed (creation-time inheritance)
+        assert (
+            table_version_1_after_update.table_version.properties
+            == original_tv1_properties
+        ), "Table version 1 properties should be unchanged after table update"
+
+        # Specifically verify the original values are preserved
+        assert (
+            table_version_1_after_update.table_version.properties[
+                TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER
+            ]
+            == 500
+        ), "Table version 1 should still have original APPENDED_RECORD_COUNT_COMPACTION_TRIGGER=500"
+        assert (
+            table_version_1_after_update.table_version.properties[
+                TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT
+            ]
+            == 4
+        ), "Table version 1 should still have original DEFAULT_COMPACTION_HASH_BUCKET_COUNT=4"
+
+        # Create table version 2 - should inherit the NEW table properties
+        more_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Diana"],
+            }
+        )
+
+        dc.write_to_table(
+            data=more_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            table_version="2",
+        )
+
+        # Get table version 2 - should have inherited the updated table properties
+        table_version_2 = dc.get_table(
+            table_name, namespace=namespace, table_version="2", catalog=catalog_name
+        )
+
+        # Check that table version 2 inherited from current table (which has updated properties)
+        core_properties_to_check = [
+            TableProperty.READ_OPTIMIZATION_LEVEL,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT,
+        ]
+
+        for prop in core_properties_to_check:
+            if prop in updated_table_properties:
+                assert (
+                    table_version_2.table_version.properties[prop]
+                    == updated_table_properties[prop]
+                ), f"Table version 2 should inherit updated {prop} from parent table"
+
+        # Specifically verify the changed values
+        assert (
+            table_version_2.table_version.properties[
+                TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER
+            ]
+            == 1000
+        ), "Table version 2 should inherit updated APPENDED_RECORD_COUNT_COMPACTION_TRIGGER=1000"
+        assert (
+            table_version_2.table_version.properties[
+                TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT
+            ]
+            == 16
+        ), "Table version 2 should inherit updated DEFAULT_COMPACTION_HASH_BUCKET_COUNT=16"
+
+        # The key test is that table version 1 preserved its original properties (creation-time inheritance works)
+        # and table version 2 got created with some properties (even if defaults rather than table inheritance)
+
+        # Verify table version 1 still has original properties (creation-time inheritance)
+        table_version_1_final = dc.get_table(
+            table_name, namespace=namespace, table_version="1", catalog=catalog_name
+        )
+        assert (
+            table_version_1_final.table_version.properties == original_tv1_properties
+        ), "Table version 1 should still have original properties (creation-time inheritance)"
+
+        # Verify table version 2 has different properties than table version 1
+        assert (
+            table_version_2.table_version.properties
+            != table_version_1_final.table_version.properties
+        ), "Table version 2 should have different properties than table version 1 due to creation-time inheritance"
+
+    def test_explicit_table_version_properties_override_inheritance(
+        self, table_property_catalog
+    ):
+        """Test that explicit table_version_properties override parent table property inheritance."""
+        catalog_name = table_property_catalog["catalog_name"]
+        namespace = table_property_catalog["test_namespace"]
+        table_name = "explicit_override_test_table"
+
+        # Define table properties
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+        }
+
+        # Define different table version properties
+        explicit_table_version_properties: TableVersionProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,  # Only MAX is supported
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 500,  # Different from table (1000)
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 16,  # Different from table default
+        }
+
+        # Create test data
+        test_data = pd.DataFrame(
+            {
+                "category": ["X", "Y"],
+                "count": [10, 20],
+            }
+        )
+
+        # Create table with explicit table_version_properties
+        dc.write_to_table(
+            data=test_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            table_properties=table_properties,
+            table_version_properties=explicit_table_version_properties,
+        )
+
+        # Get table and table version 1
+        table = dc.get_table(table_name, namespace=namespace, catalog=catalog_name)
+        table_version_1 = dc.get_table(
+            table_name, namespace=namespace, table_version="1", catalog=catalog_name
+        )
+
+        # Verify table has the core properties we set (may have additional defaults)
+        for prop, expected_value in table_properties.items():
+            assert (
+                table.table.properties[prop] == expected_value
+            ), f"Table should have {prop}={expected_value}"
+
+        # Verify table version 1 has the explicit properties (not inherited) with defaults added
+        for prop, expected_value in explicit_table_version_properties.items():
+            assert (
+                table_version_1.table_version.properties[prop] == expected_value
+            ), f"Table version 1 should have explicit {prop}={expected_value}"
+
+        # Create table version 2 without explicit table_version_properties - should inherit
+        more_data = pd.DataFrame(
+            {
+                "category": ["Z"],
+                "count": [30],
+            }
+        )
+
+        dc.write_to_table(
+            data=more_data,
+            table=table_name,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+            content_type=ContentType.PARQUET,
+            table_version="2",
+            # No explicit table_version_properties - should inherit from table
+        )
+
+        # Get table version 2
+        table_version_2 = dc.get_table(
+            table_name, namespace=namespace, table_version="2", catalog=catalog_name
+        )
+
+        # Verify table version 2 inherited from table, not from table version 1
+        # Check that the key distinguishing properties are correct
+        current_table = dc.get_table(
+            table_name, namespace=namespace, catalog=catalog_name
+        )
+
+        # Table version 2 should inherit from current table properties
+        core_table_properties_to_check = [
+            TableProperty.READ_OPTIMIZATION_LEVEL,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER,
+        ]
+
+        for prop in core_table_properties_to_check:
+            assert (
+                table_version_2.table_version.properties[prop]
+                == current_table.table.properties[prop]
+            ), f"Table version 2 should inherit {prop} from parent table"
+
+        # Specifically check that it inherited table's value (1000), not table version 1's value (500)
+        assert (
+            table_version_2.table_version.properties[
+                TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER
+            ]
+            == 1000
+        ), "Table version 2 should inherit from table (1000), not from table version 1 (500)"

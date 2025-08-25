@@ -60,7 +60,7 @@ class Partition(Metafile):
         previous_partition_id: Optional[str] = None,
         stream_position: Optional[int] = None,
         partition_scheme_id: Optional[str] = None,
-        compaction_round_completion_info: Optional[Any] = None,
+        compaction_round_completion_info: Optional[RoundCompletionInfo] = None,
     ) -> Partition:
         partition = Partition()
         partition.locator = locator
@@ -149,7 +149,7 @@ class Partition(Metafile):
         self["partitionSchemeId"] = partition_scheme_id
 
     @property
-    def compaction_round_completion_info(self) -> Optional[Any]:
+    def compaction_round_completion_info(self) -> Optional[RoundCompletionInfo]:
         """
         Round completion info for compaction operations.
         This replaces the need for separate round completion files.
