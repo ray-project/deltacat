@@ -510,7 +510,8 @@ Once created, schemaless tables cannot be altered to have a schema.
 Tables with schemas have their data validation and schema evolution behavior governed by **Schema
 Consistency Types** and **Schema Evolution Modes** to ensure that the table can always be materialized
 with a unified schema at read time. By default, a DeltaCAT table created via `dc.create_table(table_name)`
-infers a unified Arrow schema on write. Once created, standard tables cannot be altered to be schemaless.
+infers a unified Arrow schema on write and rejects writes that would break reads for one or more supported
+dataset types. Once created, standard tables cannot be altered to be schemaless.
 
 ## Schema Consistency Types
 DeltaCAT table schemas can either be **inferred** to follow the shape of written data or **enforced**
