@@ -13,6 +13,7 @@ from deltacat.storage.model.namespace import (
 )
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
 from deltacat.constants import TXN_DIR_NAME
+from deltacat.types.tables import TableProperty
 
 TableProperties = Dict[str, Any]
 
@@ -132,6 +133,9 @@ class Table(Metafile):
             if catalog_name
             else f"table://{self.namespace}/{self.table_name}/"
         )
+
+    def read_table_property(self, property: TableProperty) -> Any:
+        return TableProperty.read_table_property(self, property)
 
     def to_serializable(self) -> Table:
         serializable = self

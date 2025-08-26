@@ -355,7 +355,7 @@ class TestNumpyReaders(TestCase):
 
         result_df = pd.read_parquet(path)
         assert len(result_df) == 5
-        assert "data" in result_df.columns
+        assert "0" in result_df.columns
 
     def test_ndarray_to_file_different_content_types(self):
         # Test writing ndarray to different file formats
@@ -464,9 +464,11 @@ class TestNumpyReaders(TestCase):
 
         result_df = pd.read_parquet(path)
         assert len(result_df) == 3  # 3 rows (first dimension)
-        assert "data" in result_df.columns
-        # Each row should contain an array of the second dimension
-        assert len(result_df["data"].iloc[0]) == 3
+        # 2D array should have columns "0", "1", "2"
+        assert list(result_df.columns) == ["0", "1", "2"]
+        # Verify the data values are correct (convert back to numpy for comparison)
+        result_array = result_df.to_numpy()
+        np.testing.assert_array_equal(result_array, arr_2d)
 
     def test_ndarray_to_file_empty_array(self):
         # Test writing empty arrays
@@ -488,7 +490,7 @@ class TestNumpyReaders(TestCase):
 
         result_df = pd.read_parquet(path)
         assert len(result_df) == 0  # Empty DataFrame
-        assert "data" in result_df.columns
+        assert "0" in result_df.columns
 
     def test_ndarray_to_file_large_array(self):
         # Test writing larger arrays
@@ -510,7 +512,7 @@ class TestNumpyReaders(TestCase):
 
         result_df = pd.read_parquet(path)
         assert len(result_df) == 1000
-        assert "data" in result_df.columns
+        assert "0" in result_df.columns
 
     def test_ndarray_to_file_with_custom_kwargs(self):
         # Test writing with custom kwargs
@@ -534,7 +536,7 @@ class TestNumpyReaders(TestCase):
 
         result_df = pd.read_parquet(path)
         assert len(result_df) == 5
-        assert "data" in result_df.columns
+        assert "0" in result_df.columns
 
     def test_ndarray_to_file_readback_verification(self):
         # Test that we can read back the exact data we wrote
@@ -554,7 +556,7 @@ class TestNumpyReaders(TestCase):
         import pandas as pd
 
         result_df = pd.read_parquet(path)
-        readback_arr = np.array(result_df["data"].tolist())
+        readback_arr = np.array(result_df["0"].tolist())
 
         # Check that the data matches
         np.testing.assert_array_almost_equal(original_arr, readback_arr)
@@ -606,10 +608,10 @@ class TestNumpyReaders(TestCase):
 
         result_df = pd.read_parquet(path)
         assert len(result_df) == 5
-        assert "data" in result_df.columns
+        assert "0" in result_df.columns
 
         # Check that boolean values are preserved
-        readback_arr = np.array(result_df["data"].tolist())
+        readback_arr = np.array(result_df["0"].tolist())
         np.testing.assert_array_equal(bool_arr, readback_arr)
 
     def test_ndarray_to_file_complex_dtypes(self):

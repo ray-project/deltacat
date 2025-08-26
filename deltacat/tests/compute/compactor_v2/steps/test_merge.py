@@ -22,7 +22,9 @@ from deltacat.tests.test_utils.pyarrow import (
     create_delta_from_csv_file,
     stage_partition_from_file_paths,
     commit_delta_to_staged_partition,
+    create_table_from_csv_file_paths,
 )
+from deltacat.storage.model.schema import Schema
 from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
     DeleteFileEnvelope,
 )
@@ -78,13 +80,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_multiple_hash_group_string_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            schema,
             **self.kwargs,
         )
         old_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
@@ -121,13 +127,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_multiple_hash_group_multiple_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
+            schema,
             **self.kwargs,
         )
         new_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
@@ -166,13 +176,17 @@ class TestMergeMain(unittest.TestCase):
         self._validate_merge_output(merge_res_list, 8)
 
     def test_merge_single_hash_bucket_string_pk(self):
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            schema,
             **self.kwargs,
         )
         old_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
 
@@ -199,13 +213,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_multiple_hash_group_no_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.NO_PK_TABLE])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.NO_PK_TABLE],
+            schema,
             **self.kwargs,
         )
         new_delta = commit_delta_to_staged_partition(
-            partition, [self.NO_PK_TABLE], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
@@ -247,13 +265,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_multiple_hash_group_with_can_duplicate_false(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
+            schema,
             **self.kwargs,
         )
         new_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
@@ -297,13 +319,17 @@ class TestMergeMain(unittest.TestCase):
             EqualityDeleteStrategy,
         )
 
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+            schema,
             **self.kwargs,
         )
         old_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         incremental_kwargs = {"delta_type": DeltaType.UPSERT, **self.kwargs}
@@ -327,7 +353,9 @@ class TestMergeMain(unittest.TestCase):
         delete_columns: List[
             str
         ] = delete_delta.meta.entry_params.equality_field_locators
-        delete_table = download_delta(delete_delta, **delete_kwargs)
+        # Filter out delta_type from delete_kwargs as it's not needed for download_delta
+        download_kwargs = {k: v for k, v in delete_kwargs.items() if k != "delta_type" and k != "entry_params"}
+        delete_table = download_delta(delete_delta, **download_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
                 delete_delta.stream_position,
@@ -380,13 +408,17 @@ class TestMergeMain(unittest.TestCase):
             EqualityDeleteStrategy,
         )
 
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
+            schema,
             **self.kwargs,
         )
         old_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         incremental_kwargs = {"delta_type": DeltaType.UPSERT, **self.kwargs}
@@ -410,7 +442,9 @@ class TestMergeMain(unittest.TestCase):
         delete_columns: List[
             str
         ] = delete_delta.meta.entry_params.equality_field_locators
-        delete_table = download_delta(delete_delta, **delete_kwargs)
+        # Filter out delta_type from delete_kwargs as it's not needed for download_delta
+        download_kwargs = {k: v for k, v in delete_kwargs.items() if k != "delta_type" and k != "entry_params"}
+        delete_table = download_delta(delete_delta, **download_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
                 delete_delta.stream_position,
@@ -461,13 +495,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_incremental_copy_by_reference_date_pk(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 10
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK],
+            schema,
             **self.kwargs,
         )
         old_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
 
         object_store = RayPlasmaObjectStore()
@@ -546,13 +584,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_incremental_copy_by_reference_is_disabled(self):
         number_of_hash_group = 2
         number_of_hash_bucket = 10
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK],
+            schema,
             **self.kwargs,
         )
         old_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
 
         object_store = RayPlasmaObjectStore()
@@ -630,13 +672,17 @@ class TestMergeMain(unittest.TestCase):
         assert files_untouched == 0, "Zero files must be copied by reference"
 
     def test_merge_single_hash_bucket_multiple_pk(self):
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
+            schema,
             **self.kwargs,
         )
         new_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         merge_input = MergeInput.of(
@@ -664,13 +710,17 @@ class TestMergeMain(unittest.TestCase):
     def test_merge_when_local_error_categorized_correctly(self, mock_compact_tables):
         mock_compact_tables.side_effect = InvalidNamespaceError("Invalid namespace")
 
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,  # Use unique namespace
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
+            schema,
             **self.kwargs,
         )
         new_delta = commit_delta_to_staged_partition(
-            partition, [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK], **self.kwargs
+            partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
         merge_input = MergeInput.of(

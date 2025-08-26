@@ -96,10 +96,79 @@ schema = Schema.of(
     ]
 )
 ```
-MERGE writes to this table will update the `"name"` and `"age"` fields for records with the same `"id"` value, and insert new records for any `"id"` values that don't already exist in the table. DELETE writes will remove records with matching `"id"` values.
+**MERGE** writes to this table will update the `"name"`, `"age"`, and `"city"` fields for records with the same `"id"` value, and insert new records for any `"id"` values that don't already exist in the table. **DELETE** writes will remove records with matching `"id"` values.
+
+For example, the following **MERGE** updates the `"name"`, `"age"`, and `"city"` fields for `"id"` values `1`, `2`, and `3`, and inserts new records for `"id"` values `4` and `5`:
+```python
+import deltacat as dc
+import pandas as pd
+
+data = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [25, 30, 35],
+    "city": ["New York", "Los Angeles", "Chicago"],
+})
+dc.write_to_table(
+    data,
+    "my_table",
+    mode=TableWriteMode.CREATE,
+)
+upsert_data = pd.DataFrame({
+    "id": [1, 2, 3, 4, 5],
+    "name": ["Alfred", "Bruce", "Chuck", "David", "Eve"],
+    "age": [35, 45, 55, 65, 75],
+    "city": ["London", "San Francisco", "Seattle", "Sydney", "Zurich"],
+})
+dc.write_to_table(
+    upsert_data,
+    "my_table",
+    mode=TableWriteMode.MERGE,
+)
+final_table = dc.read_table("my_table")
+print(final_table)
+# Output:
+# id  name  age city
+# 1   Alfred  35  London
+# 2   Bruce   45  San Francisco
+# 3   Chuck   55  Seattle
+# 4   David   65  Sydney
+# 5    Eve  75  Zurich
+```
+
+The following **DELETE** removes records with `"id"` values `1` and `2`:
+```python
+import deltacat as dc
+import pandas as pd
+
+data = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [25, 30, 35],
+    "city": ["New York", "Los Angeles", "Chicago"],
+})
+dc.write_to_table(
+    data,
+    "my_table",
+    mode=TableWriteMode.CREATE,
+)
+delete_data = pd.DataFrame({
+    "id": [1, 2],
+})
+dc.write_to_table(
+    delete_data,
+    "my_table",
+    mode=TableWriteMode.DELETE,
+)
+final_table = dc.read_table("my_table")
+print(final_table)
+# Output:
+# id  name  age city
+# 3  Charlie  35  Chicago
+```
 
 ## Table Properties
-Table properties are used to configure the table's behavior. They are set when the table is created via `dc.create_table` or updated via `dc.alter_table`. Any properties that are not explicitly set at table creation time will inherit default values. Table properties can be read via a table version's `read_table_property` method and updated via `dc.alter_table`.
+Table properties are used to configure the table's read/write behavior and optimization level. Custom table properties can be specified during table writes via `dc.write_to_table`, when the table is created via `dc.create_table`, and when the table is updated via `dc.alter_table`. Any properties that are not explicitly set at table creation time will inherit default values. Table properties can be read via a table version's `read_table_property` method and updated via `dc.alter_table`.
 
 For example, the following code reads the schema evolution mode of a table and updates it to `MANUAL`:
 ```python
@@ -135,7 +204,7 @@ Number of files that can be appended to the table before a compaction job will b
 Number of deltas that can be appended to the table before a compaction job will be triggered to merge them into a single delta with `RECORDS_PER_COMPACTED_FILE` records per file.
 
 **DEFAULT_COMPACTION_HASH_BUCKET_COUNT (default: 8)**
-Number of hash buckets to use during compaction for distributing records across multiple files. Higher values enable better parallelism for large datasets but may create more files for small datasets. Set to 1 to guarantee a single compacted file per partition.
+Number of hash buckets to use during compaction to distribute records across multiple workers. Higher values enable better parallelism for large datasets but may create more files for small datasets. Set to 1 to guarantee a single compacted file per partition.
 
 **SCHEMA_EVOLUTION_MODE (default: AUTO)**
 Controls how schema changes are handled when writing to a table (see [DeltaCAT Schemas](../schema/README.md)).

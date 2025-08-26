@@ -1,4 +1,5 @@
 from unittest import TestCase
+import csv
 import pandas as pd
 import tempfile
 import fsspec
@@ -295,6 +296,7 @@ class TestPandasReaders(TestCase):
             "header": None,
             "na_values": [""],
             "keep_default_na": False,
+            "quoting": csv.QUOTE_NONE,
         }
         assert unescaped_kwargs == expected_unescaped
 

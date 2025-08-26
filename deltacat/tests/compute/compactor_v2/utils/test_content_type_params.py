@@ -8,7 +8,9 @@ from deltacat.storage import metastore
 from deltacat.tests.test_utils.pyarrow import (
     stage_partition_from_file_paths,
     commit_delta_to_staged_partition,
+    create_table_from_csv_file_paths,
 )
+from deltacat.storage.model.schema import Schema
 from deltacat.utils.pyarrow import (
     ReadKwargsProviderPyArrowCsvPureUtf8,
     ReadKwargsProviderPyArrowSchemaOverride,
@@ -49,14 +51,18 @@ class TestContentTypeParamsMain:
         )
         from deltacat.types.partial_download import PartialParquetParameters
 
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            schema,
             **main_deltacat_storage_kwargs,
         )
         test_delta = commit_delta_to_staged_partition(
             partition,
-            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            csv_table,
             **main_deltacat_storage_kwargs,
         )
         test_entry_index = 0
@@ -143,14 +149,18 @@ class TestContentTypeParamsMain:
             _download_parquet_metadata_for_manifest_entry,
         )
 
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_NO_DUPLICATION_STRING_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
             [self.DEDUPE_NO_DUPLICATION_STRING_PK],
+            schema,
             **main_deltacat_storage_kwargs,
         )
         test_delta = commit_delta_to_staged_partition(
             partition,
-            [self.DEDUPE_NO_DUPLICATION_STRING_PK],
+            csv_table,
             **main_deltacat_storage_kwargs,
         )
         test_entry_index = 0
@@ -202,14 +212,18 @@ class TestContentTypeParamsMain:
             "file_reader_kwargs_provider"
         ] = ReadKwargsProviderPyArrowCsvPureUtf8()
 
+        # Create schema from CSV file
+        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            schema,
             **main_deltacat_storage_kwargs,
         )
         test_delta = commit_delta_to_staged_partition(
             partition,
-            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
+            csv_table,
             **main_deltacat_storage_kwargs,
         )
         test_entry_index = 0

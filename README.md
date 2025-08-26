@@ -10,23 +10,23 @@ It uses the Ray distributed compute framework together with [Apache Arrow](https
 [Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale common table management tasks, like petabyte-scale
 merge-on-read and copy-on-write operations.
 
-DeltaCAT provides four high-level components:
+DeltaCAT provides the following high-level components:
 1. [**Catalog**](deltacat/catalog/): High-level APIs to create, discover, organize, share, and manage datasets.
 2. [**Compute**](deltacat/compute/): Distributed data management procedures to read, write, and optimize datasets.
 3. [**Storage**](deltacat/storage/): In-memory and on-disk multimodal dataset formats.
-4. **Sync**: Synchronize DeltaCAT datasets to data warehouses and other table formats.
+4. **Sync** (in development): Synchronize DeltaCAT datasets to data warehouses and other table formats.
 
 ## Overview
-DeltaCAT's **Catalog**, **Compute**, and **Storage** components work together to provide any Ray application with a unified durable data manager. It automates data indexing, change management, dataset read/write optimization, schema evolution, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
+DeltaCAT's **Catalog**, **Compute**, and **Storage** work together to bring unified durable data management to any Ray application. It automates data indexing, change management, dataset read/write optimization, schema evolution, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
 
 <p align="center">
   <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:100%; height:auto; text-align: center;">
 </p>
 
-Data consumers that prefer to stay within this ecosystem of Pythonic data management tools can use DeltaCAT's native catalog and table formats to manage their data with minimal concessions. For integration with existing analytical compute frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component (under development) lets you synchronize your tables to Apache Iceberg and other table formats with minimal overhead.
+Data consumers that prefer to stay within the ecosystem of Pythonic data management tools can use DeltaCAT's native table format to manage their data with minimal overhead. For integration with other data analytics frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component lets you synchronize your tables to Apache Iceberg and other table formats with minimal overhead.
 
 ## Getting Started
-DeltaCAT applications run anywhere that Ray apps run, including your local laptop, cloud computing clusters, or on-premise clusters. Fundamentally, DeltaCAT lets you to manage **Tables** spread across one or more **Catalogs**. A **Table** can be thought of as a collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any PyArrow-compatible file system. **Tables** can be created, read, and written using the `dc.write_to_table` and `dc.read_table` APIs.
+DeltaCAT applications run anywhere that Ray apps run, including your local laptop, cloud computing clusters, or on-premise clusters. Fundamentally, DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write_to_table` and `dc.read_table` APIs.
 
 ### Quick Start
 
@@ -71,7 +71,7 @@ daft_df.select("name", "city").show()  # Just print the names and cities
 ```
 
 ### Supported Dataset and Content Types
-DeltaCAT is built from the ground up to support open dataset and content types already integrated with Ray and Arrow. In practice, this means that `dc.read_table` can read any table back as a distributed Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects:
+DeltaCAT natively supports a variety of open dataset and content types already integrated with Ray and Arrow. You can use `dc.read_table` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects:
 
 ```python
 import deltacat as dc
@@ -86,10 +86,11 @@ numpy_array = dc.read_table("users", read_as=dc.DatasetType.NUMPY)  # Returns Nu
 pyarrow_pq_files = dc.read_table("users", read_as=dc.DatasetType.PYARROW_PARQUET)  # Returns List[ParquetFile]
 
 # Or as distributed datasets (for larger data):
+daft_df = dc.read_table("users", read_as=dc.DatasetType.DAFT)  # Returns Daft DataFrame (Default)
 ray_dataset = dc.read_table("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ray Dataset
 ```
 
-This also means that `dc.write_to_table` can write any of these dataset types to a table:
+ `dc.write_to_table` can also write any of these dataset types:
 
 ```python
 # Create a pyarrow table to write.
@@ -100,7 +101,7 @@ data = pa.Table.from_pydict({
 })
 
 
-# Write different dataset types to the default file content type (Parquet):
+# Write different dataset types to the default table data file format (Parquet):
 daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)  # Convert to Daft DataFrame
 dc.write_to_table(daft_df, "my_daft_table")  # Daft DataFrame
 
@@ -119,7 +120,7 @@ dc.write_to_table(polars_df, "my_polars_table")  # Polars DataFrame
 numpy_array = dc.from_pyarrow(data, dc.DatasetType.NUMPY)  # Convert to NumPy Array
 dc.write_to_table(numpy_array, "my_numpy_table")  # NumPy Array
 
-# Write different content types with schemas to a standard tables with an inferred schema:
+# Write the same dataset type to different table data file formats:
 dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.PARQUET)  # Write Parquet (Default)
 dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.AVRO)  # Write Avro
 dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)  # Write ORC

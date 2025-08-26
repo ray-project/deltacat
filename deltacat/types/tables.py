@@ -95,6 +95,8 @@ from deltacat.utils.ray_utils.concurrency import invoke_parallel
 
 if TYPE_CHECKING:
     from deltacat.storage.model.schema import Schema
+    from deltacat.storage.model.table import Table
+    from deltacat.storage.model.table_version import TableVersion
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -573,6 +575,22 @@ class TableProperty(str, Enum):
     SCHEMA_EVOLUTION_MODE = "schema_evolution_mode"
     DEFAULT_SCHEMA_CONSISTENCY_TYPE = "default_schema_consistency_type"
     SUPPORTED_READER_TYPES = "supported_reader_types"
+
+    def read_table_property(table_or_table_version: Union[Table, TableVersion], property: TableProperty) -> Any:
+        properties = table_or_table_version.properties or {}
+        value = properties.get(property.value, TablePropertyDefaultValues[property])
+
+        # Handle property type conversion
+        if property == TableProperty.SUPPORTED_READER_TYPES and isinstance(value, list):
+            # Convert string values back to DatasetType enums
+            return [DatasetType(v) for v in value]
+        if property == TableProperty.SCHEMA_EVOLUTION_MODE:
+            return SchemaEvolutionMode(value)
+        if property == TableProperty.DEFAULT_SCHEMA_CONSISTENCY_TYPE:
+            return SchemaConsistencyType(value)
+        if property == TableProperty.READ_OPTIMIZATION_LEVEL:
+            return TableReadOptimizationLevel(value)
+        return value
 
 
 class TableReadOptimizationLevel(str, Enum):
