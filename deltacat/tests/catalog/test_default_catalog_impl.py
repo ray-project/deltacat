@@ -5809,6 +5809,83 @@ class TestTableVersionWriteModes:
                     mode=TableWriteMode.DELETE,
                 )
 
+    def test_delete_mode_merge_key_only_validation(self):
+        """Test that DELETE mode only requires merge key values, not full table schema compliance."""
+        namespace = "test_ns"
+        table_name = "delete_merge_key_test"
+
+        # Create a table with a schema that has merge keys and additional non-merge fields
+        full_schema = create_schema_with_merge_keys()  # Has id (merge key), name, age, city
+        
+        # Create initial table with full data
+        initial_data = pa.table({
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"], 
+            "age": [25, 30, 35],
+            "city": ["NYC", "LA", "Chicago"]
+        })
+        
+        dc.write_to_table(
+            initial_data,
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.CREATE,
+            schema=full_schema,
+        )
+
+        # Test 1: DELETE with only merge key values should succeed
+        # This data only contains the merge key (id) and omits non-merge fields (name, age, city)
+        delete_data_merge_keys_only = pa.table({
+            "id": [2]  # Only merge key, no other fields
+        })
+        
+        # This should succeed - DELETE should only validate merge key compliance
+        dc.write_to_table(
+            delete_data_merge_keys_only,
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.DELETE,
+        )
+        
+        # Verify the deletion worked by reading the table
+        result = dc.read_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+        )
+        result_pandas = to_pandas(result)
+        result_ids = set(result_pandas["id"].tolist())
+        assert result_ids == {1, 3}, f"Expected IDs {1, 3} after deleting ID 2, got {result_ids}"
+
+        # Test 2: DELETE with extra non-merge fields should also succeed
+        # (the extra fields should be ignored for DELETE operations)
+        delete_data_with_extra_fields = pa.table({
+            "id": [1],
+            "name": ["Alice_ToDelete"],  # Extra field - should be ignored
+            "extra_field": ["ignored"]   # Non-schema field - should be ignored
+        })
+        
+        # This should also succeed - extra fields should be ignored for DELETE
+        dc.write_to_table(
+            delete_data_with_extra_fields,
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+            mode=TableWriteMode.DELETE,
+        )
+        
+        # Verify only ID 3 remains
+        final_result = dc.read_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=namespace,
+        )
+        final_pandas = to_pandas(final_result)
+        final_ids = set(final_pandas["id"].tolist())
+        assert final_ids == {3}, f"Expected only ID 3 after deleting ID 1, got {final_ids}"
+
     def test_schema_validation_and_coercion(self):
         """Test schema validation and coercion functionality with different consistency types."""
 
