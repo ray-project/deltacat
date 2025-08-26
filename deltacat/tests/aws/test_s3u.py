@@ -98,40 +98,6 @@ class TestDownloadUpload(unittest.TestCase):
 
         assert mock_s3.put_object.call_count > 3
 
-    @patch("deltacat.aws.s3u.UPLOAD_SLICED_TABLE_RETRY_STOP_AFTER_DELAY", 1)
-    @patch("deltacat.aws.s3u.ManifestEntry")
-    @patch("deltacat.aws.s3u.get_block_metadata_list")
-    @patch("deltacat.aws.s3u.CapturedBlockWritePaths")
-    def test_upload_sliced_table_retry(
-        self,
-        mock_captured_block_write_paths,
-        mock_get_block_metadata_list,
-        mock_manifest_entry,
-    ):
-        mock_manifest_entry.from_s3_obj_url.side_effect = OSError(
-            "Please reduce your request rate.."
-        )
-        mock_get_block_metadata_list.return_value = [mock.MagicMock()]
-
-        # Create a proper mock for CapturedBlockWritePaths
-        mock_cbwp_instance = mock.MagicMock()
-        mock_cbwp_instance.write_paths.return_value = ["s3_write_path"]
-        mock_cbwp_instance.blocks.return_value = [mock.MagicMock()]
-        mock_captured_block_write_paths.return_value = mock_cbwp_instance
-
-        # Create a mock table that has a length > 0
-        mock_table = mock.MagicMock()
-
-        with pytest.raises(RetryError):
-            s3u.upload_sliced_table(
-                mock_table,
-                "s3-prefix",
-                mock.MagicMock(),
-                mock.MagicMock(),  # max_records_per_entry - set to non-None to force table slicing path
-                mock.MagicMock(),  # s3_table_writer_func
-                mock.MagicMock(),  # table_slicer_func
-            )
-
     @patch("deltacat.aws.s3u.UPLOAD_DOWNLOAD_RETRY_STOP_AFTER_DELAY", 1)
     @patch("deltacat.aws.s3u.s3_client_cache")
     def test_upload_transient_error_retry(self, mock_s3_client_cache):

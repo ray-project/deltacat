@@ -45,7 +45,11 @@ class TestCloudpickleBugFix(unittest.TestCase):
     def test_sanity(self):
         ray.init(local_mode=True, ignore_reinit_error=True)
 
-        result = ray.get(calculate_pickled_length.remote(AnyObject()))
+        try:
+            result = ray.get(calculate_pickled_length.remote(AnyObject()))
 
-        self.assertTrue(result[0] < 1000)
-        self.assertTrue(result[1] >= 5000000)
+            self.assertTrue(result[0] < 1000)
+            self.assertTrue(result[1] >= 5000000)
+        finally:
+            if ray.is_initialized():
+                ray.shutdown()

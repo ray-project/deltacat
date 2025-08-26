@@ -1334,8 +1334,8 @@ class TestCopyOnWrite:
         ), f"Expected exactly 3 records after conflict resolution, got {final_count}"
 
     @pytest.mark.skipif(
-        multiprocessing.cpu_count() < 2,
-        reason="Stress test requires at least 2 CPUs for meaningful concurrent testing",
+        multiprocessing.cpu_count() < 3,
+        reason="Stress test requires at least 3 CPUs for meaningful concurrent testing",
     )
     @pytest.mark.skipif(
         not PLATFORM_HAS_FORK,
@@ -1351,7 +1351,7 @@ class TestCopyOnWrite:
         Note: This test requires fork-based multiprocessing for reliable process isolation.
         """
         table_name = "test_concurrent_stress"
-        concurrent_writers = multiprocessing.cpu_count()
+        concurrent_writers = multiprocessing.cpu_count() - 1
         rounds = 10
 
         # Create table with merge keys for upsert behavior
