@@ -17,16 +17,16 @@ DeltaCAT provides four high-level components:
 4. **Sync**: Synchronize DeltaCAT datasets to data warehouses and other table formats.
 
 ## Overview
-DeltaCAT leverages its **Catalog**, **Compute**, and **Storage** components to provide unified data management for your Ray applications. It automates data indexing, change management, schema evolution, dataset read/write optimization, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
+DeltaCAT's **Catalog**, **Compute**, and **Storage** components work together to provide any Ray application with a unified durable data manager. It automates data indexing, change management, dataset read/write optimization, schema evolution, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
 
 <p align="center">
   <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:100%; height:auto; text-align: center;">
 </p>
 
-Data consumers that prefer to stay within this ecosystem of Pythonic data management tools can use DeltaCAT's native catalog and table formats to manage their data with minimal concessions. For integration with existing analytical compute frameworks (e.g., Spark, Trino, Flink), DeltaCAT's **Sync** component (under development) lets you synchronize your tables to Iceberg, Hive, and other table formats with minimal overhead.
+Data consumers that prefer to stay within this ecosystem of Pythonic data management tools can use DeltaCAT's native catalog and table formats to manage their data with minimal concessions. For integration with existing analytical compute frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component (under development) lets you synchronize your tables to Apache Iceberg and other table formats with minimal overhead.
 
 ## Getting Started
-DeltaCAT applications run anywhere that Ray apps run, including your local laptop, cloud computing clusters, or on-premise clusters. Fundamentally, DeltaCAT lets you to manage **Tables** spread across one or more **Catalogs**. A **Table** can be thought of as a collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to index information about one or more tables, and can be rooted in any PyArrow-compatible file system. **Tables** can be created, read, and written using the `dc.write_to_table` and `dc.read_table` APIs.
+DeltaCAT applications run anywhere that Ray apps run, including your local laptop, cloud computing clusters, or on-premise clusters. Fundamentally, DeltaCAT lets you to manage **Tables** spread across one or more **Catalogs**. A **Table** can be thought of as a collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any PyArrow-compatible file system. **Tables** can be created, read, and written using the `dc.write_to_table` and `dc.read_table` APIs.
 
 ### Quick Start
 
@@ -36,17 +36,18 @@ import pandas as pd
 
 # Initialize DeltaCAT with a local catalog.
 # Ray will be initialized automatically.
-# Files will be stored under .deltacat/ in the current working directory.
-dc.init({"my_catalog", dc.Catalog())
+# Catalog files will be stored in .deltacat/ in the current working directory.
+dc.init(catalogs={"my_catalog": dc.Catalog()})
 
-# Create a Pandas DataFrame to write
+# Create data to write.
 data = pd.DataFrame({
     "id": [1, 2, 3],
     "name": ["Alice", "Bob", "Charlie"],
     "age": [25, 30, 35]
 })
 
-# Write data to a table - table creation is handled automatically.
+# Write data to a table.
+# Table creation is handled automatically.
 dc.write_to_table(data, "users")
 
 # Read the data back as a Daft DataFrame.
@@ -54,7 +55,7 @@ dc.write_to_table(data, "users")
 daft_df = dc.read_table("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
-# Append more data to the table with a new column.
+# Append more data and add a new column.
 # Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
@@ -70,13 +71,12 @@ daft_df.select("name", "city").show()  # Just print the names and cities
 ```
 
 ### Supported Dataset and Content Types
-DeltaCAT is designed to simplify data management at any scale by building on top of open dataset and content types already integrated with Ray and Arrow. For example, we can also read data back as a distributed Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects as follows:
+DeltaCAT is built from the ground up to support open dataset and content types already integrated with Ray and Arrow. In practice, this means that `dc.read_table` can read any table back as a distributed Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects:
 
 ```python
-# Read as a distributed Ray Dataset:
-ray_dataset = dc.read_table("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ray Dataset
+import deltacat as dc
 
-# Or read directly into eagerly materialized local datasets:
+# Read directly into eagerly materialized local datasets:
 pandas_df = dc.read_table("users", read_as=dc.DatasetType.PANDAS)  # Returns Pandas DataFrame
 pyarrow_table = dc.read_table("users", read_as=dc.DatasetType.PYARROW)  # Returns PyArrow Table
 polars_df = dc.read_table("users", read_as=dc.DatasetType.POLARS)  # Returns Polars DataFrame
@@ -84,29 +84,49 @@ numpy_array = dc.read_table("users", read_as=dc.DatasetType.NUMPY)  # Returns Nu
 
 # Or into a lazily materialized list of PyArrow ParquetFile objects:
 pyarrow_pq_files = dc.read_table("users", read_as=dc.DatasetType.PYARROW_PARQUET)  # Returns List[ParquetFile]
+
+# Or as distributed datasets (for larger data):
+ray_dataset = dc.read_table("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ray Dataset
 ```
+
+This also means that `dc.write_to_table` can write any of these dataset types to a table:
 
 ```python
-# Write different dataset types to the default file content type (Parquet)
+# Create a pyarrow table to write.
+data = pa.Table.from_pydict({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "age": [25, 30, 35]
+})
+
+
+# Write different dataset types to the default file content type (Parquet):
+daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)  # Convert to Daft DataFrame
 dc.write_to_table(daft_df, "my_daft_table")  # Daft DataFrame
+
+ray_dataset = dc.from_pyarrow(data, dc.DatasetType.RAY_DATASET)  # Convert to Ray Dataset
 dc.write_to_table(ray_dataset, "my_ray_dataset")  # Ray Dataset
+
+pandas_df = dc.from_pyarrow(data, dc.DatasetType.PANDAS)  # Convert to Pandas DataFrame
 dc.write_to_table(pandas_df, "my_pandas_table")  # Pandas DataFrame
+
+pyarrow_table = dc.from_pyarrow(data, dc.DatasetType.PYARROW)  # Convert to PyArrow Table
 dc.write_to_table(pyarrow_table, "my_pyarrow_table")  # PyArrow Table
+
+polars_df = dc.from_pyarrow(data, dc.DatasetType.POLARS)  # Convert to Polars DataFrame
 dc.write_to_table(polars_df, "my_polars_table")  # Polars DataFrame
+
+numpy_array = dc.from_pyarrow(data, dc.DatasetType.NUMPY)  # Convert to NumPy Array
 dc.write_to_table(numpy_array, "my_numpy_table")  # NumPy Array
 
-# Write content types with schemas to standard tables with schemas
-dc.write_to_table(data, "my_parquet_table", content_type=dc.ContentType.PARQUET)  # Default
-dc.write_to_table(data, "my_avro_table", content_type=dc.ContentType.AVRO)  # Write Avro
-dc.write_to_table(data, "my_orc_table", content_type=dc.ContentType.ORC)  # Write ORC
-dc.write_to_table(data, "my_feather_table", content_type=dc.ContentType.FEATHER)  # Write Feather
+# Write different content types with schemas to a standard tables with an inferred schema:
+dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.PARQUET)  # Write Parquet (Default)
+dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.AVRO)  # Write Avro
+dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)  # Write ORC
+dc.write_to_table(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)  # Write Feather
 
-# Write schemaless content types to schemaless tables
-dc.write_to_table(data, "my_csv_table", schema=None, content_type=dc.ContentType.CSV)  # Write Gzipped CSV
-dc.write_to_table(data, "my_json_table", schema=None, content_type=dc.ContentType.JSON)  # Write Gzipped JSON
-dc.write_to_table(data, "my_json_table", schema=None, content_type=dc.ContentType.BINARY)  # Write Binary
 ```
-Note that schemaless tables cannot be transitioned back to standard tables with schemas, and vice versa. For more information, see the DeltaCAT [Schema Docs](deltacat/docs/schema/README.md) and [Table Docs](deltacat/docs/table/README.md).
+For more information, see the DeltaCAT [Schema Docs](deltacat/docs/schema/README.md) and [Table Docs](deltacat/docs/table/README.md).
 
 ### Additional Resources
 #### Examples
