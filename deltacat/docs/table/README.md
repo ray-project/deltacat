@@ -1,7 +1,7 @@
 # Tables
 
 DeltaCAT tables can be read and written using any Arrow-compatible **Dataset Type** with Ray.
-Tables may either be schemaless or backed by a schema based on the [Arrow type system](https://arrow.apache.org/docs/python/api/datatypes.html) (see [DeltaCAT Schemas](../schema/README.md)). Tables can be created within explicit **Namespaces** or written to the default global namespace. All tables can be read/written within either an implicit single table read/write transaction context, or within the context of a multi-table transaction spanning any number of tables and namespaces.
+Tables may either be schemaless or backed by a schema based on the [Arrow type system](https://arrow.apache.org/docs/python/api/datatypes.html) (see [DeltaCAT Schemas](../schema/README.md)). Tables can be created in explicit **Namespaces** or written to a default global namespace. Tables can be read/written within the context of an implicit single-table transaction, or within the context of a multi-table transaction spanning any number of tables and namespaces.
 
 ## Supported Dataset Types
 
