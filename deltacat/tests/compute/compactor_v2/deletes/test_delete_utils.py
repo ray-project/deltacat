@@ -1,4 +1,5 @@
 import pytest
+import uuid
 
 from deltacat.storage import (
     DeltaType,
@@ -675,13 +676,14 @@ class TestPrepareDeletesMain:
             table_version=destination_table_version,
             **main_deltacat_storage_kwargs,
         )
+        destination_partition_id = str(uuid.uuid4())
         params = CompactPartitionParams.of(
             {
                 "catalog": main_deltacat_storage_kwargs.get("inner"),
                 "deltacat_storage": metastore,
                 "deltacat_storage_kwargs": main_deltacat_storage_kwargs,
                 "destination_partition_locator": PartitionLocator.of(
-                    destination_table_stream, None, None
+                    destination_table_stream, None, destination_partition_id
                 ),
                 "last_stream_position_to_compact": src_partition_after_committed_delta.stream_position,
                 "list_deltas_kwargs": {

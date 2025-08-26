@@ -1,6 +1,8 @@
 import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import uuid
 import pytest
+
 import pyarrow as pa
 import ray
 import pandas as pd
@@ -228,10 +230,12 @@ def test_compact_partition_rebase_then_incremental_main(
         converted_partition_values_for_lookup,
         **ds_mock_kwargs,
     )
+    # Generate a destination partition ID based on the source partition
+    destination_partition_id = str(uuid.uuid4())
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         converted_partition_values_for_lookup,
-        None,
+        destination_partition_id,
     )
     rebased_partition: Partition = metastore.get_partition(
         rebased_table_stream.locator,

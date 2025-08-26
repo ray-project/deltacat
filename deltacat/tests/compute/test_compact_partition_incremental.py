@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import uuid
 import pytest
+
 import pyarrow as pa
 import ray
 
@@ -242,10 +244,12 @@ def test_compact_partition_incremental_main(
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
         **ds_mock_kwargs,
     )
+    # Generate a destination partition ID based on the source partition
+    destination_partition_id = str(uuid.uuid4())
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         converted_partition_values,
-        None,
+        destination_partition_id,
     )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
     total_cpus: int = num_workers * worker_instance_cpu
