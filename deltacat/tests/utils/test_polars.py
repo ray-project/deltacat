@@ -45,7 +45,7 @@ class TestPolarsWriters(TestCase):
         assert result.equals(self.df)
 
     def test_write_csv(self):
-        path = f"{self.base_path}/test.csv"
+        path = f"{self.base_path}/test.csv.gz"
 
         dataframe_to_file(
             self.df, path, self.fs, lambda x: path, content_type=ContentType.CSV.value
@@ -61,7 +61,7 @@ class TestPolarsWriters(TestCase):
                 assert '"e,f\tg|h",2' in content
 
     def test_write_tsv(self):
-        path = f"{self.base_path}/test.tsv"
+        path = f"{self.base_path}/test.tsv.gz"
 
         dataframe_to_file(
             self.df,
@@ -81,7 +81,7 @@ class TestPolarsWriters(TestCase):
                 assert '"e,f\tg|h"\t2' in content
 
     def test_write_psv(self):
-        path = f"{self.base_path}/test.psv"
+        path = f"{self.base_path}/test.psv.gz"
 
         dataframe_to_file(
             self.df,
@@ -103,7 +103,7 @@ class TestPolarsWriters(TestCase):
     def test_write_unescaped_tsv(self):
         # Create DataFrame without delimiters for unescaped TSV
         df = pl.DataFrame({"col1": ["abc", "def"], "col2": [1, 2]})
-        path = f"{self.base_path}/test.tsv"
+        path = f"{self.base_path}/test.tsv.gz"
 
         dataframe_to_file(
             df,
@@ -152,7 +152,7 @@ class TestPolarsWriters(TestCase):
         assert result.equals(self.df)
 
     def test_write_json(self):
-        path = f"{self.base_path}/test.json"
+        path = f"{self.base_path}/test.json.gz"
 
         dataframe_to_file(
             self.df, path, self.fs, lambda x: path, content_type=ContentType.JSON.value
@@ -297,6 +297,7 @@ class TestPolarsReaders(TestCase):
             "separator": "\t",
             "has_header": False,
             "null_values": [""],
+            "quote_char": None,
         }
         assert unescaped_kwargs == expected_unescaped
 

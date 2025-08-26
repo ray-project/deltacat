@@ -206,7 +206,7 @@ class TestFilesToDataFrame(unittest.TestCase):
 
     def test_supports_unescaped_tsv_content_type(self):
         # Test that UNESCAPED_TSV is now supported (was previously unsupported)
-        # Use a CSV file since we're testing TSV reader functionality  
+        # Use a CSV file since we're testing TSV reader functionality
         csv_path = "deltacat/tests/utils/data/non_empty_valid.csv"
         df = files_to_dataframe(
             uris=[csv_path],
@@ -221,7 +221,7 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertGreater(len(table.schema.names), 0)
 
     def test_supports_gzip_content_encoding(self):
-        # Test that GZIP encoding is now supported (was previously unsupported)  
+        # Test that GZIP encoding is now supported (was previously unsupported)
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.GZIP.value,

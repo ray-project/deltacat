@@ -1351,7 +1351,9 @@ class TestCopyOnWrite:
         Note: This test requires fork-based multiprocessing for reliable process isolation.
         """
         table_name = "test_concurrent_stress"
-        concurrent_writers = multiprocessing.cpu_count() - 1  # reserve 1 CPU for system processes
+        concurrent_writers = (
+            multiprocessing.cpu_count() - 1
+        )  # reserve 1 CPU for system processes
         rounds = 10
 
         # Create table with merge keys for upsert behavior

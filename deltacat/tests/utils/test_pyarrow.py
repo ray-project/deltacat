@@ -705,7 +705,7 @@ class TestWriters(TestCase):
         assert result.equals(self.table)
 
     def test_write_csv(self):
-        path = f"{self.base_path}/test.csv"
+        path = f"{self.base_path}/test.csv.gz"
 
         table_to_file(
             self.table,
@@ -725,7 +725,7 @@ class TestWriters(TestCase):
                 assert '"e,f\tg|h",2' in content
 
     def test_write_tsv(self):
-        path = f"{self.base_path}/test.tsv"
+        path = f"{self.base_path}/test.tsv.gz"
 
         table_to_file(
             self.table,
@@ -745,7 +745,7 @@ class TestWriters(TestCase):
                 assert '"e,f\tg|h"\t2' in content
 
     def test_write_psv(self):
-        path = f"{self.base_path}/test.psv"
+        path = f"{self.base_path}/test.psv.gz"
 
         table_to_file(
             self.table,
@@ -767,7 +767,7 @@ class TestWriters(TestCase):
     def test_write_unescaped_tsv(self):
         # Create table without delimiters for unescaped TSV
         table = pa.table({"col1": ["abc", "def"], "col2": [1, 2]})
-        path = f"{self.base_path}/test.tsv"
+        path = f"{self.base_path}/test.tsv.gz"
 
         table_to_file(
             table,
@@ -819,7 +819,7 @@ class TestWriters(TestCase):
         assert result.equals(self.table)
 
     def test_write_json(self):
-        path = f"{self.base_path}/test.json"
+        path = f"{self.base_path}/test.json.gz"
 
         table_to_file(
             self.table,

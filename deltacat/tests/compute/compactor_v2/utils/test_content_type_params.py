@@ -52,7 +52,9 @@ class TestContentTypeParamsMain:
         from deltacat.types.partial_download import PartialParquetParameters
 
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
@@ -150,7 +152,9 @@ class TestContentTypeParamsMain:
         )
 
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_NO_DUPLICATION_STRING_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_NO_DUPLICATION_STRING_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,
@@ -213,7 +217,9 @@ class TestContentTypeParamsMain:
         ] = ReadKwargsProviderPyArrowCsvPureUtf8()
 
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.TEST_NAMESPACE,

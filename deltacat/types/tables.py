@@ -576,7 +576,9 @@ class TableProperty(str, Enum):
     DEFAULT_SCHEMA_CONSISTENCY_TYPE = "default_schema_consistency_type"
     SUPPORTED_READER_TYPES = "supported_reader_types"
 
-    def read_table_property(table_or_table_version: Union[Table, TableVersion], property: TableProperty) -> Any:
+    def read_table_property(
+        table_or_table_version: Union[Table, TableVersion], property: TableProperty
+    ) -> Any:
         properties = table_or_table_version.properties or {}
         value = properties.get(property.value, TablePropertyDefaultValues[property])
 

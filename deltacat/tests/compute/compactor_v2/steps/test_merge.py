@@ -81,7 +81,9 @@ class TestMergeMain(unittest.TestCase):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
@@ -128,7 +130,9 @@ class TestMergeMain(unittest.TestCase):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
@@ -177,7 +181,9 @@ class TestMergeMain(unittest.TestCase):
 
     def test_merge_single_hash_bucket_string_pk(self):
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
@@ -266,7 +272,9 @@ class TestMergeMain(unittest.TestCase):
         number_of_hash_group = 2
         number_of_hash_bucket = 2
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
@@ -320,7 +328,9 @@ class TestMergeMain(unittest.TestCase):
         )
 
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
@@ -354,7 +364,11 @@ class TestMergeMain(unittest.TestCase):
             str
         ] = delete_delta.meta.entry_params.equality_field_locators
         # Filter out delta_type from delete_kwargs as it's not needed for download_delta
-        download_kwargs = {k: v for k, v in delete_kwargs.items() if k != "delta_type" and k != "entry_params"}
+        download_kwargs = {
+            k: v
+            for k, v in delete_kwargs.items()
+            if k != "delta_type" and k != "entry_params"
+        }
         delete_table = download_delta(delete_delta, **download_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
@@ -409,7 +423,9 @@ class TestMergeMain(unittest.TestCase):
         )
 
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
@@ -443,7 +459,11 @@ class TestMergeMain(unittest.TestCase):
             str
         ] = delete_delta.meta.entry_params.equality_field_locators
         # Filter out delta_type from delete_kwargs as it's not needed for download_delta
-        download_kwargs = {k: v for k, v in delete_kwargs.items() if k != "delta_type" and k != "entry_params"}
+        download_kwargs = {
+            k: v
+            for k, v in delete_kwargs.items()
+            if k != "delta_type" and k != "entry_params"
+        }
         delete_table = download_delta(delete_delta, **download_kwargs)
         delete_file_envelopes: List[DeleteFileEnvelope] = [
             DeleteFileEnvelope.of(
@@ -496,7 +516,9 @@ class TestMergeMain(unittest.TestCase):
         number_of_hash_group = 2
         number_of_hash_bucket = 10
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
@@ -585,7 +607,9 @@ class TestMergeMain(unittest.TestCase):
         number_of_hash_group = 2
         number_of_hash_bucket = 10
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,
@@ -673,7 +697,9 @@ class TestMergeMain(unittest.TestCase):
 
     def test_merge_single_hash_bucket_multiple_pk(self):
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
@@ -711,7 +737,9 @@ class TestMergeMain(unittest.TestCase):
         mock_compact_tables.side_effect = InvalidNamespaceError("Invalid namespace")
 
         # Create schema from CSV file
-        csv_table = create_table_from_csv_file_paths([self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK])
+        csv_table = create_table_from_csv_file_paths(
+            [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
+        )
         schema = Schema.of(csv_table.schema)
         partition = stage_partition_from_file_paths(
             self._testMethodName,  # Use unique namespace
