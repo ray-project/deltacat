@@ -329,6 +329,269 @@ dataframe_from_v2 = dc.read("my_table", table_version="2")
 By default, table versions inherit their properties from their parent table's properties at creation time. Any
 table properties that are not explicitly specified on either the parent table or table version will inherit default values.
 
+## Transactions
+
+DeltaCAT provides ACID-compliant transactions that can span multiple tables and namespaces within a given catalog. Transactions ensure that all operations within a transaction either succeed together or fail together, maintaining data consistency across your entire data lake.
+
+### Basic Multi-Table Transactions
+
+The simplest way to use transactions is with the `dc.transaction()` context manager. All table operations within the transaction will be executed atomically:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+# Sample data
+users_data = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "email": ["alice@example.com", "bob@example.com", "charlie@example.com"]
+})
+
+orders_data = pd.DataFrame({
+    "order_id": [101, 102, 103],
+    "user_id": [1, 2, 1],
+    "amount": [25.99, 15.50, 42.00],
+    "status": ["completed", "pending", "completed"]
+})
+
+# Execute multiple table operations atomically
+with dc.transaction():
+    # Create users table
+    dc.write(users_data, "users", mode=dc.TableWriteMode.CREATE)
+
+    # Create orders table
+    dc.write(orders_data, "orders", mode=dc.TableWriteMode.CREATE)
+
+    # Read and create a derived analytics table
+    users_df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+    orders_df = dc.read("orders", read_as=dc.DatasetType.PANDAS)
+
+    # Calculate user statistics
+    user_stats = orders_df.groupby("user_id").agg({
+        "amount": ["sum", "count"]
+    }).round(2)
+    user_stats.columns = ["total_spent", "order_count"]
+    user_stats = user_stats.reset_index()
+
+    # Write analytics table
+    dc.write(user_stats, "user_analytics", mode=dc.TableWriteMode.CREATE)
+
+# All three tables are now created atomically
+print(f"Users table exists: {dc.table_exists('users')}")
+print(f"Orders table exists: {dc.table_exists('orders')}")
+print(f"Analytics table exists: {dc.table_exists('user_analytics')}")
+```
+
+### Transaction Rollback
+
+If any operation within a transaction fails, all changes are automatically rolled back:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+initial_data = pd.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+
+# Create initial table outside transaction
+dc.write(initial_data, "rollback_test", mode=dc.TableWriteMode.CREATE)
+
+try:
+    with dc.transaction():
+        # This operation will succeed
+        dc.write(
+            pd.DataFrame({"id": [3], "value": ["c"]}),
+            "rollback_test",
+            mode=dc.TableWriteMode.APPEND
+        )
+
+        # Force an error to test rollback
+        raise ValueError("Simulated transaction error")
+
+except ValueError:
+    pass  # Expected error
+
+# Verify original data is unchanged
+result = dc.read("rollback_test", read_as=dc.DatasetType.PANDAS)
+print(f"Records after rollback: {len(result)}")  # 2
+print(result["value"].tolist())  # ["a", "b"]
+```
+
+### Nested Transactions
+
+DeltaCAT supports nested transactions, where each nested transaction is independent and has its own context:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+base_data = pd.DataFrame({"id": [1, 2], "level": ["outer", "outer"]})
+inner_data = pd.DataFrame({"id": [3, 4], "level": ["inner", "inner"]})
+additional_data = pd.DataFrame({"id": [5, 6], "level": ["additional", "additional"]})
+
+# Nested transactions with independent contexts
+with dc.transaction():
+    # Outer transaction operations
+    dc.write(base_data, "nested_outer", mode=dc.TableWriteMode.CREATE)
+
+    # Inner (nested) transaction - independent of outer transaction
+    with dc.transaction():
+        # Inner transaction operations
+        dc.write(inner_data, "nested_inner", mode=dc.TableWriteMode.CREATE)
+
+        # Verify inner transaction works independently
+        inner_check = dc.read("nested_inner", read_as=dc.DatasetType.PANDAS)
+        print(f"Inner transaction records: {len(inner_check)}")
+
+    # Back to outer transaction context
+    dc.write(additional_data, "nested_outer", mode=dc.TableWriteMode.APPEND)
+
+# Verify both transactions completed independently
+outer_result = dc.read("nested_outer", read_as=dc.DatasetType.PANDAS)
+inner_result = dc.read("nested_inner", read_as=dc.DatasetType.PANDAS)
+
+print(f"Outer table records: {len(outer_result)}")  # Should be 4 (base + additional)
+print(f"Inner table records: {len(inner_result)}")  # Should be 2
+```
+
+Note that, if the outer transaction fails after the inner transaction succeeded, the inner transaction remains committed:
+```python
+import deltacat as dc
+
+base_data = pd.DataFrame({"id": [1, 2], "level": ["outer", "outer"]})
+inner_data = pd.DataFrame({"id": [3, 4], "level": ["inner", "inner"]})
+
+# Nested transactions with independent contexts
+with dc.transaction():
+    # Outer transaction operations
+    dc.write(base_data, "nested_outer", mode=dc.TableWriteMode.CREATE)
+
+    # Inner (nested) transaction - independent of outer transaction
+    with dc.transaction():
+        # Inner transaction operations
+        dc.write(inner_data, "nested_inner", mode=dc.TableWriteMode.CREATE)
+
+        # Verify inner transaction works independently
+        inner_check = dc.read("nested_inner", read_as=dc.DatasetType.PANDAS)
+        print(f"Inner transaction records: {len(inner_check)}")
+
+    # Back to outer transaction context
+    raise ValueError("Simulated outer transaction error")
+
+# Verify that the outer transaction failed and the inner transaction remains committed
+assert not dc.table_exists("nested_outer")
+inner_result = dc.read("nested_inner", read_as=dc.DatasetType.PANDAS)
+print(f"Inner table records: {len(inner_result)}")  # 2
+```
+
+
+### Cross-Catalog Transactions
+
+Transactions can target specific catalogs, enabling operations across multiple isolated data catalogs:
+
+```python
+import deltacat as dc
+import pandas as pd
+import tempfile
+import pyarrow as pa
+
+# Set up two separate catalogs
+with tempfile.TemporaryDirectory() as temp_dir_a, \
+     tempfile.TemporaryDirectory() as temp_dir_b:
+
+    # Create catalog configurations
+    catalog_a_config = dc.CatalogProperties(
+        root=temp_dir_a,
+        filesystem=pa.fs.LocalFileSystem()
+    )
+    catalog_b_config = dc.CatalogProperties(
+        root=temp_dir_b,
+        filesystem=pa.fs.LocalFileSystem()
+    )
+
+    # Register catalogs
+    dc.put_catalog("catalog_a", dc.Catalog(config=catalog_a_config))
+    dc.put_catalog("catalog_b", dc.Catalog(config=catalog_b_config))
+
+    # Create namespaces
+    dc.create_namespace("production", catalog="catalog_a")
+    dc.create_namespace("staging", catalog="catalog_b")
+
+    # Sample data
+    prod_data = pd.DataFrame({"id": [1, 2], "env": ["prod", "prod"]})
+    staging_data = pd.DataFrame({"id": [3, 4], "env": ["staging", "staging"]})
+
+    # Transaction targeting catalog_a
+    with dc.transaction("catalog_a"):
+        dc.write(prod_data, "app_data", namespace="production",
+                mode=dc.TableWriteMode.CREATE)
+
+    # Separate transaction targeting catalog_b
+    with dc.transaction("catalog_b"):
+        dc.write(staging_data, "app_data", namespace="staging",
+                mode=dc.TableWriteMode.CREATE)
+
+    # Verify catalog isolation
+    assert dc.table_exists("app_data", namespace="production", catalog="catalog_a")
+    assert dc.table_exists("app_data", namespace="staging", catalog="catalog_b")
+
+    # Tables with same name exist independently in each catalog
+    prod_result = dc.read("app_data", namespace="production", catalog="catalog_a",
+                         read_as=dc.DatasetType.PANDAS)
+    staging_result = dc.read("app_data", namespace="staging", catalog="catalog_b",
+                           read_as=dc.DatasetType.PANDAS)
+
+    print(f"Production records: {prod_result['env'].tolist()}")  # ["prod", "prod"]
+    print(f"Staging records: {staging_result['env'].tolist()}")  # ["staging", "staging"]
+```
+
+### Nested Transactions with Different Catalogs
+
+You can even nest transactions that target different catalogs:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+outer_data = pd.DataFrame({"id": [1, 2], "location": ["outer", "outer"]})
+inner_data = pd.DataFrame({"id": [3, 4], "location": ["inner", "inner"]})
+
+# Nested transactions with different catalogs
+with dc.transaction("catalog_a"):
+    # Outer transaction in catalog_a
+    dc.write(outer_data, "nested_table", namespace="production",
+            mode=dc.TableWriteMode.CREATE)
+
+    # Inner transaction in catalog_b
+    with dc.transaction("catalog_b"):
+        dc.write(inner_data, "nested_table", namespace="staging",
+                mode=dc.TableWriteMode.CREATE)
+
+        # Verify inner transaction context
+        inner_check = dc.read("nested_table", namespace="staging",
+                            read_as=dc.DatasetType.PANDAS)
+        print(f"Inner catalog records: {len(inner_check)}")
+
+    # Back to outer transaction context (catalog_a)
+    outer_check = dc.read("nested_table", namespace="production",
+                         read_as=dc.DatasetType.PANDAS)
+    print(f"Outer catalog records: {len(outer_check)}")
+
+# Verify catalog isolation was maintained
+assert dc.table_exists("nested_table", namespace="production", catalog="catalog_a")
+assert dc.table_exists("nested_table", namespace="staging", catalog="catalog_b")
+assert not dc.table_exists("nested_table", namespace="production", catalog="catalog_b")
+assert not dc.table_exists("nested_table", namespace="staging", catalog="catalog_a")
+```
+
+### Transaction Best Practices
+
+1. **Keep transactions focused**: Group related operations together, but avoid unnecessarily long transactions.
+
+2. **Handle errors gracefully**: Always wrap transactions in try-catch blocks to handle potential failures.
+
+3. **Test rollback scenarios**: Verify that your application handles transaction rollbacks gracefully.
+
 ## Sort Keys (coming soon)
 Sort keys are used to control how a table's data is sorted at write time.
 

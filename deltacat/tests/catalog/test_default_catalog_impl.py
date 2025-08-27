@@ -10043,6 +10043,59 @@ class TestMultiTableTransactions:
         assert get_table_length(inner_df) == 2
         assert all(inner_df["level"] == "inner")
 
+    def test_nested_transaction_independence_on_outer_failure(self):
+        """Test that inner transactions remain committed even if outer transaction fails."""
+        inner_data = pd.DataFrame({"id": [1, 2], "status": ["committed", "committed"]})
+        outer_data = pd.DataFrame({"id": [3, 4], "status": ["rollback", "rollback"]})
+
+        # Test that inner transaction remains committed when outer transaction fails
+        with pytest.raises(ValueError, match="Simulated outer transaction failure"):
+            with dc.transaction():
+                # Outer transaction creates a table
+                dc.write_to_table(
+                    data=outer_data,
+                    table="outer_failure_test",
+                    namespace=self.namespace,
+                    mode=TableWriteMode.CREATE,
+                )
+
+                # Inner transaction creates a separate table and commits
+                with dc.transaction():
+                    dc.write_to_table(
+                        data=inner_data,
+                        table="inner_success_test",
+                        namespace=self.namespace,
+                        mode=TableWriteMode.CREATE,
+                    )
+
+                    # Verify inner transaction data is accessible within inner context
+                    inner_check = dc.read_table(
+                        "inner_success_test",
+                        namespace=self.namespace,
+                    )
+                    inner_df = to_pandas(inner_check)
+                    assert get_table_length(inner_df) == 2
+                    assert all(inner_df["status"] == "committed")
+
+                # Inner transaction has completed and committed at this point
+                # Now force outer transaction to fail
+                raise ValueError("Simulated outer transaction failure")
+
+        # Verify inner transaction table still exists and is committed
+        # (inner transaction should remain committed despite outer failure)
+        assert dc.table_exists("inner_success_test", namespace=self.namespace)
+
+        inner_result = dc.read_table(
+            "inner_success_test",
+            namespace=self.namespace,
+        )
+        inner_df = to_pandas(inner_result)
+        assert get_table_length(inner_df) == 2
+        assert all(inner_df["status"] == "committed")
+
+        # Verify outer transaction table was rolled back (should not exist)
+        assert not dc.table_exists("outer_failure_test", namespace=self.namespace)
+
     def test_transaction_context_isolation(self):
         """Test that transaction context is properly isolated between concurrent operations."""
         # This test ensures that nested transactions don't interfere with each other

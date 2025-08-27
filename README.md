@@ -129,6 +129,124 @@ dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)  # Writ
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)  # Write Feather
 
 ```
+
+### Multi-Table Transactions
+
+DeltaCAT supports ACID-compliant transactions that can span multiple tables and namespaces. This ensures that all operations within a transaction either succeed together or fail together, maintaining data consistency across your entire catalog.
+
+```python
+import deltacat as dc
+import pandas as pd
+
+# Sample data for a multi-table transaction
+products_data = pd.DataFrame({
+    "product_id": [1, 2, 3, 4],
+    "name": ["Widget", "Gadget", "Tool", "Device"],
+    "price": [10.99, 25.50, 15.75, 99.99],
+    "category": ["electronics", "electronics", "tools", "electronics"],
+})
+
+sales_data = pd.DataFrame({
+    "sale_id": [1001, 1002, 1003, 1004, 1005],
+    "product_id": [1, 2, 1, 3, 4],
+    "quantity": [2, 1, 1, 3, 1],
+    "sale_date": ["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-02", "2024-01-03"],
+})
+
+# Execute multiple table operations within a single transaction
+with dc.transaction():
+    # Create products table
+    dc.write(products_data, "products")
+
+    # Create sales table
+    dc.write(sales_data, "sales")
+
+    # Read products data to create a derived table
+    products_df = dc.read("products", read_as=dc.DatasetType.PANDAS)
+
+    # Create a derived summary table (electronics products only)
+    electronics_df = products_df[products_df["category"] == "electronics"]
+    electronics_summary = pd.DataFrame({
+        "category": ["electronics"],
+        "product_count": [len(electronics_df)],
+        "avg_price": [electronics_df["price"].mean()],
+        "total_value": [electronics_df["price"].sum()],
+    })
+
+    # Write derived table
+    dc.write(electronics_summary, "category_summary")
+
+# All tables are now created atomically
+# If any operation had failed, none of the tables would exist
+print("Transaction completed successfully!")
+print(f"Products table exists: {dc.table_exists('products')}")
+print(f"Sales table exists: {dc.table_exists('sales')}")
+print(f"Summary table exists: {dc.table_exists('category_summary')}")
+```
+
+### Working with Multiple Catalogs
+
+DeltaCAT makes it easy to work across multiple catalogs in a single application. For example, you may want to test an operation in your own local staging catalog before committing it to a shared production catalog:
+
+```python
+import deltacat as dc
+import pandas as pd
+import pyarrow as pa
+from decimal import Decimal
+
+# Initialize catalogs with separate storage locations
+dc.init(catalogs={
+    "staging": dc.Catalog(config=dc.CatalogProperties(
+        root="/tmp/staging/",
+        filesystem=pa.fs.LocalFileSystem()
+    )),
+    "prod": dc.Catalog(config=dc.CatalogProperties(
+        root="s3://deltacat_prod/",
+        filesystem=pa.fs.S3FileSystem()
+    ))
+})
+
+# Create PyArrow table with decimal256 data
+decimal_table = pa.table({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "price": pa.array([
+        Decimal("999.99"),
+        Decimal("1234.56"),
+        Decimal("567.89")
+    ], type=pa.decimal256(10, 2)),  # decimal256 type
+    "environment": ["test", "test", "test"]
+})
+
+# Try to write decimal256 data to the staging table.
+# This will raise a TableValidationError because DeltaCAT automatically detects
+# that decimal256 won't be readable by all supported reader types (default behavior
+# for our new staging table, but may not be the case for our prod table).
+try:
+    dc.write(decimal_table, "financial_data", catalog="staging")
+    print("Decimal256 write succeeded")
+except dc.TableValidationError as e:
+    print(f"Validation error: {e}")
+    print("Decimal256 may break existing data consumers in prod, trying decimal128...")
+
+    # Cast the price column from decimal256 to decimal128
+    decimal_table = decimal_table.set_column(
+        decimal_table.schema.get_field_index("price"),
+        "price",
+        pa.cast(decimal_table["price"], pa.decimal128(10, 2))
+    )
+
+# Write decimal128 data to staging and ensure that the write succeeds
+dc.write(decimal_table, "financial_data", catalog="staging")
+
+# Read from staging to verify
+staging_data = dc.read("financial_data", catalog="staging", read_as=dc.DatasetType.PANDAS)
+assert staging_data["price"].tolist() == [Decimal("999.99"), Decimal("1234.56"), Decimal("567.89")]
+
+# Now write the validated data to production
+dc.write(decimal_table, "financial_data", catalog="prod")
+```
+
 For more information, see the DeltaCAT [Schema](deltacat/docs/schema/README.md) and [Table](deltacat/docs/table/README.md) documentation.
 
 ## Runtime Environment Requirements
@@ -138,6 +256,22 @@ DeltaCAT's transaction system assumes that the host machine provides strong syst
 Taken together, these requirements make DeltaCAT suitable for production use on most major cloud computing hosts (e.g., EC2, GCE, Azure VMs) and storage systems (e.g., S3, GCS, Azure Blob Storage), but local laptops should typically be limited to testing/experimental purposes.
 
 ## Additional Resources
+### Table Documentation
+
+The [Table](deltacat/docs/table/README.md) documentation provides a more comprehensive overview of DeltaCAT's table management APIs, including how to create, read, write, and manage tables.
+
+### Schema Documentation
+
+The [Schema](deltacat/docs/schema/README.md) documentation provides a more comprehensive overview of DeltaCAT's schema management APIs, supported data types, file formats, and data consistency guarantees.
+
+### Catalog Documentation
+
+The [Catalog](deltacat/docs/catalog/README.md) documentation provides a more comprehensive overview of DeltaCAT's catalog management APIs, including how to create, read, write, and manage catalogs.
+
+### Compute Documentation
+
+The [Schema](deltacat/docs/schema/README.md) documentation provides a comprehensive guide to DeltaCAT's schema management APIs, including how to create, read, write, and manage schemas.
+
 ### Examples
 
 The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced application like external data source indexers and custom dataset compactors. They also demonstrate some experimental Apache Iceberg and Beam integrations.
