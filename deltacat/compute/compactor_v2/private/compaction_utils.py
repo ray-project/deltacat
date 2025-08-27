@@ -132,10 +132,10 @@ def _fetch_compaction_metadata(
             assert (
                 params.hash_bucket_count == round_completion_info.hash_bucket_count
             ), (
-                "The hash bucket count has changed. "
-                "Kindly run rebase compaction and trigger incremental again. "
-                f"Hash Bucket count in RCI={round_completion_info.hash_bucket_count} "
-                f"not equal to Hash bucket count in args={params.hash_bucket_count}."
+                "Partition hash bucket count for compaction has changed. "
+                "Rebase compaction with the desired hash bucket count before running another incremental compaction. "
+                f"Hash bucket count in RCI={round_completion_info.hash_bucket_count} "
+                f"!= hash bucket count in params={params.hash_bucket_count}."
             )
 
         logger.info(f"Round completion file: {round_completion_info}")

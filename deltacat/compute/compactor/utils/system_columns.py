@@ -294,7 +294,9 @@ def append_dedupe_task_idx_col(table: pa.Table, dedupe_task_indices) -> pa.Table
 
 
 def delta_type_to_field(delta_type: DeltaType) -> bool:
-    return True if delta_type is DeltaType.UPSERT else False
+    # For deduplication purposes, treat both UPSERT and APPEND as UPSERT (True)
+    # Only DELETE should be treated as DELETE (False)
+    return delta_type is not DeltaType.DELETE
 
 
 def delta_type_from_field(delta_type_field: bool) -> DeltaType:

@@ -5,6 +5,7 @@ from deltacat.compute.compactor import RoundCompletionInfo
 from deltacat.storage import PartitionLocator
 from deltacat.storage.model.partition import Partition
 from deltacat.utils.metrics import metrics
+from deltacat.exceptions import PartitionNotFoundError
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -41,12 +42,41 @@ def read_round_completion_info(
         if destination_partition:
             partition = destination_partition
         else:
-            # Try to get the partition from storage
-            partition = deltacat_storage.get_partition(
+            # First get the current partition to access its previous_partition_id
+            current_partition: Partition = deltacat_storage.get_partition(
                 destination_partition_locator.stream_locator,
                 destination_partition_locator.partition_values,
                 **deltacat_storage_kwargs,
             )
+
+            # If current partition has round completion info, use it
+            if current_partition.compaction_round_completion_info:
+                partition = current_partition
+            elif current_partition.previous_partition_id is not None:
+                # For incremental compaction, we need to get the previous committed partition
+                # that contains the round completion info.
+                # Get the previous partition by ID - this is where the round completion info should be
+                logger.info(
+                    f"Current partition {destination_partition_locator} does not have round completion info, "
+                    f"getting previous partition with ID: {current_partition.previous_partition_id}"
+                )
+                previous_partition = deltacat_storage.get_partition_by_id(
+                    destination_partition_locator.stream_locator,
+                    current_partition.previous_partition_id,
+                    **deltacat_storage_kwargs,
+                )
+                if previous_partition is not None:
+                    logger.info(
+                        f"Found previous partition: {previous_partition.locator}"
+                    )
+                    partition = previous_partition
+                else:
+                    raise PartitionNotFoundError(
+                        f"Previous partition with ID {current_partition.previous_partition_id} not found"
+                    )
+            else:
+                logger.info(f"No previous partition ID found, using current partition")
+                partition = current_partition
 
         if partition:
             round_completion_info = partition.compaction_round_completion_info

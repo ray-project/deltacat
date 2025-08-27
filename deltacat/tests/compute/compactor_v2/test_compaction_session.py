@@ -15,6 +15,7 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.compute.resource_estimation import ResourceEstimationMethod
+from deltacat.exceptions import ValidationError
 from deltacat.tests.compute.test_util_common import (
     get_rci_from_partition,
     read_audit_file,
@@ -374,7 +375,7 @@ class TestCompactionSessionMain:
                     "deltacat_storage_kwargs": {"catalog": catalog},
                     "destination_partition_locator": dest_partition.locator,
                     "drop_duplicates": True,
-                    "hash_bucket_count": 1,
+                    "hash_bucket_count": 2,
                     "last_stream_position_to_compact": new_source_delta.stream_position,
                     "list_deltas_kwargs": {
                         "catalog": catalog,
@@ -414,13 +415,94 @@ class TestCompactionSessionMain:
         # Allow larger tolerance for size differences
         assert compaction_audit.untouched_file_ratio >= 0
         assert compaction_audit.uniform_deltas_created >= 1
-        assert compaction_audit.hash_bucket_count == 1
+        assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count >= 1
         assert compaction_audit.output_file_count >= 1
         # Allow larger tolerance for file size differences between storage implementations
         # File sizes can vary significantly due to different compression, metadata, etc.
         assert compaction_audit.output_size_bytes > 0
         assert compaction_audit.input_size_bytes > 0
+
+    def test_compact_partition_when_hash_bucket_count_changes_then_validation_error(
+        self, catalog
+    ):
+        """Test that changing hash bucket count between compactions raises ValidationError."""
+        # Create source and destination namespaces/tables
+        _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
+        _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
+
+        # Create source partition and commit backfill data
+        source_partition = self._stage_and_commit_partition(source_stream, catalog)
+        source_delta = self._stage_and_commit_delta(
+            self.BACKFILL_DATA, source_partition, catalog
+        )
+
+        # Create destination partition
+        dest_partition = self._stage_and_commit_partition(dest_stream, catalog)
+
+        # First compaction with hash_bucket_count=2
+        compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "catalog": catalog,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": metastore,
+                    "deltacat_storage_kwargs": {"catalog": catalog},
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        "catalog": catalog,
+                        "equivalent_table_types": [],
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        # Now commit incremental data and run incremental compaction with different hash bucket count
+        new_source_delta = self._stage_and_commit_delta(
+            self.INCREMENTAL_DATA, source_partition, catalog
+        )
+
+        # This should raise ValidationError due to hash bucket count mismatch (2 vs 1)
+        with pytest.raises(ValidationError) as exc_info:
+            compact_partition(
+                CompactPartitionParams.of(
+                    {
+                        "catalog": catalog,
+                        "compacted_file_content_type": ContentType.PARQUET,
+                        "dd_max_parallelism_ratio": 1.0,
+                        "deltacat_storage": metastore,
+                        "deltacat_storage_kwargs": {"catalog": catalog},
+                        "destination_partition_locator": dest_partition.locator,
+                        "drop_duplicates": True,
+                        "hash_bucket_count": 1,  # Different from initial compaction (2)
+                        "last_stream_position_to_compact": new_source_delta.stream_position,
+                        "list_deltas_kwargs": {
+                            "catalog": catalog,
+                            "equivalent_table_types": [],
+                        },
+                        "primary_keys": ["pk"],
+                        "rebase_source_partition_locator": None,
+                        "rebase_source_partition_high_watermark": None,
+                        "records_per_compacted_file": 4000,
+                        "source_partition_locator": new_source_delta.partition_locator,
+                    }
+                )
+            )
+
+        # Verify the error message contains the expected hash bucket count mismatch details
+        error_message = str(exc_info.value)
+        assert "Partition hash bucket count for compaction has changed" in error_message
+        assert "Hash bucket count in RCI=2" in error_message
+        assert "hash bucket count in params=1" in error_message
 
     def test_compact_partition_when_incremental_then_intelligent_estimation_sanity(
         self, catalog

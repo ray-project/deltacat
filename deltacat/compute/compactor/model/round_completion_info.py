@@ -102,7 +102,11 @@ class RoundCompletionInfo(dict):
 
     @property
     def rebase_source_partition_locator(self) -> Optional[PartitionLocator]:
-        return self.get("rebaseSourcePartitionLocator")
+        val = self.get("rebaseSourcePartitionLocator")
+        if val is not None and not isinstance(val, PartitionLocator):
+            val = PartitionLocator(val)
+            self["rebaseSourcePartitionLocator"] = val  # Cache the converted value
+        return val
 
     @property
     def manifest_entry_copied_by_reference_ratio(self) -> Optional[float]:
@@ -133,4 +137,8 @@ class RoundCompletionInfo(dict):
 
     @property
     def prev_source_partition_locator(self) -> Optional[PartitionLocator]:
-        return self.get("prevSourcePartitionLocator")
+        val = self.get("prevSourcePartitionLocator")
+        if val is not None and not isinstance(val, PartitionLocator):
+            val = PartitionLocator(val)
+            self["prevSourcePartitionLocator"] = val  # Cache the converted value
+        return val
