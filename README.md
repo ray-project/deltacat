@@ -11,7 +11,7 @@ It uses the Ray distributed compute framework together with [Apache Arrow](https
 merge-on-read and copy-on-write operations.
 
 DeltaCAT provides the following high-level components:
-1. [**Catalog**](deltacat/catalog/): High-level APIs to create, discover, organize, share, and manage datasets.
+1. [**Catalog**](deltacat/catalog/interface.py): High-level APIs to create, discover, organize, share, and manage datasets.
 2. [**Compute**](deltacat/compute/): Distributed data management procedures to read, write, and optimize datasets.
 3. [**Storage**](deltacat/storage/): In-memory and on-disk multimodal dataset formats.
 4. **Sync** (in development): Synchronize DeltaCAT datasets to data warehouses and other table formats.
@@ -137,13 +137,13 @@ DeltaCAT's transaction system assumes that the host machine provides strong syst
 
 Taken together, these requirements make DeltaCAT suitable for production use on most major cloud computing hosts (e.g., EC2, GCE, Azure VMs) and storage systems (e.g., S3, GCS, Azure Blob Storage), but local laptops should typically be limited to testing/experimental purposes.
 
-### Additional Resources
-#### Examples
+## Additional Resources
+### Examples
 
 The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced application like external data source indexers and custom dataset compactors. They also demonstrate some experimental Apache Iceberg and Beam integrations.
 
-#### DeltaCAT URLs and Filesystem APIs
+### DeltaCAT URLs and Filesystem APIs
 The [DeltaCAT API Tests](deltacat/tests/test_deltacat_api.py) provide examples of how to efficiently explore, clone, and manipulate DeltaCAT catalogs by using DeltaCAT URLs together with filesystem-like list/copy/get/put APIs.
 
-#### DeltaCAT Catalog APIs
+### DeltaCAT Catalog APIs
 The [Default Catalog Tests](deltacat/tests/catalog/test_default_catalog_impl.py) provide more exhaustive examples of DeltaCAT **Catalog** API behavior.
