@@ -129,7 +129,7 @@ dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)  # Writ
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)  # Write Feather
 
 ```
-For more information, see the DeltaCAT [Schema Docs](deltacat/docs/schema/README.md) and [Table Docs](deltacat/docs/table/README.md).
+For more information, see the DeltaCAT [Schema](deltacat/docs/schema/README.md) and [Table](deltacat/docs/table/README.md) documentation.
 
 ### Additional Resources
 #### Examples
