@@ -23,10 +23,10 @@ DeltaCAT's **Catalog**, **Compute**, and **Storage** layers work together to bri
   <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:100%; height:auto; text-align: center;">
 </p>
 
-Data consumers that prefer to stay within the ecosystem of Pythonic data management tools can use DeltaCAT's native table format to manage their data with minimal overhead. For integration with other data analytics frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component lets you synchronize your tables to Apache Iceberg and other table formats with minimal overhead.
+Data consumers that prefer to stay within the ecosystem of Pythonic data management tools can use DeltaCAT's native table format to manage their data with minimal overhead. For integration with other data analytics frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component offers zero-copy synchronization of your tables to Apache Iceberg and other table formats.
 
 ## Getting Started
-DeltaCAT applications run anywhere that Ray apps run, including your local laptop, cloud computing clusters, or on-premise clusters.
+DeltaCAT applications run anywhere that Ray runs, including your local laptop, cloud computing clusters, or on-premise clusters.
 
 DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
 

@@ -15,10 +15,10 @@ catalogs can be rooted in any filesystem supported by PyArrow.
 DeltaCAT separates **immutable data storage** from **mutable name resolution** to enable renames and
 aliases without rewriting metadata files.
 
-DeltaCAT uses a two-layer system for object identity:
+DeltaCAT uses a combination of **Immutable IDs** and human-readable **Aliases** to uniquely identify objects:
 
-1. **ID**: Immutable unique identifier used internally to locate the object.
-2. **Alias**: Alias used to find the object amongst siblings in the same level of the catalog object hierarchy.
+1. **ID**: Immutable unique system identifier used to locate the object internally.
+2. **Alias**: Human-readable alias used to uniquely identify an object amongst its siblings.
 
 ### Object Identity Rules
 
@@ -33,8 +33,8 @@ DeltaCAT uses a two-layer system for object identity:
 
 ### Canonical Strings
 
-Every object has a **Canonical String** that identifies it uniquely within its parent context.
-These strings are used to create SHA-1 digests for name resolution directories.
+Every object has a **Canonical String** that identifies it uniquely amongst its siblings.
+SHA-1 hexdigests of canonical strings are used to create **Name Resolution Directories**.
 
 **Format Examples:**
 - Namespace: `"my_namespace"`
@@ -46,13 +46,14 @@ These strings are used to create SHA-1 digests for name resolution directories.
 
 # Directory & File Structure
 
-DeltaCAT uses two types of directories to separate immutable data storage from mutable name resolution:
+DeltaCAT uses two types of directories to separate immutable data storage from mutable name resolution,
+**Immutable ID Directories** and **Name Resolution Directories**.
 
-## 1. Immutable ID Directories (Data Storage)
+## Immutable ID Directories (Data Storage)
 
-**Purpose**: Store metadata and child objects using permanent IDs
+**Purpose**: Metadata and child object storage.
 
-**Location**: `${CATALOG_ROOT}/${object_immutable_id}/`
+**Location**: `${PARENT_DIRECTORY}/${immutable_id}/`
 
 Every metadata object has a directory named after its **Immutable ID** (UUID or manual ID).
 This directory structure **never changes**, even when objects are renamed.
@@ -89,9 +90,9 @@ Each `rev/` directory contains **Metadata Revision Files** with transaction hist
 
 Simultaneous updates to the same `rev/` directory result in a concurrent modification conflict, but any number of different `rev/` directories may be modified simultaneously.
 
-## 2. Name Resolution Directories (Name Mapping)
+## Name Resolution Directories (Mutable Name Mapping)
 
-**Purpose**: Map mutable names (Namespaces, Tables) to their immutable IDs within parent context
+**Purpose**: Map mutable names (Namespaces, Tables) to their immutable IDs.
 **Location**: `${PARENT_DIRECTORY}/${sha1_hexdigest_of_canonical_string}/`
 
 For objects with mutable names, DeltaCAT creates **Name Resolution Directories** to enable
@@ -162,7 +163,7 @@ ${CATALOG_ROOT}/txn/
 
 DeltaCAT transactions rely on MVCC snapshot isolation, with conflicts isolated to concurrent operations against the same object ID. Each transaction log file contains details about what operations were performed in that transaction.
 
-Transactions transition from RUNNING → SUCCESS/FAILED/TIMEOUT states, with the transaction stored in an equivalently named parent directory at `${CATALOG_ROOT}/txn/${state}/`.
+Transactions transition from RUNNING → SUCCESS/PAUSED/FAILED/TIMEOUT/PURGED states, with the transaction stored in an equivalently named parent directory at `${CATALOG_ROOT}/txn/${state}/`.
 
 ## 4. Runtime Environment Requirements
 
@@ -184,32 +185,32 @@ ${CATALOG_ROOT}/
 │       └── 1754104277286904000_cb30678d-4b46-48e3-a802-d349ebee59ae
 │
 ├── ee4a794d7e59ba3486d9e0a024270dffa760ee03/   # "sales" → namespace_uuid
-│   └── 00000000000000000001_create_<txn_id>.2dfcb27d-23c5-424d-b6fe-55e79609a8f3
+│   └── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.2dfcb27d-23c5-424d-b6fe-55e79609a8f3
 │
 ├── 2dfcb27d-23c5-424d-b6fe-55e79609a8f3/        # Namespace data (UUID)
 │   ├── rev/                                     # Namespace metadata
-│   │   └── 00000000000000000001_create_<txn_id>.mpk
+│   │   └── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
 │   ├── 797efd8d2cd3c859c3f498388e4761a8c1e51fda/   # "orders" → table_uuid
-│   │   ├── 00000000000000000001_create_<txn_id>.813226ae-94f1-46bf-95d5-e8a9660b5e11
-│   │   └── 00000000000000000002_delete_<txn_id>.813226ae-94f1-46bf-95d5-e8a9660b5e11
+│   │   ├── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.813226ae-94f1-46bf-95d5-e8a9660b5e11
+│   │   └── 00000000000000000002_delete_1754104277286904000_cb30678d-4b46-48e3-a802-d349ebee59ae.813226ae-94f1-46bf-95d5-e8a9660b5e11
 │   ├── add315af62be21dc6172bc55ee0430b712e2922f/   # "customer_orders" → same table_uuid
-│   │   └── 00000000000000000001_create_<txn_id>.813226ae-94f1-46bf-95d5-e8a9660b5e11
+│   │   └── 00000000000000000001_create_1754104277286904000_cb30678d-4b46-48e3-a802-d349ebee59ae.813226ae-94f1-46bf-95d5-e8a9660b5e11
 │   └── 813226ae-94f1-46bf-95d5-e8a9660b5e11/        # Table data (UUID)
 │       ├── rev/                                     # Table metadata
-│       │   ├── 00000000000000000001_create_<txn_id>.mpk
-│       │   └── 00000000000000000002_update_<txn_id>.mpk
+│       │   ├── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
+│       │   └── 00000000000000000002_update_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
 │       └── 1/                                       # Table Version 1
 │           ├── rev/                                 # Table Version metadata
-│           │   └── 00000000000000000001_create_<txn_id>.mpk
+│           │   └── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
 │           └── deltacat/                            # Stream (DeltaCAT format)
 │               ├── rev/                             # Stream metadata
-│               │   └── 00000000000000000001_create_<txn_id>.mpk
+│               │   └── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
 │               └── default/                         # Default partition
 │                   ├── rev/                         # Partition metadata
-│                   │   └── 00000000000000000001_create_<txn_id>.mpk
+│                   │   └── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
 │                   └── 0/                           # Delta 0
 │                       └── rev/                     # Delta metadata
-│                           └── 00000000000000000001_create_<txn_id>.mpk
+│                           └── 00000000000000000001_create_1754104277284541000_241a88e2-2a73-4975-945c-5973323b82f8.mpk
 ```
 
 **What happened**: The table "orders" was created with a single delta written to it then renamed to "customer_orders". Notice:

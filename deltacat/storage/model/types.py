@@ -75,8 +75,8 @@ class TransactionOperationType(str, Enum):
 
 
 class TransactionState(str, Enum):
-    FAILED = "CLEANING"
-    PURGED = "CLEANED"
+    FAILED = "FAILED"
+    PURGED = "PURGED"
     TIMEOUT = "TIMEOUT"
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
