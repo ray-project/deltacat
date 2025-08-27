@@ -127,7 +127,7 @@ class Catalogs:
 
     def put(self, name: str, catalog: Catalog, set_default: bool = False) -> None:
         self._catalogs[name] = catalog
-        if set_default:
+        if set_default or len(self._catalogs) == 1:
             self._default_catalog = catalog
 
     def get(self, name) -> Optional[Catalog]:

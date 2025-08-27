@@ -7,9 +7,11 @@ import uuid
 import posixpath
 from pathlib import PosixPath
 import threading
+import contextvars
 from collections import defaultdict
 
-from typing import Optional, List, Union, Tuple
+from types import TracebackType
+from typing import Optional, List, Union, Tuple, Type
 
 import msgpack
 import pyarrow.fs
@@ -40,6 +42,22 @@ from deltacat.utils.filesystem import (
 )
 
 
+# Context variable to store the current transaction
+_current_transaction: contextvars.ContextVar[
+    Optional[Transaction]
+] = contextvars.ContextVar("current_transaction", default=None)
+
+
+def get_current_transaction() -> Optional[Transaction]:
+    """Get the currently active transaction from context."""
+    return _current_transaction.get()
+
+
+def set_current_transaction(transaction: Optional[Transaction]) -> contextvars.Token:
+    """Set the current transaction in context, returns token for restoration."""
+    return _current_transaction.set(transaction)
+
+
 def setup_transaction(
     transaction: Optional[Transaction] = None,
     **kwargs,
@@ -55,6 +73,10 @@ def setup_transaction(
     Returns:
         Tuple[Transaction, bool]: The transaction to use and whether to commit it
     """
+    # Check for active transaction in context first
+    if transaction is None:
+        transaction = get_current_transaction()
+
     commit_transaction = transaction is None
     if commit_transaction:
         from deltacat.catalog.model.properties import get_catalog_properties
@@ -65,6 +87,35 @@ def setup_transaction(
             catalog_properties.filesystem,
         )
     return transaction, commit_transaction
+
+
+def transaction(catalog_name: Optional[str] = None) -> Transaction:
+    """
+    Start a new interactive transaction for the given catalog.
+
+    Args:
+        catalog_name: Optional name of the catalog to run the transaction against.
+                     If None, uses the default catalog.
+
+    Returns:
+        Transaction: A started interactive transaction ready for use with the given catalog.
+
+    Example:
+        with dc.transaction() as txn:
+            # All DeltaCAT operations automatically use the transaction context
+            dc.write_to_table(data, "my_table")
+            dc.write_to_table(more_data, "my_other_table")
+            # Transaction is automatically committed on success or rolled back on error
+    """
+    from deltacat.catalog.model.catalog import get_catalog
+
+    # Get the catalog and its properties
+    catalog = get_catalog(catalog_name)
+    catalog_properties = catalog.inner
+
+    # Create interactive transaction and start it immediately
+    txn = Transaction.of().start(catalog_properties.root, catalog_properties.filesystem)
+    return txn
 
 
 class TransactionTimeProvider:
@@ -614,7 +665,29 @@ class Transaction(dict):
         validations on the serialized or deserialized object.
         :return: a serializable version of the object
         """
-        serializable = copy.deepcopy(self)
+        # Create a copy but exclude the non-serializable context token
+        serializable_dict = {}
+        for key, value in self.items():
+            if key != "_context_token":
+                serializable_dict[key] = copy.deepcopy(value)
+
+        # Copy other attributes that might not be in the dict
+        serializable = Transaction(serializable_dict)
+        for attr_name in dir(self):
+            if not attr_name.startswith("_") and attr_name not in [
+                "items",
+                "keys",
+                "values",
+                "get",
+            ]:
+                try:
+                    attr_value = getattr(self, attr_name)
+                    if not callable(attr_value) and attr_name != "_context_token":
+                        setattr(serializable, attr_name, copy.deepcopy(attr_value))
+                except (AttributeError, TypeError):
+                    # Skip attributes that can't be copied
+                    pass
+
         # remove all src/dest metafile contents except IDs and locators to
         # reduce file size (they can be reconstructed from their corresponding
         # files as required).
@@ -867,8 +940,6 @@ class Transaction(dict):
         # Clean up original running log
         fs.delete_file(running_path)
 
-    # reinitialize runtime variables --> we have to see if this is enough or are we losing info
-
     def resume(self) -> None:
         fs = self._filesystem
         root = self.catalog_root_normalized
@@ -1039,3 +1110,79 @@ class Transaction(dict):
                 fs.delete_file(success_log_path)
             except Exception:
                 pass
+
+    def __enter__(self) -> "Transaction":
+        """
+        Context manager entry point. Sets this transaction as the current context.
+        Supports nested transactions by preserving the context stack.
+        """
+        if not hasattr(self, "interactive") or not self.interactive:
+            raise RuntimeError(
+                "Transaction must be interactive to use with context manager. "
+                "Use dc.transaction() to create an interactive transaction."
+            )
+        if self.start_time is None:
+            raise RuntimeError(
+                "Transaction has not been started. "
+                "Use dc.transaction() to create a properly initialized transaction."
+            )
+
+        # Store the context token for restoration in __exit__
+        self._context_token = set_current_transaction(self)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        """
+        Context manager exit point. Restores previous transaction context and
+        automatically seals the transaction on successful completion or fails it
+        if an exception occurred.
+
+        Args:
+            exc_type: Exception type if an exception occurred, None otherwise
+            exc_value: Exception value if an exception occurred, None otherwise
+            traceback: Exception traceback if an exception occurred, None otherwise
+        """
+        try:
+            if exc_type is None and exc_value is None and traceback is None:
+                # No exception occurred - seal the transaction
+                self.seal()
+            else:
+                # Exception occurred during transaction - fail and cleanup
+                try:
+                    catalog_root_normalized = self.catalog_root_normalized
+                    txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
+                    running_txn_log_file_path = posixpath.join(
+                        txn_log_dir, RUNNING_TXN_DIR_NAME, self.id
+                    )
+                    self._fail_and_cleanup(
+                        failed_txn_log_dir=posixpath.join(
+                            txn_log_dir, FAILED_TXN_DIR_NAME
+                        ),
+                        running_log_path=running_txn_log_file_path,
+                    )
+                except Exception:
+                    # If cleanup fails, still let the original exception propagate
+                    pass
+        finally:
+            # Always restore the previous transaction context using the token
+            if hasattr(self, "_context_token"):
+                try:
+                    # Get the previous value from the token
+                    old_value = self._context_token.old_value
+                    # Only set if the old value is a valid transaction or None
+                    if old_value is None or isinstance(old_value, Transaction):
+                        _current_transaction.set(old_value)
+                    else:
+                        # If old_value is not valid (e.g., Token.MISSING), set to None
+                        _current_transaction.set(None)
+                except (AttributeError, LookupError):
+                    # If token doesn't have old_value or context is corrupted, clear it
+                    try:
+                        _current_transaction.set(None)
+                    except LookupError:
+                        pass

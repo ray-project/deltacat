@@ -21,7 +21,10 @@ from deltacat.storage.model.types import (
     LifecycleState,
     StreamFormat,
 )
-from deltacat.storage.model.transaction import Transaction
+from deltacat.storage.model.transaction import (
+    Transaction,
+    get_current_transaction,
+)
 from deltacat.types.media import ContentType
 from deltacat.types.tables import (
     DatasetType,
@@ -64,6 +67,10 @@ def write_to_table(
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.write_to_table(
         data,
@@ -113,6 +120,10 @@ def read_table(
     Returns:
         Dataset containing the table data.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.read_table(
         table,
@@ -173,6 +184,10 @@ def alter_table(
         TableNotFoundError: If the table does not already exist.
         TableVersionNotFoundError: If the specified table version or active table version does not exist.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.alter_table(
         table,
@@ -242,6 +257,10 @@ def create_table(
         TableAlreadyExistsError: If the table already exists and fail_if_exists is True.
         NamespaceNotFoundError: If the provided namespace does not exist.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.create_table(
         table,
@@ -291,6 +310,10 @@ def drop_table(
         TableNotFoundError: If the table does not exist.
         TableVersionNotFoundError: If the table version does not exist.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.drop_table(
         table,
@@ -324,6 +347,10 @@ def refresh_table(
     Returns:
         None
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.refresh_table(
         table,
@@ -354,6 +381,10 @@ def list_tables(
     Returns:
         ListResult containing TableDefinition objects for tables in the namespace.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.list_tables(
         *args,
@@ -389,6 +420,10 @@ def get_table(
         None if the requested version is not found. The table definition's stream will be None if the requested stream
         format is not found.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.get_table(
         table,
@@ -422,6 +457,10 @@ def truncate_table(
     Returns:
         None
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.truncate_table(
         table,
@@ -457,6 +496,10 @@ def rename_table(
     Raises:
         TableNotFoundError: If the table does not exist.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.rename_table(
         table,
@@ -491,6 +534,10 @@ def table_exists(
     Returns:
         True if the table exists, False otherwise.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.table_exists(
         table,
@@ -519,6 +566,10 @@ def list_namespaces(
     Returns:
         ListResult containing Namespace objects.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.list_namespaces(
         *args,
@@ -544,6 +595,10 @@ def get_namespace(
     Returns:
         Namespace object if the namespace exists, None otherwise.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.get_namespace(
         namespace,
@@ -570,6 +625,10 @@ def namespace_exists(
     Returns:
         True if the namespace exists, False otherwise.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.namespace_exists(
         namespace,
@@ -601,6 +660,10 @@ def create_namespace(
     Raises:
         NamespaceAlreadyExistsError: If the namespace already exists.
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.create_namespace(
         namespace,
@@ -632,6 +695,10 @@ def alter_namespace(
     Returns:
         None
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.alter_namespace(
         namespace,
@@ -663,6 +730,10 @@ def drop_namespace(
     Returns:
         None
     """
+    if (transaction or get_current_transaction()) and catalog:
+        raise ValueError(
+            "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
+        )
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.drop_namespace(
         namespace,

@@ -10,6 +10,7 @@ Cross-platform compatibility notes:
 import datetime
 import multiprocessing
 import os
+import tempfile
 import threading
 import uuid
 from typing import Dict, Any
@@ -25,7 +26,7 @@ import pytest
 from ray.data.dataset import MaterializedDataset
 
 import deltacat as dc
-from deltacat import Catalog
+from deltacat import Catalog, CatalogProperties
 from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableVersionAlreadyExistsError,
@@ -9741,3 +9742,878 @@ class TestSchemalessContentTypeBehavior:
         # Verify we can read back the data
         result = dc.read_table(table_name, namespace=namespace, catalog=catalog_name)
         assert result is not None
+
+
+class TestMultiTableTransactions:
+    """
+    Test class for multi-table transaction functionality using the new `with dc.transaction()` syntax.
+    Tests transaction context management, automatic transaction scoping, and complex multi-table operations.
+    """
+
+    @pytest.fixture
+    def transaction_catalog(self, temp_catalog_properties):
+        """Set up a catalog for multi-table transaction tests."""
+        dc.init()
+        catalog_name = "transaction_test_catalog"
+        catalog = dc.put_catalog(
+            catalog_name,
+            catalog=Catalog(config=temp_catalog_properties),
+        )
+
+        namespace = "transaction_test_namespace"
+        dc.create_namespace(namespace, catalog=catalog_name)
+
+        return {
+            "catalog_name": catalog_name,
+            "catalog": catalog,
+            "namespace": namespace,
+        }
+
+    @pytest.fixture(autouse=True)
+    def setup_class_attributes(self, transaction_catalog):
+        """Set up class attributes from the fixture."""
+        self.catalog_name = transaction_catalog["catalog_name"]
+        self.catalog = transaction_catalog["catalog"]
+        self.namespace = transaction_catalog["namespace"]
+
+    def test_basic_multi_table_transaction(self):
+        """Test basic multi-table operations within a single transaction."""
+        # Test data
+        customers_data = pd.DataFrame(
+            {
+                "customer_id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "email": [
+                    "alice@example.com",
+                    "bob@example.com",
+                    "charlie@example.com",
+                ],
+            }
+        )
+
+        orders_data = pd.DataFrame(
+            {
+                "order_id": [101, 102, 103],
+                "customer_id": [1, 2, 1],
+                "amount": [25.50, 15.75, 42.00],
+                "status": ["completed", "pending", "completed"],
+            }
+        )
+
+        # Perform multi-table operations within transaction
+        with dc.transaction():
+            # Create and write to customers table
+            dc.write_to_table(
+                data=customers_data,
+                table="customers",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+            # Create and write to orders table
+            dc.write_to_table(
+                data=orders_data,
+                table="orders",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+        # Verify both tables exist and contain correct data
+        customers_result = dc.read_table(
+            "customers",
+            namespace=self.namespace,
+        )
+        orders_result = dc.read_table(
+            "orders",
+            namespace=self.namespace,
+        )
+
+        assert get_table_length(customers_result) == 3
+        assert get_table_length(orders_result) == 3
+
+        # Verify table structures
+        assert dc.table_exists(
+            "customers",
+            namespace=self.namespace,
+        )
+        assert dc.table_exists(
+            "orders",
+            namespace=self.namespace,
+        )
+
+    def test_transaction_rollback_on_error(self):
+        """Test that transaction is properly rolled back when an error occurs."""
+        initial_data = pd.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+
+        # Create initial table outside transaction
+        dc.write_to_table(
+            data=initial_data,
+            table="rollback_test",
+            namespace=self.namespace,
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Attempt transaction that should fail
+        with pytest.raises(ValueError):
+            with dc.transaction():
+                # This should succeed
+                dc.write_to_table(
+                    data=pd.DataFrame({"id": [3], "value": ["c"]}),
+                    table="rollback_test",
+                    namespace=self.namespace,
+                    mode=TableWriteMode.APPEND,
+                )
+
+                # Force an error to test rollback
+                raise ValueError("Simulated transaction error")
+
+        # Verify original data is unchanged (rollback worked)
+        result = dc.read_table(
+            "rollback_test",
+            namespace=self.namespace,
+        )
+        result_df = to_pandas(result)
+        assert (
+            get_table_length(result_df) == 2
+        )  # Should still only have original 2 records
+        assert set(result_df["value"]) == {"a", "b"}
+
+    def test_complex_multi_table_operations(self):
+        """Test complex operations including create, write, read, and derived table creation."""
+        # Source data
+        products_data = pd.DataFrame(
+            {
+                "product_id": [1, 2, 3, 4],
+                "name": ["Widget", "Gadget", "Tool", "Device"],
+                "price": [10.99, 25.50, 15.75, 99.99],
+                "category": ["electronics", "electronics", "tools", "electronics"],
+            }
+        )
+
+        sales_data = pd.DataFrame(
+            {
+                "sale_id": [1001, 1002, 1003, 1004, 1005],
+                "product_id": [1, 2, 1, 3, 4],
+                "quantity": [2, 1, 1, 3, 1],
+                "sale_date": [
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-02",
+                    "2024-01-02",
+                    "2024-01-03",
+                ],
+            }
+        )
+
+        # Complex multi-table transaction
+        with dc.transaction():
+            # Create products table
+            dc.write_to_table(
+                data=products_data,
+                table="products",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+            # Create sales table
+            dc.write_to_table(
+                data=sales_data,
+                table="sales",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+            # Read products data to create a derived table
+            products_result = dc.read_table(
+                "products",
+                namespace=self.namespace,
+            )
+            products_df = to_pandas(products_result)
+
+            # Create a derived summary table (electronics products only)
+            electronics_df = products_df[products_df["category"] == "electronics"]
+            electronics_summary = pd.DataFrame(
+                {
+                    "category": ["electronics"],
+                    "product_count": [len(electronics_df)],
+                    "avg_price": [electronics_df["price"].mean()],
+                    "total_value": [electronics_df["price"].sum()],
+                }
+            )
+
+            # Write derived table
+            dc.write_to_table(
+                data=electronics_summary,
+                table="category_summary",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+        # Verify all tables were created successfully
+        assert dc.table_exists(
+            "products",
+            namespace=self.namespace,
+        )
+        assert dc.table_exists(
+            "sales",
+            namespace=self.namespace,
+        )
+        assert dc.table_exists(
+            "category_summary",
+            namespace=self.namespace,
+        )
+
+        # Verify derived table content
+        summary_result = dc.read_table(
+            "category_summary",
+            namespace=self.namespace,
+        )
+        summary_df = to_pandas(summary_result)
+
+        assert get_table_length(summary_df) == 1
+        assert summary_df.iloc[0]["category"] == "electronics"
+        assert summary_df.iloc[0]["product_count"] == 3  # Widget, Gadget, Device
+        assert summary_df.iloc[0]["avg_price"] == pytest.approx(
+            45.49333, rel=1e-4
+        )  # (10.99 + 25.50 + 99.99) / 3
+
+    def test_nested_transactions(self):
+        """Test nested transaction functionality and proper context management."""
+        base_data = pd.DataFrame({"id": [1, 2], "level": ["outer", "outer"]})
+
+        inner_data = pd.DataFrame({"id": [3, 4], "level": ["inner", "inner"]})
+
+        additional_data = pd.DataFrame(
+            {"id": [5, 6], "level": ["additional", "additional"]}
+        )
+
+        # Test nested transactions (each transaction is independent)
+        with dc.transaction():
+            # Outer transaction operations
+            dc.write_to_table(
+                data=base_data,
+                table="nested_test_outer",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+            # Inner (nested) transaction - this is a separate independent transaction
+            with dc.transaction():
+                # Inner transaction operations
+                dc.write_to_table(
+                    data=inner_data,
+                    table="nested_test_inner",
+                    namespace=self.namespace,
+                    mode=TableWriteMode.CREATE,
+                )
+
+                # Verify inner transaction context is active by reading the table
+                inner_check = dc.read_table(
+                    "nested_test_inner",
+                    namespace=self.namespace,
+                )
+                assert get_table_length(inner_check) == 2
+
+            # Back to outer transaction - add more data to outer table
+            dc.write_to_table(
+                data=additional_data,
+                table="nested_test_outer",
+                namespace=self.namespace,
+                mode=TableWriteMode.APPEND,
+            )
+
+        # Verify both outer and inner operations completed independently
+        outer_result = dc.read_table(
+            "nested_test_outer",
+            namespace=self.namespace,
+        )
+        inner_result = dc.read_table(
+            "nested_test_inner",
+            namespace=self.namespace,
+        )
+
+        outer_df = to_pandas(outer_result)
+        inner_df = to_pandas(inner_result)
+
+        # Outer table should have data from both outer and additional operations
+        assert get_table_length(outer_df) == 4
+        assert set(outer_df["level"]) == {"outer", "additional"}
+
+        # Inner table should have inner transaction data
+        assert get_table_length(inner_df) == 2
+        assert all(inner_df["level"] == "inner")
+
+    def test_transaction_context_isolation(self):
+        """Test that transaction context is properly isolated between concurrent operations."""
+        # This test ensures that nested transactions don't interfere with each other
+        data_a = pd.DataFrame({"id": [1], "source": ["context_a"]})
+        data_b = pd.DataFrame({"id": [2], "source": ["context_b"]})
+
+        with dc.transaction():
+            dc.write_to_table(
+                data=data_a,
+                table="context_test_outer",
+                namespace=self.namespace,
+                mode=TableWriteMode.CREATE,
+            )
+
+            # Nested transaction should have its own context
+            with dc.transaction():
+                dc.write_to_table(
+                    data=data_b,
+                    table="context_test_inner",
+                    namespace=self.namespace,
+                    mode=TableWriteMode.CREATE,
+                )
+
+                # Verify inner transaction operations work independently
+                inner_result = dc.read_table(
+                    "context_test_inner",
+                    namespace=self.namespace,
+                )
+                inner_df = to_pandas(inner_result)
+                assert get_table_length(inner_df) == 1
+                assert inner_df.iloc[0]["source"] == "context_b"
+
+            # Verify outer context is restored
+            outer_result = dc.read_table(
+                "context_test_outer",
+                namespace=self.namespace,
+            )
+            outer_df = to_pandas(outer_result)
+            assert get_table_length(outer_df) == 1
+            assert outer_df.iloc[0]["source"] == "context_a"
+
+        # Verify both tables exist after transaction completion
+        assert dc.table_exists(
+            "context_test_outer",
+            namespace=self.namespace,
+        )
+        assert dc.table_exists(
+            "context_test_inner",
+            namespace=self.namespace,
+        )
+
+    def test_default_catalog_transaction(self):
+        """Test that transaction() with no catalog parameter uses the default catalog."""
+        test_data = pd.DataFrame(
+            {"id": [1, 2], "source": ["default_catalog", "default_catalog"]}
+        )
+
+        # Transaction without specifying catalog should use default
+        with dc.transaction():
+            # This should write to the default catalog
+            dc.write_to_table(
+                data=test_data,
+                table="default_catalog_test",
+                namespace="default",  # Use default namespace
+                mode=TableWriteMode.CREATE,
+            )
+
+        # Verify table exists in default catalog (no catalog parameter = default)
+        assert dc.table_exists("default_catalog_test", namespace="default")
+
+        # Verify we can read from default catalog
+        result = dc.read_table("default_catalog_test", namespace="default")
+        result_df = to_pandas(result)
+        assert get_table_length(result_df) == 2
+        assert all(result_df["source"] == "default_catalog")
+
+    def test_named_catalog_transaction(self):
+        """Test that transaction(catalog_name) honors the specified catalog."""
+        # Create a separate catalog with its own directory
+        specific_catalog = "specific_transaction_catalog"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            specific_catalog_config = CatalogProperties(
+                root=temp_dir, filesystem=pa.fs.LocalFileSystem()
+            )
+
+            try:
+                dc.put_catalog(
+                    specific_catalog, catalog=Catalog(config=specific_catalog_config)
+                )
+                dc.create_namespace("specific_ns", catalog=specific_catalog)
+
+                test_data = pd.DataFrame(
+                    {"id": [1, 2], "source": ["specific_catalog", "specific_catalog"]}
+                )
+
+                # Transaction with specific catalog name
+                with dc.transaction(specific_catalog):
+                    dc.write_to_table(
+                        data=test_data,
+                        table="specific_catalog_test",
+                        namespace="specific_ns",
+                        mode=TableWriteMode.CREATE,
+                    )
+
+                # Verify table exists in the specific catalog
+                assert dc.table_exists(
+                    "specific_catalog_test",
+                    namespace="specific_ns",
+                    catalog=specific_catalog,
+                )
+
+                # Verify table does NOT exist in other catalogs
+                assert not dc.table_exists(
+                    "specific_catalog_test",
+                    namespace=self.namespace,
+                    catalog=self.catalog_name,
+                )
+
+                # Verify we can read from the specific catalog
+                result = dc.read_table(
+                    "specific_catalog_test",
+                    namespace="specific_ns",
+                    catalog=specific_catalog,
+                )
+                result_df = to_pandas(result)
+                assert get_table_length(result_df) == 2
+                assert all(result_df["source"] == "specific_catalog")
+
+            finally:
+                # Cleanup catalog
+                try:
+                    dc.pop_catalog(specific_catalog)
+                except KeyError:
+                    pass  # Catalog already removed
+
+    def test_catalog_isolation_in_transactions(self):
+        """Test that transactions cannot access objects in other catalogs."""
+        # Set up two separate catalogs with their own directories
+        catalog_a = "catalog_isolation_test_a"
+        catalog_b = "catalog_isolation_test_b"
+
+        with tempfile.TemporaryDirectory() as temp_dir_a:
+            with tempfile.TemporaryDirectory() as temp_dir_b:
+                catalog_a_config = CatalogProperties(
+                    root=temp_dir_a, filesystem=pa.fs.LocalFileSystem()
+                )
+                catalog_b_config = CatalogProperties(
+                    root=temp_dir_b, filesystem=pa.fs.LocalFileSystem()
+                )
+
+                try:
+                    dc.put_catalog(catalog_a, catalog=Catalog(config=catalog_a_config))
+                    dc.put_catalog(catalog_b, catalog=Catalog(config=catalog_b_config))
+
+                    dc.create_namespace("test_ns", catalog=catalog_a)
+                    dc.create_namespace("test_ns", catalog=catalog_b)
+
+                    # Create table in catalog A outside of transaction
+                    catalog_a_data = pd.DataFrame({"id": [1, 2], "catalog": ["A", "A"]})
+                    dc.write_to_table(
+                        data=catalog_a_data,
+                        table="catalog_a_table",
+                        namespace="test_ns",
+                        catalog=catalog_a,
+                        mode=TableWriteMode.CREATE,
+                    )
+
+                    # Test that transaction in catalog B cannot access catalog A's tables
+                    catalog_b_data = pd.DataFrame({"id": [3, 4], "catalog": ["B", "B"]})
+
+                    with dc.transaction(catalog_b):
+                        # This should work - writing to catalog B
+                        dc.write_to_table(
+                            data=catalog_b_data,
+                            table="catalog_b_table",
+                            namespace="test_ns",
+                            mode=TableWriteMode.CREATE,
+                        )
+
+                        # Verify we can read from catalog B within the transaction
+                        b_result = dc.read_table("catalog_b_table", namespace="test_ns")
+                        b_df = to_pandas(b_result)
+                        assert get_table_length(b_df) == 2
+                        assert all(b_df["catalog"] == "B")
+
+                        # Verify that attempting to read from catalog A within catalog B transaction fails
+                        # This demonstrates proper catalog isolation - transactions are scoped to their catalog
+                        with pytest.raises(
+                            ValueError,
+                            match="Transaction and catalog parameters are mutually exclusive",
+                        ):
+                            dc.read_table(
+                                "catalog_a_table",
+                                namespace="test_ns",
+                                catalog=catalog_a,
+                            )
+
+                    # Verify both catalogs have their respective tables
+                    assert dc.table_exists(
+                        "catalog_a_table", namespace="test_ns", catalog=catalog_a
+                    )
+                    assert dc.table_exists(
+                        "catalog_b_table", namespace="test_ns", catalog=catalog_b
+                    )
+
+                    # Verify catalog isolation - A's table doesn't exist in B and vice versa
+                    assert not dc.table_exists(
+                        "catalog_a_table", namespace="test_ns", catalog=catalog_b
+                    )
+                    assert not dc.table_exists(
+                        "catalog_b_table", namespace="test_ns", catalog=catalog_a
+                    )
+
+                finally:
+                    # Cleanup catalogs
+                    try:
+                        dc.pop_catalog(catalog_a)
+                        dc.pop_catalog(catalog_b)
+                    except KeyError:
+                        pass  # Catalogs already removed
+
+    def test_transaction_scope_is_catalog_specific(self):
+        """Test that transactions are scoped to their specific catalog and don't affect other catalogs."""
+        # Set up multiple catalogs with their own directories
+        primary_catalog = "scoped_ops_primary"
+        secondary_catalog = "scoped_ops_secondary"
+
+        with tempfile.TemporaryDirectory() as temp_dir_primary:
+            with tempfile.TemporaryDirectory() as temp_dir_secondary:
+                primary_config = CatalogProperties(
+                    root=temp_dir_primary, filesystem=pa.fs.LocalFileSystem()
+                )
+                secondary_config = CatalogProperties(
+                    root=temp_dir_secondary, filesystem=pa.fs.LocalFileSystem()
+                )
+
+                try:
+                    dc.put_catalog(
+                        primary_catalog, catalog=Catalog(config=primary_config)
+                    )
+                    dc.put_catalog(
+                        secondary_catalog, catalog=Catalog(config=secondary_config)
+                    )
+
+                    dc.create_namespace("scoped_ns", catalog=primary_catalog)
+                    dc.create_namespace("scoped_ns", catalog=secondary_catalog)
+
+                    primary_data = pd.DataFrame(
+                        {"id": [1, 2], "catalog": ["primary", "primary"]}
+                    )
+
+                    secondary_data = pd.DataFrame(
+                        {"id": [3, 4], "catalog": ["secondary", "secondary"]}
+                    )
+
+                    # Test 1: Transaction scoped to primary catalog
+                    with dc.transaction(primary_catalog):
+                        # Write to primary catalog (transaction's catalog) - should work
+                        dc.write_to_table(
+                            data=primary_data,
+                            table="primary_table",
+                            namespace="scoped_ns",
+                            mode=TableWriteMode.CREATE,
+                        )
+
+                        # Read from primary catalog within the transaction - should work
+                        primary_result = dc.read_table(
+                            "primary_table", namespace="scoped_ns"
+                        )
+                        primary_df = to_pandas(primary_result)
+                        assert get_table_length(primary_df) == 2
+                        assert all(primary_df["catalog"] == "primary")
+
+                    # Test 2: Separate transaction scoped to secondary catalog
+                    with dc.transaction(secondary_catalog):
+                        # Write to secondary catalog (transaction's catalog) - should work
+                        dc.write_to_table(
+                            data=secondary_data,
+                            table="secondary_table",
+                            namespace="scoped_ns",
+                            mode=TableWriteMode.CREATE,
+                        )
+
+                        # Read from secondary catalog within the transaction - should work
+                        secondary_result = dc.read_table(
+                            "secondary_table", namespace="scoped_ns"
+                        )
+                        secondary_df = to_pandas(secondary_result)
+                        assert get_table_length(secondary_df) == 2
+                        assert all(secondary_df["catalog"] == "secondary")
+
+                        # Verify that attempting to read from primary catalog within secondary transaction fails
+                        with pytest.raises(
+                            ValueError,
+                            match="Transaction and catalog parameters are mutually exclusive",
+                        ):
+                            dc.read_table(
+                                "primary_table",
+                                namespace="scoped_ns",
+                                catalog=primary_catalog,
+                            )
+
+                    # Verify both operations completed successfully in their respective catalogs
+                    assert dc.table_exists(
+                        "primary_table", namespace="scoped_ns", catalog=primary_catalog
+                    )
+                    assert dc.table_exists(
+                        "secondary_table",
+                        namespace="scoped_ns",
+                        catalog=secondary_catalog,
+                    )
+
+                    # Verify catalog isolation - each table only exists in its own catalog
+                    assert not dc.table_exists(
+                        "primary_table",
+                        namespace="scoped_ns",
+                        catalog=secondary_catalog,
+                    )
+                    assert not dc.table_exists(
+                        "secondary_table",
+                        namespace="scoped_ns",
+                        catalog=primary_catalog,
+                    )
+
+                finally:
+                    # Cleanup catalogs
+                    try:
+                        dc.pop_catalog(primary_catalog)
+                        dc.pop_catalog(secondary_catalog)
+                    except KeyError:
+                        pass  # Catalogs already removed
+
+    def test_nested_transactions_different_catalogs(self):
+        """Test nested transactions using different catalogs."""
+        # Set up two catalogs with their own directories
+        outer_catalog = "nested_different_outer"
+        inner_catalog = "nested_different_inner"
+
+        with tempfile.TemporaryDirectory() as temp_dir_outer:
+            with tempfile.TemporaryDirectory() as temp_dir_inner:
+                outer_config = CatalogProperties(
+                    root=temp_dir_outer, filesystem=pa.fs.LocalFileSystem()
+                )
+                inner_config = CatalogProperties(
+                    root=temp_dir_inner, filesystem=pa.fs.LocalFileSystem()
+                )
+
+                try:
+                    dc.put_catalog(outer_catalog, catalog=Catalog(config=outer_config))
+                    dc.put_catalog(inner_catalog, catalog=Catalog(config=inner_config))
+
+                    dc.create_namespace("nested_ns", catalog=outer_catalog)
+                    dc.create_namespace("nested_ns", catalog=inner_catalog)
+
+                    outer_data = pd.DataFrame(
+                        {"id": [1, 2], "location": ["outer", "outer"]}
+                    )
+
+                    inner_data = pd.DataFrame(
+                        {"id": [3, 4], "location": ["inner", "inner"]}
+                    )
+
+                    # Nested transactions with different catalogs
+                    with dc.transaction(outer_catalog):
+                        # Outer transaction operations
+                        dc.write_to_table(
+                            data=outer_data,
+                            table="nested_outer_table",
+                            namespace="nested_ns",
+                            mode=TableWriteMode.CREATE,
+                        )
+
+                        # Inner transaction with different catalog
+                        with dc.transaction(inner_catalog):
+                            # Inner transaction operations
+                            dc.write_to_table(
+                                data=inner_data,
+                                table="nested_inner_table",
+                                namespace="nested_ns",
+                                mode=TableWriteMode.CREATE,
+                            )
+
+                            # Verify inner transaction can access its catalog
+                            inner_check = dc.read_table(
+                                "nested_inner_table", namespace="nested_ns"
+                            )
+                            assert get_table_length(inner_check) == 2
+
+                        # Back to outer transaction - verify context restoration and catalog access
+                        outer_check = dc.read_table(
+                            "nested_outer_table", namespace="nested_ns"
+                        )
+                        assert get_table_length(outer_check) == 2
+
+                    # Verify both catalogs have their respective tables
+                    assert dc.table_exists(
+                        "nested_outer_table",
+                        namespace="nested_ns",
+                        catalog=outer_catalog,
+                    )
+                    assert dc.table_exists(
+                        "nested_inner_table",
+                        namespace="nested_ns",
+                        catalog=inner_catalog,
+                    )
+
+                    # Verify catalog isolation
+                    assert not dc.table_exists(
+                        "nested_outer_table",
+                        namespace="nested_ns",
+                        catalog=inner_catalog,
+                    )
+                    assert not dc.table_exists(
+                        "nested_inner_table",
+                        namespace="nested_ns",
+                        catalog=outer_catalog,
+                    )
+
+                finally:
+                    # Cleanup catalogs
+                    try:
+                        dc.pop_catalog(outer_catalog)
+                        dc.pop_catalog(inner_catalog)
+                    except KeyError:
+                        pass  # Catalogs already removed
+
+    def test_cross_catalog_operations_raise_value_error_with_validation(self):
+        """Test that cross-catalog operations within transactions now raise ValueError due to validation."""
+        primary_catalog = "primary_exception_catalog"
+        secondary_catalog = "secondary_exception_catalog"
+
+        # Create separate directories for each catalog
+        primary_dir = tempfile.TemporaryDirectory()
+        secondary_dir = tempfile.TemporaryDirectory()
+
+        try:
+            # Setup primary catalog
+            primary_props = CatalogProperties(
+                root=primary_dir.name, filesystem=pa.fs.LocalFileSystem()
+            )
+            dc.put_catalog(primary_catalog, catalog=Catalog(config=primary_props))
+
+            # Setup secondary catalog
+            secondary_props = CatalogProperties(
+                root=secondary_dir.name, filesystem=pa.fs.LocalFileSystem()
+            )
+            dc.put_catalog(secondary_catalog, catalog=Catalog(config=secondary_props))
+
+            # Test data
+            test_data = pa.Table.from_pydict({"id": [1, 2], "value": ["a", "b"]})
+
+            # Cross-catalog operation attempts within transactions should raise a ValueError
+            with pytest.raises(
+                ValueError,
+                match="Transaction and catalog parameters are mutually exclusive",
+            ):
+                with dc.transaction(primary_catalog):
+                    dc.write_to_table(
+                        data=test_data,
+                        table="cross_catalog_table",
+                        namespace="scoped_ns",
+                        catalog=secondary_catalog,  # Different catalog - should fail with validation error
+                        mode=TableWriteMode.CREATE,
+                    )
+            # Ensure that the attempted write to the secondary catalog failed
+            assert not dc.table_exists(
+                "cross_catalog_table", namespace="scoped_ns", catalog=secondary_catalog
+            )
+
+        finally:
+            # Cleanup
+            try:
+                dc.pop_catalog(primary_catalog)
+                dc.pop_catalog(secondary_catalog)
+            except KeyError:
+                pass
+            primary_dir.cleanup()
+            secondary_dir.cleanup()
+
+    def test_non_existent_catalog_raises_validation_value_error(self):
+        """Test that operations on non-existent catalogs within transactions raise validation ValueError first."""
+        primary_catalog = "primary_nonexistent_catalog"
+
+        # Create directory for primary catalog
+        primary_dir = tempfile.TemporaryDirectory()
+
+        try:
+            # Setup primary catalog
+            primary_props = CatalogProperties(
+                root=primary_dir.name, filesystem=pa.fs.LocalFileSystem()
+            )
+            dc.put_catalog(primary_catalog, catalog=Catalog(config=primary_props))
+
+            # Try to access non-existent catalog when creating a transaction
+            # This should raise a ValueError
+            with pytest.raises(
+                ValueError, match="Catalog 'invalid_catalog_name' not found."
+            ):
+                dc.transaction("invalid_catalog_name")
+
+        finally:
+            # Cleanup
+            try:
+                dc.pop_catalog(primary_catalog)
+            except KeyError:
+                pass
+            primary_dir.cleanup()
+
+    def test_mixed_operations_validation_prevents_cross_catalog_access(self):
+        """Test that validation prevents mixed operations across catalogs within transactions."""
+        primary_catalog = "primary_mixed_catalog"
+        secondary_catalog = "secondary_mixed_catalog"
+
+        # Create separate directories for each catalog
+        primary_dir = tempfile.TemporaryDirectory()
+        secondary_dir = tempfile.TemporaryDirectory()
+
+        try:
+            # Setup primary catalog
+            primary_props = CatalogProperties(
+                root=primary_dir.name, filesystem=pa.fs.LocalFileSystem()
+            )
+            dc.put_catalog(primary_catalog, catalog=Catalog(config=primary_props))
+
+            # Setup secondary catalog
+            secondary_props = CatalogProperties(
+                root=secondary_dir.name, filesystem=pa.fs.LocalFileSystem()
+            )
+            dc.put_catalog(secondary_catalog, catalog=Catalog(config=secondary_props))
+
+            # Test data
+            test_data = pa.Table.from_pydict({"id": [1, 2], "value": ["a", "b"]})
+
+            # Try mixed operations in transaction - should fail with validation error
+            with pytest.raises(
+                ValueError,
+                match="Transaction and catalog parameters are mutually exclusive",
+            ):
+                with dc.transaction(primary_catalog):
+                    # Write to primary catalog without specifying catalog parameter (should work)
+                    dc.write_to_table(
+                        data=test_data,
+                        table="primary_table",
+                        namespace="scoped_ns",
+                        # No catalog parameter - uses transaction's catalog
+                        mode=TableWriteMode.CREATE,
+                    )
+                    # Try to write to secondary catalog with explicit catalog parameter (should fail validation)
+                    dc.write_to_table(
+                        data=test_data,
+                        table="secondary_table",
+                        namespace="scoped_ns",
+                        catalog=secondary_catalog,  # Explicit catalog parameter triggers validation error
+                        mode=TableWriteMode.CREATE,
+                    )
+            # Ensure that the successful write to the primary catalog was rolled back
+            assert not dc.table_exists(
+                "primary_table", namespace="scoped_ns", catalog=primary_catalog
+            )
+            # Ensure that the write to the secondary catalog failed
+            assert not dc.table_exists(
+                "secondary_table", namespace="scoped_ns", catalog=secondary_catalog
+            )
+
+        finally:
+            # Cleanup
+            try:
+                dc.pop_catalog(primary_catalog)
+                dc.pop_catalog(secondary_catalog)
+            except KeyError:
+                pass
+            primary_dir.cleanup()
+            secondary_dir.cleanup()

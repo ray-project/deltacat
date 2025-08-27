@@ -8,6 +8,7 @@ from deltacat.api import (
     list,
     put,
 )
+from deltacat.storage.model.transaction import transaction
 from deltacat.catalog import (  # noqa: F401
     alter_namespace,
     alter_table,
@@ -122,6 +123,7 @@ __all__ = [
     "get",
     "list",
     "put",
+    "transaction",
     "alter_table",
     "create_table",
     "drop_table",
