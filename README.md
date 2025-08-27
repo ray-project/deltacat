@@ -76,8 +76,6 @@ daft_df.select("name", "city").show()  # Just print the names and cities
 DeltaCAT natively supports a variety of open dataset and content types already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects:
 
 ```python
-import deltacat as dc
-
 # Read directly into eagerly materialized local datasets:
 pandas_df = dc.read("users", read_as=dc.DatasetType.PANDAS)  # Returns Pandas DataFrame
 pyarrow_table = dc.read("users", read_as=dc.DatasetType.PYARROW)  # Returns PyArrow Table
@@ -95,6 +93,8 @@ ray_dataset = dc.read("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ra
  `dc.write` can also write any of these dataset types:
 
 ```python
+import pyarrow as pa
+
 # Create a pyarrow table to write.
 data = pa.Table.from_pydict({
     "id": [1, 2, 3],
