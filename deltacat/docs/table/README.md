@@ -19,7 +19,7 @@ data = pd.DataFrame({
     "age": [25, 30, 35],
     "city": ["New York", "Los Angeles", "Chicago"],
 })
-dc.write_to_table(
+dc.write(
     data,
     "my_table",
 )
@@ -33,7 +33,7 @@ pyarrow_table = pa.Table.from_pydict({
     "age": [40, 45, 50],
     "city": ["San Francisco", "Seattle", "Boston"],
 })
-dc.write_to_table(
+dc.write(
     pyarrow_table,
     "my_table",
 )
@@ -41,23 +41,23 @@ dc.write_to_table(
 
 And read it back using Daft (DeltaCAT's default dataset reader):
 ```python
-daft_dataframe = dc.read_table("my_table")
+daft_dataframe = dc.read("my_table")
 ```
 Daft dataframes support distribution across a Ray cluster and are lazily evaluated, so the data is not loaded into memory until it is needed. This makes them great for reading large tables. For more information, see the [Daft DataFrame API](https://docs.daft.ai/en/stable/api/dataframe/).
 
 Small tables that fit in local memory can also be read using PyArrow, Pandas, Polars, or NumPy. For example,
 the following code reads the same table into a Polars DataFrame:
 ```python
-polars_dataframe = dc.read_table("my_table", read_as=DatasetType.POLARS)
+polars_dataframe = dc.read("my_table", read_as=DatasetType.POLARS)
 ```
 This dataframe will be eagerly materialized at read time. For tables that only contain Parquet files (default behavior), you can also use the `PYARROW_PARQUET` dataset type to retrieve a list of unmaterialized PyArrow `ParquetFile` objects:
 ```python
-pyarrow_parquet_files = dc.read_table("my_table", read_as=DatasetType.PYARROW_PARQUET)
+pyarrow_parquet_files = dc.read("my_table", read_as=DatasetType.PYARROW_PARQUET)
 ```
 Each `ParquetFile` can then be materialized by calling `read` on each `ParquetFile` reference (see the [PyArrow ParquetFile API](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html))
 
 ## Write Modes
-Data from any supported dataset type is written to a table using `dc.write_to_table` with one of the following write modes:
+Data from any supported dataset type is written to a table using `dc.write` with one of the following write modes:
 
 **AUTO (default)**
 CREATE the table if it doesn't exist, APPEND to the table if it exists without schema merge keys, and MERGE if the table exists with merge keys.
@@ -109,7 +109,7 @@ data = pd.DataFrame({
     "age": [25, 30, 35],
     "city": ["New York", "Los Angeles", "Chicago"],
 })
-dc.write_to_table(
+dc.write(
     data,
     "my_table",
     mode=TableWriteMode.CREATE,
@@ -120,12 +120,12 @@ upsert_data = pd.DataFrame({
     "age": [35, 45, 55, 65, 75],
     "city": ["London", "San Francisco", "Seattle", "Sydney", "Zurich"],
 })
-dc.write_to_table(
+dc.write(
     upsert_data,
     "my_table",
     mode=TableWriteMode.MERGE,
 )
-final_table = dc.read_table("my_table")
+final_table = dc.read("my_table")
 print(final_table)
 # Output:
 # id  name  age city
@@ -147,7 +147,7 @@ data = pd.DataFrame({
     "age": [25, 30, 35],
     "city": ["New York", "Los Angeles", "Chicago"],
 })
-dc.write_to_table(
+dc.write(
     data,
     "my_table",
     mode=TableWriteMode.CREATE,
@@ -155,20 +155,22 @@ dc.write_to_table(
 delete_data = pd.DataFrame({
     "id": [1, 2],
 })
-dc.write_to_table(
+dc.write(
     delete_data,
     "my_table",
     mode=TableWriteMode.DELETE,
 )
-final_table = dc.read_table("my_table")
+final_table = dc.read("my_table")
 print(final_table)
 # Output:
 # id  name  age city
 # 3  Charlie  35  Chicago
 ```
 
+Also, it's worth noting that `dc.write` and `dc.read` are simply aliases for `dc.write_to_table` and `dc.read_table`. Their behavior is identical, and the choice of which to use is a matter of preference (i.e., brevity vs. clarity).
+
 ## Table Properties
-Table properties are used to configure the table's read/write behavior and optimization level. Custom table properties can be specified during table writes via `dc.write_to_table`, when the table is created via `dc.create_table`, and when the table is updated via `dc.alter_table`. Any properties that are not explicitly set at table creation time will inherit default values. Table properties can be read via a table version's `read_table_property` method and updated via `dc.alter_table`.
+Table properties are used to configure the table's read/write behavior and optimization level. Custom table properties can be specified during table writes via `dc.write`, when the table is created via `dc.create_table`, and when the table is updated via `dc.alter_table`. Any properties that are not explicitly set at table creation time will inherit default values. Table properties can be read via a table version's `read_table_property` method and updated via `dc.alter_table`.
 
 For example, the following code reads the schema evolution mode of a table and updates it to `MANUAL`:
 ```python
@@ -291,23 +293,22 @@ which is one of the following:
 
 **DELETED**: The table version and its underlying data has been physically deleted.
 
-You can specify an explicit table version to write to or read from by passing the `table_version` parameter to `dc.write_to_table` or `dc.read_table`.
+You can specify an explicit table version to write to or read from by passing the `table_version` parameter to `dc.write` or `dc.read`.
 For example, the following code will attempt to write to version `"1"` of `"my_table"`, regardless of its lifecycle state:
 ```python
-dc.write_to_table(
+dc.write(
     data,
     "my_table",
     table_version="1",
 )
 ```
 By default, any new table that you write to will have a new table version created with its lifecycle state set to **ACTIVE**.
-You can specify a different lifecycle state by passing the `lifecycle_state` parameter to `dc.write_to_table`, `dc.create_table`,
-or `dc.alter_table`.
+You can specify a different lifecycle state by passing the `lifecycle_state` parameter to `dc.write`, `dc.create_table`, or `dc.alter_table`.
 
 For example, the following code will write to new table version `"2"` of `"my_table"` with its lifecycle state set to **UNRELEASED**:
 
 ```python
-dc.write_to_table(
+dc.write(
     data,
     "my_table",
     table_version="2",
@@ -319,10 +320,10 @@ Since table version `"2"` has its lifecycle state set to **UNRELEASED**, table c
 
 ```python
 # Read from ACTIVE version "1" of "my_table" (implicit version resolution)
-dataframe_from_v1 = dc.read_table("my_table")
+dataframe_from_v1 = dc.read("my_table")
 
 # Read from UNRELEASED version "2" of "my_table" (explicit version specification)
-dataframe_from_v2 = dc.read_table("my_table", table_version="2")
+dataframe_from_v2 = dc.read("my_table", table_version="2")
 ```
 
 By default, table versions inherit their properties from their parent table's properties at creation time. Any

@@ -96,6 +96,9 @@ from deltacat.types.tables import (
 )
 from deltacat.utils.url import DeltaCatUrl
 
+write = write_to_table
+read = read_table
+
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
     from deltacat.experimental.catalog.iceberg import (  # noqa: F401
@@ -135,7 +138,9 @@ __all__ = [
     "create_namespace",
     "drop_namespace",
     "default_namespace",
+    "write",
     "write_to_table",
+    "read",
     "read_table",
     "init",
     "is_initialized",
