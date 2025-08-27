@@ -147,7 +147,7 @@ ${CATALOG_ROOT}/<namespace_uuid>/<customers_sha1>/          # New name
     └── 00000000000000000001_create_<txn_id>.<table_uuid>   # Same table_uuid!
 ```
 
-## 3. Committed Transaction Log Directory
+## Committed Transaction Log Directory
 
 **Purpose**: Track all committed transactions for consistency and recovery
 
@@ -165,7 +165,7 @@ DeltaCAT transactions rely on MVCC snapshot isolation, with conflicts isolated t
 
 Transactions transition from RUNNING → SUCCESS/PAUSED/FAILED/TIMEOUT/PURGED states, with the transaction stored in an equivalently named parent directory at `${CATALOG_ROOT}/txn/${state}/`.
 
-## 4. Runtime Environment Requirements
+## Runtime Environment Requirements
 
 By default, `<txn_start_time>` is derived from the system clock epoch time in nanoseconds, and thus assumes that the host interacting with DeltaCAT provides **strong system clock accuracy guarantees**.
 

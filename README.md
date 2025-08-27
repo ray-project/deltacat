@@ -131,6 +131,12 @@ dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)  # 
 ```
 For more information, see the DeltaCAT [Schema](deltacat/docs/schema/README.md) and [Table](deltacat/docs/table/README.md) documentation.
 
+## Runtime Environment Requirements
+
+DeltaCAT's transaction system assumes that the host machine provides strong system clock accuracy guarantees, and that the filesystem hosting the catalog root directory offers strong consistency.
+
+Taken together, these requirements make DeltaCAT suitable for production use on most major cloud computing hosts (e.g., EC2, GCE, Azure VMs) and storage systems (e.g., S3, GCS, Azure Blob Storage), but local laptops should typically be limited to testing/experimental purposes.
+
 ### Additional Resources
 #### Examples
 
