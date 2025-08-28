@@ -325,7 +325,11 @@ class CompactionSessionAuditInfo(dict):
     @property
     def output_record_count(self) -> int:
         """
-        The total number of records in the compacted output.
+        The total number of records in the compacted output (includes untouched records).
+
+        Represents the final record count after compaction, including:
+            - Records that were processed and materialized
+            - Records that were untouched and copied by reference
         """
         return self.get("outputRecordCount")
 
@@ -679,7 +683,17 @@ class CompactionSessionAuditInfo(dict):
         self["outputSizeBytes"] = output_size_bytes
         return output_size_bytes
 
-    def set_output_record_count(self, output_records: int) -> CompactionSessionAuditInfo:
+    def set_output_record_count(
+        self, output_records: int
+    ) -> CompactionSessionAuditInfo:
+        if output_records < 0:
+            raise ValueError(
+                f"Output record count cannot be negative: {output_records}"
+            )
+        if not isinstance(output_records, int):
+            raise TypeError(
+                f"Output record count must be int, got {type(output_records)}"
+            )
         self["outputRecordCount"] = output_records
         return self
 
