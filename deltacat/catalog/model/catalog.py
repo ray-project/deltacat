@@ -217,6 +217,31 @@ def init(
     return context
 
 
+def init_local(
+    ray_init_args: Dict[str, Any] = {},
+    *,
+    force=False,
+) -> Optional[ray.runtime.BaseContext]:
+    """
+    Initialize DeltaCAT with a default local catalog.
+
+    This is a convenience function that creates a default catalog for local usage.
+    Equivalent to calling init(catalogs={"default": Catalog()}).
+
+    :param ray_init_args: Keyword arguments to pass to `ray.init()`.
+    :param force: Whether to force DeltaCAT reinitialization. If True, reruns
+        ray.init(**ray_init_args) and overwrites all previously registered
+        catalogs.
+    :returns: The Ray context object if Ray was initialized, otherwise None.
+    """
+    return init(
+        catalogs={"default": Catalog()},
+        default="default",
+        ray_init_args=ray_init_args,
+        force=force,
+    )
+
+
 def get_catalog(name: Optional[str] = None) -> Catalog:
     """
     Get a catalog by name, or the default catalog if no name is provided.

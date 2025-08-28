@@ -11,6 +11,7 @@ from deltacat.catalog import (
     clear_catalogs,
     get_catalog,
     init,
+    init_local,
     is_initialized,
     put_catalog,
 )
@@ -214,6 +215,22 @@ class TestCatalogsIntegration:
         # Try to get the default catalog
         with pytest.raises(ValueError):
             get_catalog()
+
+    def test_init_local(self, reset_catalogs):
+        """Test that init_local() creates a default local catalog."""
+        # Initialize with default local catalog
+        init_local(force=True)
+
+        assert is_initialized()
+
+        # Should be able to get the default catalog
+        default_catalog = get_catalog()
+        assert default_catalog is not None
+
+        # The default catalog should be accessible by name "default"
+        named_catalog = get_catalog("default")
+        assert named_catalog is not None
+        assert named_catalog.impl.__name__ == "deltacat.catalog.main.impl"
 
     def test_default_catalog_initialization(self, reset_catalogs):
         """Test that a Default catalog can be initialized and accessed using the factory method."""

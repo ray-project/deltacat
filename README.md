@@ -36,10 +36,10 @@ DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table**
 import deltacat as dc
 import pandas as pd
 
-# Initialize DeltaCAT with a local catalog.
+# Initialize DeltaCAT with a default local catalog.
 # Ray will be initialized automatically.
 # Catalog files will be stored in .deltacat/ in the current working directory.
-dc.init(catalogs={"my_catalog": dc.Catalog()})
+dc.init_local()
 
 # Create data to write.
 data = pd.DataFrame({
@@ -80,8 +80,8 @@ In DeltaCAT, table **Namespaces** are optional but useful for organizing related
 import deltacat as dc
 import pandas as pd
 
-# Initialize DeltaCAT with a local catalog
-dc.init(catalogs={"my_catalog": dc.Catalog()})
+# Initialize DeltaCAT with a default local catalog
+dc.init_local()
 
 # Create some sample data for different business domains
 user_data = pd.DataFrame({
@@ -354,8 +354,8 @@ import deltacat as dc
 import pandas as pd
 import time
 
-# Initialize DeltaCAT with a local catalog
-dc.init(catalogs={"my_catalog": dc.Catalog()})
+# Initialize DeltaCAT with a default local catalog
+dc.init_local()
 
 # Create initial user data
 initial_users = pd.DataFrame({
