@@ -323,6 +323,13 @@ class CompactionSessionAuditInfo(dict):
         return self.get("outputSizePyarrowBytes")
 
     @property
+    def output_record_count(self) -> int:
+        """
+        The total number of records in the compacted output.
+        """
+        return self.get("outputRecordCount")
+
+    @property
     def total_cluster_memory_bytes(self) -> float:
         """
         The total memory allocated to the cluster.
@@ -672,6 +679,10 @@ class CompactionSessionAuditInfo(dict):
         self["outputSizeBytes"] = output_size_bytes
         return output_size_bytes
 
+    def set_output_record_count(self, output_records: int) -> CompactionSessionAuditInfo:
+        self["outputRecordCount"] = output_records
+        return self
+
     def set_output_size_pyarrow_bytes(
         self, output_size_pyarrow_bytes: float
     ) -> CompactionSessionAuditInfo:
@@ -902,6 +913,7 @@ class CompactionSessionAuditInfo(dict):
         self.set_output_file_count(pyarrow_write_result.files)
         self.set_output_size_bytes(pyarrow_write_result.file_bytes)
         self.set_output_size_pyarrow_bytes(pyarrow_write_result.pyarrow_bytes)
+        self.set_output_record_count(pyarrow_write_result.records)
 
         self.set_peak_memory_used_bytes_per_task(
             max(

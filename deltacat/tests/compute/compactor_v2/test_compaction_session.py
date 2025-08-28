@@ -356,6 +356,7 @@ class TestCompactionSession:
         assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count == 1
         assert compaction_audit.output_file_count == 2
+        assert compaction_audit.output_record_count == 4
         assert abs(compaction_audit.output_size_bytes - 1832) / 1832 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 936) / 936 <= self.ERROR_RATE
 
@@ -423,6 +424,7 @@ class TestCompactionSession:
         assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count == 3
         assert compaction_audit.output_file_count == 2
+        assert compaction_audit.output_record_count == 5
         assert abs(compaction_audit.output_size_bytes - 1843) / 1843 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 2748) / 2748 <= self.ERROR_RATE
 
