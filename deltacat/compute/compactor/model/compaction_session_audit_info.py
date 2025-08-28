@@ -323,6 +323,17 @@ class CompactionSessionAuditInfo(dict):
         return self.get("outputSizePyarrowBytes")
 
     @property
+    def output_record_count(self) -> int:
+        """
+        The total number of records in the compacted output (includes untouched records).
+
+        Represents the final record count after compaction, including:
+            - Records that were processed and materialized
+            - Records that were untouched and copied by reference
+        """
+        return self.get("outputRecordCount")
+
+    @property
     def total_cluster_memory_bytes(self) -> float:
         """
         The total memory allocated to the cluster.
@@ -672,6 +683,19 @@ class CompactionSessionAuditInfo(dict):
         self["outputSizeBytes"] = output_size_bytes
         return output_size_bytes
 
+    def set_output_record_count(
+        self, output_records: int
+    ) -> CompactionSessionAuditInfo:
+        """
+        This includes both processed records and untouched records copied by reference.
+        """
+        if output_records < 0:
+            raise ValueError(
+                f"Output record count cannot be negative: {output_records}"
+            )
+        self["outputRecordCount"] = output_records
+        return self
+
     def set_output_size_pyarrow_bytes(
         self, output_size_pyarrow_bytes: float
     ) -> CompactionSessionAuditInfo:
@@ -902,6 +926,10 @@ class CompactionSessionAuditInfo(dict):
         self.set_output_file_count(pyarrow_write_result.files)
         self.set_output_size_bytes(pyarrow_write_result.file_bytes)
         self.set_output_size_pyarrow_bytes(pyarrow_write_result.pyarrow_bytes)
+        # NOTE:  Aggregating untouched_record_count with records to get a total of record count in the compacted table
+        self.set_output_record_count(
+            pyarrow_write_result.records + untouched_file_record_count
+        )
 
         self.set_peak_memory_used_bytes_per_task(
             max(

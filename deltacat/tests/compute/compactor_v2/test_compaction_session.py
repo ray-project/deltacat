@@ -356,6 +356,7 @@ class TestCompactionSession:
         assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count == 1
         assert compaction_audit.output_file_count == 2
+        assert compaction_audit.output_record_count == 4
         assert abs(compaction_audit.output_size_bytes - 1832) / 1832 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 936) / 936 <= self.ERROR_RATE
 
@@ -423,8 +424,17 @@ class TestCompactionSession:
         assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count == 3
         assert compaction_audit.output_file_count == 2
+        assert compaction_audit.output_record_count == 7
         assert abs(compaction_audit.output_size_bytes - 1843) / 1843 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 2748) / 2748 <= self.ERROR_RATE
+
+        record_invariant = compaction_audit.output_record_count == (
+            compaction_audit.input_records
+            - compaction_audit.records_deduped
+            - compaction_audit.records_deleted
+            + compaction_audit.untouched_record_count
+        )
+        assert record_invariant is True
 
     def test_compact_partition_when_incremental_then_intelligent_estimation_sanity(
         self, s3_resource, local_deltacat_storage_kwargs
@@ -1006,3 +1016,81 @@ class TestCompactionSession:
 
         rcf = get_rcf(s3_resource, new_uri)
         assert rcf.hash_bucket_count == 4
+
+    def test_compaction_with_zero_records(
+        self, s3_resource, local_deltacat_storage_kwargs
+    ):
+        """
+        Test case where compaction results in 0 records.
+        Verify audit handles this correctly without crashing.
+        """
+        # setup - create empty source delta
+        staged_source = stage_partition_from_file_paths(
+            self.NAMESPACE, ["source"], **local_deltacat_storage_kwargs
+        )
+
+        # Create an empty table that will result in 0 records after compaction
+        empty_table = pa.table({"pk": pa.array([])})
+        source_delta = commit_delta_to_staged_partition(
+            staged_source, pa_table=empty_table, **local_deltacat_storage_kwargs
+        )
+
+        staged_dest = stage_partition_from_file_paths(
+            self.NAMESPACE, ["destination"], **local_deltacat_storage_kwargs
+        )
+        dest_partition = ds.commit_partition(
+            staged_dest, **local_deltacat_storage_kwargs
+        )
+
+        # action
+        rcf_url = compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "compaction_artifact_s3_bucket": TEST_S3_RCF_BUCKET_NAME,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": ds,
+                    "deltacat_storage_kwargs": local_deltacat_storage_kwargs,
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 1,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        **local_deltacat_storage_kwargs,
+                        **{"equivalent_table_types": []},
+                    },
+                    "primary_keys": ["pk"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "s3_client_kwargs": {},
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        # verify - compaction should complete successfully with 0 records
+        assert rcf_url is not None
+        rcf = get_rcf(s3_resource, rcf_url)
+
+        _, compaction_audit_key = rcf.compaction_audit_url.strip("s3://").split("/", 1)
+        compaction_audit = CompactionSessionAuditInfo(
+            **read_s3_contents(
+                s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
+            )
+        )
+
+        # Verify that audit handles zero records correctly
+        assert compaction_audit.input_records == 0
+        assert compaction_audit.output_record_count == 0
+        assert compaction_audit.records_deduped == 0
+        assert compaction_audit.records_deleted == 0
+        assert compaction_audit.untouched_record_count == 0
+        assert compaction_audit.output_file_count >= 0  # May still create empty files
+        record_invariant = compaction_audit.output_record_count == (
+            compaction_audit.input_records
+            - compaction_audit.records_deduped
+            - compaction_audit.records_deleted
+            + compaction_audit.untouched_record_count
+        )
+        assert record_invariant is True
