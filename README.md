@@ -72,8 +72,78 @@ daft_df = dc.read("users")
 daft_df.select("name", "city").show()  # Just print the names and cities
 ```
 
-### Supported Dataset and Content Types
-DeltaCAT natively supports a variety of open dataset and content types already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or a list of PyArrow ParquetFile objects:
+### Organizing Tables with Namespaces
+
+In DeltaCAT, table **Namespaces** are optional but useful for organizing related tables within a catalog:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+# Initialize DeltaCAT with a local catalog
+dc.init(catalogs={"my_catalog": dc.Catalog()})
+
+# Create some sample data for different business domains
+user_data = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "email": ["alice@example.com", "bob@example.com", "charlie@example.com"]
+})
+
+product_data = pd.DataFrame({
+    "product_id": [101, 102, 103],
+    "name": ["Widget", "Gadget", "Tool"],
+    "price": [19.99, 29.99, 39.99]
+})
+
+order_data = pd.DataFrame({
+    "order_id": [1001, 1002, 1003],
+    "user_id": [1, 2, 1],
+    "product_id": [101, 102, 103],
+    "quantity": [2, 1, 1]
+})
+
+# Write tables to different namespaces to organize them by domain
+dc.write(user_data, "users", namespace="identity")
+dc.write(product_data, "catalog", namespace="inventory") 
+dc.write(order_data, "transactions", namespace="sales")
+
+# Read from specific namespaces
+users_df = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
+products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS)
+orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
+
+print(f"Identity namespace has {len(users_df)} users")
+print(f"Inventory namespace has {len(products_df)} products")
+print(f"Sales namespace has {len(orders_df)} transactions")
+
+# Tables with the same name can exist in different namespaces
+# Create separate marketing and finance views of the same data
+marketing_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "segment": ["premium", "standard", "premium"],
+    "acquisition_channel": ["social", "search", "referral"]
+})
+
+finance_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "lifetime_value": [299.99, 149.99, 399.99],
+    "payment_method": ["credit", "paypal", "credit"]
+})
+
+dc.write(marketing_users, "users", namespace="marketing")
+dc.write(finance_users, "users", namespace="finance")
+
+# Each namespace maintains its own "users" table with different schemas
+marketing_df = dc.read("users", namespace="marketing", read_as=dc.DatasetType.PANDAS)
+finance_df = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
+
+print(f"Marketing users table has columns: {list(marketing_df.columns)}")
+print(f"Finance users table has columns: {list(finance_df.columns)}")
+```
+
+### Supported Dataset and File Formats
+DeltaCAT natively supports a variety of open dataset and file formats already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or list of PyArrow ParquetFile objects:
 
 ```python
 # Read directly into eagerly materialized local datasets:
@@ -102,37 +172,63 @@ data = pa.Table.from_pydict({
     "age": [25, 30, 35]
 })
 
-
-# Write different dataset types to the default table data file format (Parquet):
+# Write different dataset types to the default table file format (Parquet):
 daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)  # Convert to Daft DataFrame
-dc.write(daft_df, "my_daft_table")  # Daft DataFrame
+dc.write(daft_df, "my_daft_table") 
 
 ray_dataset = dc.from_pyarrow(data, dc.DatasetType.RAY_DATASET)  # Convert to Ray Dataset
-dc.write(ray_dataset, "my_ray_dataset")  # Ray Dataset
+dc.write(ray_dataset, "my_ray_dataset")
 
 pandas_df = dc.from_pyarrow(data, dc.DatasetType.PANDAS)  # Convert to Pandas DataFrame
-dc.write(pandas_df, "my_pandas_table")  # Pandas DataFrame
+dc.write(pandas_df, "my_pandas_table")
 
 pyarrow_table = dc.from_pyarrow(data, dc.DatasetType.PYARROW)  # Convert to PyArrow Table
-dc.write(pyarrow_table, "my_pyarrow_table")  # PyArrow Table
+dc.write(pyarrow_table, "my_pyarrow_table")
 
 polars_df = dc.from_pyarrow(data, dc.DatasetType.POLARS)  # Convert to Polars DataFrame
-dc.write(polars_df, "my_polars_table")  # Polars DataFrame
+dc.write(polars_df, "my_polars_table")
 
 numpy_array = dc.from_pyarrow(data, dc.DatasetType.NUMPY)  # Convert to NumPy Array
-dc.write(numpy_array, "my_numpy_table")  # NumPy Array
+dc.write(numpy_array, "my_numpy_table")
+```
 
-# Write the same dataset type to different table data file formats:
-dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.PARQUET)  # Write Parquet (Default)
-dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.AVRO)  # Write Avro
-dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)  # Write ORC
-dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)  # Write Feather
+Or write to different table file formats:
 
+```python
+# Start by writing to a new table with a custom list of supported readers.
+# By default, DeltaCAT will raise an error if we attempt to write data to
+# a file format that can't be read by one or more dataset types.
+content_types_to_write = {
+    dc.ContentType.PARQUET, 
+    dc.ContentType.AVRO, 
+    dc.ContentType.ORC, 
+    dc.ContentType.FEATHER,
+}
+supported_reader_types = [
+    reader_type for reader_type in dc.DatasetType 
+    if content_types_to_write & reader_type.readable_content_types
+]
+dc.write(
+    data, 
+    "my_mixed_format_table", 
+    content_type=dc.ContentType.PARQUET, # Write Parquet (Default)
+    table_properties={dc.TableProperty.SUPPORTED_READER_TYPES: supported_reader_types}
+)
+
+# Now apppend the same data using our remaining target file formats:
+dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.AVRO)
+dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)
+dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)
+
+# All file formats will be automatically unified at read time with the contents
+# of 'data' repeated 4 times - one for each file format we appended it to.
+pandas_df = dc.read("my_mixed_format_table", read_as=dc.DatasetType.PANDAS)
+pandas_df.show()
 ```
 
 ### Multi-Table Transactions
 
-DeltaCAT supports ACID-compliant transactions that can span multiple tables and namespaces. This ensures that all operations within a transaction either succeed together or fail together, maintaining data consistency across your entire catalog.
+DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this makes it easier to keep related datasets consistent across your entire catalog.
 
 ```python
 import deltacat as dc
@@ -186,7 +282,9 @@ print(f"Summary table exists: {dc.table_exists('category_summary')}")
 
 ### Working with Multiple Catalogs
 
-DeltaCAT makes it easy to work across multiple catalogs in a single application. For example, you may want to test an operation in your own local staging catalog before committing it to a shared production catalog:
+DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them automatically available to all workers in your cluster or local machine. 
+
+For example, you may want to test a write against a local staging catalog before committing it to a shared production catalog:
 
 ```python
 import deltacat as dc
@@ -194,7 +292,7 @@ import pandas as pd
 import pyarrow as pa
 from decimal import Decimal
 
-# Initialize catalogs with separate storage locations
+# Initialize catalogs with separate names and catalog roots.
 dc.init(catalogs={
     "staging": dc.Catalog(config=dc.CatalogProperties(
         root="/tmp/staging/",
@@ -206,22 +304,20 @@ dc.init(catalogs={
     ))
 })
 
-# Create PyArrow table with decimal256 data
+# Create a PyArrow table with decimal256 data
 decimal_table = pa.table({
-    "id": [1, 2, 3],
-    "name": ["Alice", "Bob", "Charlie"],
+    "item_id": [1, 2, 3],
     "price": pa.array([
         Decimal("999.99"),
         Decimal("1234.56"),
         Decimal("567.89")
-    ], type=pa.decimal256(10, 2)),  # decimal256 type
-    "environment": ["test", "test", "test"]
+    ], type=pa.decimal256(10, 2))
 })
 
 # Try to write decimal256 data to the staging table.
-# This will raise a TableValidationError because DeltaCAT automatically detects
-# that decimal256 won't be readable by all supported reader types (default behavior
-# for our new staging table, but may not be the case for our prod table).
+# DeltaCAT auto-detects that decimal256 isn't readable
+# by several default supported table reader types
+# (Polars, Daft, Ray Data) and raises a TableValidationError.
 try:
     dc.write(decimal_table, "financial_data", catalog="staging")
     print("Decimal256 write succeeded")
