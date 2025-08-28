@@ -341,11 +341,6 @@ class TestCompactionSession:
                 s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
             )
         )
-        record_invariant = compaction_audit.output_record_count == (
-            compaction_audit.input_records
-            - compaction_audit.records_deduped
-            - compaction_audit.records_deleted
-        )
 
         assert abs(backfill_rcf.input_inflation - 0.05235042735042735) <= 1e-5
         assert abs(backfill_rcf.input_average_record_size_bytes - 12.25) <= 1e-5
@@ -364,8 +359,6 @@ class TestCompactionSession:
         assert compaction_audit.output_record_count == 4
         assert abs(compaction_audit.output_size_bytes - 1832) / 1832 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 936) / 936 <= self.ERROR_RATE
-
-        assert record_invariant is True
 
         # Now run an incremental compaction and verify if the previous RCF was read properly.
         new_source_delta = commit_delta_to_partition(
@@ -413,11 +406,6 @@ class TestCompactionSession:
                 s3_resource, TEST_S3_RCF_BUCKET_NAME, compaction_audit_key
             )
         )
-        record_invariant = compaction_audit.output_record_count == (
-            compaction_audit.input_records
-            - compaction_audit.records_deduped
-            - compaction_audit.records_deleted
-        )
 
         # as it should be running incremental
         assert abs(new_rcf.input_inflation - 0.027292576419213975) <= 1e-5
@@ -436,9 +424,16 @@ class TestCompactionSession:
         assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count == 3
         assert compaction_audit.output_file_count == 2
-        assert compaction_audit.output_record_count == 5
+        assert compaction_audit.output_record_count == 7
         assert abs(compaction_audit.output_size_bytes - 1843) / 1843 <= self.ERROR_RATE
         assert abs(compaction_audit.input_size_bytes - 2748) / 2748 <= self.ERROR_RATE
+
+        record_invariant = compaction_audit.output_record_count == (
+            compaction_audit.input_records
+            - compaction_audit.records_deduped
+            - compaction_audit.records_deleted
+            + compaction_audit.untouched_record_count
+        )
         assert record_invariant is True
 
     def test_compact_partition_when_incremental_then_intelligent_estimation_sanity(
@@ -1092,3 +1087,10 @@ class TestCompactionSession:
         assert compaction_audit.records_deleted == 0
         assert compaction_audit.untouched_record_count == 0
         assert compaction_audit.output_file_count >= 0  # May still create empty files
+        record_invariant = compaction_audit.output_record_count == (
+            compaction_audit.input_records
+            - compaction_audit.records_deduped
+            - compaction_audit.records_deleted
+            + compaction_audit.untouched_record_count
+        )
+        assert record_invariant is True

@@ -686,6 +686,9 @@ class CompactionSessionAuditInfo(dict):
     def set_output_record_count(
         self, output_records: int
     ) -> CompactionSessionAuditInfo:
+        """
+        This includes both processed records and untouched records copied by reference.
+        """
         if output_records < 0:
             raise ValueError(
                 f"Output record count cannot be negative: {output_records}"
@@ -927,7 +930,10 @@ class CompactionSessionAuditInfo(dict):
         self.set_output_file_count(pyarrow_write_result.files)
         self.set_output_size_bytes(pyarrow_write_result.file_bytes)
         self.set_output_size_pyarrow_bytes(pyarrow_write_result.pyarrow_bytes)
-        self.set_output_record_count(pyarrow_write_result.records)
+        # NOTE:  Aggregating untouched_record_count with records to get a total of record count in the compacted table
+        self.set_output_record_count(
+            pyarrow_write_result.records + untouched_file_record_count
+        )
 
         self.set_peak_memory_used_bytes_per_task(
             max(
