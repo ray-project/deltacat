@@ -17,7 +17,6 @@ import msgpack
 import pyarrow.fs
 
 from deltacat.constants import (
-    OPERATION_TIMEOUTS,
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     RUNNING_TXN_DIR_NAME,
@@ -89,23 +88,34 @@ def setup_transaction(
     return transaction, commit_transaction
 
 
-def transaction(catalog_name: Optional[str] = None) -> Transaction:
+def transaction(
+    catalog_name: Optional[str] = None, as_of: Optional[int] = None
+) -> Transaction:
     """
     Start a new interactive transaction for the given catalog.
 
     Args:
         catalog_name: Optional name of the catalog to run the transaction against.
                      If None, uses the default catalog.
+        as_of: Optional historic timestamp in nanoseconds since epoch.
+               If provided, creates a read-only transaction that provides
+               MVCC snapshot isolation as of the specified timestamp.
 
     Returns:
         Transaction: A started interactive transaction ready for use with the given catalog.
 
     Example:
+        # Read-write transaction
         with dc.transaction() as txn:
-            # All DeltaCAT operations automatically use the transaction context
             dc.write_to_table(data, "my_table")
             dc.write_to_table(more_data, "my_other_table")
-            # Transaction is automatically committed on success or rolled back on error
+
+        # Read-only historic transaction
+        import time
+        historic_time = time.time_ns() - 3600 * 1000000000  # 1 hour ago
+        with dc.transaction(as_of=historic_time) as txn:
+            # Only read operations allowed - provides snapshot as of historic_time
+            data = dc.read_table("my_table")
     """
     from deltacat.catalog.model.catalog import get_catalog
 
@@ -113,8 +123,20 @@ def transaction(catalog_name: Optional[str] = None) -> Transaction:
     catalog = get_catalog(catalog_name)
     catalog_properties = catalog.inner
 
-    # Create interactive transaction and start it immediately
-    txn = Transaction.of().start(catalog_properties.root, catalog_properties.filesystem)
+    # Create interactive transaction
+    if as_of is not None:
+        # Create read-only historic transaction
+        txn = Transaction.of().start(
+            catalog_properties.root,
+            catalog_properties.filesystem,
+            historic_timestamp=as_of,
+            read_only=True,
+        )
+    else:
+        # Create regular read-write transaction
+        txn = Transaction.of().start(
+            catalog_properties.root, catalog_properties.filesystem
+        )
     return txn
 
 
@@ -226,19 +248,36 @@ class TransactionSystemTimeProvider(TransactionTimeProvider):
 
         return current_time
 
-    @staticmethod
-    def timeout_time(txn: Transaction) -> str:
-        """
-        Method for calculating Transaction Timeout Time
-        """
 
-        total_time_for_transaction = 0
-        for operation in txn.operations:
-            total_time_for_transaction += OPERATION_TIMEOUTS.get(operation.type, 0)
+class TransactionHistoricTimeProvider(TransactionTimeProvider):
+    """
+    A transaction time provider that returns a fixed historic timestamp
+    for read-only transactions. This enables MVCC snapshot isolation
+    as-of the specified timestamp.
+    """
 
-        start_time = txn.start_time
-        final_time_heartbeat = start_time + (total_time_for_transaction * NANOS_PER_SEC)
-        return final_time_heartbeat
+    def __init__(self, historic_timestamp: int):
+        """
+        Initialize with a fixed historic timestamp.
+
+        Args:
+            historic_timestamp: Timestamp in nanoseconds since epoch to use
+                              for both start and end times.
+        """
+        self.historic_timestamp = historic_timestamp
+
+    def start_time(self) -> int:
+        """
+        Returns the fixed historic timestamp for snapshot isolation.
+        """
+        return self.historic_timestamp
+
+    def end_time(self) -> int:
+        """
+        Returns the fixed historic timestamp. Read-only transactions
+        don't actually commit changes, so end time is the same as start time.
+        """
+        return self.historic_timestamp
 
 
 class TransactionOperation(dict):
@@ -807,15 +846,42 @@ class Transaction(dict):
         self,
         catalog_root_dir: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        historic_timestamp: Optional[int] = None,
+        read_only: bool = False,
     ) -> "Transaction":
         """
         Create directory scaffolding, timestamp the txn, and return a DEEP COPY
         that the caller should use for all subsequent calls to step(), pause(),
         and seal().  The original object remains read-only.
+
+        Args:
+            catalog_root_dir: Root directory for the catalog
+            filesystem: Optional filesystem to use
+            historic_timestamp: Optional timestamp in nanoseconds since epoch for snapshot isolation
+            read_only: If True, creates a read-only transaction that only allows read operations
         """
+        # Validate parameters
+        if historic_timestamp is not None and not read_only:
+            raise ValueError("historic_timestamp can only be used with read_only=True")
+        if read_only and historic_timestamp is None:
+            raise ValueError(
+                "read_only transactions require a historic_timestamp for MVCC snapshot isolation"
+            )
+
+        # Create a deep copy
         txn: "Transaction" = copy.deepcopy(self)
-        txn._time_provider = TransactionSystemTimeProvider()
+
+        # Set up time provider based on transaction type
+        if historic_timestamp is not None:
+            # Use historic time provider for snapshot isolation
+            txn._time_provider = TransactionHistoricTimeProvider(historic_timestamp)
+        else:
+            # Use system time provider for regular transactions
+            txn._time_provider = TransactionSystemTimeProvider()
+
         txn._mark_start_time(txn._time_provider)  # start time on deep_copy
+
+        # Set up filesystem and directories
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
             catalog_root_dir, filesystem
         )
@@ -824,7 +890,12 @@ class Transaction(dict):
         txn.running_log_written = False  # internal flags
         txn._list_results = []
 
-        # make sure txn/ directories exist (idempotent)
+        # Mark as read-only if requested
+        if read_only:
+            txn["read_only"] = True
+            txn["historic_timestamp"] = historic_timestamp
+
+        # Make sure txn/ directories exist (idempotent)
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
         filesystem.create_dir(
             posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME), recursive=True
@@ -864,6 +935,14 @@ class Transaction(dict):
         running_txn_log_file_path = posixpath.join(
             txn_log_dir, RUNNING_TXN_DIR_NAME, self.id
         )
+
+        # Validate read-only transaction constraints
+        if self.get("read_only", False):
+            if not operation.type.is_read_operation():
+                raise RuntimeError(
+                    f"Cannot perform {operation.type.value} operation in a read-only historic transaction. "
+                    "Read-only transactions are limited to read operations for MVCC snapshot isolation."
+                )
 
         # Add new operation to the transaction's list of operations
         if self.interactive:
@@ -993,7 +1072,26 @@ class Transaction(dict):
             raise RuntimeError(
                 "Cannot seal a non-interactive transaction. Call transaction.commit() instead."
             )
+
+        # Read-only transactions can only perform read operations
+        if self.get("read_only", False):
+            if self._has_write_operations():
+                raise RuntimeError(
+                    "Cannot seal a read-only historic transaction that contains write operations. "
+                    "Read-only transactions are limited to read operations for MVCC snapshot isolation."
+                )
+
         return self._seal_steps()
+
+    def _has_write_operations(self) -> bool:
+        """
+        Check if the transaction contains any write operations.
+        Read-only transactions should only contain READ operations.
+        """
+        for operation in self.operations:
+            if not operation.type.is_read_operation():
+                return True
+        return False
 
     def _seal_steps(
         self,

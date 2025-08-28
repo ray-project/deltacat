@@ -105,7 +105,7 @@ order_data = pd.DataFrame({
 
 # Write tables to different namespaces to organize them by domain
 dc.write(user_data, "users", namespace="identity")
-dc.write(product_data, "catalog", namespace="inventory") 
+dc.write(product_data, "catalog", namespace="inventory")
 dc.write(order_data, "transactions", namespace="sales")
 
 # Read from specific namespaces
@@ -174,7 +174,7 @@ data = pa.Table.from_pydict({
 
 # Write different dataset types to the default table file format (Parquet):
 daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)  # Convert to Daft DataFrame
-dc.write(daft_df, "my_daft_table") 
+dc.write(daft_df, "my_daft_table")
 
 ray_dataset = dc.from_pyarrow(data, dc.DatasetType.RAY_DATASET)  # Convert to Ray Dataset
 dc.write(ray_dataset, "my_ray_dataset")
@@ -199,18 +199,18 @@ Or write to different table file formats:
 # By default, DeltaCAT will raise an error if we attempt to write data to
 # a file format that can't be read by one or more dataset types.
 content_types_to_write = {
-    dc.ContentType.PARQUET, 
-    dc.ContentType.AVRO, 
-    dc.ContentType.ORC, 
+    dc.ContentType.PARQUET,
+    dc.ContentType.AVRO,
+    dc.ContentType.ORC,
     dc.ContentType.FEATHER,
 }
 supported_reader_types = [
-    reader_type for reader_type in dc.DatasetType 
+    reader_type for reader_type in dc.DatasetType
     if content_types_to_write & reader_type.readable_content_types
 ]
 dc.write(
-    data, 
-    "my_mixed_format_table", 
+    data,
+    "my_mixed_format_table",
     content_type=dc.ContentType.PARQUET, # Write Parquet (Default)
     table_properties={dc.TableProperty.SUPPORTED_READER_TYPES: supported_reader_types}
 )
@@ -282,7 +282,7 @@ print(f"Summary table exists: {dc.table_exists('category_summary')}")
 
 ### Working with Multiple Catalogs
 
-DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them automatically available to all workers in your cluster or local machine. 
+DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them automatically available to all workers in your cluster or local machine.
 
 For example, you may want to test a write against a local staging catalog before committing it to a shared production catalog:
 
@@ -344,6 +344,54 @@ dc.write(decimal_table, "financial_data", catalog="prod")
 ```
 
 For more information, see the DeltaCAT [Schema](deltacat/docs/schema/README.md) and [Table](deltacat/docs/table/README.md) documentation.
+
+### Time Travel
+
+DeltaCAT supports time travel queries that let you read table data as it existed at any point in the past:
+
+```python
+import deltacat as dc
+import pandas as pd
+import time
+
+# Initialize DeltaCAT with a local catalog
+dc.init(catalogs={"my_catalog": dc.Catalog()})
+
+# Create initial user data
+initial_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "status": ["active", "active", "inactive"]
+})
+
+dc.write(initial_users, "users")
+
+# Capture timestamp for time travel
+time.sleep(1)
+checkpoint_time = time.time_ns()
+
+# Later, update the data - promote Bob and add new users
+updated_users = pd.DataFrame({
+    "user_id": [1, 2, 3, 4, 5],
+    "name": ["Alice", "Bob", "Charlie", "Diana", "Ethan"],
+    "status": ["active", "premium", "active", "active", "inactive"]
+})
+
+dc.write(updated_users, "users", mode=dc.TableWriteMode.REPLACE)
+
+# Compare current state vs historic state
+current_data = dc.read("users", read_as=dc.DatasetType.PANDAS)
+assert len(current_data) == 5  # Now have 5 users
+
+# Time travel: query data as it existed at the checkpoint
+with dc.transaction(as_of=checkpoint_time):
+    historic_data = dc.read("users", read_as=dc.DatasetType.PANDAS)
+
+    # Validate historic state
+    assert len(historic_data) == 3  # Originally had 3 users
+    assert historic_data[historic_data["user_id"] == 2]["status"].iloc[0] == "active"  # Bob was active, not premium
+    assert not any(historic_data["user_id"] == 4)  # Diana didn't exist yet
+```
 
 ## Runtime Environment Requirements
 

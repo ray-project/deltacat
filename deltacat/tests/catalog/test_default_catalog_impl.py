@@ -12,6 +12,7 @@ import multiprocessing
 import os
 import tempfile
 import threading
+import time
 import uuid
 from typing import Dict, Any
 from unittest.mock import patch
@@ -10670,3 +10671,294 @@ class TestMultiTableTransactions:
                 pass
             primary_dir.cleanup()
             secondary_dir.cleanup()
+
+
+class TestTimeTravelTransactions:
+    @pytest.fixture
+    def setup_catalog_with_table(self, temp_catalog_properties):
+        """Fixture to set up catalog, namespace, and table for time travel tests."""
+        dc.init()
+
+        catalog_name = str(uuid.uuid4())
+        namespace = "time_travel_namespace"
+        table = "time_travel_table"
+
+        dc.put_catalog(
+            catalog_name,
+            catalog=Catalog(config=temp_catalog_properties),
+        )
+
+        # Create namespace
+        dc.create_namespace(namespace=namespace, catalog=catalog_name)
+
+        return catalog_name, namespace, table, None
+
+    def test_basic_time_travel_functionality(self, setup_catalog_with_table):
+        catalog_name, namespace, table, _ = setup_catalog_with_table
+
+        # Initial data write
+        initial_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "status": ["active", "active", "inactive"],
+            }
+        )
+
+        # Create schema with merge keys for the table
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("status", pa.string())),
+            ]
+        )
+
+        dc.write_to_table(
+            data=initial_data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=schema,
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Capture timestamp after initial write (nanoseconds since epoch)
+        checkpoint_time = time.time_ns()
+
+        # Wait a moment to ensure timestamp difference
+        time.sleep(0.1)
+
+        # Update data (modify Bob's status and add new user)
+        updated_data = pd.DataFrame(
+            {"id": [2, 4], "name": ["Bob", "Diana"], "status": ["premium", "active"]}
+        )
+
+        dc.write_to_table(
+            data=updated_data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.MERGE,
+        )
+
+        # Test current state (should show Bob as premium and Diana)
+        current_data = dc.read_table(
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            read_as=DatasetType.PANDAS,
+        )
+
+        current_data = current_data.sort_values("id").reset_index(drop=True)
+        assert len(current_data) == 4
+        assert current_data[current_data["id"] == 2]["status"].iloc[0] == "premium"
+        assert any(current_data["id"] == 4)  # Diana exists
+
+        # Test time travel: query data as it existed at checkpoint
+        with dc.transaction(catalog_name=catalog_name, as_of=checkpoint_time):
+            historic_data = dc.read_table(
+                table=table, namespace=namespace, read_as=DatasetType.PANDAS
+            )
+
+            historic_data = historic_data.sort_values("id").reset_index(drop=True)
+
+            # Validate historic state
+            assert len(historic_data) == 3  # Originally had 3 users
+            assert (
+                historic_data[historic_data["id"] == 2]["status"].iloc[0] == "active"
+            )  # Bob was active, not premium
+            assert not any(historic_data["id"] == 4)  # Diana didn't exist yet
+
+    def test_read_only_validation_prevents_writes(self, setup_catalog_with_table):
+        catalog_name, namespace, table, _ = setup_catalog_with_table
+
+        # Set up initial data
+        initial_data = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
+
+        dc.write_to_table(
+            data=initial_data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+        )
+
+        checkpoint_time = time.time_ns()
+
+        # Test that write operations are prevented in time travel transactions
+        with dc.transaction(catalog_name=catalog_name, as_of=checkpoint_time):
+            # Read operations should work
+            data = dc.read_table(
+                table=table, namespace=namespace, read_as=DatasetType.PANDAS
+            )
+            assert len(data) == 2
+
+            # Write operations should be prevented
+            new_data = pd.DataFrame({"id": [3], "name": ["Charlie"]})
+
+            with pytest.raises(
+                RuntimeError,
+                match="Cannot perform .* operation in a read-only historic transaction",
+            ):
+                dc.write_to_table(
+                    data=new_data,
+                    table=table,
+                    namespace=namespace,
+                    mode=TableWriteMode.APPEND,
+                )
+
+    def test_parameter_validation(self, setup_catalog_with_table):
+        catalog_name, _, _, _ = setup_catalog_with_table
+
+        # Test valid as_of parameter with current timestamp
+        valid_timestamp = time.time_ns()
+        with dc.transaction(catalog_name=catalog_name, as_of=valid_timestamp):
+            # Should work without error
+            pass
+
+        # Test valid as_of parameter with past timestamp
+        past_timestamp = time.time_ns() - int(1e9)  # 1 second ago
+        with dc.transaction(catalog_name=catalog_name, as_of=past_timestamp):
+            # Should work without error
+            pass
+
+    def test_mvcc_snapshot_isolation(self, setup_catalog_with_table):
+        catalog_name, namespace, table, _ = setup_catalog_with_table
+
+        # Create initial data
+        initial_data = pd.DataFrame({"id": [1, 2], "value": [10, 20]})
+
+        # Create schema with merge keys for the table
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("value", pa.int64())),
+            ]
+        )
+
+        dc.write_to_table(
+            data=initial_data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            schema=schema,
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Capture timestamp T1
+        t1 = time.time_ns()
+        time.sleep(0.1)
+
+        # Update data at time T2
+        update_data = pd.DataFrame({"id": [1], "value": [100]})
+
+        dc.write_to_table(
+            data=update_data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.MERGE,
+        )
+
+        # Capture timestamp T3
+        t3 = time.time_ns()
+        time.sleep(0.1)
+
+        # Add more data at time T4
+        additional_data = pd.DataFrame({"id": [3], "value": [30]})
+
+        dc.write_to_table(
+            data=additional_data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.MERGE,
+        )
+
+        # Test snapshot at T1 (should see original data)
+        with dc.transaction(catalog_name=catalog_name, as_of=t1):
+            data_t1 = dc.read_table(
+                table=table, namespace=namespace, read_as=DatasetType.PANDAS
+            )
+            data_t1 = data_t1.sort_values("id").reset_index(drop=True)
+
+            assert len(data_t1) == 2
+            assert data_t1[data_t1["id"] == 1]["value"].iloc[0] == 10  # Original value
+            assert not any(data_t1["id"] == 3)  # Third record didn't exist
+
+        # Test snapshot at T3 (should see updated data but not third record)
+        with dc.transaction(catalog_name=catalog_name, as_of=t3):
+            data_t3 = dc.read_table(
+                table=table, namespace=namespace, read_as=DatasetType.PANDAS
+            )
+            data_t3 = data_t3.sort_values("id").reset_index(drop=True)
+
+            assert len(data_t3) == 2
+            assert data_t3[data_t3["id"] == 1]["value"].iloc[0] == 100  # Updated value
+            assert not any(data_t3["id"] == 3)  # Third record still didn't exist
+
+    def test_transaction_context_manager_behavior(self, setup_catalog_with_table):
+        catalog_name, namespace, table, _ = setup_catalog_with_table
+
+        # Set up data
+        data = pd.DataFrame({"id": [1], "value": [42]})
+        dc.write_to_table(
+            data=data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+        )
+
+        timestamp = time.time_ns()
+
+        # Test that transaction context is properly managed
+        with dc.transaction(catalog_name=catalog_name, as_of=timestamp) as txn:
+            # Transaction should be active
+            assert txn is not None
+
+            # Should be able to perform read operations
+            result = dc.read_table(
+                table=table, namespace=namespace, read_as=DatasetType.PANDAS
+            )
+            assert len(result) == 1
+
+        # After context exit, transaction should be sealed
+        # (We can't directly test this as it's internal state, but no exceptions should occur)
+
+    def test_edge_cases_and_error_conditions(self, setup_catalog_with_table):
+        catalog_name, namespace, table, _ = setup_catalog_with_table
+
+        # Test time travel to future timestamp (should work but see current state)
+        future_timestamp = time.time_ns() + int(1e12)  # Far future (1000 seconds)
+
+        # Set up some data first
+        data = pd.DataFrame({"id": [1], "value": [123]})
+        dc.write_to_table(
+            data=data,
+            table=table,
+            namespace=namespace,
+            catalog=catalog_name,
+            mode=TableWriteMode.CREATE,
+        )
+
+        with dc.transaction(catalog_name=catalog_name, as_of=future_timestamp):
+            result = dc.read_table(
+                table=table, namespace=namespace, read_as=DatasetType.PANDAS
+            )
+            # Should still see current data
+            assert len(result) == 1
+            assert result["value"].iloc[0] == 123
+
+        # Test time travel to very old timestamp (before table existed)
+        very_old_timestamp = (
+            1000000000  # Very old timestamp in nanoseconds (1970-01-01 00:00:01)
+        )
+
+        with dc.transaction(catalog_name=catalog_name, as_of=very_old_timestamp):
+            # Should raise TableNotFoundError since table didn't exist at that time
+            with pytest.raises(TableNotFoundError, match="Table does not exist"):
+                dc.read_table(
+                    table=table, namespace=namespace, read_as=DatasetType.PANDAS
+                )
