@@ -693,10 +693,6 @@ class CompactionSessionAuditInfo(dict):
             raise ValueError(
                 f"Output record count cannot be negative: {output_records}"
             )
-        if not isinstance(output_records, int):
-            raise TypeError(
-                f"Output record count must be int, got {type(output_records)}"
-            )
         self["outputRecordCount"] = output_records
         return self
 
