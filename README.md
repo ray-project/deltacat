@@ -408,14 +408,6 @@ The [Table](deltacat/docs/table/README.md) documentation provides a more compreh
 
 The [Schema](deltacat/docs/schema/README.md) documentation provides a more comprehensive overview of DeltaCAT's schema management APIs, supported data types, file formats, and data consistency guarantees.
 
-### Catalog Documentation
-
-The [Catalog](deltacat/docs/catalog/README.md) documentation provides a more comprehensive overview of DeltaCAT's catalog management APIs, including how to create, read, write, and manage catalogs.
-
-### Compute Documentation
-
-The [Schema](deltacat/docs/schema/README.md) documentation provides a comprehensive guide to DeltaCAT's schema management APIs, including how to create, read, write, and manage schemas.
-
 ### Examples
 
 The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced application like external data source indexers and custom dataset compactors. They also demonstrate some experimental Apache Iceberg and Beam integrations.
