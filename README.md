@@ -522,7 +522,7 @@ new_users = pd.DataFrame({
 
 new_products = pd.DataFrame({
     "product_id": [104, 105],
-    "name": ["Tuna", "Milk"], 
+    "name": ["Canary", "Milk"], 
     "price": [6.99, 3.99]
 })
 
@@ -571,6 +571,214 @@ with dc.transaction(as_of=checkpoint_time):
     assert garfield_historic_payments == 25.98  # Original total, not updated 77.94
     
 print("\nTime travel validation successful! 🕰️")
+```
+
+### Batch Inference
+
+DeltaCAT also makes it easy to manage multi-modal datasets for batch inference. Here's an example using a pre-trained Vision Transformer model:
+
+```python
+import deltacat as dc
+import pandas as pd
+import tempfile
+from transformers import ViTImageProcessor, ViTForImageClassification
+from PIL import Image
+
+# Initialize DeltaCAT with a temporary catalog.
+dc.init_local(tempfile.mkdtemp())
+
+# Load pre-trained 48-breed cat classifier.
+processor = ViTImageProcessor.from_pretrained("dima806/cat_breed_image_detection")
+model = ViTForImageClassification.from_pretrained("dima806/cat_breed_image_detection")
+
+# Create a sample dataset with image paths and breeds.
+cool_cats = pd.DataFrame([
+    {"image_id": "cat_001", "image_path": "media/tuxedo.jpg", "breed": "Tuxedo"},
+    {"image_id": "cat_002", "image_path": "media/calico.jpg", "breed": "Calico"}, 
+    {"image_id": "cat_003", "image_path": "media/siamese.jpg", "breed": "Siamese"}
+])
+
+# Write the dataset to DeltaCAT.
+dc.write(cool_cats, "cat_pics")
+
+# Define a UDF to classify the breed of each cat.
+def classify_breed(image_path):
+    image = Image.open(image_path).convert('RGB')
+    inputs = processor(images=image, return_tensors="pt")
+    outputs = model(**inputs)
+    return model.config.id2label[outputs.logits.argmax(-1).item()]
+
+# Read the dataset back as a Pandas DataFrame and run batch inference.
+df = dc.read("cat_pics", read_as=dc.DatasetType.PANDAS)
+df["predicted"] = df["image_path"].apply(classify_breed)
+accuracy = (df["breed"] == df["predicted"]).mean()
+print(f"Vision Transformer Accuracy: {accuracy:.1%}")
+for _, row in df.iterrows():
+    status = "✓" if row["breed"] == row["predicted"] else "X"
+    print(f"{status} {row["image_id"]}: {row["breed"]} → {row["predicted"]}")
+
+# Write the predictions to a new table.
+dc.write(df, "predictions")
+```
+
+### LLM Document Processing with Time Travel
+
+DeltaCAT provides unique enterprise capabilities: ACID transactions across tables, time travel queries, and automatic schema evolution. Here's a concise example with real document processing:
+
+```python
+import deltacat as dc
+import pandas as pd
+import tempfile
+import time
+from transformers import pipeline
+
+# Initialize DeltaCAT 
+dc.init_local(tempfile.mkdtemp())
+
+# Load sample customer documents (fictional data for demonstration)
+docs = pd.DataFrame([
+    {"doc_id": "feedback_001", "path": "media/customer_feedback_001.txt"},
+    {"doc_id": "feedback_002", "path": "media/customer_feedback_002.txt"},
+    {"doc_id": "feedback_003", "path": "media/customer_feedback_003.txt"}
+])
+
+# Read document content
+docs['content'] = docs['path'].apply(lambda p: open(p).read())
+
+# === UNIQUE VALUE: Multi-table ACID transaction ===
+
+with dc.transaction():  # Atomic across ALL tables
+    dc.write(docs, "documents", namespace="analysis")
+    
+    # LLM sentiment analysis (v1.0)
+    classifier = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment-latest")
+    sentiments = []
+    for content in docs['content']:
+        result = classifier(content[:500])[0]  # Truncate for model limits
+        sentiments.append({
+            "sentiment": result['label'],
+            "confidence": result['score'],
+            "model_version": "roberta-v1.0"
+        })
+    
+    insights_v1 = pd.DataFrame(sentiments)
+    insights_v1['doc_id'] = docs['doc_id']
+    
+    # Store with merge capability (automatic upserts)
+    dc.write(insights_v1, "insights", namespace="analysis", merge_key="doc_id")
+    
+    # Audit trail
+    dc.write(pd.DataFrame([{"version": "v1.0", "docs_processed": len(docs)}]), 
+             "audit", namespace="analysis")
+
+print("✅ V1.0 processing complete")
+
+# Create checkpoint AFTER v1.0 transaction commits  
+time.sleep(1)
+checkpoint_v1 = time.time_ns()
+time.sleep(1)
+
+# === Model upgrade simulation ===
+time.sleep(1)
+checkpoint_v2 = time.time_ns()
+time.sleep(1)
+
+with dc.transaction():
+    # Upgrade to better model (v2.0) 
+    classifier_v2 = pipeline("sentiment-analysis", model="j-hartmann/emotion-english-distilroberta-base")
+    
+    emotions = []
+    for content in docs['content']:
+        result = classifier_v2(content[:500])[0]
+        emotions.append({
+            "sentiment": result['label'],
+            "confidence": result['score'], 
+            "model_version": "distilroberta-v2.0",
+            "emotion_detail": result['label']  # New column - automatic schema evolution!
+        })
+    
+    insights_v2 = pd.DataFrame(emotions)
+    insights_v2['doc_id'] = docs['doc_id']
+    
+    # Automatic schema evolution: new emotion_detail column added seamlessly
+    dc.write(insights_v2, "insights", namespace="analysis", merge_key="doc_id")
+    dc.write(pd.DataFrame([{"version": "v2.0", "docs_processed": len(docs)}]), 
+             "audit", namespace="analysis")
+
+print("✅ V2.0 upgrade complete with schema evolution")
+
+# === V3.0 Customer Service Response Generation ===
+time.sleep(1)
+checkpoint_v3 = time.time_ns()
+time.sleep(1)
+
+with dc.transaction():
+    # Generate LLM responses to customer feedback
+    print("🤖 Loading text generation model for customer service responses...")
+    response_generator = pipeline("text-generation", model="microsoft/DialoGPT-medium")
+    
+    print("💬 Generating customer service responses...")
+    responses = []
+    for i, (doc_id, content) in enumerate(zip(docs['doc_id'], docs['content'])):
+        # Create appropriate response prompt based on content
+        if "disappointed" in content.lower() or "unacceptable" in content.lower():
+            prompt = "Dear valued customer, we sincerely apologize for"
+        elif "outstanding" in content.lower() or "excellent" in content.lower():
+            prompt = "Thank you so much for your wonderful feedback! We're thrilled"
+        else:
+            prompt = "Thank you for contacting us. We understand your concern and"
+            
+        # Generate response (truncated for demo)
+        generated = response_generator(prompt, max_length=100, num_return_sequences=1, pad_token_id=50256)
+        response_text = generated[0]['generated_text']
+        
+        responses.append({
+            "doc_id": doc_id,
+            "response_text": response_text,
+            "response_model": "dialogpt-medium-v3.0",
+            "generated_at": time.time_ns()
+        })
+        print(f"  Response {i+1}: Generated for {doc_id}")
+    
+    responses_df = pd.DataFrame(responses)
+    dc.write(responses_df, "responses", namespace="analysis", merge_key="doc_id")
+    dc.write(pd.DataFrame([{"version": "v3.0", "docs_processed": len(docs)}]), 
+             "audit", namespace="analysis")
+
+print("✅ V3.0 customer service automation complete")
+
+# === UNIQUE VALUE: Time travel analysis across all versions ===
+print("\n🕰️ Time Travel Comparison:")
+
+# V1.0 results (point-in-time query)
+with dc.transaction(as_of=checkpoint_v1):
+    old_results = dc.read("insights", namespace="analysis")
+    print(f"V1.0: {list(old_results.columns)}")
+
+# Current V2.0 results  
+new_results = dc.read("insights", namespace="analysis")
+print(f"V2.0: {list(new_results.columns)}")
+
+# Show actual predictions
+for _, row in new_results.iterrows():
+    print(f"{row['doc_id']}: {row['sentiment']} ({row['confidence']:.2f})")
+
+# Show generated customer service responses
+print("\n💬 Generated Customer Service Responses:")
+responses = dc.read("responses", namespace="analysis")
+for _, row in responses.iterrows():
+    response_preview = row['response_text'][:80].replace('\n', ' ')
+    print(f"{row['doc_id']}: {response_preview}...")
+
+# Complete audit trail
+audit_history = dc.read("audit", namespace="analysis") 
+print(f"\n📊 Complete Processing History:")
+for _, audit in audit_history.iterrows():
+    print(f"  {audit['version']}: {audit['docs_processed']} documents processed")
+
+print(f"\n✅ Complete enterprise ML pipeline with automated customer service!")
+print(f"📊 Multi-table ACID transactions, time travel, and LLM automation")
+print(f"🚀 Capabilities impossible with raw Parquet/Ray Data alone")
 ```
 
 ## Runtime Environment Requirements
