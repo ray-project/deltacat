@@ -26,7 +26,7 @@ DeltaCAT's **Catalog**, **Compute**, and **Storage** layers work together to bri
 Data consumers that prefer to stay within the ecosystem of Pythonic data management tools can use DeltaCAT's native table format to manage their data with minimal overhead. For integration with other data analytics frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component offers zero-copy synchronization of your tables to Apache Iceberg and other table formats.
 
 ## Getting Started
-DeltaCAT applications run anywhere that Ray runs, including your local laptop, cloud computing clusters, or on-premise clusters.
+DeltaCAT applications run anywhere that Ray runs, including your local laptop, cloud computing cluster, or on-premise cluster.
 
 DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
 
@@ -44,8 +44,8 @@ dc.init_local()
 # Create data to write.
 data = pd.DataFrame({
     "id": [1, 2, 3],
-    "name": ["Alice", "Bob", "Charlie"],
-    "age": [25, 30, 35]
+    "name": ["Sylvester", "Tom", "Garfield"],
+    "age": [83, 84, 47]
 })
 
 # Write data to a table.
@@ -61,85 +61,16 @@ daft_df.show()  # Materialize and print the DataFrame
 # Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
-    "name": ["Diana", "Ethan", "Fiona"],
-    "age": [40, 45, 50],
-    "city": ["New York", "Los Angeles", "Chicago"]
+    "name": ["Hobbes", "Felix", "Delta"],
+    "age": [45, 105, 4],
+    "city": ["Chagrin Falls", "New York", "San Francisco"]
 })
 dc.write(data, "users")
 
 # Read the full table back into a Daft DataFrame.
 daft_df = dc.read("users")
-daft_df.select("name", "city").show()  # Just print the names and cities
-```
-
-### Organizing Tables with Namespaces
-
-In DeltaCAT, table **Namespaces** are optional but useful for organizing related tables within a catalog:
-
-```python
-import deltacat as dc
-import pandas as pd
-
-# Initialize DeltaCAT with a default local catalog
-dc.init_local()
-
-# Create some sample data for different business domains
-user_data = pd.DataFrame({
-    "user_id": [1, 2, 3],
-    "name": ["Alice", "Bob", "Charlie"],
-    "email": ["alice@example.com", "bob@example.com", "charlie@example.com"]
-})
-
-product_data = pd.DataFrame({
-    "product_id": [101, 102, 103],
-    "name": ["Widget", "Gadget", "Tool"],
-    "price": [19.99, 29.99, 39.99]
-})
-
-order_data = pd.DataFrame({
-    "order_id": [1001, 1002, 1003],
-    "user_id": [1, 2, 1],
-    "product_id": [101, 102, 103],
-    "quantity": [2, 1, 1]
-})
-
-# Write tables to different namespaces to organize them by domain
-dc.write(user_data, "users", namespace="identity")
-dc.write(product_data, "catalog", namespace="inventory")
-dc.write(order_data, "transactions", namespace="sales")
-
-# Read from specific namespaces
-users_df = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
-products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS)
-orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
-
-print(f"Identity namespace has {len(users_df)} users")
-print(f"Inventory namespace has {len(products_df)} products")
-print(f"Sales namespace has {len(orders_df)} transactions")
-
-# Tables with the same name can exist in different namespaces
-# Create separate marketing and finance views of the same data
-marketing_users = pd.DataFrame({
-    "user_id": [1, 2, 3],
-    "segment": ["premium", "standard", "premium"],
-    "acquisition_channel": ["social", "search", "referral"]
-})
-
-finance_users = pd.DataFrame({
-    "user_id": [1, 2, 3],
-    "lifetime_value": [299.99, 149.99, 399.99],
-    "payment_method": ["credit", "paypal", "credit"]
-})
-
-dc.write(marketing_users, "users", namespace="marketing")
-dc.write(finance_users, "users", namespace="finance")
-
-# Each namespace maintains its own "users" table with different schemas
-marketing_df = dc.read("users", namespace="marketing", read_as=dc.DatasetType.PANDAS)
-finance_df = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
-
-print(f"Marketing users table has columns: {list(marketing_df.columns)}")
-print(f"Finance users table has columns: {list(finance_df.columns)}")
+# Print the names and cities (missing cities will be null).
+daft_df.select("name", "city").show()
 ```
 
 ### Supported Dataset and File Formats
@@ -167,9 +98,10 @@ import pyarrow as pa
 
 # Create a pyarrow table to write.
 data = pa.Table.from_pydict({
-    "id": [1, 2, 3],
-    "name": ["Alice", "Bob", "Charlie"],
-    "age": [25, 30, 35]
+    "id": [4, 5, 6],
+    "name": ["Hobbes", "Felix", "Delta"],
+    "age": [45, 105, 4],
+    "city": ["Chagrin Falls", "New York", "San Francisco"]
 })
 
 # Write different dataset types to the default table file format (Parquet):
@@ -220,64 +152,244 @@ dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.AVRO)
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)
 
-# All file formats will be automatically unified at read time with the contents
-# of 'data' repeated 4 times - one for each file format we appended it to.
+# All file formats will be automatically unified at read time:
 pandas_df = dc.read("my_mixed_format_table", read_as=dc.DatasetType.PANDAS)
 pandas_df.show()
 ```
 
-### Multi-Table Transactions
+### Merging and Deleting Data
 
-DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this makes it easier to keep related datasets consistent across your entire catalog.
+DeltaCAT can automatically merge and delete data by defining a table schema with one or more merge keys:
 
 ```python
 import deltacat as dc
 import pandas as pd
+import pyarrow as pa
 
-# Sample data for a multi-table transaction
-products_data = pd.DataFrame({
-    "product_id": [1, 2, 3, 4],
-    "name": ["Widget", "Gadget", "Tool", "Device"],
-    "price": [10.99, 25.50, 15.75, 99.99],
-    "category": ["electronics", "electronics", "tools", "electronics"],
+# Initialize DeltaCAT with a default local catalog
+dc.init_local()
+
+# Define a schema with user_id as a merge key.
+from deltacat.storage.model.schema import Schema, Field
+
+schema = Schema.of([
+    Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
+    Field.of(pa.field("name", pa.string())),
+    Field.of(pa.field("age", pa.int32())),
+    Field.of(pa.field("status", pa.string())),
+])
+
+# Initial user data
+initial_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Sylvester", "Tom", "Hobbes"],
+    "age": [83, 84, 45],
+    "status": ["active", "active", "inactive"]
 })
 
-sales_data = pd.DataFrame({
-    "sale_id": [1001, 1002, 1003, 1004, 1005],
-    "product_id": [1, 2, 1, 3, 4],
-    "quantity": [2, 1, 1, 3, 1],
-    "sale_date": ["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-02", "2024-01-03"],
+# Write initial data with the merge key schema
+dc.write(initial_users, "users", schema=schema)
+
+# Read the data back as a Pandas DataFrame.
+df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print("=== Initial Users ===")
+print(df)
+
+# Update data for existing users + add new users
+updated_users = pd.DataFrame({
+    "user_id": [2, 3, 4, 5, 6],  # Tom & Hobbes updated, new users added
+    "name": ["Tom", "Hobbes", "Garfield", "Felix", "Delta"],
+    "age": [84, 45, 47, 105, 4],
+    "status": ["premium", "active", "active", "active", "active"]
 })
 
-# Execute multiple table operations within a single transaction
+# Write automatically detects that the schema has a merge key and:
+# 1. Updates existing records with matching user IDs.
+# 2. Inserts new records with new user IDs.
+dc.write(updated_users, "users", schema=schema)
+
+# Read back to see merged results
+df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print("\n=== After Merge ===")
+print(df.sort_values("user_id"))
+
+# - Sylvester (user_id=1) remains unchanged
+# - Tom (user_id=2) status updated to "premium"
+# - Hobbes (user_id=3) updated to "active" 
+# - New users (4,5,6), (Garfield, Felix, Delta) added
+# - No duplicate user_id values exist
+
+# Specify the users to delete.
+# We only need to specify matching merge key values.
+users_to_delete = pd.DataFrame({
+    "user_id": [3, 5],
+})
+
+# Delete the records that match our merge keys.
+dc.write(users_to_delete, "users", schema=schema, mode=dc.TableWriteMode.DELETE)
+
+# Read the table back to confirm target users have been deleted.
+df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print("\n=== After Deletion ===")
+print(df.sort_values("user_id"))
+
+# - Hobbes (user_id=3) has been removed
+# - Felix (user_id=5) has been removed  
+# - All other users remain unchanged
+```
+
+### Organizing Tables with Namespaces
+
+In DeltaCAT, table **Namespaces** are optional but useful for organizing related tables within a catalog:
+
+```python
+import deltacat as dc
+import pandas as pd
+import tempfile
+
+# Initialize DeltaCAT with a fresh temporary catalog
+dc.init_local(tempfile.mkdtemp())
+
+# Create some sample data for different business domains
+user_data = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Garfield", "Hobbes", "Delta"],
+})
+
+product_data = pd.DataFrame({
+    "product_id": [101, 102, 103],
+    "name": ["Lasagna", "Tuna", "Parquet"],
+    "price": [12.99, 8.99, 0.01]
+})
+
+order_data = pd.DataFrame({
+    "order_id": [1001, 1002, 1003],
+    "user_id": [1, 2, 3],
+    "product_id": [101, 102, 103],
+    "quantity": [2, 1, 1_000_000_000]
+})
+
+# Write tables to different namespaces to organize them by domain
+dc.write(user_data, "users", namespace="identity")
+dc.write(product_data, "catalog", namespace="inventory")
+dc.write(order_data, "transactions", namespace="sales")
+
+# Read from specific namespaces
+users_df = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
+products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS)
+orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
+
+print(f"Identity namespace has {len(users_df)} users")
+print(f"Inventory namespace has {len(products_df)} products")
+print(f"Sales namespace has {len(orders_df)} transactions")
+
+# Tables with the same name can exist in different namespaces
+# Create separate marketing and finance views of the same data
+marketing_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "segment": ["premium", "standard", "premium"],
+    "acquisition_channel": ["social", "search", "referral"]
+})
+
+finance_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "lifetime_payments": [25.98, 8.99, 10000000.00],
+    "preferred_payment_method": ["credit", "cash", "paypal"]
+})
+
+dc.write(marketing_users, "users", namespace="marketing")
+dc.write(finance_users, "users", namespace="finance")
+
+# Each namespace maintains its own "users" table with different schemas
+marketing_df = dc.read("users", namespace="marketing", read_as=dc.DatasetType.PANDAS)
+finance_df = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
+
+print(f"Marketing users fields: {list(marketing_df.columns)}")  # ['user_id', 'segment', 'acquisition_channel']
+print(f"Finance users fields: {list(finance_df.columns)}")  # ['user_id', 'lifetime_payments', 'preferred_payment_method']
+```
+
+### Multi-Table Transactions
+
+DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this makes it easier to keep related datasets consistent across your entire catalog. 
+
+Consider our previous example of organizing tables using namespaces. We had one table that kept track of customer orders, and another
+table that tracked the lifetime payments of each customer. If we successfully updated one table but not the other, then 
+we'd be left with an accounting discrepancy. We can resolve this using multi-table transactions:
+
+```python
+import deltacat as dc
+import pandas as pd
+import tempfile
+
+# Initialize DeltaCAT with a fresh temporary catalog
+dc.init_local(tempfile.mkdtemp())
+
+# Create sample product data.
+product_data = pd.DataFrame({
+    "product_id": [101, 102, 103],
+    "name": ["Lasagna", "Tuna", "Parquet"],
+    "price": [12.99, 8.99, 0.01]
+})
+
+# The product catalog can be created independently.
+dc.write(product_data, "catalog", namespace="inventory")
+
+# Create sample user and finance data.
+user_data = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Garfield", "Hobbes", "Delta"],
+})
+initial_finance = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "lifetime_payments": [0.00, 0.00, 0.00],
+    "preferred_payment_method": ["credit", "cash", "paypal"]
+})
+
+# Create user identities and user finance data within a single transaction.
+# Since transactions are atomic, this will prevent user data discrepancies.
 with dc.transaction():
-    # Create products table
-    dc.write(products_data, "products")
+    dc.write(user_data, "users", namespace="identity")
+    dc.write(initial_finance, "users", namespace="finance")
 
-    # Create sales table
-    dc.write(sales_data, "sales")
+# Create new order data 
+new_orders = pd.DataFrame({
+    "order_id": [1001, 1002, 1003],
+    "user_id": [1, 2, 3],
+    "product_id": [101, 102, 103],
+    "quantity": [2, 1, 1_000_000_000]
+})
 
-    # Read products data to create a derived table
-    products_df = dc.read("products", read_as=dc.DatasetType.PANDAS)
+# Process new orders and update lifetime payment totals within a single transaction.
+with dc.transaction():
+    # Step 1: Write the new orders
+    dc.write(new_orders, "transactions", namespace="sales")
+    
+    # Step 2: Read back transactions and products to compute actual totals
+    orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
+    products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS)
+    
+    # Step 3: Compute lifetime payment totals by joining orders with product prices
+    orders_with_prices = orders_df.merge(products_df, on="product_id")
+    orders_with_prices["total"] = orders_with_prices["quantity"] * orders_with_prices["price"]
+    
+    # Calculate lifetime totals per user
+    lifetime_totals = orders_with_prices.groupby("user_id")["total"].sum().reset_index()
+    lifetime_totals.columns = ["user_id", "lifetime_payments"]
+    
+    # Step 4: Write the computed totals
+    dc.write(lifetime_totals, "users", namespace="finance", mode=dc.TableWriteMode.REPLACE)
 
-    # Create a derived summary table (electronics products only)
-    electronics_df = products_df[products_df["category"] == "electronics"]
-    electronics_summary = pd.DataFrame({
-        "category": ["electronics"],
-        "product_count": [len(electronics_df)],
-        "avg_price": [electronics_df["price"].mean()],
-        "total_value": [electronics_df["price"].sum()],
-    })
+# Verify consistency - orders and finance totals are guaranteed to match
+orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
+finance_df = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
 
-    # Write derived table
-    dc.write(electronics_summary, "category_summary")
+print(f"Orders processed: {len(orders_df)}")
+print(f"Finance records updated: {len(finance_df)}")
 
-# All tables are now created atomically
-# If any operation had failed, none of the tables would exist
-print("Transaction completed successfully!")
-print(f"Products table exists: {dc.table_exists('products')}")
-print(f"Sales table exists: {dc.table_exists('sales')}")
-print(f"Summary table exists: {dc.table_exists('category_summary')}")
+# Without multi-table transactions, we could wind up with:
+# - User data without corresponding finance records (or vice versa).
+# - Orders successfully recorded but finance totals not updated.
+# - Finance totals updated without any corresponding orders.
 ```
 
 ### Working with Multiple Catalogs
@@ -290,12 +402,13 @@ For example, you may want to test a write against a local staging catalog before
 import deltacat as dc
 import pandas as pd
 import pyarrow as pa
+import tempfile
 from decimal import Decimal
 
 # Initialize catalogs with separate names and catalog roots.
 dc.init(catalogs={
     "staging": dc.Catalog(config=dc.CatalogProperties(
-        root="/tmp/staging/",
+        root=tempfile.mkdtemp(),  # Use temporary directory for staging
         filesystem=pa.fs.LocalFileSystem()
     )),
     "prod": dc.Catalog(config=dc.CatalogProperties(
@@ -347,50 +460,117 @@ For more information, see the DeltaCAT [Schema](deltacat/docs/schema/README.md) 
 
 ### Time Travel
 
-DeltaCAT supports time travel queries that let you read table data as it existed at any point in the past:
+DeltaCAT supports time travel queries that let you read all tables in a catalog as they existed at any point in the past. Combined with multi-table transactions, this enables consistent point-in-time views across your entire data catalog:
 
 ```python
 import deltacat as dc
 import pandas as pd
+import tempfile
 import time
 
-# Initialize DeltaCAT with a default local catalog
-dc.init_local()
+# Initialize DeltaCAT with a fresh temporary catalog
+dc.init_local(tempfile.mkdtemp())
 
-# Create initial user data
+# Create initial state with existing users, products, and orders
 initial_users = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Alice", "Bob", "Charlie"],
-    "status": ["active", "active", "inactive"]
+    "name": ["Garfield", "Hobbes", "Delta"],
 })
 
-dc.write(initial_users, "users")
+initial_products = pd.DataFrame({
+    "product_id": [101, 102, 103],
+    "name": ["Lasagna", "Tuna", "Parquet"],
+    "price": [12.99, 8.99, 0.01]
+})
+
+initial_orders = pd.DataFrame({
+    "order_id": [1001, 1002, 1003],
+    "user_id": [1, 2, 3],
+    "product_id": [101, 102, 103],
+    "quantity": [2, 1, 1_000_000_000]
+})
+
+initial_finance = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "lifetime_payments": [25.98, 8.99, 10000000.00],
+})
+
+# Write initial state atomically
+with dc.transaction():
+    dc.write(initial_users, "users", namespace="identity")
+    dc.write(initial_products, "catalog", namespace="inventory") 
+    dc.write(initial_orders, "transactions", namespace="sales")
+    dc.write(initial_finance, "users", namespace="finance")
 
 # Capture timestamp for time travel
 time.sleep(1)
 checkpoint_time = time.time_ns()
+time.sleep(1)
 
-# Later, update the data - promote Bob and add new users
-updated_users = pd.DataFrame({
-    "user_id": [1, 2, 3, 4, 5],
-    "name": ["Alice", "Bob", "Charlie", "Diana", "Ethan"],
-    "status": ["active", "premium", "active", "active", "inactive"]
+# Later, add new orders for existing users and new users Sylvester & Felix
+new_orders = pd.DataFrame({
+    "order_id": [1004, 1005, 1006, 1007, 1008],
+    "user_id": [1, 2, 1, 4, 5],
+    "product_id": [101, 102, 101, 104, 105],
+    "quantity": [1, 2, 3, 5, 1]
 })
 
-dc.write(updated_users, "users", mode=dc.TableWriteMode.REPLACE)
+new_users = pd.DataFrame({
+    "user_id": [4, 5],
+    "name": ["Sylvester", "Felix"], 
+})
 
-# Compare current state vs historic state
-current_data = dc.read("users", read_as=dc.DatasetType.PANDAS)
-assert len(current_data) == 5  # Now have 5 users
+new_products = pd.DataFrame({
+    "product_id": [104, 105],
+    "name": ["Tuna", "Milk"], 
+    "price": [6.99, 3.99]
+})
 
-# Time travel: query data as it existed at the checkpoint
+# Update finance data with new lifetime payment totals
+updated_finance = pd.DataFrame({
+    "user_id": [1, 2, 3, 4, 5],
+    "lifetime_payments": [77.94, 26.97, 10000000.00, 34.95, 3.99]  # Updated totals
+})
+
+# Execute all updates atomically - either all succeed or all fail
+with dc.transaction():
+    # Add new users, products, orders, and lifetime payment totals
+    dc.write(new_users, "users", namespace="identity")
+    dc.write(new_products, "catalog", namespace="inventory")
+    dc.write(new_orders, "transactions", namespace="sales")
+    dc.write(updated_finance, "users", namespace="finance", mode=dc.TableWriteMode.REPLACE)
+
+# Compare current state vs historic state across all tables
+print("=== Current State (After Updates) ===")
+current_users = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
+current_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
+current_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
+
+print(f"Users: {len(current_users)} total ({list(current_users['name'])})")
+print(f"Orders: {len(current_orders)} total")
+print(f"Finance records: {len(current_finance)} total")
+
+# Now query all tables as they existed at the checkpoint
+print("\n=== Historic State (Before Updates) ===")
 with dc.transaction(as_of=checkpoint_time):
-    historic_data = dc.read("users", read_as=dc.DatasetType.PANDAS)
-
-    # Validate historic state
-    assert len(historic_data) == 3  # Originally had 3 users
-    assert historic_data[historic_data["user_id"] == 2]["status"].iloc[0] == "active"  # Bob was active, not premium
-    assert not any(historic_data["user_id"] == 4)  # Diana didn't exist yet
+    historic_users = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
+    historic_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS) 
+    historic_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
+    
+    print(f"Users: {len(historic_users)} total ({list(historic_users['name'])})")
+    print(f"Orders: {len(historic_orders)} total")
+    print(f"Finance records: {len(historic_finance)} total")
+    
+    # Validate historic state - Sylvester & Felix didn't exist yet
+    assert not any(historic_users["name"] == "Sylvester")
+    assert not any(historic_users["name"] == "Felix") 
+    assert len(historic_orders) == 3  # Only original 3 orders
+    
+    # Finance data reflects original payment totals
+    garfield_historic_payments = historic_finance[historic_finance["user_id"] == 1]["lifetime_payments"].iloc[0]
+    assert garfield_historic_payments == 25.98  # Original total, not updated 77.94
+    
+print("\nTime travel validation successful! 🕰️")
 ```
 
 ## Runtime Environment Requirements

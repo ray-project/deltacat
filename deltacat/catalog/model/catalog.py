@@ -218,6 +218,7 @@ def init(
 
 
 def init_local(
+    path: Optional[str] = None,
     ray_init_args: Dict[str, Any] = {},
     *,
     force=False,
@@ -228,14 +229,20 @@ def init_local(
     This is a convenience function that creates a default catalog for local usage.
     Equivalent to calling init(catalogs={"default": Catalog()}).
 
+    :param path: Optional path for catalog root directory. If not provided, uses 
+        the default behavior of CatalogProperties (DELTACAT_ROOT env var or 
+        "./.deltacat/").
     :param ray_init_args: Keyword arguments to pass to `ray.init()`.
     :param force: Whether to force DeltaCAT reinitialization. If True, reruns
         ray.init(**ray_init_args) and overwrites all previously registered
         catalogs.
     :returns: The Ray context object if Ray was initialized, otherwise None.
     """
+    from deltacat.catalog.model.properties import CatalogProperties
+    
+    config = CatalogProperties(root=path) if path is not None else None
     return init(
-        catalogs={"default": Catalog()},
+        catalogs={"default": Catalog(config=config)},
         default="default",
         ray_init_args=ray_init_args,
         force=force,
@@ -361,12 +368,17 @@ def put_catalog(
     if fail_if_exists:
         try:
             get_catalog(name)
-        except ValueError:
+            # If we get here, catalog exists - raise error
+            raise ValueError(
+                f"Failed to put catalog {name} because it already exists and "
+                f"fail_if_exists={fail_if_exists}"
+            )
+        except ValueError as e:
+            if "not found" not in str(e):
+                # Re-raise if it's not a "catalog not found" error
+                raise
+            # If catalog doesn't exist, continue normally
             pass
-        raise ValueError(
-            f"Failed to put catalog {name} because it already exists and "
-            f"fail_if_exists={fail_if_exists}"
-        )
 
     # Add the catalog (which may overwrite existing if fail_if_exists=False)
     ray.get(all_catalogs.put.remote(name, catalog, default))

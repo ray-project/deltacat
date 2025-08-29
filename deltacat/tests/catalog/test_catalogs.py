@@ -232,6 +232,35 @@ class TestCatalogsIntegration:
         assert named_catalog is not None
         assert named_catalog.impl.__name__ == "deltacat.catalog.main.impl"
 
+    def test_init_local_with_path(self, reset_catalogs):
+        """Test that init_local(path) creates a default local catalog with specified path."""
+        # Create a temporary directory for the test
+        custom_path = tempfile.mkdtemp()
+        
+        try:
+            # Initialize with custom path
+            init_local(path=custom_path, force=True)
+
+            assert is_initialized()
+
+            # Should be able to get the default catalog
+            default_catalog = get_catalog()
+            assert default_catalog is not None
+
+            # The default catalog should be accessible by name "default"
+            named_catalog = get_catalog("default")
+            assert named_catalog is not None
+            assert named_catalog.impl.__name__ == "deltacat.catalog.main.impl"
+            
+            # Verify the catalog is using the custom path
+            catalog_properties = named_catalog.inner
+            assert catalog_properties.root == custom_path
+            
+        finally:
+            # Clean up the temporary directory
+            if os.path.exists(custom_path):
+                shutil.rmtree(custom_path)
+
     def test_default_catalog_initialization(self, reset_catalogs):
         """Test that a Default catalog can be initialized and accessed using the factory method."""
         from deltacat.catalog.model.properties import CatalogProperties
