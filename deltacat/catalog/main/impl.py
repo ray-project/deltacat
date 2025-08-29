@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, Set
 import logging
 from collections import defaultdict
 
@@ -64,6 +64,7 @@ from deltacat.types.tables import (
     TableWriteMode,
     get_dataset_type,
     get_table_schema,
+    get_table_column_names,
     from_pyarrow,
     concat_tables,
     empty_table,
@@ -407,6 +408,9 @@ def write_to_table(
             # Convert other unsupported dataset types (e.g., Daft) or keep NumPy as-is for schemaless tables
             converted_data = _convert_data_if_needed(data)
 
+        # Capture original field set before schema coercion for partial UPSERT support
+        original_fields = set(get_table_column_names(converted_data))
+
         # Validate and coerce data against schema
         # This ensures proper schema evolution and type handling
         (
@@ -464,6 +468,7 @@ def write_to_table(
             namespace,
             table,
             schema=updated_schema if schema_modified else table_version_obj.schema,
+            original_fields=original_fields,
             **filtered_kwargs,
         )
     except Exception as e:
@@ -949,6 +954,7 @@ def _stage_commit_and_compact(
     namespace: str,
     table: str,
     schema: Schema,
+    original_fields: Set[str],
     **kwargs,
 ) -> None:
     """Stage and commit delta, then handle compaction if needed."""
@@ -990,6 +996,7 @@ def _stage_commit_and_compact(
             latest_delta_stream_position=delta.stream_position,
             namespace=namespace,
             table=table,
+            original_fields=original_fields,
             **kwargs,
         )
 
@@ -1157,6 +1164,7 @@ def _create_compaction_params(
     latest_stream_position: int,
     primary_keys: set,
     hash_bucket_count: int,
+    original_fields: Set[str],
     **kwargs,
 ):
     """Create compaction parameters for the compaction session."""
@@ -1202,6 +1210,7 @@ def _create_compaction_params(
             "compacted_file_content_type": ContentType.PARQUET,
             "drop_duplicates": True,
             "sort_keys": _get_merge_order_sort_keys(table_version_obj),
+            "original_fields": original_fields,
         }
     )
 
@@ -1212,6 +1221,7 @@ def _run_compaction_session(
     latest_delta_stream_position: int,
     namespace: str,
     table: str,
+    original_fields: Set[str],
     **kwargs,
 ) -> None:
     """
@@ -1223,6 +1233,7 @@ def _run_compaction_session(
         latest_delta_stream_position: Stream position of the latest delta
         namespace: The table namespace
         table: The table name
+        original_fields: The original field set for partial UPSERT support
         **kwargs: Additional arguments including catalog and storage parameters
     """
     # Import inside function to avoid circular imports
@@ -1242,6 +1253,7 @@ def _run_compaction_session(
             latest_delta_stream_position,
             primary_keys,
             hash_bucket_count,
+            original_fields=original_fields,
             **kwargs,
         )
 

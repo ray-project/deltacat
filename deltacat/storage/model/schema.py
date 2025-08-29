@@ -1205,7 +1205,10 @@ class Schema(dict):
             return dataset
 
         # Convert dataset to PyArrow table for processing
-        pa_table = to_pyarrow(dataset, schema=manifest_entry_schema.arrow)
+        pa_table = to_pyarrow(
+            dataset,
+            schema=manifest_entry_schema.arrow if manifest_entry_schema else None,
+        )
 
         # Process columns using field coercion
         coerced_columns, coerced_fields = self._coerce_table_columns(pa_table)

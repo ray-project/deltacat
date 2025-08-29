@@ -290,6 +290,14 @@ def _pyarrow_to_numpy(pa_table: pa.Table, **kwargs) -> np.ndarray:
         return pa_table.to_pandas().values
 
 
+def _pandas_to_numpy(pd_df: pd.DataFrame, **kwargs) -> np.ndarray:
+    """Convert Pandas DataFrame to numpy array."""
+    if len(pd_df.columns) == 1:
+        return pd_df.iloc[:, 0].to_numpy(**kwargs)
+    else:
+        return pd_df.values
+
+
 DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]] = {
     DatasetType.PYARROW: lambda pa_table, **kwargs: pa_table,
     DatasetType.PANDAS: lambda pa_table, **kwargs: pa_table.to_pandas(**kwargs),
@@ -300,6 +308,18 @@ DATASET_TYPE_FROM_PYARROW: Dict[DatasetType, Callable[[pa.Table, Dataset], Any]]
     DatasetType.NUMPY: lambda pa_table, **kwargs: _pyarrow_to_numpy(pa_table, **kwargs),
     DatasetType.RAY_DATASET: lambda pa_table, **kwargs: ray.data.from_arrow(pa_table),
     DatasetType.PYARROW_PARQUET: lambda pa_table, **kwargs: pa_table,  # ParquetFile is read as PyArrow Table
+}
+
+
+DATASET_TYPE_FROM_PANDAS: Dict[DatasetType, Callable[[pd.DataFrame, Dataset], Any]] = {
+    DatasetType.PANDAS: lambda pd_df, **kwargs: pd_df,
+    DatasetType.PYARROW: lambda pd_df, **kwargs: pa.Table.from_pandas(pd_df, **kwargs),
+    DatasetType.POLARS: lambda pd_df, **kwargs: pl.from_pandas(pd_df, **kwargs),
+    DatasetType.DAFT: lambda pd_df, **kwargs: daft.from_pandas(pd_df, **kwargs),
+    DatasetType.NUMPY: lambda pd_df, **kwargs: _pandas_to_numpy(pd_df, **kwargs),
+    DatasetType.RAY_DATASET: lambda pd_df, **kwargs: ray.data.from_pandas(
+        pd_df, **kwargs
+    ),
 }
 
 
@@ -905,6 +925,28 @@ def from_pyarrow(pa_table: pa.Table, target_type: DatasetType, **kwargs) -> Data
         f"{target_type} conversion",
     )
     return conversion_func(pa_table, **kwargs)
+
+
+def from_pandas(pd_df: pd.DataFrame, target_type: DatasetType, **kwargs) -> Dataset:
+    """Convert Pandas DataFrame to the specified dataset type.
+
+    Args:
+        pd_df: Pandas DataFrame to convert
+        target_type: Target DatasetType to convert to
+        **kwargs: Additional arguments passed to the conversion function
+
+    Returns:
+        Dataset converted to the target type
+
+    Raises:
+        ValueError: If target_type is not supported
+    """
+    conversion_func = _get_table_type_function(
+        target_type,
+        DATASET_TYPE_FROM_PANDAS,
+        f"{target_type} conversion",
+    )
+    return conversion_func(pd_df, **kwargs)
 
 
 def empty_table(table_type: DatasetType) -> Dataset:

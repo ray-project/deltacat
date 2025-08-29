@@ -44,7 +44,7 @@ dc.init_local()
 # Create data to write.
 data = pd.DataFrame({
     "id": [1, 2, 3],
-    "name": ["Sylvester", "Tom", "Garfield"],
+    "name": ["Whiskers", "Mittens", "Ginger"],
     "age": [83, 84, 47]
 })
 
@@ -61,7 +61,7 @@ daft_df.show()  # Materialize and print the DataFrame
 # Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
-    "name": ["Hobbes", "Felix", "Delta"],
+    "name": ["Stripes", "Patches", "Delta"],
     "age": [45, 105, 4],
     "city": ["Chagrin Falls", "New York", "San Francisco"]
 })
@@ -99,7 +99,7 @@ import pyarrow as pa
 # Create a pyarrow table to write.
 data = pa.Table.from_pydict({
     "id": [4, 5, 6],
-    "name": ["Hobbes", "Felix", "Delta"],
+    "name": ["Stripes", "Patches", "Delta"],
     "age": [45, 105, 4],
     "city": ["Chagrin Falls", "New York", "San Francisco"]
 })
@@ -182,7 +182,7 @@ schema = Schema.of([
 # Initial user data
 initial_users = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Sylvester", "Tom", "Hobbes"],
+    "name": ["Whiskers", "Mittens", "Stripes"],
     "age": [83, 84, 45],
     "status": ["active", "active", "inactive"]
 })
@@ -197,8 +197,8 @@ print(df)
 
 # Update data for existing users + add new users
 updated_users = pd.DataFrame({
-    "user_id": [2, 3, 4, 5, 6],  # Tom & Hobbes updated, new users added
-    "name": ["Tom", "Hobbes", "Garfield", "Felix", "Delta"],
+    "user_id": [2, 3, 4, 5, 6],  # Mittens & Stripes updated, new users added
+    "name": ["Mittens", "Stripes", "Ginger", "Patches", "Delta"],
     "age": [84, 45, 47, 105, 4],
     "status": ["premium", "active", "active", "active", "active"]
 })
@@ -213,10 +213,10 @@ df = dc.read("users", read_as=dc.DatasetType.PANDAS)
 print("\n=== After Merge ===")
 print(df.sort_values("user_id"))
 
-# - Sylvester (user_id=1) remains unchanged
-# - Tom (user_id=2) status updated to "premium"
-# - Hobbes (user_id=3) updated to "active" 
-# - New users (4,5,6), (Garfield, Felix, Delta) added
+# - Whiskers (user_id=1) remains unchanged
+# - Mittens (user_id=2) status updated to "premium"
+# - Stripes (user_id=3) updated to "active"
+# - New users (4,5,6), (Ginger, Patches, Delta) added
 # - No duplicate user_id values exist
 
 # Specify the users to delete.
@@ -233,8 +233,8 @@ df = dc.read("users", read_as=dc.DatasetType.PANDAS)
 print("\n=== After Deletion ===")
 print(df.sort_values("user_id"))
 
-# - Hobbes (user_id=3) has been removed
-# - Felix (user_id=5) has been removed  
+# - Stripes (user_id=3) has been removed
+# - Patches (user_id=5) has been removed
 # - All other users remain unchanged
 ```
 
@@ -253,7 +253,7 @@ dc.init_local(tempfile.mkdtemp())
 # Create some sample data for different business domains
 user_data = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Garfield", "Hobbes", "Delta"],
+    "name": ["Ginger", "Stripes", "Delta"],
 })
 
 product_data = pd.DataFrame({
@@ -310,10 +310,10 @@ print(f"Finance users fields: {list(finance_df.columns)}")  # ['user_id', 'lifet
 
 ### Multi-Table Transactions
 
-DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this makes it easier to keep related datasets consistent across your entire catalog. 
+DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this makes it easier to keep related datasets consistent across your entire catalog.
 
 Consider our previous example of organizing tables using namespaces. We had one table that kept track of customer orders, and another
-table that tracked the lifetime payments of each customer. If we successfully updated one table but not the other, then 
+table that tracked the lifetime payments of each customer. If we successfully updated one table but not the other, then
 we'd be left with an accounting discrepancy. We can resolve this using multi-table transactions:
 
 ```python
@@ -337,7 +337,7 @@ dc.write(product_data, "catalog", namespace="inventory")
 # Create sample user and finance data.
 user_data = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Garfield", "Hobbes", "Delta"],
+    "name": ["Ginger", "Stripes", "Delta"],
 })
 initial_finance = pd.DataFrame({
     "user_id": [1, 2, 3],
@@ -351,7 +351,7 @@ with dc.transaction():
     dc.write(user_data, "users", namespace="identity")
     dc.write(initial_finance, "users", namespace="finance")
 
-# Create new order data 
+# Create new order data
 new_orders = pd.DataFrame({
     "order_id": [1001, 1002, 1003],
     "user_id": [1, 2, 3],
@@ -363,19 +363,19 @@ new_orders = pd.DataFrame({
 with dc.transaction():
     # Step 1: Write the new orders
     dc.write(new_orders, "transactions", namespace="sales")
-    
+
     # Step 2: Read back transactions and products to compute actual totals
     orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
     products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS)
-    
+
     # Step 3: Compute lifetime payment totals by joining orders with product prices
     orders_with_prices = orders_df.merge(products_df, on="product_id")
     orders_with_prices["total"] = orders_with_prices["quantity"] * orders_with_prices["price"]
-    
+
     # Calculate lifetime totals per user
     lifetime_totals = orders_with_prices.groupby("user_id")["total"].sum().reset_index()
     lifetime_totals.columns = ["user_id", "lifetime_payments"]
-    
+
     # Step 4: Write the computed totals
     dc.write(lifetime_totals, "users", namespace="finance", mode=dc.TableWriteMode.REPLACE)
 
@@ -474,7 +474,7 @@ dc.init_local(tempfile.mkdtemp())
 # Create initial state with existing users, products, and orders
 initial_users = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Garfield", "Hobbes", "Delta"],
+    "name": ["Ginger", "Stripes", "Delta"],
 })
 
 initial_products = pd.DataFrame({
@@ -498,7 +498,7 @@ initial_finance = pd.DataFrame({
 # Write initial state atomically
 with dc.transaction():
     dc.write(initial_users, "users", namespace="identity")
-    dc.write(initial_products, "catalog", namespace="inventory") 
+    dc.write(initial_products, "catalog", namespace="inventory")
     dc.write(initial_orders, "transactions", namespace="sales")
     dc.write(initial_finance, "users", namespace="finance")
 
@@ -507,7 +507,7 @@ time.sleep(1)
 checkpoint_time = time.time_ns()
 time.sleep(1)
 
-# Later, add new orders for existing users and new users Sylvester & Felix
+# Later, add new orders for existing users and new users Whiskers & Patches
 new_orders = pd.DataFrame({
     "order_id": [1004, 1005, 1006, 1007, 1008],
     "user_id": [1, 2, 1, 4, 5],
@@ -517,12 +517,12 @@ new_orders = pd.DataFrame({
 
 new_users = pd.DataFrame({
     "user_id": [4, 5],
-    "name": ["Sylvester", "Felix"], 
+    "name": ["Whiskers", "Patches"],
 })
 
 new_products = pd.DataFrame({
     "product_id": [104, 105],
-    "name": ["Canary", "Milk"], 
+    "name": ["Canary", "Milk"],
     "price": [6.99, 3.99]
 })
 
@@ -554,85 +554,155 @@ print(f"Finance records: {len(current_finance)} total")
 print("\n=== Historic State (Before Updates) ===")
 with dc.transaction(as_of=checkpoint_time):
     historic_users = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
-    historic_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS) 
+    historic_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
     historic_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
-    
+
     print(f"Users: {len(historic_users)} total ({list(historic_users['name'])})")
     print(f"Orders: {len(historic_orders)} total")
     print(f"Finance records: {len(historic_finance)} total")
-    
-    # Validate historic state - Sylvester & Felix didn't exist yet
-    assert not any(historic_users["name"] == "Sylvester")
-    assert not any(historic_users["name"] == "Felix") 
+
+    # Validate historic state - Whiskers & Patches didn't exist yet
+    assert not any(historic_users["name"] == "Whiskers")
+    assert not any(historic_users["name"] == "Patches")
     assert len(historic_orders) == 3  # Only original 3 orders
-    
+
     # Finance data reflects original payment totals
-    garfield_historic_payments = historic_finance[historic_finance["user_id"] == 1]["lifetime_payments"].iloc[0]
-    assert garfield_historic_payments == 25.98  # Original total, not updated 77.94
-    
+    whiskers_historic_payments = historic_finance[historic_finance["user_id"] == 1]["lifetime_payments"].iloc[0]
+    assert whiskers_historic_payments == 25.98  # Original total, not updated 77.94
+
 print("\nTime travel validation successful! 🕰️")
 ```
 
-### Batch Inference
+### Multimodal Batch Inference
 
-DeltaCAT also makes it easy to manage multi-modal datasets for batch inference. Here's an example using a pre-trained Vision Transformer model:
+DeltaCAT supports native multimodal data storage and processing. For example, the following code classifies images of cats by breed:
 
 ```python
 import deltacat as dc
-import pandas as pd
 import tempfile
-from transformers import ViTImageProcessor, ViTForImageClassification
-from PIL import Image
+import daft
+import torch
+import pyarrow as pa
+from deltacat.storage.model.schema import Schema, Field
 
-# Initialize DeltaCAT with a temporary catalog.
+# Initialize DeltaCAT with a temporary catalog
 dc.init_local(tempfile.mkdtemp())
 
-# Load pre-trained 48-breed cat classifier.
-processor = ViTImageProcessor.from_pretrained("dima806/cat_breed_image_detection")
-model = ViTForImageClassification.from_pretrained("dima806/cat_breed_image_detection")
-
-# Create a sample dataset with image paths and breeds.
-cool_cats = pd.DataFrame([
-    {"image_id": "cat_001", "image_path": "media/tuxedo.jpg", "breed": "Tuxedo"},
-    {"image_id": "cat_002", "image_path": "media/calico.jpg", "breed": "Calico"}, 
-    {"image_id": "cat_003", "image_path": "media/siamese.jpg", "breed": "Siamese"}
+# Define initial schema with image_id as merge key (no prediction fields yet)
+initial_schema = Schema.of([
+    Field.of(pa.field("image_id", pa.string()), is_merge_key=True),
+    Field.of(pa.field("image_path", pa.string())),
+    Field.of(pa.field("true_breed", pa.string())),
+    Field.of(pa.field("image_bytes", pa.binary())),
 ])
 
-# Write the dataset to DeltaCAT.
-dc.write(cool_cats, "cat_pics")
+# Create sample Daft DataFrame with image URLs/paths
+df = daft.from_pydict({
+    "image_id": ["cat_001", "cat_002", "cat_003"],
+    "image_path": ["media/tuxedo.jpg", "media/calico.jpg", "media/siamese.jpg"],
+    "true_breed": ["Tuxedo", "Calico", "Siamese"]
+})
 
-# Define a UDF to classify the breed of each cat.
-def classify_breed(image_path):
-    image = Image.open(image_path).convert('RGB')
-    inputs = processor(images=image, return_tensors="pt")
-    outputs = model(**inputs)
-    return model.config.id2label[outputs.logits.argmax(-1).item()]
+# Load images and prepare for processing
+df = df.with_column("image_bytes", df["image_path"].url.download())
 
-# Read the dataset back as a Pandas DataFrame and run batch inference.
-df = dc.read("cat_pics", read_as=dc.DatasetType.PANDAS)
-df["predicted"] = df["image_path"].apply(classify_breed)
-accuracy = (df["breed"] == df["predicted"]).mean()
-print(f"Vision Transformer Accuracy: {accuracy:.1%}")
-for _, row in df.iterrows():
-    status = "✓" if row["breed"] == row["predicted"] else "X"
-    print(f"{status} {row["image_id"]}: {row["breed"]} → {row["predicted"]}")
+# Write initial dataset to DeltaCAT (only image data, no predictions yet)
+initial_data = df.select("image_id", "image_path", "true_breed", "image_bytes").to_pandas()
+dc.write(initial_data, "cool_cats", schema=initial_schema)
 
-# Write the predictions to a new table.
-dc.write(df, "predictions")
+# Define efficient class-based UDF following Daft best practices
+@daft.udf(return_dtype=daft.DataType.struct({
+    "predicted_breed": daft.DataType.string(),
+    "confidence": daft.DataType.float64()
+}))
+class ImageClassifier:
+    def __init__(self):
+        """Initialize model once per worker for efficiency (following Daft patterns)"""
+        print("Loading NVIDIA ResNet50 classifier...")
+        self.model = torch.hub.load(
+            "NVIDIA/DeepLearningExamples:torchhub",
+            "nvidia_resnet50",
+            pretrained=True
+        )
+        self.model.eval().to(torch.device("cpu"))  # Consistent CPU processing
+        self.utils = torch.hub.load(
+            "NVIDIA/DeepLearningExamples:torchhub",
+            "nvidia_convnets_processing_utils"
+        )
+
+    def __call__(self, image_paths):
+        """Process batch of images efficiently using NVIDIA utilities"""
+        results = []
+        for path in image_paths.to_pylist():
+            # Work directly with file paths (NVIDIA utilities expect URIs/paths)
+            # Use NVIDIA's built-in preprocessing directly with file path
+            tensor = self.utils.prepare_input_from_uri(path)
+
+            with torch.no_grad():
+                output = self.model(tensor)
+                # Use NVIDIA's utilities for top prediction
+                predictions = self.utils.pick_n_best(predictions=output, n=1)
+
+                # NVIDIA utils return format: [[('class_name', 'confidence_percent_string')]]
+                prediction_tuple = predictions[0][0]  # First prediction tuple
+                predicted_breed = prediction_tuple[0]  # Class name
+                # Convert confidence from string like "753.0%" to float
+                confidence_str = prediction_tuple[1].replace('%', '')
+                confidence = float(confidence_str) / 100.0  # Convert to 0-1 range
+
+                results.append({
+                    "predicted_breed": predicted_breed,
+                    "confidence": confidence
+                })
+        return results
+
+# Run batch inference on file paths and prepare prediction data for merge
+predictions_df = df.with_column("prediction", ImageClassifier(df["image_path"]))
+prediction_data = predictions_df.select(
+    df["image_id"],  # Merge key to match existing records
+    df["image_path"],  # Include all existing fields for complete record
+    df["true_breed"],  # Include all existing fields for complete record
+    df["image_bytes"], # Include all existing fields for complete record
+    predictions_df["prediction"]["predicted_breed"].alias("predicted_breed"),  # New field
+    predictions_df["prediction"]["confidence"].alias("confidence")  # New field
+)
+
+# Schema evolution: Write complete records with new prediction fields - DeltaCAT
+# automatically evolves the schema and preserves all existing data
+dc.write(prediction_data.to_pandas(), "cool_cats")
+
+# Read back the merged results and add decoded images for display
+final_df = dc.read("cool_cats", read_as=dc.DatasetType.DAFT)
+final_df = final_df.with_column("image", final_df["image_bytes"].image.decode())
+
+# Calculate accuracy and display results
+results = final_df.select("image_id", "true_breed", "predicted_breed", "confidence").to_pandas()
+accuracy = (results["true_breed"] == results["predicted_breed"]).mean()
+
+print(f"Classification Results (using NVIDIA ResNet50):")
+print(f"Classification Accuracy: {accuracy:.1%}")
+for _, row in results.iterrows():
+    status = "✓" if row["true_breed"] == row["predicted_breed"] else "✗"
+    print(f"{status} {row['image_id']}: {row['true_breed']} → {row['predicted_breed']} ({row['confidence']:.1%})")
+
+# Display final dataset with decoded images for visual inspection
+print(f"\nFinal dataset with images:")
+final_df.show()
 ```
 
-### LLM Document Processing with Time Travel
+### Putting it All Together: LLM Document Processing with Time Travel
 
-DeltaCAT provides unique enterprise capabilities: ACID transactions across tables, time travel queries, and automatic schema evolution. Here's a concise example with real document processing:
+Putting it all together, we can build a document processing pipeline with ACID transactions across tables, time travel queries, and automatic schema evolution. Here's a concise example with real document processing:
 
 ```python
 import deltacat as dc
 import pandas as pd
 import tempfile
 import time
+import daft
 from transformers import pipeline
 
-# Initialize DeltaCAT 
+# Initialize DeltaCAT
 dc.init_local(tempfile.mkdtemp())
 
 # Load sample customer documents (fictional data for demonstration)
@@ -642,38 +712,56 @@ docs = pd.DataFrame([
     {"doc_id": "feedback_003", "path": "media/customer_feedback_003.txt"}
 ])
 
-# Read document content
+# Read document content and convert to Daft for parallel processing
 docs['content'] = docs['path'].apply(lambda p: open(p).read())
+daft_docs = daft.from_pandas(docs)
 
 # === UNIQUE VALUE: Multi-table ACID transaction ===
 
 with dc.transaction():  # Atomic across ALL tables
     dc.write(docs, "documents", namespace="analysis")
-    
-    # LLM sentiment analysis (v1.0)
-    classifier = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment-latest")
-    sentiments = []
-    for content in docs['content']:
-        result = classifier(content[:500])[0]  # Truncate for model limits
-        sentiments.append({
-            "sentiment": result['label'],
-            "confidence": result['score'],
-            "model_version": "roberta-v1.0"
-        })
-    
-    insights_v1 = pd.DataFrame(sentiments)
-    insights_v1['doc_id'] = docs['doc_id']
-    
+
+    # Parallel LLM sentiment analysis (v1.0) using Daft
+    print("🚀 Running parallel sentiment analysis with Daft...")
+
+    @daft.udf(return_dtype=daft.DataType.struct({
+        "sentiment": daft.DataType.string(),
+        "confidence": daft.DataType.float64(),
+        "model_version": daft.DataType.string()
+    }))
+    def analyze_sentiment(content_series):
+        classifier = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment-latest")
+        results = []
+        for content in content_series.to_pylist():
+            result = classifier(content[:500])[0]  # Truncate for model limits
+            results.append({
+                "sentiment": result['label'],
+                "confidence": result['score'],
+                "model_version": "roberta-v1.0"
+            })
+        return results
+
+    # Parallel execution across available cores
+    daft_results = daft_docs.with_column("analysis", analyze_sentiment(daft_docs["content"]))
+    daft_results = daft_results.select(
+        daft_docs["doc_id"],
+        daft_results["analysis"]["sentiment"].alias("sentiment"),
+        daft_results["analysis"]["confidence"].alias("confidence"),
+        daft_results["analysis"]["model_version"].alias("model_version")
+    )
+
+    insights_v1 = daft_results.to_pandas()
+
     # Store with merge capability (automatic upserts)
     dc.write(insights_v1, "insights", namespace="analysis", merge_key="doc_id")
-    
+
     # Audit trail
-    dc.write(pd.DataFrame([{"version": "v1.0", "docs_processed": len(docs)}]), 
+    dc.write(pd.DataFrame([{"version": "v1.0", "docs_processed": len(docs)}]),
              "audit", namespace="analysis")
 
 print("✅ V1.0 processing complete")
 
-# Create checkpoint AFTER v1.0 transaction commits  
+# Create checkpoint AFTER v1.0 transaction commits
 time.sleep(1)
 checkpoint_v1 = time.time_ns()
 time.sleep(1)
@@ -684,25 +772,43 @@ checkpoint_v2 = time.time_ns()
 time.sleep(1)
 
 with dc.transaction():
-    # Upgrade to better model (v2.0) 
-    classifier_v2 = pipeline("sentiment-analysis", model="j-hartmann/emotion-english-distilroberta-base")
-    
-    emotions = []
-    for content in docs['content']:
-        result = classifier_v2(content[:500])[0]
-        emotions.append({
-            "sentiment": result['label'],
-            "confidence": result['score'], 
-            "model_version": "distilroberta-v2.0",
-            "emotion_detail": result['label']  # New column - automatic schema evolution!
-        })
-    
-    insights_v2 = pd.DataFrame(emotions)
-    insights_v2['doc_id'] = docs['doc_id']
-    
+    # Parallel emotion analysis upgrade (v2.0) using Daft
+    print("🚀 Running parallel emotion analysis with Daft...")
+
+    @daft.udf(return_dtype=daft.DataType.struct({
+        "sentiment": daft.DataType.string(),
+        "confidence": daft.DataType.float64(),
+        "model_version": daft.DataType.string(),
+        "emotion_detail": daft.DataType.string()
+    }))
+    def analyze_emotions(content_series):
+        classifier_v2 = pipeline("sentiment-analysis", model="j-hartmann/emotion-english-distilroberta-base")
+        results = []
+        for content in content_series.to_pylist():
+            result = classifier_v2(content[:500])[0]
+            results.append({
+                "sentiment": result['label'],
+                "confidence": result['score'],
+                "model_version": "distilroberta-v2.0",
+                "emotion_detail": result['label']  # New column - automatic schema evolution!
+            })
+        return results
+
+    # Parallel execution for emotion analysis
+    daft_emotions = daft_docs.with_column("analysis", analyze_emotions(daft_docs["content"]))
+    daft_emotions = daft_emotions.select(
+        daft_docs["doc_id"],
+        daft_emotions["analysis"]["sentiment"].alias("sentiment"),
+        daft_emotions["analysis"]["confidence"].alias("confidence"),
+        daft_emotions["analysis"]["model_version"].alias("model_version"),
+        daft_emotions["analysis"]["emotion_detail"].alias("emotion_detail")
+    )
+
+    insights_v2 = daft_emotions.to_pandas()
+
     # Automatic schema evolution: new emotion_detail column added seamlessly
     dc.write(insights_v2, "insights", namespace="analysis", merge_key="doc_id")
-    dc.write(pd.DataFrame([{"version": "v2.0", "docs_processed": len(docs)}]), 
+    dc.write(pd.DataFrame([{"version": "v2.0", "docs_processed": len(docs)}]),
              "audit", namespace="analysis")
 
 print("✅ V2.0 upgrade complete with schema evolution")
@@ -713,36 +819,49 @@ checkpoint_v3 = time.time_ns()
 time.sleep(1)
 
 with dc.transaction():
-    # Generate LLM responses to customer feedback
-    print("🤖 Loading text generation model for customer service responses...")
-    response_generator = pipeline("text-generation", model="microsoft/DialoGPT-medium")
-    
-    print("💬 Generating customer service responses...")
-    responses = []
-    for i, (doc_id, content) in enumerate(zip(docs['doc_id'], docs['content'])):
-        # Create appropriate response prompt based on content
-        if "disappointed" in content.lower() or "unacceptable" in content.lower():
-            prompt = "Dear valued customer, we sincerely apologize for"
-        elif "outstanding" in content.lower() or "excellent" in content.lower():
-            prompt = "Thank you so much for your wonderful feedback! We're thrilled"
-        else:
-            prompt = "Thank you for contacting us. We understand your concern and"
-            
-        # Generate response (truncated for demo)
-        generated = response_generator(prompt, max_length=100, num_return_sequences=1, pad_token_id=50256)
-        response_text = generated[0]['generated_text']
-        
-        responses.append({
-            "doc_id": doc_id,
-            "response_text": response_text,
-            "response_model": "dialogpt-medium-v3.0",
-            "generated_at": time.time_ns()
-        })
-        print(f"  Response {i+1}: Generated for {doc_id}")
-    
-    responses_df = pd.DataFrame(responses)
+    # Parallel customer service response generation using Daft
+    print("🚀 Running parallel response generation with Daft...")
+
+    @daft.udf(return_dtype=daft.DataType.struct({
+        "response_text": daft.DataType.string(),
+        "response_model": daft.DataType.string(),
+        "generated_at": daft.DataType.int64()
+    }))
+    def generate_responses(content_series):
+        response_generator = pipeline("text-generation", model="microsoft/DialoGPT-medium")
+        results = []
+        for content in content_series.to_pylist():
+            # Create appropriate response prompt based on content
+            if "disappointed" in content.lower() or "unacceptable" in content.lower():
+                prompt = "Dear valued customer, we sincerely apologize for"
+            elif "outstanding" in content.lower() or "excellent" in content.lower():
+                prompt = "Thank you so much for your wonderful feedback! We're thrilled"
+            else:
+                prompt = "Thank you for contacting us. We understand your concern and"
+
+            # Generate response (truncated for demo)
+            generated = response_generator(prompt, max_length=100, num_return_sequences=1, pad_token_id=50256)
+            response_text = generated[0]['generated_text']
+
+            results.append({
+                "response_text": response_text,
+                "response_model": "dialogpt-medium-v3.0",
+                "generated_at": time.time_ns()
+            })
+        return results
+
+    # Parallel execution for response generation
+    daft_responses = daft_docs.with_column("response", generate_responses(daft_docs["content"]))
+    daft_responses = daft_responses.select(
+        daft_docs["doc_id"],
+        daft_responses["response"]["response_text"].alias("response_text"),
+        daft_responses["response"]["response_model"].alias("response_model"),
+        daft_responses["response"]["generated_at"].alias("generated_at")
+    )
+
+    responses_df = daft_responses.to_pandas()
     dc.write(responses_df, "responses", namespace="analysis", merge_key="doc_id")
-    dc.write(pd.DataFrame([{"version": "v3.0", "docs_processed": len(docs)}]), 
+    dc.write(pd.DataFrame([{"version": "v3.0", "docs_processed": len(docs)}]),
              "audit", namespace="analysis")
 
 print("✅ V3.0 customer service automation complete")
@@ -755,7 +874,7 @@ with dc.transaction(as_of=checkpoint_v1):
     old_results = dc.read("insights", namespace="analysis")
     print(f"V1.0: {list(old_results.columns)}")
 
-# Current V2.0 results  
+# Current V2.0 results
 new_results = dc.read("insights", namespace="analysis")
 print(f"V2.0: {list(new_results.columns)}")
 
@@ -771,7 +890,7 @@ for _, row in responses.iterrows():
     print(f"{row['doc_id']}: {response_preview}...")
 
 # Complete audit trail
-audit_history = dc.read("audit", namespace="analysis") 
+audit_history = dc.read("audit", namespace="analysis")
 print(f"\n📊 Complete Processing History:")
 for _, audit in audit_history.iterrows():
     print(f"  {audit['version']}: {audit['docs_processed']} documents processed")

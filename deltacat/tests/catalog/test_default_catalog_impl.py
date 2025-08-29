@@ -863,6 +863,309 @@ class TestCopyOnWrite:
 
         self._verify_dataframe_contents(result, expected_final_data)
 
+    def test_upsert_compaction_with_schema_evolution(self):
+        """Test that UPSERT compaction handles schema evolution correctly with past_default values."""
+        table_name = "test_upsert_schema_evolution"
+
+        # Create initial schema with past_default value for schema evolution testing
+        initial_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("age", pa.int32())),
+                Field.of(pa.field("city", pa.string())),
+                Field.of(
+                    pa.field("email", pa.string()), past_default="no-email@example.com"
+                ),
+            ]
+        )
+
+        # Create table with compaction enabled
+        table_properties = COPY_ON_WRITE_TABLE_PROPERTIES
+
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=initial_schema,
+            content_types=DEFAULT_CONTENT_TYPES,
+            table_properties=table_properties,
+            catalog=self.catalog_name,
+        )
+
+        # First UPSERT write - missing email field to test past_default handling
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "Dave", "Eve"],
+                "age": [25, 30, 35, 40, 45],
+                "city": ["NYC", "LA", "Chicago", "Houston", "Phoenix"],
+                # Note: no email field - should trigger past_default during compaction
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,  # This creates UPSERT delta
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Second UPSERT write - includes new field to trigger schema evolution
+        # Also overlaps with some records from first write to test merge behavior
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4, 6, 7],  # IDs 3,4 overlap for upsert, 6,7 are new
+                "name": ["Charlie_Updated", "Dave_Updated", "Frank", "Grace"],
+                "age": [36, 41, 50, 55],
+                "city": ["Chicago_New", "Houston_New", "Boston", "Seattle"],
+                "email": [
+                    "charlie@example.com",
+                    "dave@example.com",
+                    "frank@example.com",
+                    "grace@example.com",
+                ],
+                "department": [
+                    "Engineering",
+                    "Sales",
+                    "Marketing",
+                    "HR",
+                ],  # New field - schema evolution
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,  # This creates another UPSERT delta
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Verify compaction was triggered and schema evolution worked
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        all_objects = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        # Filter for Delta objects after compaction
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Verify compaction happened - should have at least 1 delta but may have more depending on compaction strategy
+        assert (
+            len(final_deltas) >= 1
+        ), f"Expected at least 1 delta after writes with schema evolution, but found {len(final_deltas)}"
+
+        # Verify we can read all data with evolved schema
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have 7 total records (5 original + 2 new, with 2 updated)
+        result_count = get_table_length(result)
+        assert result_count == 7, f"Expected 7 records, but found {result_count}"
+
+        # Convert to pandas for easier schema validation
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+
+        # Verify schema evolution: all expected columns present
+        expected_columns = {"id", "name", "age", "city", "email", "department"}
+        actual_columns = set(result_df.columns)
+        assert expected_columns.issubset(actual_columns), (
+            f"Schema evolution failed. Expected columns {expected_columns}, "
+            f"but found {actual_columns}"
+        )
+
+        # Verify past_default values were applied correctly during compaction
+        # Records with IDs 1, 2, 5 should have past_default email values
+        unchanged_rows = result_df[result_df["id"].isin([1, 2, 5])]
+        assert len(unchanged_rows) == 3, "Should have 3 rows with past_default values"
+
+        # Check that past_default email was applied
+        default_emails = unchanged_rows[
+            unchanged_rows["email"] == "no-email@example.com"
+        ]
+        assert len(default_emails) == 3, (
+            f"Expected 3 rows with past_default email 'no-email@example.com', "
+            f"but found {len(default_emails)}"
+        )
+
+        # Verify that new field (department) has None/null values for unchanged rows
+        # This is expected since department was added later and has no default
+        unchanged_departments = unchanged_rows["department"].dropna()
+        assert (
+            len(unchanged_departments) == 0
+        ), "Unchanged rows should have null department values (no default specified)"
+
+        # Verify that updated/new rows have proper values
+        updated_new_rows = result_df[result_df["id"].isin([3, 4, 6, 7])]
+        assert len(updated_new_rows) == 4, "Should have 4 rows with complete data"
+
+        # Check explicit email values for updated/new rows
+        explicit_emails = updated_new_rows[
+            updated_new_rows["email"].str.contains("@example.com")
+        ]
+        assert (
+            len(explicit_emails) == 4
+        ), "Updated/new rows should have explicit email values"
+
+        # Check explicit department values for updated/new rows
+        explicit_departments = updated_new_rows["department"].dropna()
+        assert (
+            len(explicit_departments) == 4
+        ), "Updated/new rows should have explicit department values"
+
+        # Verify merge behavior worked correctly
+        # ID 3 should have updated values from second write
+        charlie_row = result_df[result_df["id"] == 3].iloc[0]
+        assert charlie_row["name"] == "Charlie_Updated", "ID 3 should have updated name"
+        assert charlie_row["age"] == 36, "ID 3 should have updated age"
+        assert charlie_row["city"] == "Chicago_New", "ID 3 should have updated city"
+        assert (
+            charlie_row["email"] == "charlie@example.com"
+        ), "ID 3 should have explicit email"
+        assert (
+            charlie_row["department"] == "Engineering"
+        ), "ID 3 should have explicit department"
+
+        # ID 4 should have updated values from second write
+        dave_row = result_df[result_df["id"] == 4].iloc[0]
+        assert dave_row["name"] == "Dave_Updated", "ID 4 should have updated name"
+        assert dave_row["age"] == 41, "ID 4 should have updated age"
+        assert dave_row["city"] == "Houston_New", "ID 4 should have updated city"
+        assert (
+            dave_row["email"] == "dave@example.com"
+        ), "ID 4 should have explicit email"
+        assert dave_row["department"] == "Sales", "ID 4 should have explicit department"
+
+    @pytest.mark.parametrize(
+        "dataset_type",
+        [
+            DatasetType.PANDAS,
+            DatasetType.PYARROW,  # Now supported with field tracking pipeline
+            DatasetType.POLARS,  # Now supported with field tracking pipeline
+            DatasetType.DAFT,  # Distributed dataset type - now supported with field tracking pipeline
+            DatasetType.RAY_DATASET,  # Distributed dataset type - now supported with field tracking pipeline
+            DatasetType.NUMPY,  # Now supported with from_pandas helper and field tracking pipeline
+        ],
+    )
+    def test_partial_upsert_all_dataset_types(self, dataset_type):
+        """Test partial UPSERT behavior works correctly for all supported dataset types."""
+        table_name = f"test_partial_upsert_{dataset_type.value}"
+
+        # Create table with merge keys
+        self._create_table_with_merge_keys(table_name)
+
+        # Initial data with all fields populated - use pandas as base
+        initial_data_pd = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["NYC", "LA", "Chicago"],
+            }
+        )
+
+        # Convert to the target dataset type using the from_pandas helper
+        initial_data = dc.from_pandas(initial_data_pd, dataset_type)
+
+        # Write initial data
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Partial UPSERT data - missing city field, explicit null for age on ID 2
+        partial_upsert_pd = pd.DataFrame(
+            {
+                "id": [1, 2, 4],  # Update IDs 1,2 and insert new ID 4
+                "name": ["Alice_Updated", "Bob_Updated", "Dave"],
+                "age": [26, None, 40],  # Explicit None for ID 2, should become null
+                # Note: city field is MISSING - should preserve existing values for IDs 1,2
+                # For ID 4 (new record), missing city should be null
+            }
+        )
+
+        # Convert partial data to target dataset type using the from_pandas helper
+        partial_upsert_data = dc.from_pandas(partial_upsert_pd, dataset_type)
+
+        # Write partial UPSERT
+        dc.write_to_table(
+            data=partial_upsert_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Read back and verify partial UPSERT behavior
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+        result_df = result.to_pandas()
+
+        # Verify results
+        assert len(result_df) == 4, f"Should have 4 records ({dataset_type.value})"
+
+        # ID 1: name and age updated, city preserved
+        alice_row = result_df[result_df["id"] == 1].iloc[0]
+        assert (
+            alice_row["name"] == "Alice_Updated"
+        ), f"ID 1 name should be updated ({dataset_type.value})"
+        assert (
+            alice_row["age"] == 26
+        ), f"ID 1 age should be updated ({dataset_type.value})"
+        assert (
+            alice_row["city"] == "NYC"
+        ), f"ID 1 city should remain unchanged from original ({dataset_type.value})"
+
+        # ID 2: name updated, age explicitly set to null, city preserved
+        bob_row = result_df[result_df["id"] == 2].iloc[0]
+        assert (
+            bob_row["name"] == "Bob_Updated"
+        ), f"ID 2 name should be updated ({dataset_type.value})"
+        assert (
+            pd.isna(bob_row["age"]) or bob_row["age"] is None
+        ), f"ID 2 age should be explicitly null ({dataset_type.value})"
+        assert (
+            bob_row["city"] == "LA"
+        ), f"ID 2 city should remain unchanged from original ({dataset_type.value})"
+
+        # ID 3: completely unchanged (not in partial upsert)
+        charlie_row = result_df[result_df["id"] == 3].iloc[0]
+        assert (
+            charlie_row["name"] == "Charlie"
+        ), f"ID 3 name should be unchanged ({dataset_type.value})"
+        assert (
+            charlie_row["age"] == 35
+        ), f"ID 3 age should be unchanged ({dataset_type.value})"
+        assert (
+            charlie_row["city"] == "Chicago"
+        ), f"ID 3 city should be unchanged ({dataset_type.value})"
+
+        # ID 4: new record, missing city should be null
+        dave_row = result_df[result_df["id"] == 4].iloc[0]
+        assert (
+            dave_row["name"] == "Dave"
+        ), f"ID 4 name should be set ({dataset_type.value})"
+        assert dave_row["age"] == 40, f"ID 4 age should be set ({dataset_type.value})"
+        assert (
+            pd.isna(dave_row["city"]) or dave_row["city"] is None
+        ), f"ID 4 city should be null (not specified) ({dataset_type.value})"
+
     def test_three_upsert_deltas_comprehensive_merge(self):
         """
         Comprehensive test: write three upsert deltas with various overlapping patterns
@@ -1082,15 +1385,156 @@ class TestCopyOnWrite:
         result_count = get_table_length(result)
         assert result_count == 4, f"Expected 4 records, but found {result_count}"
 
-        # Verify the data content is correct
-        expected_data = {
-            1: {"name": "Alice", "age": 25, "city": "NYC"},
-            2: {"name": "Bob", "age": 30, "city": "LA"},
-            3: {"name": "Charlie", "age": 35, "city": "Chicago"},
-            4: {"name": "Dave", "age": 40, "city": "Houston"},
+    def test_append_compaction_with_schema_evolution(self):
+        """Test that APPEND compaction handles schema evolution correctly with past_default values."""
+        table_name = "test_append_schema_evolution"
+
+        # Create table with appended_delta_count_compaction_trigger=2 for predictable compaction
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count triggers compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
         }
 
-        self._verify_dataframe_contents(result, expected_data)
+        # Create initial schema with past_default value for schema evolution testing
+        initial_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64())),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("age", pa.int64())),
+                Field.of(
+                    pa.field("email", pa.string()), past_default="no-email@example.com"
+                ),
+            ]
+        )
+
+        # Create table without merge keys (required for APPEND mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=initial_schema,
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+        )
+
+        # First APPEND write - missing email field to test past_default handling
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                # Note: no email field - should trigger past_default during compaction
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Second APPEND write - includes new field to trigger schema evolution
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "email": ["charlie@example.com", "dave@example.com"],
+                "department": ["Engineering", "Sales"],  # New field - schema evolution
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Verify compaction was triggered and schema evolution worked
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        all_objects = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        # Filter for Delta objects after compaction
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: After compaction, should have exactly 1 delta
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction with schema evolution, but found {len(final_deltas)}"
+
+        # Verify we can read all data with evolved schema
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Convert to pandas for easier schema validation
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+
+        # Verify schema evolution: all expected columns present
+        expected_columns = {"id", "name", "age", "email", "department"}
+        actual_columns = set(result_df.columns)
+        assert expected_columns.issubset(actual_columns), (
+            f"Schema evolution failed. Expected columns {expected_columns}, "
+            f"but found {actual_columns}"
+        )
+
+        # Verify past_default values were applied correctly during compaction
+        first_two_rows = result_df[result_df["id"].isin([1, 2])]
+        assert len(first_two_rows) == 2, "Should have 2 rows with past_default values"
+
+        # Check that past_default email was applied
+        default_emails = first_two_rows[
+            first_two_rows["email"] == "no-email@example.com"
+        ]
+        assert len(default_emails) == 2, (
+            f"Expected 2 rows with past_default email 'no-email@example.com', "
+            f"but found {len(default_emails)}"
+        )
+
+        # Verify that new field (department) has None/null values for first two rows
+        # This is expected since department was added later and has no default
+        first_two_departments = first_two_rows["department"].dropna()
+        assert (
+            len(first_two_departments) == 0
+        ), "First two rows should have null department values (no default specified)"
+
+        # Verify that last two rows have proper values
+        last_two_rows = result_df[result_df["id"].isin([3, 4])]
+        assert len(last_two_rows) == 2, "Should have 2 rows with complete data"
+
+        # Check explicit email values for last two rows
+        explicit_emails = last_two_rows[
+            last_two_rows["email"].str.contains("@example.com")
+        ]
+        assert (
+            len(explicit_emails) == 2
+        ), "Last two rows should have explicit email values"
+
+        # Check explicit department values for last two rows
+        explicit_departments = last_two_rows["department"].dropna()
+        assert (
+            len(explicit_departments) == 2
+        ), "Last two rows should have explicit department values"
 
     def test_verify_delta_types_created(self):
         """

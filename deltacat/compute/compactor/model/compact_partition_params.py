@@ -3,7 +3,7 @@ import importlib
 import copy
 import json
 import posixpath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import ContentType
@@ -144,6 +144,8 @@ class CompactPartitionParams(dict):
 
         if result.primary_keys:
             result.primary_keys = sorted(result.primary_keys)
+
+        result.original_fields = params.get("original_fields")
 
         # assertions
         assert (
@@ -511,6 +513,14 @@ class CompactPartitionParams(dict):
     @expected_previous_partition_id.setter
     def expected_previous_partition_id(self, partition_id: Optional[str]) -> None:
         self["expected_previous_partition_id"] = partition_id
+
+    @property
+    def original_fields(self) -> Optional[Set[str]]:
+        return self.get("original_fields")
+
+    @original_fields.setter
+    def original_fields(self, fields: Optional[Set[str]]) -> None:
+        self["original_fields"] = fields
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

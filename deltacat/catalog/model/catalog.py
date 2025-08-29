@@ -229,8 +229,8 @@ def init_local(
     This is a convenience function that creates a default catalog for local usage.
     Equivalent to calling init(catalogs={"default": Catalog()}).
 
-    :param path: Optional path for catalog root directory. If not provided, uses 
-        the default behavior of CatalogProperties (DELTACAT_ROOT env var or 
+    :param path: Optional path for catalog root directory. If not provided, uses
+        the default behavior of CatalogProperties (DELTACAT_ROOT env var or
         "./.deltacat/").
     :param ray_init_args: Keyword arguments to pass to `ray.init()`.
     :param force: Whether to force DeltaCAT reinitialization. If True, reruns
@@ -239,7 +239,7 @@ def init_local(
     :returns: The Ray context object if Ray was initialized, otherwise None.
     """
     from deltacat.catalog.model.properties import CatalogProperties
-    
+
     config = CatalogProperties(root=path) if path is not None else None
     return init(
         catalogs={"default": Catalog(config=config)},

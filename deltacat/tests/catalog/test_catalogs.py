@@ -236,7 +236,7 @@ class TestCatalogsIntegration:
         """Test that init_local(path) creates a default local catalog with specified path."""
         # Create a temporary directory for the test
         custom_path = tempfile.mkdtemp()
-        
+
         try:
             # Initialize with custom path
             init_local(path=custom_path, force=True)
@@ -251,11 +251,11 @@ class TestCatalogsIntegration:
             named_catalog = get_catalog("default")
             assert named_catalog is not None
             assert named_catalog.impl.__name__ == "deltacat.catalog.main.impl"
-            
+
             # Verify the catalog is using the custom path
             catalog_properties = named_catalog.inner
             assert catalog_properties.root == custom_path
-            
+
         finally:
             # Clean up the temporary directory
             if os.path.exists(custom_path):

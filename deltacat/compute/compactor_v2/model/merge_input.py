@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 
 from deltacat.compute.compactor_v2.model.merge_file_group import (
     MergeFileGroupsProvider,
@@ -49,6 +49,7 @@ class MergeInput(Dict):
         memory_logs_enabled: Optional[bool] = None,
         disable_copy_by_reference: Optional[bool] = None,
         hash_bucket_count: Optional[int] = None,
+        original_fields: Optional[Set[str]] = None,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -73,6 +74,7 @@ class MergeInput(Dict):
         result["memory_logs_enabled"] = memory_logs_enabled
         result["disable_copy_by_reference"] = disable_copy_by_reference
         result["hash_bucket_count"] = hash_bucket_count
+        result["original_fields"] = original_fields
         return result
 
     @property
@@ -160,3 +162,7 @@ class MergeInput(Dict):
     @property
     def hash_bucket_count(self) -> int:
         return self["hash_bucket_count"]
+
+    @property
+    def original_fields(self) -> Optional[Set[str]]:
+        return self.get("original_fields")
