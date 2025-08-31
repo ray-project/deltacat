@@ -38,6 +38,7 @@ class TestCompactPartitionParams(unittest.TestCase):
             "last_stream_position_to_compact": 168000000000,
             "list_deltas_kwargs": {"equivalent_table_types": []},
             "primary_keys": {"id"},
+            "all_column_names": ["id", "foo", "bar", "baz"],
             "properties": {
                 "parent_stream_position": "1688000000000",
             },

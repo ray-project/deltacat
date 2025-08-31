@@ -121,6 +121,7 @@ def generate_local_merge_input(
     return MergeInput.of(
         merge_file_groups_provider=LocalMergeFileGroupsProvider(
             annotated_deltas,
+            all_column_names=params.all_column_names,
             read_kwargs_provider=params.read_kwargs_provider,
             deltacat_storage=params.deltacat_storage,
             deltacat_storage_kwargs=params.deltacat_storage_kwargs,
@@ -128,6 +129,7 @@ def generate_local_merge_input(
         write_to_partition=compacted_partition,
         compacted_file_content_type=params.compacted_file_content_type,
         primary_keys=params.primary_keys,
+        all_column_names=params.all_column_names,
         sort_keys=params.sort_keys,
         drop_duplicates=params.drop_duplicates,
         max_records_per_output_file=params.records_per_compacted_file,

@@ -55,6 +55,9 @@ class CompactPartitionParams(dict):
             params.get("source_partition_locator") is not None
         ), "source_partition_locator is a required arg"
         assert params.get("catalog") is not None, "catalog is a required arg"
+        assert (
+            params.get("all_column_names") is not None
+        ), "all_column_names is a required arg"
 
         result = CompactPartitionParams(params)
         assert (
@@ -82,6 +85,7 @@ class CompactPartitionParams(dict):
         result.catalog = params.get("catalog")
         result.deltacat_storage_kwargs = params.get("deltacat_storage_kwargs", {})
         result.list_deltas_kwargs = params.get("list_deltas_kwargs", {})
+        result.all_column_names = params.get("all_column_names")
 
         # Add catalog to deltacat_storage_kwargs
         result.deltacat_storage_kwargs["catalog"] = result.catalog
@@ -318,6 +322,14 @@ class CompactPartitionParams(dict):
     @deltacat_storage_kwargs.setter
     def deltacat_storage_kwargs(self, kwargs: dict) -> None:
         self["deltacat_storage_kwargs"] = kwargs
+
+    @property
+    def all_column_names(self) -> List[str]:
+        return self.get("all_column_names")
+
+    @all_column_names.setter
+    def all_column_names(self, column_names: List[str]) -> None:
+        self["all_column_names"] = column_names
 
     @property
     def records_per_compacted_file(self) -> int:

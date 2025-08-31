@@ -85,6 +85,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_BASE_COMPACTED_TABLE_STRING_PK],
@@ -96,7 +97,12 @@ class TestMergeMain(unittest.TestCase):
         )
         object_store = RayPlasmaObjectStore()
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
-            old_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+            old_delta,
+            object_store,
+            number_of_hash_bucket,
+            number_of_hash_group,
+            ["pk"],
+            all_column_names,
         )
 
         merge_input_list = []
@@ -113,6 +119,7 @@ class TestMergeMain(unittest.TestCase):
                     ),
                     write_to_partition=partition,
                     primary_keys=["pk"],
+                    all_column_names=all_column_names,
                     deltacat_storage=metastore,
                     deltacat_storage_kwargs=self.deltacat_storage_kwargs,
                     object_store=object_store,
@@ -134,6 +141,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
@@ -150,6 +158,7 @@ class TestMergeMain(unittest.TestCase):
             number_of_hash_bucket,
             number_of_hash_group,
             ["pk1", "pk2"],
+            all_column_names,
         )
 
         merge_input_list = []
@@ -166,6 +175,7 @@ class TestMergeMain(unittest.TestCase):
                     ),
                     write_to_partition=partition,
                     primary_keys=["pk1", "pk2"],
+                    all_column_names=all_column_names,
                     deltacat_storage=metastore,
                     deltacat_storage_kwargs=self.deltacat_storage_kwargs,
                     object_store=object_store,
@@ -195,17 +205,19 @@ class TestMergeMain(unittest.TestCase):
             partition, csv_table, **self.kwargs
         )
         object_store = RayPlasmaObjectStore()
-
+        all_column_names = schema.arrow.names
         merge_input = MergeInput.of(
             compacted_file_content_type=ContentType.PARQUET,
             merge_file_groups_provider=LocalMergeFileGroupsProvider(
                 uniform_deltas=[DeltaAnnotated.of(old_delta)],
+                all_column_names=all_column_names,
                 read_kwargs_provider=None,
                 deltacat_storage=metastore,
                 deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk"],
+            all_column_names=all_column_names,
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
@@ -222,6 +234,7 @@ class TestMergeMain(unittest.TestCase):
         # Create schema from CSV file
         csv_table = create_table_from_csv_file_paths([self.NO_PK_TABLE])
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.NO_PK_TABLE],
@@ -238,6 +251,7 @@ class TestMergeMain(unittest.TestCase):
             number_of_hash_bucket,
             number_of_hash_group,
             [],
+            all_column_names,
         )
 
         merge_input_list = []
@@ -254,6 +268,7 @@ class TestMergeMain(unittest.TestCase):
                     ),
                     write_to_partition=partition,
                     primary_keys=[],
+                    all_column_names=all_column_names,
                     deltacat_storage=metastore,
                     deltacat_storage_kwargs=self.deltacat_storage_kwargs,
                     object_store=object_store,
@@ -276,6 +291,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
@@ -292,6 +308,7 @@ class TestMergeMain(unittest.TestCase):
             number_of_hash_bucket,
             number_of_hash_group,
             ["pk1", "pk2"],
+            all_column_names,
         )
 
         merge_input_list = []
@@ -309,6 +326,7 @@ class TestMergeMain(unittest.TestCase):
                     write_to_partition=partition,
                     drop_duplicates=False,
                     primary_keys=["pk1", "pk2"],
+                    all_column_names=all_column_names,
                     original_fields={"pk1", "pk2", "value"},
                     deltacat_storage=metastore,
                     deltacat_storage_kwargs=self.deltacat_storage_kwargs,
@@ -333,6 +351,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
@@ -398,12 +417,14 @@ class TestMergeMain(unittest.TestCase):
             compacted_file_content_type=ContentType.PARQUET,
             merge_file_groups_provider=LocalMergeFileGroupsProvider(
                 uniform_deltas=[DeltaAnnotated.of(incremental_delta)],
+                all_column_names=all_column_names,
                 read_kwargs_provider=None,
                 deltacat_storage=metastore,
                 deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk1"],
+            all_column_names=all_column_names,
             original_fields={"pk1", "pk2", "value"},
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
@@ -429,6 +450,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_MULTIPLE_PK],
@@ -494,12 +516,14 @@ class TestMergeMain(unittest.TestCase):
             compacted_file_content_type=ContentType.PARQUET,
             merge_file_groups_provider=LocalMergeFileGroupsProvider(
                 uniform_deltas=[DeltaAnnotated.of(incremental_delta)],
+                all_column_names=all_column_names,
                 read_kwargs_provider=None,
                 deltacat_storage=metastore,
                 deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk1"],
+            all_column_names=all_column_names,
             original_fields={"pk1", "pk2", "value"},
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
@@ -523,6 +547,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK],
@@ -541,7 +566,12 @@ class TestMergeMain(unittest.TestCase):
         )
 
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
-            old_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+            old_delta,
+            object_store,
+            number_of_hash_bucket,
+            number_of_hash_group,
+            ["pk"],
+            all_column_names,
         )
         for hg_index, dfes in all_hash_group_idx_to_obj_id.items():
             delta_file_envelope_groups_list = object_store.get_many(dfes)
@@ -565,7 +595,12 @@ class TestMergeMain(unittest.TestCase):
         )
 
         all_hash_group_idx_to_obj_id_new = self._prepare_merge_inputs(
-            new_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+            new_delta,
+            object_store,
+            number_of_hash_bucket,
+            number_of_hash_group,
+            ["pk"],
+            all_column_names,
         )
 
         merge_input_list = []
@@ -583,9 +618,11 @@ class TestMergeMain(unittest.TestCase):
                     ),
                     write_to_partition=partition,
                     primary_keys=["pk"],
+                    all_column_names=all_column_names,
                     deltacat_storage=metastore,
                     deltacat_storage_kwargs=self.deltacat_storage_kwargs,
                     object_store=object_store,
+                    compacted_manifest=old_delta.manifest,
                 )
             )
         merge_res_list = []
@@ -614,6 +651,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self._testMethodName,
             [self.DEDUPE_BASE_COMPACTED_TABLE_DATE_PK],
@@ -632,7 +670,12 @@ class TestMergeMain(unittest.TestCase):
         )
 
         all_hash_group_idx_to_obj_id = self._prepare_merge_inputs(
-            old_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+            old_delta,
+            object_store,
+            number_of_hash_bucket,
+            number_of_hash_group,
+            ["pk"],
+            all_column_names,
         )
         for hg_index, dfes in all_hash_group_idx_to_obj_id.items():
             delta_file_envelope_groups_list = object_store.get_many(dfes)
@@ -656,7 +699,12 @@ class TestMergeMain(unittest.TestCase):
         )
 
         all_hash_group_idx_to_obj_id_new = self._prepare_merge_inputs(
-            new_delta, object_store, number_of_hash_bucket, number_of_hash_group, ["pk"]
+            new_delta,
+            object_store,
+            number_of_hash_bucket,
+            number_of_hash_group,
+            ["pk"],
+            all_column_names,
         )
 
         merge_input_list = []
@@ -674,10 +722,12 @@ class TestMergeMain(unittest.TestCase):
                     ),
                     write_to_partition=partition,
                     primary_keys=["pk"],
+                    all_column_names=all_column_names,
                     deltacat_storage=metastore,
                     deltacat_storage_kwargs=self.deltacat_storage_kwargs,
                     object_store=object_store,
                     disable_copy_by_reference=True,  # copy by reference disabled
+                    compacted_manifest=old_delta.manifest,
                 )
             )
         merge_res_list = []
@@ -704,6 +754,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self.MERGE_NAMESPACE,
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
@@ -718,12 +769,14 @@ class TestMergeMain(unittest.TestCase):
             compacted_file_content_type=ContentType.PARQUET,
             merge_file_groups_provider=LocalMergeFileGroupsProvider(
                 uniform_deltas=[DeltaAnnotated.of(new_delta)],
+                all_column_names=all_column_names,
                 read_kwargs_provider=None,
                 deltacat_storage=metastore,
                 deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk1", "pk2"],
+            all_column_names=all_column_names,
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
@@ -744,6 +797,7 @@ class TestMergeMain(unittest.TestCase):
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK]
         )
         schema = Schema.of(csv_table.schema)
+        all_column_names = schema.arrow.names
         partition = stage_partition_from_file_paths(
             self._testMethodName,  # Use unique namespace
             [self.DEDUPE_WITH_DUPLICATION_MULTIPLE_PK],
@@ -758,12 +812,14 @@ class TestMergeMain(unittest.TestCase):
             compacted_file_content_type=ContentType.PARQUET,
             merge_file_groups_provider=LocalMergeFileGroupsProvider(
                 uniform_deltas=[DeltaAnnotated.of(new_delta)],
+                all_column_names=all_column_names,
                 read_kwargs_provider=None,
                 deltacat_storage=metastore,
                 deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             ),
             write_to_partition=partition,
             primary_keys=["pk1", "pk2"],
+            all_column_names=all_column_names,
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
@@ -781,10 +837,21 @@ class TestMergeMain(unittest.TestCase):
             self.assertIsInstance(e.cause, UnclassifiedDeltaCatError)
 
     def _prepare_merge_inputs(
-        self, delta_to_merge, object_store, num_hash_bucket, num_hash_group, pk
+        self,
+        delta_to_merge,
+        object_store,
+        num_hash_bucket,
+        num_hash_group,
+        pk,
+        all_column_names,
     ):
         hb_results = self._run_hash_bucketing(
-            delta_to_merge, object_store, num_hash_bucket, num_hash_group, pk
+            delta_to_merge,
+            object_store,
+            num_hash_bucket,
+            num_hash_group,
+            pk,
+            all_column_names,
         )
         all_hash_group_idx_to_obj_id = self._hb_output_to_merge_input(
             hb_results, num_hash_group
@@ -792,7 +859,13 @@ class TestMergeMain(unittest.TestCase):
         return all_hash_group_idx_to_obj_id
 
     def _run_hash_bucketing(
-        self, delta_to_merge, object_store, num_hash_bucket, num_hash_group, pk
+        self,
+        delta_to_merge,
+        object_store,
+        num_hash_bucket,
+        num_hash_group,
+        pk,
+        all_column_names,
     ):
         annotated_delta = DeltaAnnotated.of(delta_to_merge)
         hb_input = HashBucketInput.of(
@@ -803,6 +876,7 @@ class TestMergeMain(unittest.TestCase):
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            all_column_names=all_column_names,
         )
         hb_result_promise = hash_bucket.remote(hb_input)
         hb_result: HashBucketResult = ray.get(hb_result_promise)

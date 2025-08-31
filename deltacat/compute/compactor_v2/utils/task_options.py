@@ -77,8 +77,6 @@ def _get_merge_task_options(
     round_completion_info: Optional[RoundCompletionInfo] = None,
     compacted_delta_manifest: Optional[Manifest] = None,
     primary_keys: Optional[List[str]] = None,
-    deltacat_storage=metastore,
-    deltacat_storage_kwargs: Optional[Dict] = {},
     memory_logs_enabled: Optional[bool] = None,
 ) -> Dict[str, Any]:
     if (
@@ -275,8 +273,6 @@ def merge_resource_options_provider(
     compacted_delta_manifest: Optional[Manifest] = None,
     ray_custom_resources: Optional[Dict] = None,
     primary_keys: Optional[List[str]] = None,
-    deltacat_storage=metastore,
-    deltacat_storage_kwargs: Optional[Dict] = {},
     memory_logs_enabled: Optional[bool] = None,
     **kwargs,
 ) -> Dict:
@@ -306,8 +302,6 @@ def merge_resource_options_provider(
         round_completion_info=round_completion_info,
         compacted_delta_manifest=compacted_delta_manifest,
         primary_keys=primary_keys,
-        deltacat_storage=deltacat_storage,
-        deltacat_storage_kwargs=deltacat_storage_kwargs,
         memory_logs_enabled=memory_logs_enabled,
         estimate_resources_params=estimate_resources_params,
     )
@@ -348,8 +342,6 @@ def local_merge_resource_options_provider(
         round_completion_info=round_completion_info,
         compacted_delta_manifest=compacted_delta_manifest,
         primary_keys=primary_keys,
-        deltacat_storage=deltacat_storage,
-        deltacat_storage_kwargs=deltacat_storage_kwargs,
         memory_logs_enabled=memory_logs_enabled,
         estimate_resources_params=estimate_resources_params,
     )

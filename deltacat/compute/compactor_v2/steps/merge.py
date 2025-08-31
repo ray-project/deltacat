@@ -347,8 +347,10 @@ def _download_compacted_table(
     hb_index: int,
     rci: RoundCompletionInfo,
     primary_keys: List[str],
+    all_column_names: List[str],
+    compacted_delta_manifest: Optional[Manifest] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deltacat_storage=metastore,
+    deltacat_storage: metastore = metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
     tables = []
@@ -362,9 +364,16 @@ def _download_compacted_table(
     ), "indices should not be none and contains exactly two elements"
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
-            rci.compacted_delta_locator,
+            Delta.of(
+                rci.compacted_delta_locator,
+                DeltaType.APPEND,
+                compacted_delta_manifest.meta,
+                None,
+                compacted_delta_manifest,
+            ),
             entry_index=(indices[0] + offset),
             file_reader_kwargs_provider=read_kwargs_provider,
+            all_column_names=all_column_names,
             **deltacat_storage_kwargs,
         )
 
@@ -398,14 +407,8 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_copy_by_reference: List[int],
     round_completion_info: RoundCompletionInfo,
     write_to_partition: Partition,
-    deltacat_storage=metastore,
-    deltacat_storage_kwargs: Optional[dict] = None,
+    compacted_manifest: Optional[Manifest] = None,
 ) -> List[MaterializeResult]:
-
-    compacted_delta_locator = round_completion_info.compacted_delta_locator
-    manifest = deltacat_storage.get_delta_manifest(
-        compacted_delta_locator, **deltacat_storage_kwargs
-    )
 
     manifest_entry_referenced_list = []
     materialize_result_list = []
@@ -423,27 +426,27 @@ def _copy_all_manifest_files_from_old_hash_buckets(
         for offset in range(indices[1] - indices[0]):
             entry_index = indices[0] + offset
             assert entry_index < len(
-                manifest.entries
-            ), f"entry index: {entry_index} >= {len(manifest.entries)}"
-            manifest_entry = manifest.entries[entry_index]
+                compacted_manifest.entries
+            ), f"entry index: {entry_index} >= {len(compacted_manifest.entries)}"
+            manifest_entry = compacted_manifest.entries[entry_index]
             manifest_entry_referenced_list.append(manifest_entry)
 
-        manifest = Manifest.of(
+        compacted_manifest = Manifest.of(
             entries=manifest_entry_referenced_list, uuid=str(uuid4())
         )
         delta = Delta.of(
             locator=DeltaLocator.of(write_to_partition.locator),
             delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
-            meta=manifest.meta,
-            manifest=manifest,
+            meta=compacted_manifest.meta,
+            manifest=compacted_manifest,
             previous_stream_position=write_to_partition.stream_position,
             properties={},
         )
         referenced_pyarrow_write_result = PyArrowWriteResult.of(
             len(manifest_entry_referenced_list),
-            manifest.meta.source_content_length,
-            manifest.meta.content_length,
-            manifest.meta.record_count,
+            compacted_manifest.meta.source_content_length,
+            compacted_manifest.meta.content_length,
+            compacted_manifest.meta.record_count,
         )
         materialize_result = MaterializeResult.of(
             delta=delta,
@@ -468,6 +471,7 @@ def _has_previous_compacted_table(input: MergeInput, hb_idx: int) -> bool:
     """
     return (
         input.round_completion_info
+        and input.compacted_manifest is not None
         and input.round_completion_info.hb_index_to_entry_range
         and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
         is not None
@@ -485,6 +489,7 @@ def _can_copy_by_reference(
         not has_delete
         and not merge_file_group.dfe_groups
         and input.round_completion_info is not None
+        and input.compacted_manifest is not None
     )
 
     if input.disable_copy_by_reference:
@@ -680,8 +685,7 @@ def _copy_manifests_from_hash_bucketing(
                 hb_index_copy_by_reference_ids,
                 input.round_completion_info,
                 input.write_to_partition,
-                input.deltacat_storage,
-                input.deltacat_storage_kwargs,
+                input.compacted_manifest,
             )
         )
         logger.info(
@@ -721,12 +725,13 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             ):
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
-
             if _has_previous_compacted_table(input, merge_file_group.hb_index):
                 compacted_table = _download_compacted_table(
                     hb_index=merge_file_group.hb_index,
                     rci=input.round_completion_info,
                     primary_keys=input.primary_keys,
+                    all_column_names=input.all_column_names,
+                    compacted_delta_manifest=input.compacted_manifest,
                     read_kwargs_provider=input.read_kwargs_provider,
                     deltacat_storage=input.deltacat_storage,
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,

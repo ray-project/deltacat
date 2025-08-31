@@ -170,6 +170,7 @@ def _build_uniform_deltas(
         hash_bucket_count=params.hash_bucket_count,
         compaction_audit=mutable_compaction_audit,
         compact_partition_params=params,
+        all_column_names=params.all_column_names,
         deltacat_storage=params.deltacat_storage,
         deltacat_storage_kwargs=params.deltacat_storage_kwargs,
     )
@@ -423,12 +424,23 @@ def _merge(
         round_completion_info=round_completion_info,
         compacted_delta_manifest=previous_compacted_delta_manifest,
         primary_keys=params.primary_keys,
-        deltacat_storage=params.deltacat_storage,
-        deltacat_storage_kwargs=params.deltacat_storage_kwargs,
         ray_custom_resources=params.ray_custom_resources,
         memory_logs_enabled=params.memory_logs_enabled,
         estimate_resources_params=params.estimate_resources_params,
     )
+
+    # set previous compacted delta manifest on input so that we don't need a transaction to retrieve it
+    if round_completion_info:
+        previous_compacted_delta_manifest = params.deltacat_storage.get_delta_manifest(
+            round_completion_info.compacted_delta_locator,
+            **params.deltacat_storage_kwargs,
+        )
+
+    # create a copy of deltacat storage kwargs without any parent transaction context
+    # (can't be serialized by Ray, and we're only downloading already-resolved manifest entries)
+    deltacat_storage_kwargs_copy = {
+        k: v for k, v in params.deltacat_storage_kwargs.items() if k != "transaction"
+    }
 
     def merge_input_provider(index, item) -> dict[str, MergeInput]:
         return {
@@ -443,6 +455,7 @@ def _merge(
                 write_to_partition=compacted_partition,
                 compacted_file_content_type=params.compacted_file_content_type,
                 primary_keys=params.primary_keys,
+                all_column_names=params.all_column_names,
                 sort_keys=params.sort_keys,
                 merge_task_index=index,
                 drop_duplicates=params.drop_duplicates,
@@ -454,13 +467,14 @@ def _merge(
                 round_completion_info=round_completion_info,
                 object_store=params.object_store,
                 deltacat_storage=params.deltacat_storage,
-                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                deltacat_storage_kwargs=deltacat_storage_kwargs_copy,
                 delete_strategy=delete_strategy,
                 delete_file_envelopes=delete_file_envelopes,
                 memory_logs_enabled=params.memory_logs_enabled,
                 disable_copy_by_reference=params.disable_copy_by_reference,
                 hash_bucket_count=params.hash_bucket_count,
                 original_fields=params.original_fields,
+                compacted_manifest=previous_compacted_delta_manifest,
             )
         }
 
@@ -496,6 +510,12 @@ def _hash_bucket(
         estimate_resources_params=params.estimate_resources_params,
     )
 
+    # create a copy of deltacat storage kwargs without any parent transaction context
+    # (can't be serialized by Ray, and we're only downloading already-resolved manifest entries)
+    deltacat_storage_kwargs_copy = {
+        k: v for k, v in params.deltacat_storage_kwargs.items() if k != "transaction"
+    }
+
     def hash_bucket_input_provider(index, item) -> dict[str, HashBucketInput]:
         return {
             "input": HashBucketInput.of(
@@ -504,12 +524,13 @@ def _hash_bucket(
                 hb_task_index=index,
                 num_hash_buckets=params.hash_bucket_count,
                 num_hash_groups=params.hash_group_count,
+                all_column_names=params.all_column_names,
                 enable_profiler=params.enable_profiler,
                 metrics_config=params.metrics_config,
                 read_kwargs_provider=params.read_kwargs_provider,
                 object_store=params.object_store,
                 deltacat_storage=params.deltacat_storage,
-                deltacat_storage_kwargs=params.deltacat_storage_kwargs,
+                deltacat_storage_kwargs=deltacat_storage_kwargs_copy,
                 memory_logs_enabled=params.memory_logs_enabled,
             )
         }

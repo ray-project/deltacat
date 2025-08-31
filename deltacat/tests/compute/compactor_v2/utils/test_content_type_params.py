@@ -69,7 +69,11 @@ class TestContentTypeParamsMain:
         )
         test_entry_index = 0
         obj_ref = _download_parquet_metadata_for_manifest_entry.remote(
-            test_delta, test_entry_index, metastore, main_deltacat_storage_kwargs
+            test_delta,
+            test_entry_index,
+            ["pk", "value"],
+            metastore,
+            main_deltacat_storage_kwargs,
         )
         parquet_metadata = ray.get(obj_ref)
         partial_parquet_params = parquet_metadata["partial_parquet_params"]
@@ -171,6 +175,7 @@ class TestContentTypeParamsMain:
         obj_ref = _download_parquet_metadata_for_manifest_entry.remote(
             test_delta,
             test_entry_index,
+            ["pk", "value"],
             metastore,
             main_deltacat_storage_kwargs,
             read_kwargs_provider,
@@ -236,6 +241,7 @@ class TestContentTypeParamsMain:
         obj_ref = _download_parquet_metadata_for_manifest_entry.remote(
             test_delta,
             test_entry_index,
+            ["pk", "value"],
             metastore,
             main_deltacat_storage_kwargs,
             test_file_reader_kwargs_provider,

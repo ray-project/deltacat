@@ -641,6 +641,13 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["id"],
+                    "all_column_names": [
+                        "id",
+                        "timestamp",
+                        "user_id",
+                        "event_type",
+                        "data",
+                    ],
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,

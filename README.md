@@ -165,17 +165,16 @@ DeltaCAT can automatically merge and delete data by defining a table schema with
 import deltacat as dc
 import pandas as pd
 import pyarrow as pa
-from deltacat.storage.model.schema import Schema, Field
 
-# Initialize DeltaCAT with a default local catalog
-dc.init_local()
+# Initialize DeltaCAT with a fresh temporary catalog
+dc.init_local(tempfile.mkdtemp())
 
 # Define a schema with user_id as a merge key.
-schema = Schema.of([
-    Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
-    Field.of(pa.field("name", pa.string())),
-    Field.of(pa.field("age", pa.int32())),
-    Field.of(pa.field("status", pa.string())),
+schema = dc.Schema.of([
+    dc.Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
+    dc.Field.of(pa.field("name", pa.string())),
+    dc.Field.of(pa.field("age", pa.int32())),
+    dc.Field.of(pa.field("status", pa.string())),
 ])
 
 # Initial user data
@@ -582,17 +581,16 @@ import tempfile
 import daft
 import torch
 import pyarrow as pa
-from deltacat.storage.model.schema import Schema, Field
 
 # Initialize DeltaCAT with a temporary catalog
 dc.init_local(tempfile.mkdtemp())
 
 # Define initial schema with image_id as merge key (no prediction fields yet)
-initial_schema = Schema.of([
-    Field.of(pa.field("image_id", pa.large_string()), is_merge_key=True),
-    Field.of(pa.field("image_path", pa.large_string())),
-    Field.of(pa.field("true_breed", pa.large_string())),
-    Field.of(pa.field("image_bytes", pa.binary())),
+initial_schema = dc.Schema.of([
+    dc.Field.of(pa.field("image_id", pa.large_string()), is_merge_key=True),
+    dc.Field.of(pa.field("image_path", pa.large_string())),
+    dc.Field.of(pa.field("true_breed", pa.large_string())),
+    dc.Field.of(pa.field("image_bytes", pa.binary())),
 ])
 
 # Create sample Daft DataFrame with image URLs/paths
@@ -664,6 +662,7 @@ The following example combines multi-table transactions, time travel queries, an
 ```python
 import deltacat as dc
 import pandas as pd
+import pyarrow as pa
 import tempfile
 import time
 import daft
@@ -677,7 +676,7 @@ daft_docs = daft.from_pydict({
     "doc_id": [1, 2, 3],
     "path": ["media/customer_feedback_001.txt", "media/customer_feedback_002.txt", "media/customer_feedback_003.txt"]
 })
-daft_docs = daft_docs.with_column("content", daft_docs["path"].url.download())
+daft_docs = daft_docs.with_column("content", daft_docs["path"].url.download().decode("utf-8"))
 
 # Doc processing V1.0
 # Capture basic feedback sentiment analysis in a parallel multi-table transaction
@@ -714,17 +713,17 @@ with dc.transaction():
     )
 
     # Write sentiment analysis to a new table with doc_id as the merge key.
-    initial_schema = Schema.of([
-        Field.of(pa.field("doc_id", pa.int64()), is_merge_key=True),
-        Field.of(pa.field("sentiment", pa.large_string())),
-        Field.of(pa.field("confidence", pa.float64())),
-        Field.of(pa.field("model_version", pa.large_string())),
+    initial_schema = dc.Schema.of([
+        dc.Field.of(pa.field("doc_id", pa.int64()), is_merge_key=True),
+        dc.Field.of(pa.field("sentiment", pa.large_string())),
+        dc.Field.of(pa.field("confidence", pa.float64())),
+        dc.Field.of(pa.field("model_version", pa.large_string())),
     ])
     dc.write(daft_results, "insights", namespace="analysis", schema=initial_schema)
 
     # Write to a new audit trail table.
     audit_df = pd.DataFrame([{
-        "version": "v1.0", 
+        "version": "v1.0",
         "docs_processed": dc.dataset_length(daft_docs),
     }])
     dc.write(audit_df, "audit", namespace="analysis")
@@ -772,7 +771,7 @@ with dc.transaction():
 
     # Merge new V2.0 insights into the existing V1.0 insights table.
     # The new "emotion_detail" column is automatically zipper-merged by document ID.
-    dc.write(daft_emotions, "insights", namespace="analysis", merge_key="doc_id")
+    dc.write(daft_emotions, "insights", namespace="analysis")
     audit_df = pd.DataFrame([{"version": "v2.0", "docs_processed": dc.dataset_length(daft_docs)}])
     dc.write(audit_df, "audit", namespace="analysis")
 

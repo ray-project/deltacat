@@ -987,9 +987,12 @@ def _stage_commit_and_compact(
         TableReadOptimizationLevel.MAX,
         **kwargs,
     )
-
     if should_compact:
         # Run V2 compaction session to merge or delete data
+        if table_version_obj.schema:
+            all_column_names = table_version_obj.schema.arrow.names
+        else:
+            raise RuntimeError("Table version schema is required to run compaction.")
         _run_compaction_session(
             table_version_obj=table_version_obj,
             partition=partition,
@@ -997,6 +1000,7 @@ def _stage_commit_and_compact(
             namespace=namespace,
             table=table,
             original_fields=original_fields,
+            all_column_names=all_column_names,
             **kwargs,
         )
 
@@ -1165,6 +1169,7 @@ def _create_compaction_params(
     primary_keys: set,
     hash_bucket_count: int,
     original_fields: Set[str],
+    all_column_names: Optional[List[str]],
     **kwargs,
 ):
     """Create compaction parameters for the compaction session."""
@@ -1191,6 +1196,10 @@ def _create_compaction_params(
     table_writer_kwargs = kwargs.pop("table_writer_kwargs", {})
     table_writer_kwargs["schema"] = table_version_obj.schema
     table_writer_kwargs["sort_scheme_id"] = table_version_obj.sort_scheme.id
+    deltacat_storage_kwargs = kwargs.pop("deltacat_storage_kwargs", {})
+    deltacat_storage_kwargs["transaction"] = kwargs.get("transaction", None)
+    list_deltas_kwargs = kwargs.pop("list_deltas_kwargs", {})
+    list_deltas_kwargs["transaction"] = kwargs.get("transaction", None)
 
     return CompactPartitionParams.of(
         {
@@ -1200,8 +1209,8 @@ def _create_compaction_params(
             "primary_keys": primary_keys,
             "last_stream_position_to_compact": latest_stream_position,
             "deltacat_storage": _get_storage(**kwargs),
-            "deltacat_storage_kwargs": kwargs,
-            "list_deltas_kwargs": kwargs,
+            "deltacat_storage_kwargs": deltacat_storage_kwargs,
+            "list_deltas_kwargs": list_deltas_kwargs,
             "table_writer_kwargs": table_writer_kwargs,
             "hash_bucket_count": hash_bucket_count,
             "records_per_compacted_file": table_version_obj.read_table_property(
@@ -1211,6 +1220,7 @@ def _create_compaction_params(
             "drop_duplicates": True,
             "sort_keys": _get_merge_order_sort_keys(table_version_obj),
             "original_fields": original_fields,
+            "all_column_names": all_column_names,
         }
     )
 
@@ -1222,6 +1232,7 @@ def _run_compaction_session(
     namespace: str,
     table: str,
     original_fields: Set[str],
+    all_column_names: List[str],
     **kwargs,
 ) -> None:
     """
@@ -1254,6 +1265,7 @@ def _run_compaction_session(
             primary_keys,
             hash_bucket_count,
             original_fields=original_fields,
+            all_column_names=all_column_names,
             **kwargs,
         )
 

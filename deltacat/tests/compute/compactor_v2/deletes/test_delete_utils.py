@@ -692,6 +692,7 @@ class TestPrepareDeletesMain:
                 },
                 "read_kwargs_provider": None,
                 "source_partition_locator": src_partition_after_committed_delta.locator,
+                "all_column_names": ["pk_col_1", "sk_col_1", "sk_col_2", "col_1"],
             }
         )
         # action

@@ -215,6 +215,12 @@ def test_compact_partition_rebase_same_source_and_destination_main(
         converted_partition_values_for_lookup,
         **ds_mock_kwargs,
     )
+    all_column_names = metastore.get_table_version_column_names(
+        rebased_table_stream.locator.table_locator.namespace,
+        rebased_table_stream.locator.table_locator.table_name,
+        rebased_table_stream.locator.table_version_locator.table_version,
+        **ds_mock_kwargs,
+    )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
     total_cpus = num_workers * worker_instance_cpu
     pgm = None
@@ -242,6 +248,7 @@ def test_compact_partition_rebase_same_source_and_destination_main(
                 "object_store": FileObjectStore(test_dir),
                 "pg_config": pgm,
                 "primary_keys": primary_keys,
+                "all_column_names": all_column_names,
                 "read_kwargs_provider": read_kwargs_provider_param,
                 "rebase_source_partition_locator": source_partition.locator,
                 "rebase_source_partition_high_watermark": rebased_partition.stream_position,

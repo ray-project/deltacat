@@ -11255,6 +11255,306 @@ class TestMultiTableTransactions:
             primary_dir.cleanup()
             secondary_dir.cleanup()
 
+    def test_multi_table_transaction_with_merge_keys(self):
+        """Test multi-table transactions with explicit merge keys and MERGE mode operations."""
+        # Create schema with merge keys for both tables
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("age", pa.int32())),
+                Field.of(pa.field("city", pa.string())),
+            ]
+        )
+
+        # Initial data for both tables
+        customers_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["NYC", "LA", "Chicago"],
+            }
+        )
+
+        employees_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+                "city": ["NYC", "LA", "Chicago"],
+            }
+        )
+
+        # Updated data for merge operations
+        customers_update = pd.DataFrame(
+            {
+                "id": [2, 4],  # Update existing id=2, add new id=4
+                "name": ["Bob_Updated", "Dave"],
+                "age": [31, 40],
+                "city": ["LA_Updated", "Houston"],
+            }
+        )
+
+        employees_update = pd.DataFrame(
+            {
+                "id": [3, 5],  # Update existing id=3, add new id=5
+                "name": ["Charlie_Updated", "Eve"],
+                "age": [36, 45],
+                "city": ["Chicago_Updated", "Phoenix"],
+            }
+        )
+
+        # Perform multi-table operations within transaction
+        with dc.transaction():
+            # Create customers table with merge keys
+            dc.create_table(
+                table="customers",
+                namespace=self.namespace,
+                schema=schema,
+                content_types=[ContentType.PARQUET],
+                table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+            )
+
+            # Create employees table with merge keys
+            dc.create_table(
+                table="employees", 
+                namespace=self.namespace,
+                schema=schema,
+                content_types=[ContentType.PARQUET],
+                table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+            )
+
+            # Initial writes to both tables
+            dc.write_to_table(
+                data=customers_data,
+                table="customers",
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+            dc.write_to_table(
+                data=employees_data,
+                table="employees",
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+            # Update operations - these will trigger merge behavior
+            dc.write_to_table(
+                data=customers_update,
+                table="customers",
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+            dc.write_to_table(
+                data=employees_update,
+                table="employees", 
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+        # Verify both tables exist and contain merged data
+        customers_result = dc.read_table("customers", namespace=self.namespace)
+        employees_result = dc.read_table("employees", namespace=self.namespace)
+
+        # Verify customers table merged correctly
+        customers_df = pd.DataFrame(customers_result.to_pydict())
+        expected_customers = {
+            1: {"name": "Alice", "age": 25, "city": "NYC"},  # Unchanged
+            2: {"name": "Bob_Updated", "age": 31, "city": "LA_Updated"},  # Updated
+            3: {"name": "Charlie", "age": 35, "city": "Chicago"},  # Unchanged
+            4: {"name": "Dave", "age": 40, "city": "Houston"},  # New
+        }
+
+        customers_dict = {}
+        for _, row in customers_df.iterrows():
+            customers_dict[int(row["id"])] = {
+                "name": row["name"],
+                "age": int(row["age"]),
+                "city": row["city"],
+            }
+
+        assert customers_dict == expected_customers, f"Customers mismatch: {customers_dict}"
+
+        # Verify employees table merged correctly
+        employees_df = pd.DataFrame(employees_result.to_pydict())
+        expected_employees = {
+            1: {"name": "Alice", "age": 25, "city": "NYC"},  # Unchanged
+            2: {"name": "Bob", "age": 30, "city": "LA"},  # Unchanged
+            3: {"name": "Charlie_Updated", "age": 36, "city": "Chicago_Updated"},  # Updated
+            5: {"name": "Eve", "age": 45, "city": "Phoenix"},  # New
+        }
+
+        employees_dict = {}
+        for _, row in employees_df.iterrows():
+            employees_dict[int(row["id"])] = {
+                "name": row["name"],
+                "age": int(row["age"]),
+                "city": row["city"],
+            }
+
+        assert employees_dict == expected_employees, f"Employees mismatch: {employees_dict}"
+
+        # Verify table counts
+        assert len(customers_dict) == 4, f"Expected 4 customer records, got {len(customers_dict)}"
+        assert len(employees_dict) == 4, f"Expected 4 employee records, got {len(employees_dict)}"
+
+    def test_multi_table_transaction_with_delete_operations(self):
+        """Test multi-table transactions with DELETE mode operations using merge keys."""
+        # Create schema with merge keys for both tables
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("age", pa.int32())),
+                Field.of(pa.field("city", pa.string())),
+            ]
+        )
+
+        # Initial data for both tables
+        customers_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "Dave", "Eve"],
+                "age": [25, 30, 35, 40, 45],
+                "city": ["NYC", "LA", "Chicago", "Houston", "Phoenix"],
+            }
+        )
+
+        employees_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "Dave", "Eve"],
+                "age": [25, 30, 35, 40, 45],
+                "city": ["NYC", "LA", "Chicago", "Houston", "Phoenix"],
+            }
+        )
+
+        # DELETE operations - only need to specify the keys to delete
+        customers_deletes = pd.DataFrame(
+            {
+                "id": [2, 4],  # Delete customers with ids 2 and 4
+            }
+        )
+
+        employees_deletes = pd.DataFrame(
+            {
+                "id": [1, 5],  # Delete employees with ids 1 and 5
+            }
+        )
+
+        # Perform multi-table operations within transaction
+        with dc.transaction():
+            # Create customers table with merge keys
+            dc.create_table(
+                table="customers",
+                namespace=self.namespace,
+                schema=schema,
+                content_types=[ContentType.PARQUET],
+                table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+            )
+
+            # Create employees table with merge keys
+            dc.create_table(
+                table="employees", 
+                namespace=self.namespace,
+                schema=schema,
+                content_types=[ContentType.PARQUET],
+                table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+            )
+
+            # Initial writes to both tables using MERGE mode
+            dc.write_to_table(
+                data=customers_data,
+                table="customers",
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+            dc.write_to_table(
+                data=employees_data,
+                table="employees",
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+            # DELETE operations - specify only the keys to delete
+            dc.write_to_table(
+                data=customers_deletes,
+                table="customers",
+                namespace=self.namespace,
+                mode=TableWriteMode.DELETE,
+                content_type=ContentType.PARQUET,
+            )
+
+            dc.write_to_table(
+                data=employees_deletes,
+                table="employees", 
+                namespace=self.namespace,
+                mode=TableWriteMode.DELETE,
+                content_type=ContentType.PARQUET,
+            )
+
+        # Verify both tables exist and contain data after deletions
+        customers_result = dc.read_table("customers", namespace=self.namespace)
+        employees_result = dc.read_table("employees", namespace=self.namespace)
+
+        # Verify customers table after deletions (should have records 1, 3, 5 remaining)
+        customers_df = pd.DataFrame(customers_result.to_pydict())
+        expected_customers = {
+            1: {"name": "Alice", "age": 25, "city": "NYC"},  # Remaining
+            3: {"name": "Charlie", "age": 35, "city": "Chicago"},  # Remaining
+            5: {"name": "Eve", "age": 45, "city": "Phoenix"},  # Remaining
+            # Records 2 and 4 should be deleted
+        }
+
+        customers_dict = {}
+        for _, row in customers_df.iterrows():
+            customers_dict[int(row["id"])] = {
+                "name": row["name"],
+                "age": int(row["age"]),
+                "city": row["city"],
+            }
+
+        assert customers_dict == expected_customers, f"Customers mismatch: {customers_dict}"
+
+        # Verify employees table after deletions (should have records 2, 3, 4 remaining)
+        employees_df = pd.DataFrame(employees_result.to_pydict())
+        expected_employees = {
+            2: {"name": "Bob", "age": 30, "city": "LA"},  # Remaining
+            3: {"name": "Charlie", "age": 35, "city": "Chicago"},  # Remaining
+            4: {"name": "Dave", "age": 40, "city": "Houston"},  # Remaining
+            # Records 1 and 5 should be deleted
+        }
+
+        employees_dict = {}
+        for _, row in employees_df.iterrows():
+            employees_dict[int(row["id"])] = {
+                "name": row["name"],
+                "age": int(row["age"]),
+                "city": row["city"],
+            }
+
+        assert employees_dict == expected_employees, f"Employees mismatch: {employees_dict}"
+
+        # Verify table counts after deletions
+        assert len(customers_dict) == 3, f"Expected 3 customer records after deletes, got {len(customers_dict)}"
+        assert len(employees_dict) == 3, f"Expected 3 employee records after deletes, got {len(employees_dict)}"
+
+        # Verify specific deletions occurred
+        assert 2 not in customers_dict, "Customer ID 2 should be deleted"
+        assert 4 not in customers_dict, "Customer ID 4 should be deleted"
+        assert 1 not in employees_dict, "Employee ID 1 should be deleted"
+        assert 5 not in employees_dict, "Employee ID 5 should be deleted"
+
 
 class TestTimeTravelTransactions:
     @pytest.fixture

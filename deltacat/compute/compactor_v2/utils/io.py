@@ -98,6 +98,7 @@ def create_uniform_input_deltas(
     hash_bucket_count: int,
     compaction_audit: CompactionSessionAuditInfo,
     compact_partition_params: CompactPartitionParams,
+    all_column_names: List[str],
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
@@ -118,6 +119,7 @@ def create_uniform_input_deltas(
             )
             append_content_type_params(
                 delta=delta,
+                all_column_names=all_column_names,
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
                 task_max_parallelism=compact_partition_params.task_max_parallelism,

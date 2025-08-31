@@ -15,6 +15,7 @@ class HashBucketInput(Dict):
         primary_keys: List[str],
         num_hash_buckets: int,
         num_hash_groups: int,
+        all_column_names: List[str],
         hb_task_index: Optional[int] = 0,
         enable_profiler: Optional[bool] = False,
         metrics_config: Optional[MetricsConfig] = None,
@@ -31,6 +32,7 @@ class HashBucketInput(Dict):
         result["hb_task_index"] = hb_task_index
         result["num_hash_buckets"] = num_hash_buckets
         result["num_hash_groups"] = num_hash_groups
+        result["all_column_names"] = all_column_names
         result["enable_profiler"] = enable_profiler
         result["metrics_config"] = metrics_config
         result["read_kwargs_provider"] = read_kwargs_provider
@@ -60,6 +62,10 @@ class HashBucketInput(Dict):
     @property
     def num_hash_groups(self) -> int:
         return self["num_hash_groups"]
+
+    @property
+    def all_column_names(self) -> List[str]:
+        return self["all_column_names"]
 
     @property
     def enable_profiler(self) -> Optional[bool]:

@@ -237,6 +237,12 @@ def test_compact_partition_rebase_then_incremental_main(
         converted_partition_values_for_lookup,
         destination_partition_id,
     )
+    all_column_names = metastore.get_table_version_column_names(
+        destination_partition_locator.namespace,
+        destination_partition_locator.table_name,
+        destination_partition_locator.table_version,
+        **ds_mock_kwargs,
+    )
     rebased_partition: Partition = metastore.get_partition(
         rebased_table_stream.locator,
         converted_partition_values_for_lookup,
@@ -281,6 +287,7 @@ def test_compact_partition_rebase_then_incremental_main(
                 },
                 "pg_config": pgm,
                 "primary_keys": primary_keys,
+                "all_column_names": all_column_names,
                 "read_kwargs_provider": read_kwargs_provider_param,
                 "rebase_source_partition_locator": source_partition.locator,
                 "records_per_compacted_file": records_per_compacted_file_param,
@@ -292,13 +299,23 @@ def test_compact_partition_rebase_then_incremental_main(
         benchmark(compact_partition_func, compact_partition_params)
         compacted_delta_locator: DeltaLocator = (
             get_compacted_delta_locator_from_partition(
-                destination_partition_locator, metastore, catalog=catalog
+                destination_partition_locator,
+                metastore,
+                catalog=catalog,
             )
         )
         tables = metastore.download_delta(
-            compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+            compacted_delta_locator,
+            storage_type=StorageType.LOCAL,
+            **ds_mock_kwargs,
         )
         actual_rebase_compacted_table = pa.concat_tables(tables)
+        all_column_names = metastore.get_table_version_column_names(
+            destination_partition_locator.namespace,
+            destination_partition_locator.table_name,
+            destination_partition_locator.table_version,
+            **ds_mock_kwargs,
+        )
         # if no primary key is specified then sort by sort_key for consistent assertion
         sorting_cols: List[Any] = (
             [(val, "ascending") for val in primary_keys]
@@ -374,6 +391,7 @@ def test_compact_partition_rebase_then_incremental_main(
                     },
                     "pg_config": pgm,
                     "primary_keys": primary_keys,
+                    "all_column_names": all_column_names,
                     "read_kwargs_provider": read_kwargs_provider_param,
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,

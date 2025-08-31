@@ -12,6 +12,7 @@ from deltacat.utils.metrics import MetricsConfig
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.io.object_store import IObjectStore
 from deltacat.storage import (
+    Manifest,
     Partition,
     SortKey,
     metastore,
@@ -32,6 +33,7 @@ class MergeInput(Dict):
         write_to_partition: Partition,
         compacted_file_content_type: ContentType,
         primary_keys: List[str],
+        all_column_names: List[str],
         drop_duplicates: Optional[bool] = DROP_DUPLICATES,
         sort_keys: Optional[List[SortKey]] = None,
         merge_task_index: Optional[int] = 0,
@@ -50,6 +52,7 @@ class MergeInput(Dict):
         disable_copy_by_reference: Optional[bool] = None,
         hash_bucket_count: Optional[int] = None,
         original_fields: Optional[Set[str]] = None,
+        compacted_manifest: Optional[Manifest] = None,
     ) -> MergeInput:
 
         result = MergeInput()
@@ -57,6 +60,7 @@ class MergeInput(Dict):
         result["write_to_partition"] = write_to_partition
         result["compacted_file_content_type"] = compacted_file_content_type
         result["primary_keys"] = primary_keys
+        result["all_column_names"] = all_column_names
         result["drop_duplicates"] = drop_duplicates
         result["sort_keys"] = sort_keys
         result["merge_task_index"] = merge_task_index
@@ -75,6 +79,7 @@ class MergeInput(Dict):
         result["disable_copy_by_reference"] = disable_copy_by_reference
         result["hash_bucket_count"] = hash_bucket_count
         result["original_fields"] = original_fields
+        result["compacted_manifest"] = compacted_manifest
         return result
 
     @property
@@ -92,6 +97,10 @@ class MergeInput(Dict):
     @property
     def primary_keys(self) -> List[str]:
         return self["primary_keys"]
+
+    @property
+    def all_column_names(self) -> List[str]:
+        return self["all_column_names"]
 
     @property
     def drop_duplicates(self) -> int:
@@ -166,3 +175,7 @@ class MergeInput(Dict):
     @property
     def original_fields(self) -> Optional[Set[str]]:
         return self.get("original_fields")
+
+    @property
+    def compacted_manifest(self) -> Optional[Manifest]:
+        return self.get("compacted_manifest")

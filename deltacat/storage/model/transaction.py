@@ -4,6 +4,7 @@ import os
 import copy
 import time
 import uuid
+import logging
 import posixpath
 from pathlib import PosixPath
 import threading
@@ -39,6 +40,9 @@ from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
 )
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 # Context variable to store the current transaction
@@ -137,6 +141,8 @@ def transaction(
         txn = Transaction.of().start(
             catalog_properties.root, catalog_properties.filesystem
         )
+        # Initialize the lazy transaction ID
+        logger.info(f"Created transaction with ID: {txn.id}")
     return txn
 
 
@@ -704,28 +710,10 @@ class Transaction(dict):
         validations on the serialized or deserialized object.
         :return: a serializable version of the object
         """
-        # Create a copy but exclude the non-serializable context token
-        serializable_dict = {}
+        # Only copy dictionary keys - all other members should not be serialized
+        serializable = Transaction({})
         for key, value in self.items():
-            if key != "_context_token":
-                serializable_dict[key] = copy.deepcopy(value)
-
-        # Copy other attributes that might not be in the dict
-        serializable = Transaction(serializable_dict)
-        for attr_name in dir(self):
-            if not attr_name.startswith("_") and attr_name not in [
-                "items",
-                "keys",
-                "values",
-                "get",
-            ]:
-                try:
-                    attr_value = getattr(self, attr_name)
-                    if not callable(attr_value) and attr_name != "_context_token":
-                        setattr(serializable, attr_name, copy.deepcopy(attr_value))
-                except (AttributeError, TypeError):
-                    # Skip attributes that can't be copied
-                    pass
+            serializable[key] = copy.deepcopy(value)
 
         # remove all src/dest metafile contents except IDs and locators to
         # reduce file size (they can be reconstructed from their corresponding

@@ -845,7 +845,9 @@ def dataset_schema(table: Dataset) -> pa.Schema:
         PyArrow Schema object
     """
     if isinstance(table, list):
-        return pa.unify_schemas([get_table_schema(t) for t in table], promote_options="permissive")
+        return pa.unify_schemas(
+            [get_table_schema(t) for t in table], promote_options="permissive"
+        )
     return get_table_schema(table)
 
 

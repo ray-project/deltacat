@@ -914,6 +914,7 @@ def download_delta(
     file_path_column: Optional[str] = None,
     *args,
     transaction: Optional[Transaction] = None,
+    all_column_names: Optional[List[str]] = None,
     **kwargs,
 ) -> Union[LocalDataset, DistributedDataset]:  # type: ignore
     """
@@ -927,6 +928,12 @@ def download_delta(
     # TODO (pdames): Deprecate this method and replace with `read_delta`
     # TODO (pdames): Replace dependence on TableType, StorageType, and DistributedDatasetType
     #   with DatasetType
+
+    # if all column names are provided, then this is a pure manifest entry download (no transaction needed)
+    commit_transaction = False
+    if not all_column_names:
+        transaction, commit_transaction = setup_transaction(transaction, **kwargs)
+
     storage_type_to_download_func = {
         StorageType.LOCAL: _download_delta_local,
         StorageType.DISTRIBUTED: _download_delta_distributed,
@@ -949,6 +956,10 @@ def download_delta(
     # Get manifest - if delta_like is a Delta with a manifest, use it, otherwise fetch from storage
     if is_delta and delta_like.manifest:
         manifest = delta_like.manifest
+    elif all_column_names:
+        raise ValueError(
+            "All column names can only be specified with a delta with an inline manifest."
+        )
     else:
         manifest = get_delta_manifest(
             delta_locator,
@@ -956,17 +967,23 @@ def download_delta(
             *args,
             **kwargs,
         )
-    table_version_schema = get_table_version_schema(
-        delta_locator.namespace,
-        delta_locator.table_name,
-        delta_locator.table_version,
-        transaction=transaction,
-        *args,
-        **kwargs,
-    )
-    all_column_names = None
-    if table_version_schema and table_version_schema.arrow:
-        all_column_names = [field.name for field in table_version_schema.arrow]
+    all_column_names = all_column_names or None
+    if not all_column_names:
+        table_version_schema = get_table_version_schema(
+            delta_locator.namespace,
+            delta_locator.table_name,
+            delta_locator.table_version,
+            transaction=transaction,
+            *args,
+            **kwargs,
+        )
+        if table_version_schema and table_version_schema.arrow:
+            all_column_names = [field.name for field in table_version_schema.arrow]
+            if distributed_dataset_type == DatasetType.DAFT:
+                # Daft needs the latest table version schema to properly handle schema evolution
+                kwargs["table_version_schema"] = table_version_schema.arrow
+    elif distributed_dataset_type == DatasetType.DAFT:
+        raise ValueError("All column names canot be specified with Daft.")
     if columns:
         # Extract file_path_column since it's appended after reading each file
         columns_to_validate = (
@@ -990,10 +1007,6 @@ def download_delta(
         f"Reading {columns or 'all'} columns from table version column "
         f"names: {all_column_names}. "
     )
-    if table_version_schema and table_version_schema.arrow:
-        # Daft needs to the latest table version schema to properly handle schema evolution
-        if distributed_dataset_type == DatasetType.DAFT:
-            kwargs["table_version_schema"] = table_version_schema.arrow
 
     # Filter out parameters that are already passed as positional/keyword arguments
     # to avoid "multiple values for argument" errors
@@ -1013,7 +1026,7 @@ def download_delta(
         ]
     }
 
-    return storage_type_to_download_func[storage_type](
+    dataset = storage_type_to_download_func[storage_type](
         manifest,
         table_type,
         max_parallelism,
@@ -1025,6 +1038,9 @@ def download_delta(
         file_path_column=file_path_column,
         **filtered_kwargs,
     )
+    if commit_transaction:
+        transaction.seal()
+    return dataset
 
 
 def _download_manifest_entry(
@@ -1058,6 +1074,7 @@ def download_delta_manifest_entry(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,
     transaction: Optional[Transaction] = None,
+    all_column_names: Optional[List[str]] = None,
     **kwargs,
 ) -> LocalTable:
     """
@@ -1068,9 +1085,10 @@ def download_delta_manifest_entry(
 
     NOTE: The entry will be read in the current node's memory.
     """
-    # TODO (pdames): Deprecate this method and replace with
-    #  `read_delta_manifest_entry`
-    transaction, commit_transaction = setup_transaction(transaction, **kwargs)
+    # if all column names are provided, then this is a pure manifest entry download (no transaction needed)
+    commit_transaction = False
+    if not all_column_names:
+        transaction, commit_transaction = setup_transaction(transaction, **kwargs)
 
     is_delta = isinstance(delta_like, Delta)
     is_delta_locator = isinstance(delta_like, DeltaLocator)
@@ -1088,6 +1106,10 @@ def download_delta_manifest_entry(
 
     if is_delta and delta_like.manifest:
         manifest = delta_like.manifest
+    elif all_column_names:
+        raise ValueError(
+            "All column names can only be specified with a delta with an inline manifest."
+        )
     else:
         manifest = get_delta_manifest(
             delta_locator,
@@ -1097,7 +1119,7 @@ def download_delta_manifest_entry(
         )
     # TODO(pdames): Cache table version column names and only invoke when
     #  needed.
-    all_column_names = get_table_version_column_names(
+    all_column_names = all_column_names or get_table_version_column_names(
         delta_locator.namespace,
         delta_locator.table_name,
         delta_locator.table_version,

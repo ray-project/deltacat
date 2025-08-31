@@ -50,6 +50,7 @@ def _group_file_records_by_pk_hash_bucket(
     annotated_delta: DeltaAnnotated,
     num_hash_buckets: int,
     primary_keys: List[str],
+    all_column_names: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
@@ -61,6 +62,7 @@ def _group_file_records_by_pk_hash_bucket(
         total_size_bytes,
     ) = read_delta_file_envelopes(
         annotated_delta,
+        all_column_names,
         read_kwargs_provider,
         deltacat_storage,
         deltacat_storage_kwargs,
@@ -116,6 +118,7 @@ def _timed_hash_bucket(input: HashBucketInput):
             annotated_delta=input.annotated_delta,
             num_hash_buckets=input.num_hash_buckets,
             primary_keys=input.primary_keys,
+            all_column_names=input.all_column_names,
             read_kwargs_provider=input.read_kwargs_provider,
             deltacat_storage=input.deltacat_storage,
             deltacat_storage_kwargs=input.deltacat_storage_kwargs,

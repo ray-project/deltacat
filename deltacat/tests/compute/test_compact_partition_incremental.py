@@ -260,6 +260,12 @@ def test_compact_partition_incremental_main(
         if create_placement_group_param
         else None
     )
+    all_column_names = metastore.get_table_version_column_names(
+        destination_table_stream.locator.table_locator.namespace,
+        destination_table_stream.locator.table_locator.table_name,
+        destination_table_stream.locator.table_version_locator.table_version,
+        catalog=catalog,
+    )
     compact_partition_params = CompactPartitionParams.of(
         {
             "catalog": catalog,
@@ -274,6 +280,7 @@ def test_compact_partition_incremental_main(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys,
+            "all_column_names": all_column_names,
             "read_kwargs_provider": read_kwargs_provider_param,
             "rebase_source_partition_locator": None,
             "rebase_source_partition_high_watermark": None,

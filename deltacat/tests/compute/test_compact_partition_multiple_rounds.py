@@ -223,7 +223,12 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         partition_scheme_id=rebased_table_stream.partition_scheme.id,
         **ds_mock_kwargs,
     )
-
+    all_column_names = metastore.get_table_version_column_names(
+        rebased_table_stream.locator.table_locator.namespace,
+        rebased_table_stream.locator.table_locator.table_name,
+        rebased_table_stream.locator.table_version_locator.table_version,
+        catalog=ds_mock_kwargs.get("inner"),
+    )
     total_cpus = DEFAULT_NUM_WORKERS * DEFAULT_WORKER_INSTANCE_CPUS
     pgm = None
     if create_placement_group_param:
@@ -248,6 +253,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
                 "object_store": FileObjectStore(test_dir),
                 "pg_config": pgm,
                 "primary_keys": primary_keys,
+                "all_column_names": all_column_names,
                 "read_kwargs_provider": read_kwargs_provider_param,
                 "rebase_source_partition_locator": source_partition.locator,
                 "rebase_source_partition_high_watermark": rebased_partition.stream_position,

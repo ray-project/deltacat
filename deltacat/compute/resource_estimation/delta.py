@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from deltacat import logs
 from deltacat.storage import (
     Delta,
@@ -61,6 +61,7 @@ def _estimate_resources_required_to_process_delta_using_previous_inflation(
 def _estimate_resources_required_to_process_delta_using_type_params(
     delta: Delta,
     operation_type: OperationType,
+    all_column_names: List[str],
     estimate_resources_params: EstimateResourcesParams,
     deltacat_storage: unimplemented_deltacat_storage,
     deltacat_storage_kwargs: Dict[str, Any],
@@ -113,6 +114,7 @@ def _estimate_resources_required_to_process_delta_using_type_params(
     """
     appended = append_content_type_params(
         delta=delta,
+        all_column_names=all_column_names,
         deltacat_storage=deltacat_storage,
         deltacat_storage_kwargs=deltacat_storage_kwargs,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
@@ -289,10 +291,18 @@ def estimate_resources_required_to_process_delta(
         estimate_resources_params.resource_estimation_method
     )
 
+    all_column_names = deltacat_storage.get_table_version_column_names(
+        delta.locator.namespace,
+        delta.locator.table_name,
+        delta.locator.table_version,
+        **deltacat_storage_kwargs,
+    )
+
     for func in functions:
         resources = func(
             delta=delta,
             operation_type=operation_type,
+            all_column_names=all_column_names,
             estimate_resources_params=estimate_resources_params,
             deltacat_storage=deltacat_storage,
             deltacat_storage_kwargs=deltacat_storage_kwargs,
