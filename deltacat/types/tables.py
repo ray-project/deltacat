@@ -733,6 +733,23 @@ def get_table_length(
         return len(table)
 
 
+def dataset_length(table: Dataset) -> int:
+    """
+    Generic function to get the length of a dataset in records.
+    If the input is a list of tables, the length is the sum of the
+    lengths of the tables.
+
+    Args:
+        table: The dataset to get the length of
+
+    Returns:
+        Length of the dataset in records
+    """
+    if isinstance(table, list):
+        return sum(get_table_length(t) for t in table)
+    return get_table_length(table)
+
+
 def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
     """
     Generic function to get the size of a table or distributed dataset.
@@ -745,6 +762,23 @@ def get_table_size(table: Union[LocalTable, DistributedDataset]) -> int:
     """
     table_size_func = _get_table_function(table, TABLE_CLASS_TO_SIZE_FUNC, "size")
     return table_size_func(table)
+
+
+def dataset_size(table: Dataset) -> int:
+    """
+    Generic function to get the size of a dataset in bytes.
+    If the input is a list of tables, the size is the sum of the
+    sizes of the tables.
+
+    Args:
+        table: The dataset to get the size of
+
+    Returns:
+        Size of the dataset in bytes
+    """
+    if isinstance(table, list):
+        return sum(get_table_size(t) for t in table)
+    return get_table_size(table)
 
 
 def get_table_column_names(table: Union[LocalTable, DistributedDataset]) -> List[str]:
@@ -763,6 +797,28 @@ def get_table_column_names(table: Union[LocalTable, DistributedDataset]) -> List
     return column_names_func(table)
 
 
+def dataset_column_names(table: Dataset) -> List[str]:
+    """
+    Generic function to get the column names of a dataset.
+    If the input is a list of tables, unique column names are
+    returned in the order they are first seen in the list.
+
+    Args:
+        table: The dataset to get the column names of
+
+    Returns:
+        List of column names
+    """
+    if isinstance(table, list):
+        # use dictionary keys as an ordered set
+        column_names = {}
+        for t in table:
+            for column_name in get_table_column_names(t):
+                column_names[column_name] = None
+        return list(column_names.keys())
+    return get_table_column_names(table)
+
+
 def get_table_schema(table: Union[LocalTable, DistributedDataset]) -> pa.Schema:
     """
     Generic function to get the PyArrow schema of a table or distributed dataset.
@@ -775,6 +831,22 @@ def get_table_schema(table: Union[LocalTable, DistributedDataset]) -> pa.Schema:
     """
     schema_func = _get_table_function(table, TABLE_CLASS_TO_SCHEMA_FUNC, "schema")
     return schema_func(table)
+
+
+def dataset_schema(table: Dataset) -> pa.Schema:
+    """
+    Generic function to get the PyArrow schema of a dataset. If the input is a list of
+    tables, uses pyarrow.unify_schemas(schemas, promote_options="permissive").
+
+    Args:
+        table: The dataset to get the schema of
+
+    Returns:
+        PyArrow Schema object
+    """
+    if isinstance(table, list):
+        return pa.unify_schemas([get_table_schema(t) for t in table], promote_options="permissive")
+    return get_table_schema(table)
 
 
 def get_table_writer(table: Union[LocalTable, DistributedDataset]) -> Callable:

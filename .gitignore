@@ -30,6 +30,7 @@ package-lock.json
 *.db
 pyvenv.cfg
 **/.deltacat
+.deltacat_memory/
 
 # Generated Files
 **/.riv-meta-*

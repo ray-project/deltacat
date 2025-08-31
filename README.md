@@ -45,7 +45,7 @@ dc.init_local()
 data = pd.DataFrame({
     "id": [1, 2, 3],
     "name": ["Whiskers", "Mittens", "Ginger"],
-    "age": [83, 84, 47]
+    "age": [3, 7, 5]
 })
 
 # Write data to a table.
@@ -62,8 +62,8 @@ daft_df.show()  # Materialize and print the DataFrame
 data = pd.DataFrame({
     "id": [4, 5, 6],
     "name": ["Stripes", "Patches", "Delta"],
-    "age": [45, 105, 4],
-    "city": ["Chagrin Falls", "New York", "San Francisco"]
+    "age": [2, 12, 4],
+    "city": ["London", "New York", "San Francisco"]
 })
 dc.write(data, "users")
 
@@ -100,8 +100,8 @@ import pyarrow as pa
 data = pa.Table.from_pydict({
     "id": [4, 5, 6],
     "name": ["Stripes", "Patches", "Delta"],
-    "age": [45, 105, 4],
-    "city": ["Chagrin Falls", "New York", "San Francisco"]
+    "age": [2, 12, 4],
+    "city": ["London", "New York", "San Francisco"]
 })
 
 # Write different dataset types to the default table file format (Parquet):
@@ -165,13 +165,12 @@ DeltaCAT can automatically merge and delete data by defining a table schema with
 import deltacat as dc
 import pandas as pd
 import pyarrow as pa
+from deltacat.storage.model.schema import Schema, Field
 
 # Initialize DeltaCAT with a default local catalog
 dc.init_local()
 
 # Define a schema with user_id as a merge key.
-from deltacat.storage.model.schema import Schema, Field
-
 schema = Schema.of([
     Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
     Field.of(pa.field("name", pa.string())),
@@ -183,7 +182,7 @@ schema = Schema.of([
 initial_users = pd.DataFrame({
     "user_id": [1, 2, 3],
     "name": ["Whiskers", "Mittens", "Stripes"],
-    "age": [83, 84, 45],
+    "age": [3, 7, 2],
     "status": ["active", "active", "inactive"]
 })
 
@@ -199,7 +198,7 @@ print(df)
 updated_users = pd.DataFrame({
     "user_id": [2, 3, 4, 5, 6],  # Mittens & Stripes updated, new users added
     "name": ["Mittens", "Stripes", "Ginger", "Patches", "Delta"],
-    "age": [84, 45, 47, 105, 4],
+    "age": [7, 2, 5, 12, 4],
     "status": ["premium", "active", "active", "active", "active"]
 })
 
@@ -310,11 +309,9 @@ print(f"Finance users fields: {list(finance_df.columns)}")  # ['user_id', 'lifet
 
 ### Multi-Table Transactions
 
-DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this makes it easier to keep related datasets consistent across your entire catalog.
+DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this simplifies keeping related datasets in sync across your entire catalog.
 
-Consider our previous example of organizing tables using namespaces. We had one table that kept track of customer orders, and another
-table that tracked the lifetime payments of each customer. If we successfully updated one table but not the other, then
-we'd be left with an accounting discrepancy. We can resolve this using multi-table transactions:
+Consider the previous example that organized tables with namespaces. One table tracked customer orders, and another table tracked the lifetime payments of each customer. If one table was updated but not the other, then it would result in an accounting discrepancy. This edge case can be eliminated by using multi-table transactions:
 
 ```python
 import deltacat as dc
@@ -394,7 +391,7 @@ print(f"Finance records updated: {len(finance_df)}")
 
 ### Working with Multiple Catalogs
 
-DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them automatically available to all workers in your cluster or local machine.
+DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them available to all workers in your Ray application.
 
 For example, you may want to test a write against a local staging catalog before committing it to a shared production catalog:
 
@@ -503,11 +500,11 @@ with dc.transaction():
     dc.write(initial_finance, "users", namespace="finance")
 
 # Capture timestamp for time travel
-time.sleep(1)
+time.sleep(0.1)
 checkpoint_time = time.time_ns()
-time.sleep(1)
+time.sleep(0.1)
 
-# Later, add new orders for existing users and new users Whiskers & Patches
+# Later, add new orders for existing and new users
 new_orders = pd.DataFrame({
     "order_id": [1004, 1005, 1006, 1007, 1008],
     "user_id": [1, 2, 1, 4, 5],
@@ -567,15 +564,17 @@ with dc.transaction(as_of=checkpoint_time):
     assert len(historic_orders) == 3  # Only original 3 orders
 
     # Finance data reflects original payment totals
-    whiskers_historic_payments = historic_finance[historic_finance["user_id"] == 1]["lifetime_payments"].iloc[0]
-    assert whiskers_historic_payments == 25.98  # Original total, not updated 77.94
+    historic_payments = historic_finance[historic_finance["user_id"] == 1]["lifetime_payments"].iloc[0]
+    assert historic_payments == 25.98  # Original total, not updated 77.94
 
-print("\nTime travel validation successful! 🕰️")
+print("\nTime travel validation successful!")
 ```
 
 ### Multimodal Batch Inference
 
-DeltaCAT supports native multimodal data storage and processing. For example, the following code classifies images of cats by breed:
+DeltaCAT supports native multimodal data storage and processing with partial field updates. For example, the following code classifies images of cats by breed, then adds predictions using partial updates (only merge key + new fields):
+
+> **Requirements**: This example requires PyTorch ≥ 2.8.0 and torchvision ≥ 0.23.0. Install via: `pip install torch>=2.8.0 torchvision>=0.23.0`
 
 ```python
 import deltacat as dc
@@ -590,9 +589,9 @@ dc.init_local(tempfile.mkdtemp())
 
 # Define initial schema with image_id as merge key (no prediction fields yet)
 initial_schema = Schema.of([
-    Field.of(pa.field("image_id", pa.string()), is_merge_key=True),
-    Field.of(pa.field("image_path", pa.string())),
-    Field.of(pa.field("true_breed", pa.string())),
+    Field.of(pa.field("image_id", pa.large_string()), is_merge_key=True),
+    Field.of(pa.field("image_path", pa.large_string())),
+    Field.of(pa.field("true_breed", pa.large_string())),
     Field.of(pa.field("image_bytes", pa.binary())),
 ])
 
@@ -606,93 +605,61 @@ df = daft.from_pydict({
 # Load images and prepare for processing
 df = df.with_column("image_bytes", df["image_path"].url.download())
 
-# Write initial dataset to DeltaCAT (only image data, no predictions yet)
-initial_data = df.select("image_id", "image_path", "true_breed", "image_bytes").to_pandas()
-dc.write(initial_data, "cool_cats", schema=initial_schema)
+# Write initial dataset to DeltaCAT
+dc.write(df, "cool_cats", schema=initial_schema)
 
-# Define efficient class-based UDF following Daft best practices
-@daft.udf(return_dtype=daft.DataType.struct({
-    "predicted_breed": daft.DataType.string(),
-    "confidence": daft.DataType.float64()
-}))
+# Define an ImageClassifier UDF for cat breed prediction
+@daft.udf(return_dtype=daft.DataType.fixed_size_list(dtype=daft.DataType.string(), size=2))
 class ImageClassifier:
     def __init__(self):
-        """Initialize model once per worker for efficiency (following Daft patterns)"""
-        print("Loading NVIDIA ResNet50 classifier...")
-        self.model = torch.hub.load(
-            "NVIDIA/DeepLearningExamples:torchhub",
-            "nvidia_resnet50",
-            pretrained=True
-        )
-        self.model.eval().to(torch.device("cpu"))  # Consistent CPU processing
-        self.utils = torch.hub.load(
-            "NVIDIA/DeepLearningExamples:torchhub",
-            "nvidia_convnets_processing_utils"
-        )
+        """Initialize model once per worker for efficiency"""
+        self.model = torch.hub.load("NVIDIA/DeepLearningExamples:torchhub", "nvidia_resnet50", pretrained=True)
+        self.utils = torch.hub.load("NVIDIA/DeepLearningExamples:torchhub", "nvidia_convnets_processing_utils")
+        self.model.eval().to(torch.device("cpu"))
 
     def __call__(self, image_paths):
         """Process batch of images efficiently using NVIDIA utilities"""
-        results = []
-        for path in image_paths.to_pylist():
-            # Work directly with file paths (NVIDIA utilities expect URIs/paths)
-            # Use NVIDIA's built-in preprocessing directly with file path
-            tensor = self.utils.prepare_input_from_uri(path)
+        batch = torch.cat([self.utils.prepare_input_from_uri(uri) for uri in image_paths.to_pylist()]).to(torch.device("cpu"))
 
-            with torch.no_grad():
-                output = self.model(tensor)
-                # Use NVIDIA's utilities for top prediction
-                predictions = self.utils.pick_n_best(predictions=output, n=1)
+        with torch.no_grad():
+            output = torch.nn.functional.softmax(self.model(batch), dim=1)
 
-                # NVIDIA utils return format: [[('class_name', 'confidence_percent_string')]]
-                prediction_tuple = predictions[0][0]  # First prediction tuple
-                predicted_breed = prediction_tuple[0]  # Class name
-                # Convert confidence from string like "753.0%" to float
-                confidence_str = prediction_tuple[1].replace('%', '')
-                confidence = float(confidence_str) / 100.0  # Convert to 0-1 range
+        results = self.utils.pick_n_best(predictions=output, n=1)
+        return [result[0] for result in results]
 
-                results.append({
-                    "predicted_breed": predicted_breed,
-                    "confidence": confidence
-                })
-        return results
+# Apply the UDF first to get predictions
+df_with_predictions = df.with_column("prediction", ImageClassifier(df["image_path"]))
 
-# Run batch inference on file paths and prepare prediction data for merge
-predictions_df = df.with_column("prediction", ImageClassifier(df["image_path"]))
-prediction_data = predictions_df.select(
-    df["image_id"],  # Merge key to match existing records
-    df["image_path"],  # Include all existing fields for complete record
-    df["true_breed"],  # Include all existing fields for complete record
-    df["image_bytes"], # Include all existing fields for complete record
-    predictions_df["prediction"]["predicted_breed"].alias("predicted_breed"),  # New field
-    predictions_df["prediction"]["confidence"].alias("confidence")  # New field
+# Run batch inference and prepare partial update data (merge key + new fields only)
+prediction_data = df_with_predictions.select(
+    df_with_predictions["image_id"],  # Merge key to match existing records
+    df_with_predictions["prediction"].list.get(0).alias("predicted_breed"),  # New field to update
+    (df_with_predictions["prediction"].list.get(1).str.replace("%", "").cast(daft.DataType.float64()) / 100.0).alias("confidence")  # New field to update
 )
 
-# Schema evolution: Write complete records with new prediction fields - DeltaCAT
-# automatically evolves the schema and preserves all existing data
-dc.write(prediction_data.to_pandas(), "cool_cats")
+# Write the predictions back to the table
+dc.write(prediction_data, "cool_cats")
 
-# Read back the merged results and add decoded images for display
-final_df = dc.read("cool_cats", read_as=dc.DatasetType.DAFT)
+# Read back the merged results
+final_df = dc.read("cool_cats")
 final_df = final_df.with_column("image", final_df["image_bytes"].image.decode())
 
 # Calculate accuracy and display results
 results = final_df.select("image_id", "true_breed", "predicted_breed", "confidence").to_pandas()
-accuracy = (results["true_breed"] == results["predicted_breed"]).mean()
+accuracy = (results.apply(lambda row: row["true_breed"].lower() in row["predicted_breed"].lower(), axis=1)).mean()
 
-print(f"Classification Results (using NVIDIA ResNet50):")
 print(f"Classification Accuracy: {accuracy:.1%}")
-for _, row in results.iterrows():
-    status = "✓" if row["true_breed"] == row["predicted_breed"] else "✗"
-    print(f"{status} {row['image_id']}: {row['true_breed']} → {row['predicted_breed']} ({row['confidence']:.1%})")
 
 # Display final dataset with decoded images for visual inspection
-print(f"\nFinal dataset with images:")
+print(f"Final dataset with images and predictions:")
 final_df.show()
 ```
 
-### Putting it All Together: LLM Document Processing with Time Travel
+Unfortunately, this example achieves only 33% accuracy using generic ImageNet classes. To achieve better accuracy, you can also [fine-tune your own cat breed classifier using DeltaCAT](deltacat/docs/examples/fine-tuning-guide.md).
 
-Putting it all together, we can build a document processing pipeline with ACID transactions across tables, time travel queries, and automatic schema evolution. Here's a concise example with real document processing:
+### LLM Document Processing with Time Travel
+
+The following example combines multi-table transactions, time travel queries, and automatic schema evolution to build a document processing pipeline:
 
 ```python
 import deltacat as dc
@@ -705,25 +672,20 @@ from transformers import pipeline
 # Initialize DeltaCAT
 dc.init_local(tempfile.mkdtemp())
 
-# Load sample customer documents (fictional data for demonstration)
-docs = pd.DataFrame([
-    {"doc_id": "feedback_001", "path": "media/customer_feedback_001.txt"},
-    {"doc_id": "feedback_002", "path": "media/customer_feedback_002.txt"},
-    {"doc_id": "feedback_003", "path": "media/customer_feedback_003.txt"}
-])
+# Load customer feedback
+daft_docs = daft.from_pydict({
+    "doc_id": [1, 2, 3],
+    "path": ["media/customer_feedback_001.txt", "media/customer_feedback_002.txt", "media/customer_feedback_003.txt"]
+})
+daft_docs = daft_docs.with_column("content", daft_docs["path"].url.download())
 
-# Read document content and convert to Daft for parallel processing
-docs['content'] = docs['path'].apply(lambda p: open(p).read())
-daft_docs = daft.from_pandas(docs)
+# Doc processing V1.0
+# Capture basic feedback sentiment analysis in a parallel multi-table transaction
+with dc.transaction():
+    # Write the full customer feedback to a new "documents" table.
+    dc.write(daft_docs, "documents", namespace="analysis")
 
-# === UNIQUE VALUE: Multi-table ACID transaction ===
-
-with dc.transaction():  # Atomic across ALL tables
-    dc.write(docs, "documents", namespace="analysis")
-
-    # Parallel LLM sentiment analysis (v1.0) using Daft
-    print("🚀 Running parallel sentiment analysis with Daft...")
-
+    # Define a UDF to analyze customer feedback sentiment.
     @daft.udf(return_dtype=daft.DataType.struct({
         "sentiment": daft.DataType.string(),
         "confidence": daft.DataType.float64(),
@@ -741,7 +703,8 @@ with dc.transaction():  # Atomic across ALL tables
             })
         return results
 
-    # Parallel execution across available cores
+    # Run sentiment analysis in parallel.
+    print("Running parallel customer feedback sentiment analysis...")
     daft_results = daft_docs.with_column("analysis", analyze_sentiment(daft_docs["content"]))
     daft_results = daft_results.select(
         daft_docs["doc_id"],
@@ -750,31 +713,33 @@ with dc.transaction():  # Atomic across ALL tables
         daft_results["analysis"]["model_version"].alias("model_version")
     )
 
-    insights_v1 = daft_results.to_pandas()
+    # Write sentiment analysis to a new table with doc_id as the merge key.
+    initial_schema = Schema.of([
+        Field.of(pa.field("doc_id", pa.int64()), is_merge_key=True),
+        Field.of(pa.field("sentiment", pa.large_string())),
+        Field.of(pa.field("confidence", pa.float64())),
+        Field.of(pa.field("model_version", pa.large_string())),
+    ])
+    dc.write(daft_results, "insights", namespace="analysis", schema=initial_schema)
 
-    # Store with merge capability (automatic upserts)
-    dc.write(insights_v1, "insights", namespace="analysis", merge_key="doc_id")
+    # Write to a new audit trail table.
+    audit_df = pd.DataFrame([{
+        "version": "v1.0", 
+        "docs_processed": dc.dataset_length(daft_docs),
+    }])
+    dc.write(audit_df, "audit", namespace="analysis")
 
-    # Audit trail
-    dc.write(pd.DataFrame([{"version": "v1.0", "docs_processed": len(docs)}]),
-             "audit", namespace="analysis")
+print("V1.0: Customer feedback sentiment analysis processing complete!")
 
-print("✅ V1.0 processing complete")
-
-# Create checkpoint AFTER v1.0 transaction commits
-time.sleep(1)
+# Create checkpoint after v1.0 transaction commits.
+time.sleep(0.1)
 checkpoint_v1 = time.time_ns()
-time.sleep(1)
+time.sleep(0.1)
 
-# === Model upgrade simulation ===
-time.sleep(1)
-checkpoint_v2 = time.time_ns()
-time.sleep(1)
-
+# Doc processing V2.0
+# Upgrade to a model that also captures customer feedback emotion details.
 with dc.transaction():
-    # Parallel emotion analysis upgrade (v2.0) using Daft
-    print("🚀 Running parallel emotion analysis with Daft...")
-
+    # Define a UDF to analyze customer feedback emotion details.
     @daft.udf(return_dtype=daft.DataType.struct({
         "sentiment": daft.DataType.string(),
         "confidence": daft.DataType.float64(),
@@ -790,11 +755,12 @@ with dc.transaction():
                 "sentiment": result['label'],
                 "confidence": result['score'],
                 "model_version": "distilroberta-v2.0",
-                "emotion_detail": result['label']  # New column - automatic schema evolution!
+                "emotion_detail": result['label']  # New column
             })
         return results
 
-    # Parallel execution for emotion analysis
+    # Run emotion detail analysis in parallel.
+    print("Running parallel customer feedback emotion detail analysis...")
     daft_emotions = daft_docs.with_column("analysis", analyze_emotions(daft_docs["content"]))
     daft_emotions = daft_emotions.select(
         daft_docs["doc_id"],
@@ -804,24 +770,22 @@ with dc.transaction():
         daft_emotions["analysis"]["emotion_detail"].alias("emotion_detail")
     )
 
-    insights_v2 = daft_emotions.to_pandas()
+    # Merge new V2.0 insights into the existing V1.0 insights table.
+    # The new "emotion_detail" column is automatically zipper-merged by document ID.
+    dc.write(daft_emotions, "insights", namespace="analysis", merge_key="doc_id")
+    audit_df = pd.DataFrame([{"version": "v2.0", "docs_processed": dc.dataset_length(daft_docs)}])
+    dc.write(audit_df, "audit", namespace="analysis")
 
-    # Automatic schema evolution: new emotion_detail column added seamlessly
-    dc.write(insights_v2, "insights", namespace="analysis", merge_key="doc_id")
-    dc.write(pd.DataFrame([{"version": "v2.0", "docs_processed": len(docs)}]),
-             "audit", namespace="analysis")
+print("V2.0: Customer feedback emotion detail analysis processing complete!")
 
-print("✅ V2.0 upgrade complete with schema evolution")
+time.sleep(0.1)
+checkpoint_v2 = time.time_ns()
+time.sleep(0.1)
 
-# === V3.0 Customer Service Response Generation ===
-time.sleep(1)
-checkpoint_v3 = time.time_ns()
-time.sleep(1)
-
+# Doc processing V3.0
+# Generate customer service responses based on sentiment and emotion detail.
 with dc.transaction():
-    # Parallel customer service response generation using Daft
-    print("🚀 Running parallel response generation with Daft...")
-
+    # Define a UDF to generate customer service responses.
     @daft.udf(return_dtype=daft.DataType.struct({
         "response_text": daft.DataType.string(),
         "response_model": daft.DataType.string(),
@@ -831,7 +795,7 @@ with dc.transaction():
         response_generator = pipeline("text-generation", model="microsoft/DialoGPT-medium")
         results = []
         for content in content_series.to_pylist():
-            # Create appropriate response prompt based on content
+            # Create appropriate response prompt based on content.
             if "disappointed" in content.lower() or "unacceptable" in content.lower():
                 prompt = "Dear valued customer, we sincerely apologize for"
             elif "outstanding" in content.lower() or "excellent" in content.lower():
@@ -839,10 +803,9 @@ with dc.transaction():
             else:
                 prompt = "Thank you for contacting us. We understand your concern and"
 
-            # Generate response (truncated for demo)
+            # Generate truncated responses.
             generated = response_generator(prompt, max_length=100, num_return_sequences=1, pad_token_id=50256)
             response_text = generated[0]['generated_text']
-
             results.append({
                 "response_text": response_text,
                 "response_model": "dialogpt-medium-v3.0",
@@ -850,7 +813,8 @@ with dc.transaction():
             })
         return results
 
-    # Parallel execution for response generation
+    # Run customer service response generation in parallel.
+    print("Running parallel customer service response generation...")
     daft_responses = daft_docs.with_column("response", generate_responses(daft_docs["content"]))
     daft_responses = daft_responses.select(
         daft_docs["doc_id"],
@@ -858,46 +822,29 @@ with dc.transaction():
         daft_responses["response"]["response_model"].alias("response_model"),
         daft_responses["response"]["generated_at"].alias("generated_at")
     )
+    dc.write(daft_responses, "insights", namespace="analysis")
+    audit_df = pd.DataFrame([{"version": "v3.0", "docs_processed": dc.dataset_length(daft_docs)}])
+    dc.write(audit_df, "audit", namespace="analysis")
 
-    responses_df = daft_responses.to_pandas()
-    dc.write(responses_df, "responses", namespace="analysis", merge_key="doc_id")
-    dc.write(pd.DataFrame([{"version": "v3.0", "docs_processed": len(docs)}]),
-             "audit", namespace="analysis")
+print("V3.0: Customer service response generation processing complete!")
 
-print("✅ V3.0 customer service automation complete")
-
-# === UNIQUE VALUE: Time travel analysis across all versions ===
-print("\n🕰️ Time Travel Comparison:")
-
-# V1.0 results (point-in-time query)
+print("\nTime Travel Comparison of all Versions:")
 with dc.transaction(as_of=checkpoint_v1):
-    old_results = dc.read("insights", namespace="analysis")
-    print(f"V1.0: {list(old_results.columns)}")
+    v1_results = dc.read("insights", namespace="analysis")
+    print(f"V1.0 Insights (sentiment only): {dc.to_pandas(v1_results)}")
+    v1_audit = dc.read("audit", namespace="analysis")
+    print(f"V1.0 Audit: {dc.to_pandas(v1_audit)}")
 
-# Current V2.0 results
-new_results = dc.read("insights", namespace="analysis")
-print(f"V2.0: {list(new_results.columns)}")
+with dc.transaction(as_of=checkpoint_v2):
+    v2_results = dc.read("insights", namespace="analysis")
+    print(f"V2.0 Insights (with emotion detail): {dc.to_pandas(v2_results)}")
+    v2_audit = dc.read("audit", namespace="analysis")
+    print(f"V2.0 Audit: {dc.to_pandas(v2_audit)}")
 
-# Show actual predictions
-for _, row in new_results.iterrows():
-    print(f"{row['doc_id']}: {row['sentiment']} ({row['confidence']:.2f})")
-
-# Show generated customer service responses
-print("\n💬 Generated Customer Service Responses:")
-responses = dc.read("responses", namespace="analysis")
-for _, row in responses.iterrows():
-    response_preview = row['response_text'][:80].replace('\n', ' ')
-    print(f"{row['doc_id']}: {response_preview}...")
-
-# Complete audit trail
-audit_history = dc.read("audit", namespace="analysis")
-print(f"\n📊 Complete Processing History:")
-for _, audit in audit_history.iterrows():
-    print(f"  {audit['version']}: {audit['docs_processed']} documents processed")
-
-print(f"\n✅ Complete enterprise ML pipeline with automated customer service!")
-print(f"📊 Multi-table ACID transactions, time travel, and LLM automation")
-print(f"🚀 Capabilities impossible with raw Parquet/Ray Data alone")
+v3_results = dc.read("insights", namespace="analysis")
+print(f"V3.0 Insights (with customer service response): {dc.to_pandas(v3_results)}")
+v3_audit = dc.read("audit", namespace="analysis")
+print(f"V3.0 Audit: {dc.to_pandas(v3_audit)}")
 ```
 
 ## Runtime Environment Requirements

@@ -181,7 +181,7 @@ def _merge_tables(
             all_tables[incremental_idx], DeltaType.DELETE
         )
         # we need not drop duplicates
-        final_table = _concat_or_coerce_tables(all_tables)
+        return _concat_or_coerce_tables(all_tables)
 
     all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
 
@@ -255,7 +255,7 @@ def _merge_records_partially(
     old_records: pa.Table, new_records: pa.Table, original_fields: Set[str]
 ) -> pa.Table:
     """
-    Merge records field by field for partial UPSERT behavior. Fills missing 
+    Merge records field by field for partial UPSERT behavior. Fills missing
     fields in new_records with values from old_records.
 
     Args:

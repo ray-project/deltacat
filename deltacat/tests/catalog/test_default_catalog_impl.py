@@ -1166,6 +1166,145 @@ class TestCopyOnWrite:
             pd.isna(dave_row["city"]) or dave_row["city"] is None
         ), f"ID 4 city should be null (not specified) ({dataset_type.value})"
 
+    @pytest.mark.parametrize(
+        "dataset_type",
+        [
+            DatasetType.PANDAS,
+            DatasetType.PYARROW,
+            DatasetType.POLARS,
+            DatasetType.DAFT,
+            DatasetType.RAY_DATASET,
+            # Note: NUMPY excluded due to type conversion issues during schema evolution
+        ],
+    )
+    def test_partial_upsert_with_schema_evolution(self, dataset_type):
+        """Test partial UPSERT that adds new columns (schema evolution) while updating existing ones."""
+        table_name = f"test_partial_upsert_schema_evolution_{dataset_type.value}"
+
+        # Create table with merge keys
+        self._create_table_with_merge_keys(table_name)
+
+        # Initial data with basic schema
+        initial_data_pd = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "age": [25, 30, 35],
+            }
+        )
+
+        # Convert to target dataset type and write initial data
+        initial_data = dc.from_pandas(initial_data_pd, dataset_type)
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Partial UPSERT with schema evolution: adds new columns + updates some existing ones
+        partial_upsert_pd = pd.DataFrame(
+            {
+                "id": [1, 2, 4],  # Update IDs 1,2 and insert new ID 4
+                "name": [
+                    "Alice_Updated",
+                    "Bob_Updated",
+                    "Dave",
+                ],  # Update existing column
+                # Note: age column is MISSING - should preserve existing values for IDs 1,2
+                "city": ["NYC", "LA", "Houston"],  # NEW COLUMN via schema evolution
+                "department": [
+                    "Engineering",
+                    None,
+                    "Sales",
+                ],  # NEW COLUMN with explicit null for ID 2
+            }
+        )
+
+        # Convert partial data to target dataset type and write
+        partial_upsert_data = dc.from_pandas(partial_upsert_pd, dataset_type)
+        dc.write_to_table(
+            data=partial_upsert_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Read back and verify partial UPSERT with schema evolution
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+        result_df = result.to_pandas()
+
+        # Verify results
+        assert len(result_df) == 4, f"Should have 4 records ({dataset_type.value})"
+
+        # ID 1: name updated, age preserved, new columns added
+        alice_row = result_df[result_df["id"] == 1].iloc[0]
+        assert (
+            alice_row["name"] == "Alice_Updated"
+        ), f"ID 1 name should be updated ({dataset_type.value})"
+        assert (
+            alice_row["age"] == 25
+        ), f"ID 1 age should be preserved from original ({dataset_type.value})"
+        assert (
+            alice_row["city"] == "NYC"
+        ), f"ID 1 city should be set from new column ({dataset_type.value})"
+        assert (
+            alice_row["department"] == "Engineering"
+        ), f"ID 1 department should be set from new column ({dataset_type.value})"
+
+        # ID 2: name updated, age preserved, new columns added (one explicit null)
+        bob_row = result_df[result_df["id"] == 2].iloc[0]
+        assert (
+            bob_row["name"] == "Bob_Updated"
+        ), f"ID 2 name should be updated ({dataset_type.value})"
+        assert (
+            bob_row["age"] == 30
+        ), f"ID 2 age should be preserved from original ({dataset_type.value})"
+        assert (
+            bob_row["city"] == "LA"
+        ), f"ID 2 city should be set from new column ({dataset_type.value})"
+        assert (
+            pd.isna(bob_row["department"]) or bob_row["department"] is None
+        ), f"ID 2 department should be explicitly null ({dataset_type.value})"
+
+        # ID 3: completely unchanged (not in partial upsert), new columns should be null
+        charlie_row = result_df[result_df["id"] == 3].iloc[0]
+        assert (
+            charlie_row["name"] == "Charlie"
+        ), f"ID 3 name should be unchanged ({dataset_type.value})"
+        assert (
+            charlie_row["age"] == 35
+        ), f"ID 3 age should be unchanged ({dataset_type.value})"
+        assert (
+            pd.isna(charlie_row["city"]) or charlie_row["city"] is None
+        ), f"ID 3 city should be null (not in upsert) ({dataset_type.value})"
+        assert (
+            pd.isna(charlie_row["department"]) or charlie_row["department"] is None
+        ), f"ID 3 department should be null (not in upsert) ({dataset_type.value})"
+
+        # ID 4: new record, all specified fields should be set, missing age should be null
+        dave_row = result_df[result_df["id"] == 4].iloc[0]
+        assert (
+            dave_row["name"] == "Dave"
+        ), f"ID 4 name should be set ({dataset_type.value})"
+        assert (
+            pd.isna(dave_row["age"]) or dave_row["age"] is None
+        ), f"ID 4 age should be null (not specified) ({dataset_type.value})"
+        assert (
+            dave_row["city"] == "Houston"
+        ), f"ID 4 city should be set from new column ({dataset_type.value})"
+        assert (
+            dave_row["department"] == "Sales"
+        ), f"ID 4 department should be set from new column ({dataset_type.value})"
+
     def test_three_upsert_deltas_comprehensive_merge(self):
         """
         Comprehensive test: write three upsert deltas with various overlapping patterns

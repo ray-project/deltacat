@@ -95,6 +95,10 @@ from deltacat.types.tables import (
     from_manifest_table,
     to_pyarrow,
     to_pandas,
+    dataset_length,
+    dataset_size,
+    dataset_column_names,
+    dataset_schema,
 )
 from deltacat.utils.url import DeltaCatUrl
 
@@ -154,6 +158,10 @@ __all__ = [
     "pop_catalog",
     "put_catalog",
     "raise_if_not_initialized",
+    "dataset_length",
+    "dataset_size",
+    "dataset_column_names",
+    "dataset_schema",
     "from_pandas",
     "from_pyarrow",
     "from_manifest_table",
