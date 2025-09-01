@@ -397,6 +397,68 @@ class TestTransactionPersistence:
         assert os.path.exists(success_log_path)
         assert success_log_path.endswith(str(txn.end_time))
 
+
+class TestTransactionCommitMessage:
+    """Test commit message functionality for transactions."""
+
+    def test_transaction_with_commit_message(self):
+        """Test that commit messages are stored and retrievable from transactions."""
+        commit_msg = "Test commit message for transaction functionality"
+
+        # Create transaction with commit message
+        txn = Transaction.of(commit_message=commit_msg)
+
+        # Verify commit message is stored correctly
+        assert txn.commit_message == commit_msg
+        assert txn.get("commit_message") == commit_msg
+
+    def test_transaction_without_commit_message(self):
+        """Test that transactions work normally without commit messages."""
+        # Create transaction without commit message
+        txn = Transaction.of()
+
+        # Verify no commit message is stored
+        assert txn.commit_message is None
+        assert txn.get("commit_message") is None
+
+    def test_transaction_commit_message_setter(self):
+        """Test that commit messages can be set after transaction creation."""
+        # Create transaction without commit message
+        txn = Transaction.of()
+        assert txn.commit_message is None
+
+        # Set commit message using property setter
+        commit_msg = "Added commit message after creation"
+        txn.commit_message = commit_msg
+
+        # Verify commit message is stored correctly
+        assert txn.commit_message == commit_msg
+        assert txn.get("commit_message") == commit_msg
+
+    def test_transaction_serialization_with_commit_message(self, temp_dir):
+        """Test that commit messages persist through transaction serialization."""
+        commit_msg = "Serialization test commit message"
+
+        # Create namespace for testing
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="serialization_test"))
+
+        # Create transaction with commit message
+        txn = Transaction.of(commit_message=commit_msg).start(temp_dir)
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+        txn.step(op)
+
+        # Commit transaction (this should serialize the transaction with commit message)
+        write_paths, success_log_path = txn.seal()
+
+        # Read the transaction log and verify commit message persisted
+        txn_read = Transaction.read(success_log_path)
+        assert txn_read.commit_message == commit_msg
+
+        # Verify other transaction properties are intact
+        assert txn_read.start_time == txn.start_time
+        assert txn_read.end_time == txn.end_time
+        assert len(txn_read.operations) == 1
+
     # Validates that transaction state, including ID and write paths, is correctly preserved across pause/resume cycles
     def test_resume_preserves_state_after_pause(self, temp_dir):
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))

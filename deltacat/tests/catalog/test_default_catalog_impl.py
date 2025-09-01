@@ -11583,6 +11583,116 @@ class TestMultiTableTransactions:
         assert 1 not in employees_dict, "Employee ID 1 should be deleted"
         assert 5 not in employees_dict, "Employee ID 5 should be deleted"
 
+    def test_multi_table_transaction_with_commit_message(self):
+        """Test multi-table transactions with commit messages for time travel functionality."""
+        # Use unique table names to avoid conflicts with other tests
+        products_table = "products_commit_msg"
+        orders_table = "orders_commit_msg"
+        commit_msg = "Initial product and order data setup for Q4 2024 analytics"
+
+        # Create schema for both tables
+        products_schema = Schema.of(
+            [
+                Field.of(pa.field("product_id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("price", pa.float64())),
+                Field.of(pa.field("category", pa.string())),
+            ]
+        )
+
+        orders_schema = Schema.of(
+            [
+                Field.of(pa.field("order_id", pa.int64()), is_merge_key=True),
+                Field.of(pa.field("product_id", pa.int64())),
+                Field.of(pa.field("quantity", pa.int32())),
+                Field.of(pa.field("status", pa.string())),
+            ]
+        )
+
+        # Test data
+        products_data = pd.DataFrame(
+            {
+                "product_id": [1, 2, 3],
+                "name": ["Laptop", "Mouse", "Keyboard"],
+                "price": [999.99, 29.99, 89.99],
+                "category": ["Electronics", "Accessories", "Accessories"],
+            }
+        )
+
+        orders_data = pd.DataFrame(
+            {
+                "order_id": [101, 102, 103],
+                "product_id": [1, 2, 1],
+                "quantity": [2, 5, 1],
+                "status": ["pending", "shipped", "completed"],
+            }
+        )
+
+        # Perform multi-table operations within transaction with commit message
+        with dc.transaction(commit_message=commit_msg):
+            # Create products table
+            dc.create_table(
+                table=products_table,
+                namespace=self.namespace,
+                schema=products_schema,
+                content_types=[ContentType.PARQUET],
+                table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+            )
+
+            # Create orders table
+            dc.create_table(
+                table=orders_table,
+                namespace=self.namespace,
+                schema=orders_schema,
+                content_types=[ContentType.PARQUET],
+                table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+            )
+
+            # Write initial data to both tables
+            dc.write_to_table(
+                data=products_data,
+                table=products_table,
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+            dc.write_to_table(
+                data=orders_data,
+                table=orders_table,
+                namespace=self.namespace,
+                mode=TableWriteMode.MERGE,
+                content_type=ContentType.PARQUET,
+            )
+
+        # Verify both tables exist and contain the expected data
+        products_result = dc.read_table(products_table, namespace=self.namespace)
+        orders_result = dc.read_table(orders_table, namespace=self.namespace)
+
+        # Verify products table
+        products_df = pd.DataFrame(products_result.to_pydict())
+        assert (
+            len(products_df) == 3
+        ), f"Expected 3 product records, got {len(products_df)}"
+
+        expected_products = {1, 2, 3}
+        actual_products = set(products_df["product_id"])
+        assert (
+            actual_products == expected_products
+        ), f"Product IDs mismatch: {actual_products}"
+
+        # Verify orders table
+        orders_df = pd.DataFrame(orders_result.to_pydict())
+        assert len(orders_df) == 3, f"Expected 3 order records, got {len(orders_df)}"
+
+        expected_orders = {101, 102, 103}
+        actual_orders = set(orders_df["order_id"])
+        assert actual_orders == expected_orders, f"Order IDs mismatch: {actual_orders}"
+
+        # Verify tables exist
+        assert dc.table_exists(products_table, namespace=self.namespace)
+        assert dc.table_exists(orders_table, namespace=self.namespace)
+
 
 class TestTimeTravelTransactions:
     @pytest.fixture

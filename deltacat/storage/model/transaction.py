@@ -93,7 +93,9 @@ def setup_transaction(
 
 
 def transaction(
-    catalog_name: Optional[str] = None, as_of: Optional[int] = None
+    catalog_name: Optional[str] = None,
+    as_of: Optional[int] = None,
+    commit_message: Optional[str] = None,
 ) -> Transaction:
     """
     Start a new interactive transaction for the given catalog.
@@ -104,13 +106,16 @@ def transaction(
         as_of: Optional historic timestamp in nanoseconds since epoch.
                If provided, creates a read-only transaction that provides
                MVCC snapshot isolation as of the specified timestamp.
+        commit_message: Optional commit message to describe the transaction purpose.
+                       Helps with time travel functionality by providing context
+                       for each transaction when browsing transaction history.
 
     Returns:
         Transaction: A started interactive transaction ready for use with the given catalog.
 
     Example:
-        # Read-write transaction
-        with dc.transaction() as txn:
+        # Read-write transaction with commit message
+        with dc.transaction(commit_message="Initial data load for Q4 analytics") as txn:
             dc.write_to_table(data, "my_table")
             dc.write_to_table(more_data, "my_other_table")
 
@@ -130,7 +135,7 @@ def transaction(
     # Create interactive transaction
     if as_of is not None:
         # Create read-only historic transaction
-        txn = Transaction.of().start(
+        txn = Transaction.of(commit_message=commit_message).start(
             catalog_properties.root,
             catalog_properties.filesystem,
             historic_timestamp=as_of,
@@ -138,7 +143,7 @@ def transaction(
         )
     else:
         # Create regular read-write transaction
-        txn = Transaction.of().start(
+        txn = Transaction.of(commit_message=commit_message).start(
             catalog_properties.root, catalog_properties.filesystem
         )
         # Initialize the lazy transaction ID
@@ -426,12 +431,15 @@ class Transaction(dict):
     @staticmethod
     def of(
         txn_operations: Optional[TransactionOperationList] = None,
+        commit_message: Optional[str] = None,
     ) -> Transaction:
         if txn_operations is None:
             txn_operations = []
         transaction = Transaction()
         transaction.operations = txn_operations
         transaction.interactive = len(txn_operations) == 0
+        if commit_message:
+            transaction.commit_message = commit_message
         return transaction
 
     @staticmethod
@@ -616,6 +624,20 @@ class Transaction(dict):
         Returns the end time of the transaction.
         """
         return self.get("end_time")
+
+    @property
+    def commit_message(self) -> Optional[str]:
+        """
+        Returns the commit message for the transaction.
+        """
+        return self.get("commit_message")
+
+    @commit_message.setter
+    def commit_message(self, message: str):
+        """
+        Sets the commit message for the transaction.
+        """
+        self["commit_message"] = message
 
     def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
         """
