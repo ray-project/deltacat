@@ -10330,7 +10330,7 @@ class TestSchemalessContentTypeBehavior:
 
 class TestMultiTableTransactions:
     """
-    Test class for multi-table transaction functionality using the new `with dc.transaction()` syntax.
+    Test class for multi-table transactions.
     Tests transaction context management, automatic transaction scoping, and complex multi-table operations.
     """
 
@@ -11257,6 +11257,10 @@ class TestMultiTableTransactions:
 
     def test_multi_table_transaction_with_merge_keys(self):
         """Test multi-table transactions with explicit merge keys and MERGE mode operations."""
+        # Use unique table names to avoid conflicts with other tests
+        customers_table = "customers_merge_keys"
+        employees_table = "employees_merge_keys"
+
         # Create schema with merge keys for both tables
         schema = Schema.of(
             [
@@ -11309,7 +11313,7 @@ class TestMultiTableTransactions:
         with dc.transaction():
             # Create customers table with merge keys
             dc.create_table(
-                table="customers",
+                table=customers_table,
                 namespace=self.namespace,
                 schema=schema,
                 content_types=[ContentType.PARQUET],
@@ -11318,7 +11322,7 @@ class TestMultiTableTransactions:
 
             # Create employees table with merge keys
             dc.create_table(
-                table="employees", 
+                table=employees_table,
                 namespace=self.namespace,
                 schema=schema,
                 content_types=[ContentType.PARQUET],
@@ -11328,7 +11332,7 @@ class TestMultiTableTransactions:
             # Initial writes to both tables
             dc.write_to_table(
                 data=customers_data,
-                table="customers",
+                table=customers_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
@@ -11336,7 +11340,7 @@ class TestMultiTableTransactions:
 
             dc.write_to_table(
                 data=employees_data,
-                table="employees",
+                table=employees_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
@@ -11345,7 +11349,7 @@ class TestMultiTableTransactions:
             # Update operations - these will trigger merge behavior
             dc.write_to_table(
                 data=customers_update,
-                table="customers",
+                table=customers_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
@@ -11353,15 +11357,15 @@ class TestMultiTableTransactions:
 
             dc.write_to_table(
                 data=employees_update,
-                table="employees", 
+                table=employees_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
             )
 
         # Verify both tables exist and contain merged data
-        customers_result = dc.read_table("customers", namespace=self.namespace)
-        employees_result = dc.read_table("employees", namespace=self.namespace)
+        customers_result = dc.read_table(customers_table, namespace=self.namespace)
+        employees_result = dc.read_table(employees_table, namespace=self.namespace)
 
         # Verify customers table merged correctly
         customers_df = pd.DataFrame(customers_result.to_pydict())
@@ -11380,14 +11384,20 @@ class TestMultiTableTransactions:
                 "city": row["city"],
             }
 
-        assert customers_dict == expected_customers, f"Customers mismatch: {customers_dict}"
+        assert (
+            customers_dict == expected_customers
+        ), f"Customers mismatch: {customers_dict}"
 
         # Verify employees table merged correctly
         employees_df = pd.DataFrame(employees_result.to_pydict())
         expected_employees = {
             1: {"name": "Alice", "age": 25, "city": "NYC"},  # Unchanged
             2: {"name": "Bob", "age": 30, "city": "LA"},  # Unchanged
-            3: {"name": "Charlie_Updated", "age": 36, "city": "Chicago_Updated"},  # Updated
+            3: {
+                "name": "Charlie_Updated",
+                "age": 36,
+                "city": "Chicago_Updated",
+            },  # Updated
             5: {"name": "Eve", "age": 45, "city": "Phoenix"},  # New
         }
 
@@ -11399,14 +11409,24 @@ class TestMultiTableTransactions:
                 "city": row["city"],
             }
 
-        assert employees_dict == expected_employees, f"Employees mismatch: {employees_dict}"
+        assert (
+            employees_dict == expected_employees
+        ), f"Employees mismatch: {employees_dict}"
 
         # Verify table counts
-        assert len(customers_dict) == 4, f"Expected 4 customer records, got {len(customers_dict)}"
-        assert len(employees_dict) == 4, f"Expected 4 employee records, got {len(employees_dict)}"
+        assert (
+            len(customers_dict) == 4
+        ), f"Expected 4 customer records, got {len(customers_dict)}"
+        assert (
+            len(employees_dict) == 4
+        ), f"Expected 4 employee records, got {len(employees_dict)}"
 
     def test_multi_table_transaction_with_delete_operations(self):
         """Test multi-table transactions with DELETE mode operations using merge keys."""
+        # Use unique table names to avoid conflicts with other tests
+        customers_table = "customers_delete_ops"
+        employees_table = "employees_delete_ops"
+
         # Create schema with merge keys for both tables
         schema = Schema.of(
             [
@@ -11453,7 +11473,7 @@ class TestMultiTableTransactions:
         with dc.transaction():
             # Create customers table with merge keys
             dc.create_table(
-                table="customers",
+                table=customers_table,
                 namespace=self.namespace,
                 schema=schema,
                 content_types=[ContentType.PARQUET],
@@ -11462,7 +11482,7 @@ class TestMultiTableTransactions:
 
             # Create employees table with merge keys
             dc.create_table(
-                table="employees", 
+                table=employees_table,
                 namespace=self.namespace,
                 schema=schema,
                 content_types=[ContentType.PARQUET],
@@ -11472,7 +11492,7 @@ class TestMultiTableTransactions:
             # Initial writes to both tables using MERGE mode
             dc.write_to_table(
                 data=customers_data,
-                table="customers",
+                table=customers_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
@@ -11480,7 +11500,7 @@ class TestMultiTableTransactions:
 
             dc.write_to_table(
                 data=employees_data,
-                table="employees",
+                table=employees_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
@@ -11489,7 +11509,7 @@ class TestMultiTableTransactions:
             # DELETE operations - specify only the keys to delete
             dc.write_to_table(
                 data=customers_deletes,
-                table="customers",
+                table=customers_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.DELETE,
                 content_type=ContentType.PARQUET,
@@ -11497,15 +11517,15 @@ class TestMultiTableTransactions:
 
             dc.write_to_table(
                 data=employees_deletes,
-                table="employees", 
+                table=employees_table,
                 namespace=self.namespace,
                 mode=TableWriteMode.DELETE,
                 content_type=ContentType.PARQUET,
             )
 
         # Verify both tables exist and contain data after deletions
-        customers_result = dc.read_table("customers", namespace=self.namespace)
-        employees_result = dc.read_table("employees", namespace=self.namespace)
+        customers_result = dc.read_table(customers_table, namespace=self.namespace)
+        employees_result = dc.read_table(employees_table, namespace=self.namespace)
 
         # Verify customers table after deletions (should have records 1, 3, 5 remaining)
         customers_df = pd.DataFrame(customers_result.to_pydict())
@@ -11524,7 +11544,9 @@ class TestMultiTableTransactions:
                 "city": row["city"],
             }
 
-        assert customers_dict == expected_customers, f"Customers mismatch: {customers_dict}"
+        assert (
+            customers_dict == expected_customers
+        ), f"Customers mismatch: {customers_dict}"
 
         # Verify employees table after deletions (should have records 2, 3, 4 remaining)
         employees_df = pd.DataFrame(employees_result.to_pydict())
@@ -11543,11 +11565,17 @@ class TestMultiTableTransactions:
                 "city": row["city"],
             }
 
-        assert employees_dict == expected_employees, f"Employees mismatch: {employees_dict}"
+        assert (
+            employees_dict == expected_employees
+        ), f"Employees mismatch: {employees_dict}"
 
         # Verify table counts after deletions
-        assert len(customers_dict) == 3, f"Expected 3 customer records after deletes, got {len(customers_dict)}"
-        assert len(employees_dict) == 3, f"Expected 3 employee records after deletes, got {len(employees_dict)}"
+        assert (
+            len(customers_dict) == 3
+        ), f"Expected 3 customer records after deletes, got {len(customers_dict)}"
+        assert (
+            len(employees_dict) == 3
+        ), f"Expected 3 employee records after deletes, got {len(employees_dict)}"
 
         # Verify specific deletions occurred
         assert 2 not in customers_dict, "Customer ID 2 should be deleted"

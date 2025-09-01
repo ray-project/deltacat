@@ -183,8 +183,7 @@ def _build_uniform_deltas(
 
     _upload_audit_data(
         params,
-        mutable_compaction_audit.audit_url,
-        str(json.dumps(mutable_compaction_audit)),
+        mutable_compaction_audit,
     )
 
     return (
@@ -291,8 +290,7 @@ def _run_hash_and_merge(
 
         _upload_audit_data(
             params,
-            mutable_compaction_audit.audit_url,
-            str(json.dumps(mutable_compaction_audit)),
+            mutable_compaction_audit,
         )
 
         hb_data_processed_size_bytes = np.int64(0)
@@ -641,8 +639,7 @@ def _process_merge_results(
 
     _upload_audit_data(
         params,
-        mutable_compaction_audit.audit_url,
-        str(json.dumps(mutable_compaction_audit)),
+        mutable_compaction_audit,
     )
     deltas: List[Delta] = [m.delta for m in mat_results]
     # Note: An appropriate last stream position must be set
@@ -679,8 +676,7 @@ def _update_and_upload_compaction_audit(
 
     _upload_audit_data(
         params,
-        mutable_compaction_audit.audit_url,
-        str(json.dumps(mutable_compaction_audit)),
+        mutable_compaction_audit,
     )
     return
 
@@ -829,12 +825,13 @@ def _commit_compaction_result(
 
 def _upload_audit_data(
     params: CompactPartitionParams,
-    audit_url: str,
-    audit_data: str,
+    audit_info: CompactionSessionAuditInfo,
 ) -> None:
     """
     Upload audit data to the specified URL using the filesystem from catalog properties.
     """
+    audit_url = audit_info.audit_url
+    audit_data = json.dumps(audit_info.to_serializable(params.catalog.root))
     if params.catalog and params.catalog.filesystem:
         # Use the filesystem from catalog properties
         filesystem = params.catalog.filesystem

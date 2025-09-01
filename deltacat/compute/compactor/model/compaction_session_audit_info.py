@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 import pyarrow as pa
 import logging
+from pathlib import PosixPath
 from deltacat import logs
 from typing import List, Union
 from deltacat.compute.compactor.model.hash_bucket_result import HashBucketResult
@@ -919,3 +920,16 @@ class CompactionSessionAuditInfo(dict):
         )
 
         self.set_pyarrow_version(pa.__version__)
+
+    def to_serializable(self, catalog_root: str) -> CompactionSessionAuditInfo:
+        root_path = PosixPath(catalog_root)
+        target_path = PosixPath(self.audit_url)
+        if root_path == target_path:
+            raise ValueError(
+                "Target and root are identical, but expected target to be a child of root."
+            )
+        try:
+            relative_path = target_path.relative_to(root_path)
+        except ValueError:
+            raise ValueError("Expected target to be a child of root.")
+        return str(relative_path)
