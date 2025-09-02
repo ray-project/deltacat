@@ -58,7 +58,7 @@ daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
 # Append more data and add a new column.
-# Compaction and zero-copy schema evolution are handled automatically.
+# Compaction and schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
     "name": ["Tom", "Simpkin", "Delta"],
@@ -69,11 +69,119 @@ dc.write(data, "users")
 
 # Read the full table back into a Daft DataFrame.
 daft_df = dc.read("users")
-# Print the names and cities (missing cities will be null).
-daft_df.select("name", "city").show()
+# Print the names, ages, and cities (missing cities will be null).
+daft_df.select("name", "age", "city").show()
 ```
 
-Expand the sections below to see more introductory examples by topic.
+### Core Concepts
+DeltaCAT can do much more than just append data to tables and read it back again. Expand the sections below to see examples of other core DeltaCAT concepts and APIs.
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Replacing and Dropping Tables</span></summary>
+
+If you run the quick start example repeatedly from the same working directory, you'll notice that the table it writes to just keeps growing larger. This is because DeltaCAT always appends table data by default. One way to prevent this perpetual table growth and make the example idempotent is to use the **REPLACE** write mode if the table already exists:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+# Initialize DeltaCAT with a default local catalog.
+# Ray will be initialized automatically.
+# Catalog files will be stored in .deltacat/ in the current working directory.
+dc.init_local()
+
+# Create data to write.
+data = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Cheshire", "Dinah", "Felix"],
+    "age": [3, 7, 5]
+})
+
+# Check if the table exists.
+write_mode = dc.TableWriteMode.REPLACE if dc.table_exists("users") else dc.TableWriteMode.CREATE
+
+# Write data to a table.
+# The table will be replaced if it exists, and created if it doesn't.
+dc.write(data, "users", mode=write_mode)
+
+# Read the data back as a Daft DataFrame.
+# Daft lazily and automatically distributes data across your Ray cluster.
+daft_df = dc.read("users")  # Returns Daft DataFrame (default)
+daft_df.show()  # Materialize and print the DataFrame
+
+# Explicitly append more data and add a new column.
+# Compaction and schema evolution are handled automatically.
+data = pd.DataFrame({
+    "id": [4, 5, 6],
+    "name": ["Tom", "Simpkin", "Delta"],
+    "age": [2, 12, 4],
+    "city": ["Hollywood", "Gloucester", "San Francisco"]
+})
+dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+
+# Read the full table back into a Daft DataFrame.
+daft_df = dc.read("users")
+# Print the names, ages, and cities (missing cities will be null).
+daft_df.select("name", "age", "city").show()
+# Ensure that the table length is always 6.
+assert dc.dataset_length(daft_df) == 6
+```
+
+No matter how many times you run the above code, the table will always contain 6 records. Another way to achieve the same result is to use `dc.drop_table`:
+
+```python
+import deltacat as dc
+from deltacat.exceptions import TableNotFoundError
+import pandas as pd
+
+# Initialize DeltaCAT with a default local catalog.
+# Ray will be initialized automatically.
+# Catalog files will be stored in .deltacat/ in the current working directory.
+dc.init_local()
+
+# Create data to write.
+data = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Cheshire", "Dinah", "Felix"],
+    "age": [3, 7, 5]
+})
+
+# Drop the table if it exists.
+try:
+    dc.drop_table("users")
+    print("Dropped 'users' table.")
+except TableNotFoundError:
+    print("Table 'users' not found. Creating it...")
+
+# Write data to a table.
+# The table will be replaced if it exists, and created if it doesn't.
+dc.write(data, "users", mode=dc.TableWriteMode.CREATE)
+
+# Read the data back as a Daft DataFrame.
+# Daft lazily and automatically distributes data across your Ray cluster.
+daft_df = dc.read("users")  # Returns Daft DataFrame (default)
+daft_df.show()  # Materialize and print the DataFrame
+
+# Explicitly append more data and add a new column.
+# Compaction and schema evolution are handled automatically.
+data = pd.DataFrame({
+    "id": [4, 5, 6],
+    "name": ["Tom", "Simpkin", "Delta"],
+    "age": [2, 12, 4],
+    "city": ["Hollywood", "Gloucester", "San Francisco"]
+})
+dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+
+# Read the full table back into a Daft DataFrame.
+daft_df = dc.read("users")
+# Print the names, ages, and cities (missing cities will be null).
+daft_df.select("name", "age", "city").show()
+# Ensure that the table length is always 6.
+assert dc.dataset_length(daft_df) == 6
+```
+
+</details>
 
 <details>
 
@@ -82,18 +190,45 @@ Expand the sections below to see more introductory examples by topic.
 DeltaCAT natively supports a variety of open dataset and file formats already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or list of PyArrow ParquetFile objects:
 
 ```python
-# Read directly into eagerly materialized local datasets:
-pandas_df = dc.read("users", read_as=dc.DatasetType.PANDAS)  # Returns Pandas DataFrame
-pyarrow_table = dc.read("users", read_as=dc.DatasetType.PYARROW)  # Returns PyArrow Table
-polars_df = dc.read("users", read_as=dc.DatasetType.POLARS)  # Returns Polars DataFrame
-numpy_array = dc.read("users", read_as=dc.DatasetType.NUMPY)  # Returns NumPy Array
+# Read directly into eagerly materialized local datasets.
+# Local datasets are best for reading small tables that fit in local memory:
+pandas_df = dc.read("users", read_as=dc.DatasetType.PANDAS)  # Pandas DataFrame
+print("\n=== Pandas ===")
+print(pandas_df)
 
-# Or into a lazily materialized list of PyArrow ParquetFile objects:
-pyarrow_pq_files = dc.read("users", read_as=dc.DatasetType.PYARROW_PARQUET)  # Returns List[ParquetFile]
+pyarrow_table = dc.read("users", read_as=dc.DatasetType.PYARROW)  # PyArrow Table
+print("\n=== PyArrow ===")
+print(pyarrow_table)
 
-# Or as distributed datasets (for larger data):
-daft_df = dc.read("users", read_as=dc.DatasetType.DAFT)  # Returns Daft DataFrame (Default)
-ray_dataset = dc.read("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ray Dataset
+polars_df = dc.read("users", read_as=dc.DatasetType.POLARS)  # Polars DataFrame
+print("\n=== Polars ===")
+print(polars_df)
+
+numpy_array = dc.read("users", read_as=dc.DatasetType.NUMPY)  # NumPy Array
+print("\n=== NumPy ===")
+print(numpy_array)
+
+# Or read into lazily materialized PyArrow ParquetFile objects.
+# PyArrow ParquetFile objects are useful for reading larger tables that don't
+# fit in local memory, but you'll need to manually handle data distribution
+# and materialization:
+pyarrow_pq_files = dc.read("users", read_as=dc.DatasetType.PYARROW_PARQUET)  # ParquetFile or List[ParquetFile]
+print("\n=== PyArrow Parquet Unmaterialized ===")
+print(pyarrow_pq_files)
+print("\n=== PyArrow Parquet Materialized ===")
+print(dc.to_pyarrow(pyarrow_pq_files))  # Materialize and print the ParquetFile refs
+
+# Or read into distributed datasets for scalable data processing.
+# Distributed datasets are the easiest way to read large tables that don't fit
+# in either local or distributed Ray cluster memory. They automatically handle
+# data distribution and materialization:
+daft_df = dc.read("users", read_as=dc.DatasetType.DAFT)  # Daft DataFrame (Default)
+print("\n=== Daft ===")
+daft_df.show()  # Materialize and print the Daft DataFrame
+
+ray_dataset = dc.read("users", read_as=dc.DatasetType.RAY_DATASET)  # Ray Dataset
+print("\n=== Ray Data ===")
+ray_dataset.show()  # Materialize and print the Ray Dataset
 ```
 
  `dc.write` can also write any of these dataset types:
@@ -102,7 +237,7 @@ ray_dataset = dc.read("users", read_as=dc.DatasetType.RAY_DATASET)  # Returns Ra
 import pyarrow as pa
 
 # Create a pyarrow table to write.
-data = pa.Table.from_pydict({
+pyarrow_table = pa.Table.from_pydict({
     "id": [4, 5, 6],
     "name": ["Tom", "Simpkin", "Delta"],
     "age": [2, 12, 4],
@@ -111,39 +246,56 @@ data = pa.Table.from_pydict({
 
 # Write different dataset types to the default table file format (Parquet):
 dc.write(pyarrow_table, "my_pyarrow_table")  # Write PyArrow Table
+print("\n=== PyArrow Table ===")
+dc.read("my_pyarrow_table").show()
 
-daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)
+daft_df = dc.from_pyarrow(pyarrow_table, dc.DatasetType.DAFT)
 dc.write(daft_df, "my_daft_table")  # Write Daft DataFrame
+print("\n=== Daft Table ===")
+dc.read("my_daft_table").show()
 
-ray_dataset = dc.from_pyarrow(data, dc.DatasetType.RAY_DATASET)
+ray_dataset = dc.from_pyarrow(pyarrow_table, dc.DatasetType.RAY_DATASET)
 dc.write(ray_dataset, "my_ray_dataset")  # Write Ray Dataset
+print("\n=== Ray Dataset ===")
+dc.read("my_ray_dataset").show()
 
-pandas_df = dc.from_pyarrow(data, dc.DatasetType.PANDAS)
+pandas_df = dc.from_pyarrow(pyarrow_table, dc.DatasetType.PANDAS)
 dc.write(pandas_df, "my_pandas_table")  # Write Pandas DataFrame
+print("\n=== Pandas Table ===")
+dc.read("my_pandas_table").show()
 
-polars_df = dc.from_pyarrow(data, dc.DatasetType.POLARS)
+polars_df = dc.from_pyarrow(pyarrow_table, dc.DatasetType.POLARS)
 dc.write(polars_df, "my_polars_table")  # Write Polars DataFrame
+print("\n=== Polars Table ===")
+dc.read("my_polars_table").show()
 
-numpy_array = dc.from_pyarrow(data, dc.DatasetType.NUMPY)
+numpy_array = dc.from_pyarrow(pyarrow_table, dc.DatasetType.NUMPY)
 dc.write(numpy_array, "my_numpy_table")  # Write NumPy Array
+print("\n=== NumPy Table ===")
+dc.read("my_numpy_table").show()
 ```
 
 Or write to different table file formats:
 
 ```python
+data = pd.DataFrame({"id": [1], "name": ["Cheshire"], "age": [3]})
+
 # Start by writing to a new table with a custom list of supported readers.
-# By default, DeltaCAT will raise an error if we attempt to write data to
-# a file format that can't be read by one or more dataset types.
+# Define the content types we want to write.
 content_types_to_write = {
     dc.ContentType.PARQUET,
     dc.ContentType.AVRO,
     dc.ContentType.ORC,
     dc.ContentType.FEATHER,
 }
+# Limit supported readers to dataset types can read the above content types.
+# By default, DeltaCAT will raise an error if we attempt to write data to
+# a file format that can't be read by one or more dataset types.
 supported_reader_types = [
     reader_type for reader_type in dc.DatasetType
-    if content_types_to_write & reader_type.readable_content_types
+    if content_types_to_write <= reader_type.readable_content_types()
 ]
+# Write to a new table with our custom list of supported readers.
 dc.write(
     data,
     "my_mixed_format_table",
@@ -151,14 +303,15 @@ dc.write(
     table_properties={dc.TableProperty.SUPPORTED_READER_TYPES: supported_reader_types}
 )
 
-# Now apppend the same data using our remaining target file formats:
+# Now write the same data to other file formats:
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.AVRO)
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.ORC)
 dc.write(data, "my_mixed_format_table", content_type=dc.ContentType.FEATHER)
 
-# All file formats will be automatically unified at read time:
+# Read the table back.
+# All formats are automatically unified into the requested Pandas DataFrame:
 pandas_df = dc.read("my_mixed_format_table", read_as=dc.DatasetType.PANDAS)
-pandas_df.show()
+print(pandas_df)
 ```
 
 </details>
@@ -173,6 +326,7 @@ DeltaCAT can automatically merge and delete data by defining a table schema with
 import deltacat as dc
 import pandas as pd
 import pyarrow as pa
+import tempfile
 
 # Initialize DeltaCAT with a fresh temporary catalog
 dc.init_local(tempfile.mkdtemp())
@@ -199,7 +353,7 @@ dc.write(initial_users, "users", schema=schema)
 # Read the data back as a Pandas DataFrame.
 df = dc.read("users", read_as=dc.DatasetType.PANDAS)
 print("=== Initial Users ===")
-print(df)
+print(df.sort_values("user_id"))
 
 # Update data for existing users + add new users
 updated_users = pd.DataFrame({
@@ -289,10 +443,6 @@ users_df = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
 products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS)
 orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
 
-print(f"Identity namespace has {len(users_df)} users")
-print(f"Inventory namespace has {len(products_df)} products")
-print(f"Sales namespace has {len(orders_df)} transactions")
-
 # Tables with the same name can exist in different namespaces
 # Create separate marketing and finance views of the same data
 marketing_users = pd.DataFrame({
@@ -303,7 +453,7 @@ marketing_users = pd.DataFrame({
 
 finance_users = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "lifetime_payments": [25.98, 8.99, 10000000.00],
+    "lifetime_payments": [25.98, 8.99, 7.98],
     "preferred_payment_method": ["credit", "cash", "paypal"]
 })
 
@@ -314,8 +464,16 @@ dc.write(finance_users, "users", namespace="finance")
 marketing_df = dc.read("users", namespace="marketing", read_as=dc.DatasetType.PANDAS)
 finance_df = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
 
-print(f"Marketing users fields: {list(marketing_df.columns)}")  # ['user_id', 'segment', 'acquisition_channel']
-print(f"Finance users fields: {list(finance_df.columns)}")  # ['user_id', 'lifetime_payments', 'preferred_payment_method']
+print(f"\n=== Identity Namespace Users ===")
+print(users_df)
+print(f"\n=== Inventory Namespace Products ===")
+print(products_df)
+print(f"\n=== Sales Namespace Transactions ===")
+print(orders_df)
+print(f"\n=== Marketing Namespace Users ===")
+print(marketing_df)
+print(f"\n=== Finance Namespace Users ===")
+print(finance_df)
 ```
 
 </details>
@@ -331,6 +489,7 @@ Consider the previous example that organized tables with namespaces. One table t
 ```python
 import deltacat as dc
 import pandas as pd
+import pyarrow as pa
 import tempfile
 
 # Initialize DeltaCAT with a fresh temporary catalog
@@ -338,13 +497,16 @@ dc.init_local(tempfile.mkdtemp())
 
 # Create sample product data.
 product_data = pd.DataFrame({
-    "product_id": [101, 102, 103, 104, 105],
-    "name": ["Mushrooms", "Fish", "Milk", "Tuna", "Salmon"],
-    "price": [12.99, 8.99, 3.99, 6.99, 9.99]
+    "product_id": [101, 102, 103],
+    "name": ["Mushrooms", "Fish", "Milk"],
+    "price": [12.99, 8.99, 3.99]
 })
 
 # The product catalog can be created independently.
 dc.write(product_data, "catalog", namespace="inventory")
+
+print(f"\n=== Initial Product Data ===")
+print(dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.PANDAS))
 
 # Create sample user and finance data.
 user_data = pd.DataFrame({
@@ -353,15 +515,27 @@ user_data = pd.DataFrame({
 })
 initial_finance = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "lifetime_payments": [0.00, 0.00, 0.00],
     "preferred_payment_method": ["credit", "cash", "paypal"]
 })
 
+# Define a finance schema.
+# User ID is the merge key, and lifetime payments are defaulted to 0.00.
+finance_schema = dc.Schema.of([
+    dc.Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
+    dc.Field.of(pa.field("lifetime_payments", pa.float64()), future_default=0.00),
+    dc.Field.of(pa.field("preferred_payment_method", pa.string())),
+])
+
 # Create user identities and user finance data within a single transaction.
-# Since transactions are atomic, this will prevent user data discrepancies.
+# Since transactions are atomic, this prevents accounting discrepancies.
 with dc.transaction():
     dc.write(user_data, "users", namespace="identity")
-    dc.write(initial_finance, "users", namespace="finance")
+    dc.write(initial_finance, "users", namespace="finance", schema=finance_schema)
+
+print(f"\n=== Initial User Data ===")
+print(dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS))
+print(f"\n=== Initial Finance Data ===")
+print(dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS))
 
 # Create new order data
 new_orders = pd.DataFrame({
@@ -385,23 +559,17 @@ with dc.transaction():
     orders_with_prices["total"] = orders_with_prices["quantity"] * orders_with_prices["price"]
 
     # Calculate lifetime totals per user
-    lifetime_totals = orders_with_prices.groupby("user_id")["total"].sum().reset_index()
-    lifetime_totals.columns = ["user_id", "lifetime_payments"]
+    finance_updates = orders_with_prices.groupby("user_id")["total"].sum().reset_index()
+    finance_updates.columns = ["user_id", "lifetime_payments"]
 
     # Step 4: Write the computed totals
-    dc.write(lifetime_totals, "users", namespace="finance", mode=dc.TableWriteMode.REPLACE)
+    dc.write(finance_updates, "users", namespace="finance", mode=dc.TableWriteMode.MERGE)
 
-# Verify consistency - orders and finance totals are guaranteed to match
-orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
-finance_df = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
-
-print(f"Orders processed: {len(orders_df)}")
-print(f"Finance records updated: {len(finance_df)}")
-
-# Without multi-table transactions, we could wind up with:
-# - User data without corresponding finance records (or vice versa).
-# - Orders successfully recorded but finance totals not updated.
-# - Finance totals updated without any corresponding orders.
+# Verify that orders and and lifetime payments are kept in sync.
+print(f"\n=== New Orders Processed ===")
+print(dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS))
+print(f"\n=== Updated Finance Records ===")
+print(dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS))
 ```
 
 </details>
@@ -416,8 +584,10 @@ For example, you may want to test a write against a local staging catalog before
 
 ```python
 import deltacat as dc
+from deltacat.exceptions import TableValidationError
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import tempfile
 from decimal import Decimal
 
@@ -428,8 +598,8 @@ dc.init(catalogs={
         filesystem=pa.fs.LocalFileSystem()
     )),
     "prod": dc.Catalog(config=dc.CatalogProperties(
-        root="s3://deltacat_prod/",
-        filesystem=pa.fs.S3FileSystem()
+        root=tempfile.mkdtemp(),  # Use temporary directory for prod
+        filesystem=pa.fs.LocalFileSystem()
     ))
 })
 
@@ -450,19 +620,22 @@ decimal_table = pa.table({
 try:
     dc.write(decimal_table, "financial_data", catalog="staging")
     print("Decimal256 write succeeded")
-except dc.TableValidationError as e:
-    print(f"Validation error: {e}")
+except TableValidationError as e:
+    print(f"\n=== Validation Error ===")
+    print(e)
     print("Decimal256 may break existing data consumers in prod, trying decimal128...")
 
     # Cast the price column from decimal256 to decimal128
     decimal_table = decimal_table.set_column(
         decimal_table.schema.get_field_index("price"),
         "price",
-        pa.cast(decimal_table["price"], pa.decimal128(10, 2))
+        pc.cast(decimal_table["price"], pa.decimal128(10, 2))
     )
 
-# Write decimal128 data to staging and ensure that the write succeeds
+# Write the validated decimal data to staging and ensure that the write succeeds
 dc.write(decimal_table, "financial_data", catalog="staging")
+print(f"\n=== Successfully Staged Data ===")
+print(dc.read("financial_data", catalog="staging", read_as=dc.DatasetType.PANDAS))
 
 # Read from staging to verify
 staging_data = dc.read("financial_data", catalog="staging", read_as=dc.DatasetType.PANDAS)
@@ -470,6 +643,8 @@ assert staging_data["price"].tolist() == [Decimal("999.99"), Decimal("1234.56"),
 
 # Now write the validated data to production
 dc.write(decimal_table, "financial_data", catalog="prod")
+print(f"\n=== Production Data ===")
+print(dc.read("financial_data", catalog="prod", read_as=dc.DatasetType.PANDAS))
 ```
 
 </details>
@@ -560,7 +735,7 @@ with dc.transaction(commit_message="Add new users and products, update finance t
 print("=== Transaction History ===")
 txn_history = dc.transactions(read_as=dc.DatasetType.PANDAS)
 print(f"Found {len(txn_history)} transactions:")
-print(txn_history[["transaction_id", "commit_message", "start_time", "end_time", "table_count"]])
+print(txn_history[["transaction_id", "commit_message", "start_time", "end_time"]])
 
 # Find the transaction we want to time travel back to
 initial_load_txn = txn_history[
@@ -577,9 +752,12 @@ current_users = dc.read("users", namespace="identity", read_as=dc.DatasetType.PA
 current_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
 current_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
 
-print(f"Users: {len(current_users)} total ({list(current_users['name'])})")
-print(f"Orders: {len(current_orders)} total")
-print(f"Finance records: {len(current_finance)} total")
+print("== Users ==")
+print(current_users)
+print("== Orders ==")
+print(current_orders)
+print("== Finance ==")
+print(current_finance)
 
 # Now query all tables as they existed at the checkpoint
 print("\n=== Historic State (Before Updates) ===")
@@ -590,9 +768,12 @@ with dc.transaction(as_of=checkpoint_time + 1):
     historic_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
     historic_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
 
-    print(f"Users: {len(historic_users)} total ({list(historic_users['name'])})")
-    print(f"Orders: {len(historic_orders)} total")
-    print(f"Finance records: {len(historic_finance)} total")
+    print("== Users ==")
+    print(historic_users)
+    print("== Orders ==")
+    print(historic_orders)
+    print("== Finance ==")
+    print(historic_finance)
 
     # Validate historic state
     assert not any(historic_users["name"] == "Tom")
@@ -623,10 +804,10 @@ import daft
 import torch
 import pyarrow as pa
 
-# Initialize DeltaCAT with a temporary catalog
+# Initialize DeltaCAT with a temporary catalog.
 dc.init_local(tempfile.mkdtemp())
 
-# Define initial schema with image_id as merge key (no prediction fields yet)
+# Define initial schema with image_id as merge key (no prediction fields yet).
 initial_schema = dc.Schema.of([
     dc.Field.of(pa.field("image_id", pa.large_string()), is_merge_key=True),
     dc.Field.of(pa.field("image_path", pa.large_string())),
@@ -634,20 +815,20 @@ initial_schema = dc.Schema.of([
     dc.Field.of(pa.field("image_bytes", pa.binary())),
 ])
 
-# Create sample Daft DataFrame with image URLs/paths
+# Create sample Daft DataFrame with image URLs/paths.
 df = daft.from_pydict({
     "image_id": ["cat_001", "cat_002", "cat_003"],
     "image_path": ["media/tuxedo.jpg", "media/calico.jpg", "media/siamese.jpg"],
     "true_breed": ["Tuxedo", "Calico", "Siamese"]
 })
 
-# Load images and prepare for processing
+# Load images and prepare for processing.
 df = df.with_column("image_bytes", df["image_path"].url.download())
 
-# Write initial dataset to DeltaCAT
+# Write initial dataset to DeltaCAT.
 dc.write(df, "cool_cats", schema=initial_schema)
 
-# Define an ImageClassifier UDF for cat breed prediction
+# Define an ImageClassifier UDF for cat breed prediction.
 @daft.udf(return_dtype=daft.DataType.fixed_size_list(dtype=daft.DataType.string(), size=2))
 class ImageClassifier:
     def __init__(self):
@@ -666,7 +847,7 @@ class ImageClassifier:
         results = self.utils.pick_n_best(predictions=output, n=1)
         return [result[0] for result in results]
 
-# Apply the UDF first to get predictions
+# Apply the UDF first to get predictions.
 df_with_predictions = df.with_column("prediction", ImageClassifier(df["image_path"]))
 
 # Run batch inference and prepare partial update data (merge key + new fields only)
@@ -677,20 +858,22 @@ prediction_data = df_with_predictions.select(
     (df_with_predictions["prediction"].list.get(1).str.replace("%", "").cast(daft.DataType.float64()) / 100.0).alias("confidence")
 )
 
-# Write the predictions back to the table
+# Write the predictions back to the table.
 dc.write(prediction_data, "cool_cats")
 
-# Read back the merged results
+# Read back the merged results.
 final_df = dc.read("cool_cats")
 final_df = final_df.with_column("image", final_df["image_bytes"].image.decode())
 
-# Calculate accuracy and display results
+# Calculate accuracy and display results.
 results = final_df.select("image_id", "true_breed", "predicted_breed", "confidence").to_pandas()
 accuracy = (results.apply(lambda row: row["true_breed"].lower() in row["predicted_breed"].lower(), axis=1)).mean()
 
+print("=== Results ===")
 print(f"Classification Accuracy: {accuracy:.1%}")
 
-# Display final dataset with decoded images for visual inspection
+# Display final dataset with decoded images for visual inspection.
+# Run this example in a Jupyter notebook to view the actual image data stored in DeltaCAT.
 print(f"Final dataset with images and predictions:")
 final_df.show()
 ```
@@ -699,9 +882,9 @@ final_df.show()
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">LLM Batch Inference with Auditing</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Auditable LLM Batch Inference</span></summary>
 
-DeltaCAT multi-table transactions, time travel queries, and automatic schema evolution can be used to create auditable LLM batch inference pipelines. For example, the following code captures customer feedback sentiment and emotion detail, then generates customer service responses:
+DeltaCAT multi-table transactions, time travel queries, and automatic schema evolution can be used to create auditable LLM batch inference pipelines. For example, the following code tries different approaches to analyze the overall tone of customer feedback, then generates customer service responses based on the analysis:
 
 ```python
 import deltacat as dc
@@ -712,7 +895,7 @@ import time
 import daft
 from transformers import pipeline
 
-# Initialize DeltaCAT
+# Initialize DeltaCAT with a temporary catalog.
 dc.init_local(tempfile.mkdtemp())
 
 # Load customer feedback
@@ -772,7 +955,7 @@ with dc.transaction():
     }])
     dc.write(audit_df, "audit", namespace="analysis")
 
-print("V1.0: Customer feedback sentiment analysis processing complete!")
+print("=== V1.0: Customer feedback sentiment analysis processing complete! ===")
 
 # Create checkpoint after v1.0 transaction commits.
 time.sleep(0.1)
@@ -815,7 +998,7 @@ with dc.transaction():
     audit_df = pd.DataFrame([{"version": "v2.0", "docs_processed": dc.dataset_length(daft_docs)}])
     dc.write(audit_df, "audit", namespace="analysis")
 
-print("V2.0: Customer feedback emotion detail analysis processing complete!")
+print("=== V2.0: Customer feedback emotion analysis processing complete! ===")
 
 time.sleep(0.1)
 checkpoint_v2 = time.time_ns()
@@ -876,25 +1059,26 @@ with dc.transaction():
     audit_df = pd.DataFrame([{"version": "v3.0", "docs_processed": dc.dataset_length(current_insights)}])
     dc.write(audit_df, "audit", namespace="analysis")
 
-print("V3.0: Customer service response generation processing complete!")
+print("=== V3.0: Customer service response generation processing complete! ===")
 
-print("\nTime Travel Comparison of all Versions:")
+print("\n=== Time Travel Comparison of all Versions ===")
 with dc.transaction(as_of=checkpoint_v1):
-    v1_results = dc.read("insights", namespace="analysis")
-    print(f"V1.0 Insights (sentiment): {dc.to_pandas(v1_results)}")
-    v1_audit = dc.read("audit", namespace="analysis")
-    print(f"V1.0 Audit: {dc.to_pandas(v1_audit)}")
+    print(f"== V1.0 Insights (sentiment) ==")
+    print(dc.read("insights", namespace="analysis").show())
+    print(f"== V1.0 Audit ==")
+    print(dc.read("audit", namespace="analysis").show())
 
 with dc.transaction(as_of=checkpoint_v2):
-    v2_results = dc.read("insights", namespace="analysis")
-    print(f"V2.0 Insights (emotion detail): {dc.to_pandas(v2_results)}")
-    v2_audit = dc.read("audit", namespace="analysis")
-    print(f"V2.0 Audit: {dc.to_pandas(v2_audit)}")
+    print(f"== V2.0 Insights (emotion) ==")
+    print(dc.read("insights", namespace="analysis").show())
+    print(f"== V2.0 Audit ==")
+    print(dc.read("audit", namespace="analysis").show())
 
 v3_results = dc.read("insights", namespace="analysis")
-print(f"V3.0 Insights (with customer service response): {dc.to_pandas(v3_results)}")
-v3_audit = dc.read("audit", namespace="analysis")
-print(f"V3.0 Audit: {dc.to_pandas(v3_audit)}")
+print(f"== V3.0 Insights (customer service response) ==")
+print(dc.read("insights", namespace="analysis").show())
+print(f"== V3.0 Audit ==")
+print(dc.read("audit", namespace="analysis").show())
 ```
 
 </details>

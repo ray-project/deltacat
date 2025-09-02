@@ -48,13 +48,28 @@ Daft dataframes support distribution across a Ray cluster and are lazily evaluat
 Small tables that fit in local memory can also be read using PyArrow, Pandas, Polars, or NumPy. For example,
 the following code reads the same table into a Polars DataFrame:
 ```python
-polars_dataframe = dc.read("my_table", read_as=DatasetType.POLARS)
+polars_dataframe = dc.read("my_table", read_as=dc.DatasetType.POLARS)
 ```
-This dataframe will be eagerly materialized at read time. For tables that only contain Parquet files (default behavior), you can also use the `PYARROW_PARQUET` dataset type to retrieve a list of unmaterialized PyArrow `ParquetFile` objects:
+This dataframe will be eagerly materialized at read time. For tables that only contain Parquet files (default behavior), you can also use the `PYARROW_PARQUET` dataset type to retrieve unmaterialized PyArrow `ParquetFile` objects:
+
+**Single write case (returns single ParquetFile):**
 ```python
-pyarrow_parquet_files = dc.read("my_table", read_as=DatasetType.PYARROW_PARQUET)
+# Table with only one write operation returns a single ParquetFile
+pyarrow_parquet_file = dc.read("my_table", read_as=dc.DatasetType.PYARROW_PARQUET)
+# Access the file directly
+table_data = pyarrow_parquet_file.read()
 ```
-Each `ParquetFile` can then be materialized by calling `read` on each `ParquetFile` reference (see the [PyArrow ParquetFile API](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html))
+
+**Multiple writes case (returns list of ParquetFile objects):**
+```python
+# After multiple write operations to the same table
+dc.write(additional_data, "my_table")  # Second write
+pyarrow_parquet_files = dc.read("my_table", read_as=dc.DatasetType.PYARROW_PARQUET)
+# Now it returns a list of ParquetFile objects
+for parquet_file in pyarrow_parquet_files:
+    table_data = parquet_file.read()
+```
+Each `ParquetFile` can be materialized by calling `read` on the `ParquetFile` reference (see the [PyArrow ParquetFile API](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html))
 
 ## Write Modes
 Data from any supported dataset type is written to a table using `dc.write` with one of the following write modes:
@@ -102,6 +117,16 @@ For example, the following **MERGE** updates the `"name"`, `"age"`, and `"city"`
 ```python
 import deltacat as dc
 import pandas as pd
+import pyarrow as pa
+from deltacat import Schema, Field
+
+# Define schema with id as merge key (required for merge operations)
+schema = Schema.of([
+    Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+    Field.of(pa.field("name", pa.string())),
+    Field.of(pa.field("age", pa.int32())),
+    Field.of(pa.field("city", pa.string())),
+])
 
 data = pd.DataFrame({
     "id": [1, 2, 3],
@@ -112,7 +137,8 @@ data = pd.DataFrame({
 dc.write(
     data,
     "my_table",
-    mode=TableWriteMode.CREATE,
+    schema=schema,
+    mode=dc.TableWriteMode.CREATE,
 )
 upsert_data = pd.DataFrame({
     "id": [1, 2, 3, 4, 5],
@@ -123,7 +149,7 @@ upsert_data = pd.DataFrame({
 dc.write(
     upsert_data,
     "my_table",
-    mode=TableWriteMode.MERGE,
+    mode=dc.TableWriteMode.MERGE,
 )
 final_table = dc.read("my_table")
 print(final_table)
@@ -140,6 +166,16 @@ The following **DELETE** removes records with `"id"` values `1` and `2`:
 ```python
 import deltacat as dc
 import pandas as pd
+import pyarrow as pa
+from deltacat import Schema, Field
+
+# Define schema with id as merge key (required for delete operations)
+schema = Schema.of([
+    Field.of(pa.field("id", pa.int64()), is_merge_key=True),
+    Field.of(pa.field("name", pa.string())),
+    Field.of(pa.field("age", pa.int32())),
+    Field.of(pa.field("city", pa.string())),
+])
 
 data = pd.DataFrame({
     "id": [1, 2, 3],
@@ -150,7 +186,8 @@ data = pd.DataFrame({
 dc.write(
     data,
     "my_table",
-    mode=TableWriteMode.CREATE,
+    schema=schema,
+    mode=dc.TableWriteMode.CREATE,
 )
 delete_data = pd.DataFrame({
     "id": [1, 2],
@@ -158,7 +195,7 @@ delete_data = pd.DataFrame({
 dc.write(
     delete_data,
     "my_table",
-    mode=TableWriteMode.DELETE,
+    mode=dc.TableWriteMode.DELETE,
 )
 final_table = dc.read("my_table")
 print(final_table)

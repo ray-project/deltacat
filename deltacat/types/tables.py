@@ -224,9 +224,11 @@ def _ray_dataset_to_pyarrow(table, *, schema, **kwargs):
         return arrow_tables[0]
     # Unify schemas to support schema evolution across blocks/files
     try:
-        return pa.concat_tables(arrow_tables, promote=True, unify_schemas=True)
+        return pa.concat_tables(
+            arrow_tables, promote_options="permissive", unify_schemas=True
+        )
     except TypeError:
-        return pa.concat_tables(arrow_tables, promote=True)
+        return pa.concat_tables(arrow_tables, promote_options="permissive")
 
 
 TABLE_CLASS_TO_PYARROW_FUNC: Dict[
@@ -702,7 +704,7 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable, **kwargs):
         # Check if we have PyArrow tables
         if all(isinstance(table, pa.Table) for table in all_tables):
             # Use PyArrow concatenation for PyArrow tables
-            return pa.concat_tables(all_tables, promote=True)
+            return pa.concat_tables(all_tables, promote_options="permissive")
         else:
             # Use pandas concatenation for other types
             return pd.concat(all_tables, ignore_index=True, sort=False)
