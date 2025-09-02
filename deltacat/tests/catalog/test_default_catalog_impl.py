@@ -1936,10 +1936,19 @@ class TestCopyOnWrite:
         Note: This test requires fork-based multiprocessing for reliable process isolation.
         """
         table_name = "test_concurrent_stress"
-        concurrent_writers = (
-            multiprocessing.cpu_count() - 1
-        )  # reserve 1 CPU for system processes
         rounds = 10
+        records_per_writer = 3  # Each writer creates this many records
+        round_id_space = (
+            1000000  # ID space allocated per round to prevent cross-round collisions
+        )
+
+        # Calculate maximum writers we can support with current ID generation scheme
+        max_writers_per_round = round_id_space // (records_per_writer * 10)
+
+        concurrent_writers = min(
+            multiprocessing.cpu_count() - 1,  # reserve 1 CPU for system processes
+            max_writers_per_round,
+        )
 
         # Create table with merge keys for upsert behavior
         schema = Schema.of(
@@ -1984,19 +1993,23 @@ class TestCopyOnWrite:
                             f"round_{round_num}_writer_{writer_idx}_thread"
                         )
 
-                        # Generate unique IDs
-                        base_id = round_num * 1000 + writer_idx * 10
+                        # Generate unique IDs with sufficient space to prevent collisions
+                        # Each writer gets (records_per_writer * 10) ID space for safety
+                        writer_id_space = records_per_writer * 10
+                        base_id = (
+                            round_num * round_id_space + writer_idx * writer_id_space
+                        )
                         writer_data = pd.DataFrame(
                             {
-                                "id": [base_id, base_id + 1, base_id + 2],
-                                "round_num": [round_num] * 3,
+                                "id": [base_id + i for i in range(records_per_writer)],
+                                "round_num": [round_num] * records_per_writer,
                                 "writer_id": [
                                     f"round_{round_num:02d}_writer_{writer_idx:02d}"
                                 ]
-                                * 3,
+                                * records_per_writer,
                                 "data": [
                                     f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
-                                    for i in range(3)
+                                    for i in range(records_per_writer)
                                 ],
                             }
                         )
@@ -2040,18 +2053,19 @@ class TestCopyOnWrite:
                 if result == "success":
                     round_successful_count += 1
                     # Recreate the data that this successful writer wrote
-                    base_id = round_num * 1000 + writer_idx * 10
+                    writer_id_space = records_per_writer * 10
+                    base_id = round_num * round_id_space + writer_idx * writer_id_space
                     writer_data = pd.DataFrame(
                         {
-                            "id": [base_id, base_id + 1, base_id + 2],
-                            "round_num": [round_num] * 3,
+                            "id": [base_id + i for i in range(records_per_writer)],
+                            "round_num": [round_num] * records_per_writer,
                             "writer_id": [
                                 f"round_{round_num:02d}_writer_{writer_idx:02d}"
                             ]
-                            * 3,
+                            * records_per_writer,
                             "data": [
                                 f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
-                                for i in range(3)
+                                for i in range(records_per_writer)
                             ],
                         }
                     )
@@ -2127,7 +2141,9 @@ class TestCopyOnWrite:
 
         # Summary statistics and validation
         total_successful_writes = len(successful_writes)
-        total_expected_records = total_successful_writes * 3  # Each write has 3 records
+        total_expected_records = (
+            total_successful_writes * records_per_writer
+        )  # Each write has this many records
         total_actual_records = get_table_length(final_df)
 
         # With unique IDs per writer, we should have exactly the expected number of records

@@ -43,7 +43,7 @@ class BucketingStrategy(str, Enum):
 
 class TruncateStrategy(str, Enum):
     """
-    A bucketing strategy for the transform
+    A truncation strategy for the transform
     """
 
     # Default DeltaCAT truncate strategy.
