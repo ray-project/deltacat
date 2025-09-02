@@ -167,7 +167,7 @@ print(final_table)
 # 3  Charlie  35  Chicago
 ```
 
-Also, it's worth noting that `dc.write` and `dc.read` are simply aliases for `dc.write_to_table` and `dc.read_table`. Their behavior is identical, and the choice of which to use is a matter of preference (i.e., brevity vs. clarity).
+Note that `dc.write` and `dc.read` are just aliases for `dc.write_to_table` and `dc.read_table`. Their behavior is identical, and the choice of which to use is a matter of personal preference.
 
 ## Table Properties
 Table properties are used to configure the table's read/write behavior and optimization level. Custom table properties can be specified during table writes via `dc.write`, when the table is created via `dc.create_table`, and when the table is updated via `dc.alter_table`. Any properties that are not explicitly set at table creation time will inherit default values. Table properties can be read via a table version's `read_table_property` method and updated via `dc.alter_table`.
@@ -214,7 +214,7 @@ Controls how schema changes are handled when writing to a table (see [DeltaCAT S
 **DEFAULT_SCHEMA_CONSISTENCY_TYPE (default: COERCE)**
 Controls the default schema consistency type for new fields added to the table (see [DeltaCAT Schemas](../schema/README.md)).
 
-**SUPPORTED_READER_TYPES (default: [PANDAS, POLARS, PYARROW, DAFT, RAY_DATASET])**
+**SUPPORTED_READER_TYPES (default: [PANDAS, POLARS, PYARROW, NUMPY, DAFT, RAY_DATASET])**
 Supported dataset types that should be able to read from the table. Writes that would break one or more of these readers will be rejected.
 
 ## Table Read Optimization Levels
@@ -254,6 +254,19 @@ table = dc.get_table("my_table")
 dc.alter_table(
     "my_table",
     schema_updates=table.table_version.schema.update().update_field_doc("name", "first name"),
+)
+```
+
+You can also optionally preview a schema update before committing it by using the `apply` method on the schema update object:
+```python
+schema_update = table.table_version.schema.update().update_field_doc("name", "first name")
+updated_schema_preview = schema_update.apply()
+print(updated_schema_preview)
+
+# after previewing the updated schema, you can commit it using `alter_table`
+dc.alter_table(
+    "my_table",
+    schema_updates=schema_update,
 )
 ```
 
