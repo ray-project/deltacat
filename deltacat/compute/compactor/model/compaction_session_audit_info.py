@@ -930,6 +930,9 @@ class CompactionSessionAuditInfo(dict):
             )
         try:
             relative_path = target_path.relative_to(root_path)
+            # Create a copy of the audit info with the relative path
+            audit_copy = CompactionSessionAuditInfo(**dict(self))
+            audit_copy["auditUrl"] = str(relative_path)
+            return audit_copy
         except ValueError:
             raise ValueError("Expected target to be a child of root.")
-        return str(relative_path)

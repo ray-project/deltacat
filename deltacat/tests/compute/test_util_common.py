@@ -976,20 +976,25 @@ def assert_compaction_audit_no_hash_bucket(
     return True
 
 
-def read_audit_file(audit_file_path: str) -> Dict[str, Any]:
+def read_audit_file(audit_file_path: str, catalog_root: str) -> Dict[str, Any]:
     """
     Read audit file from any filesystem.
 
     Args:
-        audit_file_path: Path to the audit file (works with any filesystem scheme)
+        audit_file_path: Relative path to the audit file from catalog root
+        catalog_root: Absolute path to the catalog root directory
 
     Returns:
         Dictionary containing audit data
     """
     from deltacat.utils.filesystem import resolve_path_and_filesystem
     import json
+    import posixpath
 
-    path, filesystem = resolve_path_and_filesystem(audit_file_path)
+    # Resolve absolute path from relative audit path
+    absolute_path = posixpath.join(catalog_root, audit_file_path)
+
+    path, filesystem = resolve_path_and_filesystem(absolute_path)
     with filesystem.open_input_stream(path) as stream:
         content = stream.read().decode("utf-8")
         return json.loads(content)

@@ -323,9 +323,13 @@ def test_compact_partition_incremental_main(
         round_completion_info.compacted_delta_locator
     )
 
+    # Get catalog root for audit file resolution
+    catalog_root = catalog.root
+
     compaction_audit_obj: Dict[str, Any] = read_audit_file(
-        round_completion_info.compaction_audit_url
+        round_completion_info.compaction_audit_url, catalog_root
     )
+
     compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
         **compaction_audit_obj
     )

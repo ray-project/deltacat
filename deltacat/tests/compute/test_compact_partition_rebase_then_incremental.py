@@ -423,8 +423,11 @@ def test_compact_partition_rebase_then_incremental_main(
             round_completion_info = get_rci_from_partition(
                 destination_partition_locator, metastore, catalog=catalog
             )
+            # Get catalog root for audit file resolution
+            catalog_root = catalog.root
+
             compaction_audit_obj: dict = read_audit_file(
-                round_completion_info.compaction_audit_url
+                round_completion_info.compaction_audit_url, catalog_root
             )
             compaction_audit = CompactionSessionAuditInfo(**compaction_audit_obj)
 

@@ -331,8 +331,11 @@ class TestCompactionSessionMain:
         backfill_rci = get_rci_from_partition(
             dest_partition.locator, metastore, catalog=catalog
         )
+        # Get catalog root for audit file resolution
+        catalog_root = catalog.root
+
         compaction_audit = CompactionSessionAuditInfo(
-            **read_audit_file(backfill_rci.compaction_audit_url)
+            **read_audit_file(backfill_rci.compaction_audit_url, catalog_root)
         )
 
         # Verify that inflation and record size values are reasonable (not exact due to storage differences)
@@ -399,8 +402,11 @@ class TestCompactionSessionMain:
         new_rci = get_rci_from_partition(
             dest_partition.locator, metastore, catalog=catalog
         )
+        # Get catalog root for audit file resolution
+        catalog_root = catalog.root
+
         compaction_audit = CompactionSessionAuditInfo(
-            **read_audit_file(new_rci.compaction_audit_url)
+            **read_audit_file(new_rci.compaction_audit_url, catalog_root)
         )
 
         # Verify incremental compaction metrics are reasonable (looser bounds due to storage differences)

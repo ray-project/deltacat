@@ -287,8 +287,12 @@ def test_compact_partition_rebase_same_source_and_destination_main(
                 == round_completion_info.compacted_pyarrow_write_result.files
             )
 
+        # Get catalog root for audit file resolution
+        catalog = ds_mock_kwargs.get("inner")
+        catalog_root = catalog.root
+
         compaction_audit_obj: Dict[str, Any] = read_audit_file(
-            round_completion_info.compaction_audit_url
+            round_completion_info.compaction_audit_url, catalog_root
         )
         compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
             **compaction_audit_obj

@@ -200,11 +200,11 @@ def _read_txn(
     filesystem: pyarrow.fs.FileSystem,
 ) -> Transaction:
     """
-    Read a transaction from the given catalog and transaction ID.
+    Read a transaction ID with the expected status from the given root transaction log directory.
 
     Args:
         txn_log_dir: The directory containing the transaction log.
-        txn_status: The status of the transaction.
+        txn_status: The expected status of the transaction.
         transaction_id: The ID of the transaction.
         filesystem: The filesystem to use for reading the transaction.
 
@@ -312,6 +312,10 @@ def transactions(
         # Get transaction history as pandas DataFrame
         df = dc.transactions(read_as=dc.DatasetType.PANDAS)
     """
+    # Validate inputs
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be greater than 0")
+
     # Set default read_as if not provided
     if read_as is None:
         read_as = DatasetType.PYARROW

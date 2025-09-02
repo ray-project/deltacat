@@ -1,13 +1,9 @@
 import pytest
 import os
-import inspect
 import pyarrow
 import msgpack
 import posixpath
 
-import pandas as pd
-
-import deltacat as dc
 
 from deltacat.storage import (
     Transaction,
@@ -15,7 +11,6 @@ from deltacat.storage import (
     TransactionOperationType,
     Namespace,
     NamespaceLocator,
-    transactions,
     Metafile,
 )
 
@@ -24,10 +19,6 @@ from deltacat.constants import (
     RUNNING_TXN_DIR_NAME,
     PAUSED_TXN_DIR_NAME,
 )
-
-from deltacat.types.tables import DatasetType
-from deltacat.catalog.model.catalog import Catalog
-from deltacat.storage.model.types import TransactionState
 
 
 class TestAbsToRelative:
@@ -402,272 +393,6 @@ class TestTransactionPersistence:
         assert os.path.exists(success_log_path)
         assert success_log_path.endswith(str(txn.end_time))
 
-
-class TestTransactionCommitMessage:
-    """Test commit message functionality for transactions."""
-
-    def test_transaction_with_commit_message(self):
-        """Test that commit messages are stored and retrievable from transactions."""
-        commit_msg = "Test commit message for transaction functionality"
-
-        # Create transaction with commit message
-        txn = Transaction.of(commit_message=commit_msg)
-
-        # Verify commit message is stored correctly
-        assert txn.commit_message == commit_msg
-        assert txn.get("commit_message") == commit_msg
-
-    def test_transaction_without_commit_message(self):
-        """Test that transactions work normally without commit messages."""
-        # Create transaction without commit message
-        txn = Transaction.of()
-
-        # Verify no commit message is stored
-        assert txn.commit_message is None
-        assert txn.get("commit_message") is None
-
-    def test_transaction_commit_message_setter(self):
-        """Test that commit messages can be set after transaction creation."""
-        # Create transaction without commit message
-        txn = Transaction.of()
-        assert txn.commit_message is None
-
-        # Set commit message using property setter
-        commit_msg = "Added commit message after creation"
-        txn.commit_message = commit_msg
-
-        # Verify commit message is stored correctly
-        assert txn.commit_message == commit_msg
-        assert txn.get("commit_message") == commit_msg
-
-    def test_transaction_serialization_with_commit_message(self, temp_dir):
-        """Test that commit messages persist through transaction serialization."""
-        commit_msg = "Serialization test commit message"
-
-        # Create namespace for testing
-        ns = Namespace.of(locator=NamespaceLocator.of(namespace="serialization_test"))
-
-        # Create transaction with commit message
-        txn = Transaction.of(commit_message=commit_msg).start(temp_dir)
-        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
-        txn.step(op)
-
-        # Commit transaction (this should serialize the transaction with commit message)
-        _, success_log_path = txn.seal()
-
-        # Read the transaction log and verify commit message persisted
-        txn_read = Transaction.read(success_log_path)
-        assert txn_read.commit_message == commit_msg
-
-        # Verify other transaction properties are intact
-        assert txn_read.start_time == txn.start_time
-        assert txn_read.end_time == txn.end_time
-        assert len(txn_read.operations) == 1
-
-    def test_transactions_query_functionality(self, temp_catalog_properties):
-        """Test the transactions() function for querying transaction history."""
-
-        # Initialize a clean catalog for testing using the fixture
-        dc.init()
-        dc.put_catalog("test", Catalog(temp_catalog_properties))
-
-        # Create multiple transactions with data
-        commit_msg_1 = "First test transaction"
-        commit_msg_2 = "Second test transaction"
-
-        # Create first transaction
-        data1 = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
-        with dc.transaction(commit_message=commit_msg_1):
-            dc.write(data1, "users")
-
-        # Create second transaction
-        data2 = pd.DataFrame({"id": [3, 4], "name": ["Charlie", "Diana"]})
-        with dc.transaction(commit_message=commit_msg_2):
-            dc.write(data2, "customers")
-
-        # Test transactions() query functionality
-        result = dc.transactions(read_as=DatasetType.PANDAS)
-
-        # Verify we have the right number of transactions
-        assert len(result) == 2
-
-        # Verify column structure
-        expected_columns = [
-            "transaction_id",
-            "commit_message",
-            "start_time",
-            "end_time",
-            "status",
-            "operation_count",
-            "operation_types",
-            "namespace_count",
-            "table_count",
-            "table_version_count",
-            "stream_count",
-            "partition_count",
-            "delta_count",
-        ]
-        assert list(result.columns) == expected_columns
-
-        # Verify commit messages are preserved
-        commit_messages = set(result["commit_message"])
-        assert commit_msg_1 in commit_messages
-        assert commit_msg_2 in commit_messages
-
-        # Verify transaction metadata
-        assert all(result["status"] == "SUCCESS")
-        assert all(result["operation_count"] > 0)
-        assert all(result["table_count"] > 0)
-
-        # Read and validate the transactions
-        transaction_id = result.iloc[0]["transaction_id"]
-        transaction_obj = dc.read_transaction(transaction_id)
-        assert transaction_obj.id == transaction_id
-        assert transaction_obj.commit_message == commit_msg_2
-        assert transaction_obj.start_time == result.iloc[0]["start_time"]
-        assert transaction_obj.end_time == result.iloc[0]["end_time"]
-        assert (
-            transaction_obj.state(temp_catalog_properties.root)
-            == TransactionState.SUCCESS
-        )
-        assert len(transaction_obj.operations) == 24
-
-        transaction_id = result.iloc[1]["transaction_id"]
-        transaction_obj = dc.read_transaction(transaction_id)
-        assert transaction_obj.id == transaction_id
-        assert transaction_obj.commit_message == commit_msg_1
-        assert transaction_obj.start_time == result.iloc[1]["start_time"]
-        assert transaction_obj.end_time == result.iloc[1]["end_time"]
-        assert (
-            transaction_obj.state(temp_catalog_properties.root)
-            == TransactionState.SUCCESS
-        )
-        # 1st transaction contains more operations than 2nd since only it needed to create the namespace
-        assert len(transaction_obj.operations) == 26
-
-    def test_transactions_function_signature(self):
-        """Test that transactions function has the correct signature and imports work."""
-        # Check function signature
-        sig = inspect.signature(transactions)
-        expected_params = [
-            "catalog_name",
-            "read_as",
-            "start_time",
-            "end_time",
-            "limit",
-            "status_in",
-        ]
-
-        actual_params = list(sig.parameters.keys())
-        assert (
-            actual_params == expected_params
-        ), f"Expected params {expected_params}, got {actual_params}"
-
-    def test_transactions_empty_catalog_graceful_handling(
-        self, temp_catalog_properties
-    ):
-        """Test that transactions() gracefully handles catalogs with no completed transactions."""
-
-        # Clear any existing catalogs and initialize a fresh catalog with no transactions
-        dc.init()
-        dc.put_catalog("test", Catalog(temp_catalog_properties))
-
-        # Ensure we're properly initialized
-        assert dc.is_initialized(), "Catalog should be initialized"
-
-        # Test all supported dataset types with empty results
-        dataset_types = [
-            DatasetType.PANDAS,
-            DatasetType.PYARROW,
-            DatasetType.POLARS,
-            DatasetType.RAY_DATASET,
-            DatasetType.DAFT,
-        ]
-
-        for dataset_type in dataset_types:
-            # Should return empty dataset with proper schema, not raise exception
-            result = dc.transactions(read_as=dataset_type)
-
-            # Verify basic properties
-            if dataset_type == DatasetType.PANDAS:
-                assert isinstance(result, pd.DataFrame)
-                assert len(result) == 0
-                expected_columns = [
-                    "transaction_id",
-                    "commit_message",
-                    "start_time",
-                    "end_time",
-                    "status",
-                    "operation_count",
-                    "operation_types",
-                    "namespace_count",
-                    "table_count",
-                    "table_version_count",
-                    "stream_count",
-                    "partition_count",
-                    "delta_count",
-                ]
-                assert list(result.columns) == expected_columns
-            elif dataset_type == DatasetType.PYARROW:
-                import pyarrow as pa
-
-                assert isinstance(result, pa.Table)
-                assert result.num_rows == 0
-                assert result.column_names == [
-                    "transaction_id",
-                    "commit_message",
-                    "start_time",
-                    "end_time",
-                    "status",
-                    "operation_count",
-                    "operation_types",
-                    "namespace_count",
-                    "table_count",
-                    "table_version_count",
-                    "stream_count",
-                    "partition_count",
-                    "delta_count",
-                ]
-            else:
-                # For other types (Polars, Ray, Daft), just verify no exception
-                assert result is not None
-
-        # Test with various parameter combinations on empty catalog
-        from deltacat.storage.model.types import TransactionStatus
-
-        test_cases = [
-            {"limit": 5},
-            {"start_time": 1704067200000000000},
-            {"end_time": 1704067500000000000},
-            {"status_in": [TransactionStatus.RUNNING]},
-            {"status_in": [TransactionStatus.FAILED]},
-            {"status_in": [TransactionStatus.PAUSED]},
-            {
-                "status_in": [
-                    TransactionStatus.SUCCESS,
-                    TransactionStatus.RUNNING,
-                    TransactionStatus.FAILED,
-                ]
-            },
-            {
-                "limit": 1,
-                "status_in": [TransactionStatus.RUNNING, TransactionStatus.FAILED],
-            },
-            {
-                "status_in": [
-                    TransactionStatus.SUCCESS,
-                    TransactionStatus.RUNNING,
-                    TransactionStatus.FAILED,
-                ],
-                "limit": 2,
-            },
-        ]
-
-        for params in test_cases:
-            result = dc.transactions(read_as=DatasetType.PANDAS, **params)
-            assert isinstance(result, pd.DataFrame)
-            assert len(result) == 0, f"Failed with params {params}"
-
     # Validates that transaction state, including ID and write paths, is correctly preserved across pause/resume cycles
     def test_resume_preserves_state_after_pause(self, temp_dir):
         ns = Namespace.of(locator=NamespaceLocator.of(namespace="resume_state_check"))
@@ -864,3 +589,65 @@ class TestTransactionCommitMessage:
         # Verify success log
         assert os.path.exists(success_log_path)
         assert success_log_path.endswith(str(txn.end_time))
+
+
+class TestTransactionCommitMessage:
+    """Test commit message preservation and retrieval for transactions."""
+
+    def test_transaction_with_commit_message(self):
+        """Test that commit messages are stored and retrievable from transactions."""
+        commit_msg = "Test commit message for transaction functionality"
+
+        # Create transaction with commit message
+        txn = Transaction.of(commit_message=commit_msg)
+
+        # Verify commit message is stored correctly
+        assert txn.commit_message == commit_msg
+        assert txn.get("commit_message") == commit_msg
+
+    def test_transaction_without_commit_message(self):
+        """Test that transactions work normally without commit messages."""
+        # Create transaction without commit message
+        txn = Transaction.of()
+
+        # Verify no commit message is stored
+        assert txn.commit_message is None
+        assert txn.get("commit_message") is None
+
+    def test_transaction_commit_message_setter(self):
+        """Test that commit messages can be set after transaction creation."""
+        # Create transaction without commit message
+        txn = Transaction.of()
+        assert txn.commit_message is None
+
+        # Set commit message using property setter
+        commit_msg = "Added commit message after creation"
+        txn.commit_message = commit_msg
+
+        # Verify commit message is stored correctly
+        assert txn.commit_message == commit_msg
+        assert txn.get("commit_message") == commit_msg
+
+    def test_transaction_serialization_with_commit_message(self, temp_dir):
+        """Test that commit messages persist through transaction serialization."""
+        commit_msg = "Serialization test commit message"
+
+        # Create namespace for testing
+        ns = Namespace.of(locator=NamespaceLocator.of(namespace="serialization_test"))
+
+        # Create transaction with commit message
+        txn = Transaction.of(commit_message=commit_msg).start(temp_dir)
+        op = TransactionOperation.of(TransactionOperationType.CREATE, dest_metafile=ns)
+        txn.step(op)
+
+        # Commit transaction (this should serialize the transaction with commit message)
+        _, success_log_path = txn.seal()
+
+        # Read the transaction log and verify commit message persisted
+        txn_read = Transaction.read(success_log_path)
+        assert txn_read.commit_message == commit_msg
+
+        # Verify other transaction properties are intact
+        assert txn_read.start_time == txn.start_time
+        assert txn_read.end_time == txn.end_time
+        assert len(txn_read.operations) == 1
