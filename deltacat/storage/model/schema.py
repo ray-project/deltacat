@@ -209,6 +209,10 @@ class SchemaUpdateOperations(List[SchemaUpdateOperation]):
             self[item] = val = SchemaUpdateOperation(val)
         return val
 
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
+
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -2171,6 +2175,10 @@ class SchemaList(List[Schema]):
         if val is not None and not isinstance(val, Schema):
             self[item] = val = Schema(val)
         return val
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
 
 
 class SchemaUpdate(dict):

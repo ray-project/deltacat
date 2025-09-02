@@ -8,7 +8,11 @@ from deltacat.api import (
     list,
     put,
 )
-from deltacat.storage.model.transaction import transaction
+from deltacat.storage.model.transaction import (
+    transaction,
+    transactions,
+    read_transaction,
+)
 from deltacat.catalog import (  # noqa: F401
     alter_namespace,
     alter_table,
@@ -68,6 +72,7 @@ from deltacat.storage import (
     SortOrder,
     SortScheme,
     TableProperties,
+    TransactionStatus,
     Transform,
     TransformName,
     TransformParameters,
@@ -129,6 +134,7 @@ __all__ = [
     "list",
     "put",
     "transaction",
+    "transactions",
     "alter_table",
     "create_table",
     "drop_table",
@@ -149,6 +155,7 @@ __all__ = [
     "write_to_table",
     "read",
     "read_table",
+    "read_transaction",
     "init",
     "init_local",
     "is_initialized",
@@ -203,6 +210,7 @@ __all__ = [
     "TableProperty",
     "TableReadOptimizationLevel",
     "SchemaEvolutionMode",
+    "TransactionStatus",
     "Transform",
     "TransformName",
     "TransformParameters",

@@ -10,6 +10,12 @@ import polars as pl
 from ray.data.dataset import Dataset as RayDataset
 from daft import DataFrame as DaftDataFrame
 
+from deltacat.constants import (
+    RUNNING_TXN_DIR_NAME,
+    PAUSED_TXN_DIR_NAME,
+    FAILED_TXN_DIR_NAME,
+    SUCCESS_TXN_DIR_NAME,
+)
 
 LocalTable = Union[
     pa.Table,
@@ -74,12 +80,41 @@ class TransactionOperationType(str, Enum):
         return self in TransactionOperationType.read_operations()
 
 
+class TransactionStatus(str, Enum):
+    """
+    Transaction user status types. Every transaction status maps to a distinct
+    transaction log directory.
+    """
+
+    SUCCESS = "SUCCESS"
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    FAILED = "FAILED"
+
+    def dir_name(self) -> str:
+        if self == TransactionStatus.RUNNING:
+            return RUNNING_TXN_DIR_NAME
+        elif self == TransactionStatus.PAUSED:
+            return PAUSED_TXN_DIR_NAME
+        elif self == TransactionStatus.FAILED:
+            return FAILED_TXN_DIR_NAME
+        elif self == TransactionStatus.SUCCESS:
+            return SUCCESS_TXN_DIR_NAME
+
+
 class TransactionState(str, Enum):
+    """
+    Transaction system state types. Transaction states do not map to distinct transaction log directories,
+    but can be inferred by its presence in one or more directories. These states are used to infer whether
+    to run system activities like transaction cleanup jobs.
+    """
+
     FAILED = "FAILED"
     PURGED = "PURGED"
     TIMEOUT = "TIMEOUT"
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
+    PAUSED = "PAUSED"
 
 
 class LifecycleState(str, Enum):

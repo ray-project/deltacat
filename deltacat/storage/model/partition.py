@@ -553,6 +553,10 @@ class PartitionKeyList(List[PartitionKey]):
             self[item] = val = PartitionKey(val)
         return val
 
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
+
 
 class PartitionScheme(dict):
     @staticmethod
@@ -674,6 +678,10 @@ class PartitionSchemeList(List[PartitionScheme]):
         if val is not None and not isinstance(val, PartitionScheme):
             self[item] = val = PartitionScheme(val)
         return val
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
 
 
 class PartitionLocatorAliasName(LocatorName):

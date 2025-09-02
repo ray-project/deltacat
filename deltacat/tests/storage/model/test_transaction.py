@@ -1,8 +1,13 @@
 import pytest
 import os
+import inspect
 import pyarrow
 import msgpack
 import posixpath
+
+import pandas as pd
+
+import deltacat as dc
 
 from deltacat.storage import (
     Transaction,
@@ -10,8 +15,7 @@ from deltacat.storage import (
     TransactionOperationType,
     Namespace,
     NamespaceLocator,
-)
-from deltacat.storage.model.metafile import (
+    transactions,
     Metafile,
 )
 
@@ -20,6 +24,10 @@ from deltacat.constants import (
     RUNNING_TXN_DIR_NAME,
     PAUSED_TXN_DIR_NAME,
 )
+
+from deltacat.types.tables import DatasetType
+from deltacat.catalog.model.catalog import Catalog
+from deltacat.storage.model.types import TransactionState
 
 
 class TestAbsToRelative:
@@ -345,9 +353,6 @@ class TestTransactionPersistence:
         # Check output files exist and are valid
         deserialized_ns1 = Namespace.read(write_paths[0])
         deserialized_ns2 = Namespace.read(write_paths[1])
-        print("write_paths ns1: " + str(deserialized_ns1))
-        print("write_paths ns2: " + str(deserialized_ns2))
-        print(deserialized_ns1)
 
         assert ns1.equivalent_to(deserialized_ns1)
         assert ns2.equivalent_to(deserialized_ns2)
@@ -448,7 +453,7 @@ class TestTransactionCommitMessage:
         txn.step(op)
 
         # Commit transaction (this should serialize the transaction with commit message)
-        write_paths, success_log_path = txn.seal()
+        _, success_log_path = txn.seal()
 
         # Read the transaction log and verify commit message persisted
         txn_read = Transaction.read(success_log_path)
@@ -458,6 +463,210 @@ class TestTransactionCommitMessage:
         assert txn_read.start_time == txn.start_time
         assert txn_read.end_time == txn.end_time
         assert len(txn_read.operations) == 1
+
+    def test_transactions_query_functionality(self, temp_catalog_properties):
+        """Test the transactions() function for querying transaction history."""
+
+        # Initialize a clean catalog for testing using the fixture
+        dc.init()
+        dc.put_catalog("test", Catalog(temp_catalog_properties))
+
+        # Create multiple transactions with data
+        commit_msg_1 = "First test transaction"
+        commit_msg_2 = "Second test transaction"
+
+        # Create first transaction
+        data1 = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
+        with dc.transaction(commit_message=commit_msg_1):
+            dc.write(data1, "users")
+
+        # Create second transaction
+        data2 = pd.DataFrame({"id": [3, 4], "name": ["Charlie", "Diana"]})
+        with dc.transaction(commit_message=commit_msg_2):
+            dc.write(data2, "customers")
+
+        # Test transactions() query functionality
+        result = dc.transactions(read_as=DatasetType.PANDAS)
+
+        # Verify we have the right number of transactions
+        assert len(result) == 2
+
+        # Verify column structure
+        expected_columns = [
+            "transaction_id",
+            "commit_message",
+            "start_time",
+            "end_time",
+            "status",
+            "operation_count",
+            "operation_types",
+            "namespace_count",
+            "table_count",
+            "table_version_count",
+            "stream_count",
+            "partition_count",
+            "delta_count",
+        ]
+        assert list(result.columns) == expected_columns
+
+        # Verify commit messages are preserved
+        commit_messages = set(result["commit_message"])
+        assert commit_msg_1 in commit_messages
+        assert commit_msg_2 in commit_messages
+
+        # Verify transaction metadata
+        assert all(result["status"] == "SUCCESS")
+        assert all(result["operation_count"] > 0)
+        assert all(result["table_count"] > 0)
+
+        # Read and validate the transactions
+        transaction_id = result.iloc[0]["transaction_id"]
+        transaction_obj = dc.read_transaction(transaction_id)
+        assert transaction_obj.id == transaction_id
+        assert transaction_obj.commit_message == commit_msg_2
+        assert transaction_obj.start_time == result.iloc[0]["start_time"]
+        assert transaction_obj.end_time == result.iloc[0]["end_time"]
+        assert (
+            transaction_obj.state(temp_catalog_properties.root)
+            == TransactionState.SUCCESS
+        )
+        assert len(transaction_obj.operations) == 24
+
+        transaction_id = result.iloc[1]["transaction_id"]
+        transaction_obj = dc.read_transaction(transaction_id)
+        assert transaction_obj.id == transaction_id
+        assert transaction_obj.commit_message == commit_msg_1
+        assert transaction_obj.start_time == result.iloc[1]["start_time"]
+        assert transaction_obj.end_time == result.iloc[1]["end_time"]
+        assert (
+            transaction_obj.state(temp_catalog_properties.root)
+            == TransactionState.SUCCESS
+        )
+        # 1st transaction contains more operations than 2nd since only it needed to create the namespace
+        assert len(transaction_obj.operations) == 26
+
+    def test_transactions_function_signature(self):
+        """Test that transactions function has the correct signature and imports work."""
+        # Check function signature
+        sig = inspect.signature(transactions)
+        expected_params = [
+            "catalog_name",
+            "read_as",
+            "start_time",
+            "end_time",
+            "limit",
+            "status_in",
+        ]
+
+        actual_params = list(sig.parameters.keys())
+        assert (
+            actual_params == expected_params
+        ), f"Expected params {expected_params}, got {actual_params}"
+
+    def test_transactions_empty_catalog_graceful_handling(
+        self, temp_catalog_properties
+    ):
+        """Test that transactions() gracefully handles catalogs with no completed transactions."""
+
+        # Clear any existing catalogs and initialize a fresh catalog with no transactions
+        dc.init()
+        dc.put_catalog("test", Catalog(temp_catalog_properties))
+
+        # Ensure we're properly initialized
+        assert dc.is_initialized(), "Catalog should be initialized"
+
+        # Test all supported dataset types with empty results
+        dataset_types = [
+            DatasetType.PANDAS,
+            DatasetType.PYARROW,
+            DatasetType.POLARS,
+            DatasetType.RAY_DATASET,
+            DatasetType.DAFT,
+        ]
+
+        for dataset_type in dataset_types:
+            # Should return empty dataset with proper schema, not raise exception
+            result = dc.transactions(read_as=dataset_type)
+
+            # Verify basic properties
+            if dataset_type == DatasetType.PANDAS:
+                assert isinstance(result, pd.DataFrame)
+                assert len(result) == 0
+                expected_columns = [
+                    "transaction_id",
+                    "commit_message",
+                    "start_time",
+                    "end_time",
+                    "status",
+                    "operation_count",
+                    "operation_types",
+                    "namespace_count",
+                    "table_count",
+                    "table_version_count",
+                    "stream_count",
+                    "partition_count",
+                    "delta_count",
+                ]
+                assert list(result.columns) == expected_columns
+            elif dataset_type == DatasetType.PYARROW:
+                import pyarrow as pa
+
+                assert isinstance(result, pa.Table)
+                assert result.num_rows == 0
+                assert result.column_names == [
+                    "transaction_id",
+                    "commit_message",
+                    "start_time",
+                    "end_time",
+                    "status",
+                    "operation_count",
+                    "operation_types",
+                    "namespace_count",
+                    "table_count",
+                    "table_version_count",
+                    "stream_count",
+                    "partition_count",
+                    "delta_count",
+                ]
+            else:
+                # For other types (Polars, Ray, Daft), just verify no exception
+                assert result is not None
+
+        # Test with various parameter combinations on empty catalog
+        from deltacat.storage.model.types import TransactionStatus
+
+        test_cases = [
+            {"limit": 5},
+            {"start_time": 1704067200000000000},
+            {"end_time": 1704067500000000000},
+            {"status_in": [TransactionStatus.RUNNING]},
+            {"status_in": [TransactionStatus.FAILED]},
+            {"status_in": [TransactionStatus.PAUSED]},
+            {
+                "status_in": [
+                    TransactionStatus.SUCCESS,
+                    TransactionStatus.RUNNING,
+                    TransactionStatus.FAILED,
+                ]
+            },
+            {
+                "limit": 1,
+                "status_in": [TransactionStatus.RUNNING, TransactionStatus.FAILED],
+            },
+            {
+                "status_in": [
+                    TransactionStatus.SUCCESS,
+                    TransactionStatus.RUNNING,
+                    TransactionStatus.FAILED,
+                ],
+                "limit": 2,
+            },
+        ]
+
+        for params in test_cases:
+            result = dc.transactions(read_as=DatasetType.PANDAS, **params)
+            assert isinstance(result, pd.DataFrame)
+            assert len(result) == 0, f"Failed with params {params}"
 
     # Validates that transaction state, including ID and write paths, is correctly preserved across pause/resume cycles
     def test_resume_preserves_state_after_pause(self, temp_dir):
@@ -479,7 +688,7 @@ class TestTransactionCommitMessage:
         assert len(txn.metafile_write_paths) == 1
 
         # Check commit still works
-        write_paths, success_log_path = txn.seal()
+        _, success_log_path = txn.seal()
         assert os.path.exists(success_log_path)
 
     # Explicitly checks that fields are preserved
@@ -538,14 +747,11 @@ class TestTransactionCommitMessage:
         running_path = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME, txn_id)
         paused_path = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME, txn_id)
 
-        print("running path: " + str(running_path))
-        print("paused path: " + str(running_path))
         # Sanity check: file should be in running/
         assert fs.get_file_info(running_path).type == pyarrow.fs.FileType.File
 
         # Pause transaction
         txn.pause()
-        print(fs.get_file_info(running_path))
         # Ensure the running file is deleted
         assert fs.get_file_info(running_path).type == pyarrow.fs.FileType.NotFound
 
@@ -555,8 +761,6 @@ class TestTransactionCommitMessage:
         with fs.open_input_stream(paused_path) as f:
             data = f.readall()
             txn_loaded = msgpack.loads(data)
-            print(txn_loaded.keys())
-            print(txn_loaded)
             assert "operations" in txn_loaded
 
     # Simulates a full multi-step transaction with multiple pause/resume cycles and verifies correctness of all outputs
@@ -640,8 +844,6 @@ class TestTransactionCommitMessage:
         # Final commit
         write_paths, success_log_path = txn.seal()
 
-        print("\nstart time: " + str(txn.start_time))
-        print("end time: " + str(txn.end_time))
         assert txn.start_time < txn.end_time
 
         # Read and verify written namespaces

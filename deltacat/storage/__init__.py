@@ -20,6 +20,9 @@ from deltacat.storage.model.metafile import (
 from deltacat.storage.model.transaction import (
     TransactionOperation,
     Transaction,
+    read_transaction,
+    transactions,
+    transaction,
 )
 from deltacat.storage.model.namespace import (
     Namespace,
@@ -94,6 +97,7 @@ from deltacat.storage.model.types import (
     StreamFormat,
     SortOrder,
     TransactionOperationType,
+    TransactionStatus,
 )
 from deltacat.storage.model.sort_key import (
     SortKey,
@@ -173,6 +177,7 @@ __all__ = [
     "Transaction",
     "TransactionOperation",
     "TransactionOperationType",
+    "TransactionStatus",
     "Transform",
     "TransformName",
     "TransformParameters",
@@ -182,4 +187,7 @@ __all__ = [
     "UnknownTransform",
     "VoidTransform",
     "YearTransform",
+    "read_transaction",
+    "transactions",
+    "transaction",
 ]

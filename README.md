@@ -44,7 +44,7 @@ dc.init_local()
 # Create data to write.
 data = pd.DataFrame({
     "id": [1, 2, 3],
-    "name": ["Whiskers", "Mittens", "Ginger"],
+    "name": ["Cheshire", "Dinah", "Felix"],
     "age": [3, 7, 5]
 })
 
@@ -61,9 +61,9 @@ daft_df.show()  # Materialize and print the DataFrame
 # Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
-    "name": ["Stripes", "Patches", "Delta"],
+    "name": ["Tom", "Simpkin", "Delta"],
     "age": [2, 12, 4],
-    "city": ["London", "New York", "San Francisco"]
+    "city": ["Hollywood", "Gloucester", "San Francisco"]
 })
 dc.write(data, "users")
 
@@ -73,7 +73,12 @@ daft_df = dc.read("users")
 daft_df.select("name", "city").show()
 ```
 
-### Supported Dataset and File Formats
+Expand the sections below to see more introductory examples by topic.
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Supported Dataset and File Formats</span></summary>
+
 DeltaCAT natively supports a variety of open dataset and file formats already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or list of PyArrow ParquetFile objects:
 
 ```python
@@ -99,29 +104,28 @@ import pyarrow as pa
 # Create a pyarrow table to write.
 data = pa.Table.from_pydict({
     "id": [4, 5, 6],
-    "name": ["Stripes", "Patches", "Delta"],
+    "name": ["Tom", "Simpkin", "Delta"],
     "age": [2, 12, 4],
-    "city": ["London", "New York", "San Francisco"]
+    "city": ["Hollywood", "Gloucester", "San Francisco"]
 })
 
 # Write different dataset types to the default table file format (Parquet):
-daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)  # Convert to Daft DataFrame
-dc.write(daft_df, "my_daft_table")
+dc.write(pyarrow_table, "my_pyarrow_table")  # Write PyArrow Table
 
-ray_dataset = dc.from_pyarrow(data, dc.DatasetType.RAY_DATASET)  # Convert to Ray Dataset
-dc.write(ray_dataset, "my_ray_dataset")
+daft_df = dc.from_pyarrow(data, dc.DatasetType.DAFT)
+dc.write(daft_df, "my_daft_table")  # Write Daft DataFrame
 
-pandas_df = dc.from_pyarrow(data, dc.DatasetType.PANDAS)  # Convert to Pandas DataFrame
-dc.write(pandas_df, "my_pandas_table")
+ray_dataset = dc.from_pyarrow(data, dc.DatasetType.RAY_DATASET)
+dc.write(ray_dataset, "my_ray_dataset")  # Write Ray Dataset
 
-pyarrow_table = dc.from_pyarrow(data, dc.DatasetType.PYARROW)  # Convert to PyArrow Table
-dc.write(pyarrow_table, "my_pyarrow_table")
+pandas_df = dc.from_pyarrow(data, dc.DatasetType.PANDAS)
+dc.write(pandas_df, "my_pandas_table")  # Write Pandas DataFrame
 
-polars_df = dc.from_pyarrow(data, dc.DatasetType.POLARS)  # Convert to Polars DataFrame
-dc.write(polars_df, "my_polars_table")
+polars_df = dc.from_pyarrow(data, dc.DatasetType.POLARS)
+dc.write(polars_df, "my_polars_table")  # Write Polars DataFrame
 
-numpy_array = dc.from_pyarrow(data, dc.DatasetType.NUMPY)  # Convert to NumPy Array
-dc.write(numpy_array, "my_numpy_table")
+numpy_array = dc.from_pyarrow(data, dc.DatasetType.NUMPY)
+dc.write(numpy_array, "my_numpy_table")  # Write NumPy Array
 ```
 
 Or write to different table file formats:
@@ -157,7 +161,11 @@ pandas_df = dc.read("my_mixed_format_table", read_as=dc.DatasetType.PANDAS)
 pandas_df.show()
 ```
 
-### Merging and Deleting Data
+</details>
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Merging and Deleting Data</span></summary>
 
 DeltaCAT can automatically merge and delete data by defining a table schema with one or more merge keys:
 
@@ -180,7 +188,7 @@ schema = dc.Schema.of([
 # Initial user data
 initial_users = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Whiskers", "Mittens", "Stripes"],
+    "name": ["Cheshire", "Dinah", "Felix"],
     "age": [3, 7, 2],
     "status": ["active", "active", "inactive"]
 })
@@ -195,8 +203,8 @@ print(df)
 
 # Update data for existing users + add new users
 updated_users = pd.DataFrame({
-    "user_id": [2, 3, 4, 5, 6],  # Mittens & Stripes updated, new users added
-    "name": ["Mittens", "Stripes", "Ginger", "Patches", "Delta"],
+    "user_id": [2, 3, 4, 5, 6],
+    "name": ["Dinah", "Felix", "Tom", "Simpkin", "Delta"],
     "age": [7, 2, 5, 12, 4],
     "status": ["premium", "active", "active", "active", "active"]
 })
@@ -211,10 +219,10 @@ df = dc.read("users", read_as=dc.DatasetType.PANDAS)
 print("\n=== After Merge ===")
 print(df.sort_values("user_id"))
 
-# - Whiskers (user_id=1) remains unchanged
-# - Mittens (user_id=2) status updated to "premium"
-# - Stripes (user_id=3) updated to "active"
-# - New users (4,5,6), (Ginger, Patches, Delta) added
+# - Cheshire (user_id=1) remains unchanged
+# - Dinah (user_id=2) status updated to "premium"
+# - Felix (user_id=3) updated to "active"
+# - New users (4,5,6), (Tom, Simpkin, Delta) added
 # - No duplicate user_id values exist
 
 # Specify the users to delete.
@@ -231,12 +239,16 @@ df = dc.read("users", read_as=dc.DatasetType.PANDAS)
 print("\n=== After Deletion ===")
 print(df.sort_values("user_id"))
 
-# - Stripes (user_id=3) has been removed
-# - Patches (user_id=5) has been removed
+# - Felix (user_id=3) has been removed
+# - Simpkin (user_id=5) has been removed
 # - All other users remain unchanged
 ```
 
-### Organizing Tables with Namespaces
+</details>
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Organizing Tables with Namespaces</span></summary>
 
 In DeltaCAT, table **Namespaces** are optional but useful for organizing related tables within a catalog:
 
@@ -251,20 +263,20 @@ dc.init_local(tempfile.mkdtemp())
 # Create some sample data for different business domains
 user_data = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Ginger", "Stripes", "Delta"],
+    "name": ["Cheshire", "Dinah", "Felix"],
 })
 
 product_data = pd.DataFrame({
     "product_id": [101, 102, 103],
-    "name": ["Lasagna", "Tuna", "Parquet"],
-    "price": [12.99, 8.99, 0.01]
+    "name": ["Mushrooms", "Fish", "Milk"],
+    "price": [12.99, 8.99, 3.99]
 })
 
 order_data = pd.DataFrame({
     "order_id": [1001, 1002, 1003],
     "user_id": [1, 2, 3],
     "product_id": [101, 102, 103],
-    "quantity": [2, 1, 1_000_000_000]
+    "quantity": [2, 1, 2]
 })
 
 # Write tables to different namespaces to organize them by domain
@@ -306,7 +318,11 @@ print(f"Marketing users fields: {list(marketing_df.columns)}")  # ['user_id', 's
 print(f"Finance users fields: {list(finance_df.columns)}")  # ['user_id', 'lifetime_payments', 'preferred_payment_method']
 ```
 
-### Multi-Table Transactions
+</details>
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Multi-Table Transactions</span></summary>
 
 DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this simplifies keeping related datasets in sync across your entire catalog.
 
@@ -322,9 +338,9 @@ dc.init_local(tempfile.mkdtemp())
 
 # Create sample product data.
 product_data = pd.DataFrame({
-    "product_id": [101, 102, 103],
-    "name": ["Lasagna", "Tuna", "Parquet"],
-    "price": [12.99, 8.99, 0.01]
+    "product_id": [101, 102, 103, 104, 105],
+    "name": ["Mushrooms", "Fish", "Milk", "Tuna", "Salmon"],
+    "price": [12.99, 8.99, 3.99, 6.99, 9.99]
 })
 
 # The product catalog can be created independently.
@@ -333,7 +349,7 @@ dc.write(product_data, "catalog", namespace="inventory")
 # Create sample user and finance data.
 user_data = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Ginger", "Stripes", "Delta"],
+    "name": ["Cheshire", "Dinah", "Felix"],
 })
 initial_finance = pd.DataFrame({
     "user_id": [1, 2, 3],
@@ -352,7 +368,7 @@ new_orders = pd.DataFrame({
     "order_id": [1001, 1002, 1003],
     "user_id": [1, 2, 3],
     "product_id": [101, 102, 103],
-    "quantity": [2, 1, 1_000_000_000]
+    "quantity": [2, 1, 2]
 })
 
 # Process new orders and update lifetime payment totals within a single transaction.
@@ -388,7 +404,11 @@ print(f"Finance records updated: {len(finance_df)}")
 # - Finance totals updated without any corresponding orders.
 ```
 
-### Working with Multiple Catalogs
+</details>
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Working with Multiple Catalogs</span></summary>
 
 DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them available to all workers in your Ray application.
 
@@ -452,11 +472,13 @@ assert staging_data["price"].tolist() == [Decimal("999.99"), Decimal("1234.56"),
 dc.write(decimal_table, "financial_data", catalog="prod")
 ```
 
-For more information, see the DeltaCAT [Schema](deltacat/docs/schema/README.md) and [Table](deltacat/docs/table/README.md) documentation.
+</details>
 
-### Time Travel
+<details>
 
-DeltaCAT supports time travel queries that let you read all tables in a catalog as they existed at any point in the past. Combined with multi-table transactions, this enables consistent point-in-time views across your entire data catalog:
+<summary><span style="font-size: 1.25em; font-weight: bold;">Transaction History & Time Travel</span></summary>
+
+DeltaCAT supports time travel queries that let you read all tables in a catalog as they existed at any point in the past. Combined with multi-table transactions, this enables consistent point-in-time views across your entire data catalog.
 
 ```python
 import deltacat as dc
@@ -470,37 +492,35 @@ dc.init_local(tempfile.mkdtemp())
 # Create initial state with existing users, products, and orders
 initial_users = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "name": ["Ginger", "Stripes", "Delta"],
+    "name": ["Cheshire", "Dinah", "Felix"],
 })
 
 initial_products = pd.DataFrame({
     "product_id": [101, 102, 103],
-    "name": ["Lasagna", "Tuna", "Parquet"],
-    "price": [12.99, 8.99, 0.01]
+    "name": ["Mushrooms", "Fish", "Milk"],
+    "price": [12.99, 8.99, 3.99]
 })
 
 initial_orders = pd.DataFrame({
     "order_id": [1001, 1002, 1003],
     "user_id": [1, 2, 3],
     "product_id": [101, 102, 103],
-    "quantity": [2, 1, 1_000_000_000]
+    "quantity": [2, 1, 2]
 })
 
 initial_finance = pd.DataFrame({
     "user_id": [1, 2, 3],
-    "lifetime_payments": [25.98, 8.99, 10000000.00],
+    "lifetime_payments": [25.98, 8.99, 7.98],
 })
 
-# Write initial state atomically
-with dc.transaction():
+# Write initial state atomically with a commit message
+with dc.transaction(commit_message="Initial data load: users, products, orders, and finance"):
     dc.write(initial_users, "users", namespace="identity")
     dc.write(initial_products, "catalog", namespace="inventory")
     dc.write(initial_orders, "transactions", namespace="sales")
     dc.write(initial_finance, "users", namespace="finance")
 
-# Capture timestamp for time travel
-time.sleep(0.1)
-checkpoint_time = time.time_ns()
+# Sleep briefly to ensure transaction timestamp separation
 time.sleep(0.1)
 
 # Later, add new orders for existing and new users
@@ -513,31 +533,46 @@ new_orders = pd.DataFrame({
 
 new_users = pd.DataFrame({
     "user_id": [4, 5],
-    "name": ["Whiskers", "Patches"],
+    "name": ["Tom", "Simpkin"],
 })
 
 new_products = pd.DataFrame({
     "product_id": [104, 105],
-    "name": ["Canary", "Milk"],
-    "price": [6.99, 3.99]
+    "name": ["Tuna", "Salmon"],
+    "price": [6.99, 9.99]
 })
 
 # Update finance data with new lifetime payment totals
 updated_finance = pd.DataFrame({
     "user_id": [1, 2, 3, 4, 5],
-    "lifetime_payments": [77.94, 26.97, 10000000.00, 34.95, 3.99]  # Updated totals
+    "lifetime_payments": [51.96, 26.97, 15.96, 34.95, 9.99]  # Updated totals
 })
 
 # Execute all updates atomically - either all succeed or all fail
-with dc.transaction():
+with dc.transaction(commit_message="Add new users and products, update finance totals"):
     # Add new users, products, orders, and lifetime payment totals
     dc.write(new_users, "users", namespace="identity")
     dc.write(new_products, "catalog", namespace="inventory")
     dc.write(new_orders, "transactions", namespace="sales")
     dc.write(updated_finance, "users", namespace="finance", mode=dc.TableWriteMode.REPLACE)
 
+# Query transaction history to find the right timestamp for time travel
+print("=== Transaction History ===")
+txn_history = dc.transactions(read_as=dc.DatasetType.PANDAS)
+print(f"Found {len(txn_history)} transactions:")
+print(txn_history[["transaction_id", "commit_message", "start_time", "end_time", "table_count"]])
+
+# Find the transaction we want to time travel back to
+initial_load_txn = txn_history[
+    txn_history["commit_message"] == "Initial data load: users, products, orders, and finance"
+]
+checkpoint_time = initial_load_txn["end_time"].iloc[0] + 1
+
+print(f"\nUsing checkpoint time from transaction: {initial_load_txn['transaction_id'].iloc[0]}")
+print(f"Commit message: {initial_load_txn['commit_message'].iloc[0]}")
+
 # Compare current state vs historic state across all tables
-print("=== Current State (After Updates) ===")
+print("\n=== Current State (After Updates) ===")
 current_users = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
 current_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
 current_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
@@ -548,7 +583,9 @@ print(f"Finance records: {len(current_finance)} total")
 
 # Now query all tables as they existed at the checkpoint
 print("\n=== Historic State (Before Updates) ===")
-with dc.transaction(as_of=checkpoint_time):
+# DeltaCAT only reads transactions with end times strictly less than the given as-of time,
+# so add 1 to the checkpoint time of the transaction we want to travel back to.
+with dc.transaction(as_of=checkpoint_time + 1):
     historic_users = dc.read("users", namespace="identity", read_as=dc.DatasetType.PANDAS)
     historic_orders = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
     historic_finance = dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS)
@@ -557,21 +594,25 @@ with dc.transaction(as_of=checkpoint_time):
     print(f"Orders: {len(historic_orders)} total")
     print(f"Finance records: {len(historic_finance)} total")
 
-    # Validate historic state - Whiskers & Patches didn't exist yet
-    assert not any(historic_users["name"] == "Whiskers")
-    assert not any(historic_users["name"] == "Patches")
+    # Validate historic state
+    assert not any(historic_users["name"] == "Tom")
+    assert not any(historic_users["name"] == "Simpkin")
     assert len(historic_orders) == 3  # Only original 3 orders
 
     # Finance data reflects original payment totals
     historic_payments = historic_finance[historic_finance["user_id"] == 1]["lifetime_payments"].iloc[0]
-    assert historic_payments == 25.98  # Original total, not updated 77.94
+    assert historic_payments == 25.98  # Original total, not updated 51.96
 
 print("\nTime travel validation successful!")
 ```
 
-### Multimodal Batch Inference
+</details>
 
-DeltaCAT supports native multimodal data storage and processing with partial field updates. For example, the following code classifies images of cats by breed, then adds predictions using partial updates (only merge key + new fields):
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Multimodal Batch Inference</span></summary>
+
+DeltaCAT's support for merging new fields into existing records and multimodal datasets can be used to build a multimodal batch inference pipeline. For example, the following code indexes images of cats, then merges in new fields with breed precitions predictions for each image:
 
 > **Requirements**: This example requires PyTorch ≥ 2.8.0 and torchvision ≥ 0.23.0. Install via: `pip install torch>=2.8.0 torchvision>=0.23.0`
 
@@ -629,10 +670,11 @@ class ImageClassifier:
 df_with_predictions = df.with_column("prediction", ImageClassifier(df["image_path"]))
 
 # Run batch inference and prepare partial update data (merge key + new fields only)
+# Adds predicted breed and confidence to existing records with matching image IDs.
 prediction_data = df_with_predictions.select(
-    df_with_predictions["image_id"],  # Merge key to match existing records
-    df_with_predictions["prediction"].list.get(0).alias("predicted_breed"),  # New field to update
-    (df_with_predictions["prediction"].list.get(1).str.replace("%", "").cast(daft.DataType.float64()) / 100.0).alias("confidence")  # New field to update
+    df_with_predictions["image_id"],
+    df_with_predictions["prediction"].list.get(0).alias("predicted_breed"),
+    (df_with_predictions["prediction"].list.get(1).str.replace("%", "").cast(daft.DataType.float64()) / 100.0).alias("confidence")
 )
 
 # Write the predictions back to the table
@@ -653,11 +695,13 @@ print(f"Final dataset with images and predictions:")
 final_df.show()
 ```
 
-Unfortunately, this example achieves only 33% accuracy using generic ImageNet classes. To achieve better accuracy, you can also [fine-tune your own cat breed classifier using DeltaCAT](deltacat/docs/examples/fine-tuning-guide.md).
+</details>
 
-### LLM Document Processing with Time Travel
+<details>
 
-The following example combines multi-table transactions, time travel queries, and automatic schema evolution to build a document processing pipeline:
+<summary><span style="font-size: 1.25em; font-weight: bold;">LLM Batch Inference with Auditing</span></summary>
+
+DeltaCAT multi-table transactions, time travel queries, and automatic schema evolution can be used to create auditable LLM batch inference pipelines. For example, the following code captures customer feedback sentiment and emotion detail, then generates customer service responses:
 
 ```python
 import deltacat as dc
@@ -686,7 +730,7 @@ with dc.transaction():
 
     # Define a UDF to analyze customer feedback sentiment.
     @daft.udf(return_dtype=daft.DataType.struct({
-        "sentiment": daft.DataType.string(),
+        "analysis": daft.DataType.string(),
         "confidence": daft.DataType.float64(),
         "model_version": daft.DataType.string()
     }))
@@ -696,7 +740,7 @@ with dc.transaction():
         for content in content_series.to_pylist():
             result = classifier(content[:500])[0]  # Truncate for model limits
             results.append({
-                "sentiment": result['label'],
+                "analysis": result['label'],
                 "confidence": result['score'],
                 "model_version": "roberta-v1.0"
             })
@@ -707,7 +751,7 @@ with dc.transaction():
     daft_results = daft_docs.with_column("analysis", analyze_sentiment(daft_docs["content"]))
     daft_results = daft_results.select(
         daft_docs["doc_id"],
-        daft_results["analysis"]["sentiment"].alias("sentiment"),
+        daft_results["analysis"]["analysis"].alias("analysis"),
         daft_results["analysis"]["confidence"].alias("confidence"),
         daft_results["analysis"]["model_version"].alias("model_version")
     )
@@ -715,7 +759,7 @@ with dc.transaction():
     # Write sentiment analysis to a new table with doc_id as the merge key.
     initial_schema = dc.Schema.of([
         dc.Field.of(pa.field("doc_id", pa.int64()), is_merge_key=True),
-        dc.Field.of(pa.field("sentiment", pa.large_string())),
+        dc.Field.of(pa.field("analysis", pa.large_string())),
         dc.Field.of(pa.field("confidence", pa.float64())),
         dc.Field.of(pa.field("model_version", pa.large_string())),
     ])
@@ -736,14 +780,13 @@ checkpoint_v1 = time.time_ns()
 time.sleep(0.1)
 
 # Doc processing V2.0
-# Upgrade to a model that also captures customer feedback emotion details.
+# Switch to a model that captures customer feedback emotion details.
 with dc.transaction():
     # Define a UDF to analyze customer feedback emotion details.
     @daft.udf(return_dtype=daft.DataType.struct({
-        "sentiment": daft.DataType.string(),
+        "analysis": daft.DataType.string(),
         "confidence": daft.DataType.float64(),
         "model_version": daft.DataType.string(),
-        "emotion_detail": daft.DataType.string()
     }))
     def analyze_emotions(content_series):
         classifier_v2 = pipeline("sentiment-analysis", model="j-hartmann/emotion-english-distilroberta-base")
@@ -751,10 +794,9 @@ with dc.transaction():
         for content in content_series.to_pylist():
             result = classifier_v2(content[:500])[0]
             results.append({
-                "sentiment": result['label'],
+                "analysis": result['label'],
                 "confidence": result['score'],
                 "model_version": "distilroberta-v2.0",
-                "emotion_detail": result['label']  # New column
             })
         return results
 
@@ -763,14 +805,12 @@ with dc.transaction():
     daft_emotions = daft_docs.with_column("analysis", analyze_emotions(daft_docs["content"]))
     daft_emotions = daft_emotions.select(
         daft_docs["doc_id"],
-        daft_emotions["analysis"]["sentiment"].alias("sentiment"),
+        daft_emotions["analysis"]["analysis"].alias("analysis"),
         daft_emotions["analysis"]["confidence"].alias("confidence"),
         daft_emotions["analysis"]["model_version"].alias("model_version"),
-        daft_emotions["analysis"]["emotion_detail"].alias("emotion_detail")
     )
 
     # Merge new V2.0 insights into the existing V1.0 insights table.
-    # The new "emotion_detail" column is automatically zipper-merged by document ID.
     dc.write(daft_emotions, "insights", namespace="analysis")
     audit_df = pd.DataFrame([{"version": "v2.0", "docs_processed": dc.dataset_length(daft_docs)}])
     dc.write(audit_df, "audit", namespace="analysis")
@@ -782,27 +822,33 @@ checkpoint_v2 = time.time_ns()
 time.sleep(0.1)
 
 # Doc processing V3.0
-# Generate customer service responses based on sentiment and emotion detail.
+# Generate customer service responses based on sentiment and emotion analysis results.
 with dc.transaction():
-    # Define a UDF to generate customer service responses.
+    # First, read the current insights table with sentiment and emotion analysis
+    current_insights = dc.read("insights", namespace="analysis")
+
+    # Define a UDF to generate customer service responses based on analysis results.
     @daft.udf(return_dtype=daft.DataType.struct({
         "response_text": daft.DataType.string(),
         "response_model": daft.DataType.string(),
         "generated_at": daft.DataType.int64()
     }))
-    def generate_responses(content_series):
+    def generate_responses_from_analysis(analysis_series):
         response_generator = pipeline("text-generation", model="microsoft/DialoGPT-medium")
         results = []
-        for content in content_series.to_pylist():
-            # Create appropriate response prompt based on content.
-            if "disappointed" in content.lower() or "unacceptable" in content.lower():
-                prompt = "Dear valued customer, we sincerely apologize for"
-            elif "outstanding" in content.lower() or "excellent" in content.lower():
-                prompt = "Thank you so much for your wonderful feedback! We're thrilled"
-            else:
-                prompt = "Thank you for contacting us. We understand your concern and"
 
-            # Generate truncated responses.
+        for analysis in analysis_series.to_pylist():
+            # Create appropriate response prompt based on sentiment and emotion analysis.
+            if analysis in ["sadness"]:
+                prompt = "Dear valued customer, we sincerely apologize for the inconvenience and"
+            elif analysis in ["joy"]:
+                prompt = "Thank you so much for your wonderful feedback! We're thrilled to hear"
+            elif analysis in ["fear"]:
+                prompt = "We understand your concerns and want to assure you that"
+            else:
+                prompt = "Thank you for contacting us. We appreciate your feedback and"
+
+            # Generate customer service responses.
             generated = response_generator(prompt, max_length=100, num_return_sequences=1, pad_token_id=50256)
             response_text = generated[0]['generated_text']
             results.append({
@@ -812,17 +858,22 @@ with dc.transaction():
             })
         return results
 
-    # Run customer service response generation in parallel.
-    print("Running parallel customer service response generation...")
-    daft_responses = daft_docs.with_column("response", generate_responses(daft_docs["content"]))
+    # Run customer service response generation based on analysis results.
+    print("Running parallel customer service response generation based on sentiment/emotion analysis...")
+    daft_responses = current_insights.with_column(
+        "response",
+        generate_responses_from_analysis(current_insights["analysis"])
+    )
     daft_responses = daft_responses.select(
-        daft_docs["doc_id"],
+        current_insights["doc_id"],
         daft_responses["response"]["response_text"].alias("response_text"),
         daft_responses["response"]["response_model"].alias("response_model"),
         daft_responses["response"]["generated_at"].alias("generated_at")
     )
+    # Merge new V3.0 responses into the existing V2.0 insights table.
+    # The new response columns are automatically joined by document ID.
     dc.write(daft_responses, "insights", namespace="analysis")
-    audit_df = pd.DataFrame([{"version": "v3.0", "docs_processed": dc.dataset_length(daft_docs)}])
+    audit_df = pd.DataFrame([{"version": "v3.0", "docs_processed": dc.dataset_length(current_insights)}])
     dc.write(audit_df, "audit", namespace="analysis")
 
 print("V3.0: Customer service response generation processing complete!")
@@ -830,13 +881,13 @@ print("V3.0: Customer service response generation processing complete!")
 print("\nTime Travel Comparison of all Versions:")
 with dc.transaction(as_of=checkpoint_v1):
     v1_results = dc.read("insights", namespace="analysis")
-    print(f"V1.0 Insights (sentiment only): {dc.to_pandas(v1_results)}")
+    print(f"V1.0 Insights (sentiment): {dc.to_pandas(v1_results)}")
     v1_audit = dc.read("audit", namespace="analysis")
     print(f"V1.0 Audit: {dc.to_pandas(v1_audit)}")
 
 with dc.transaction(as_of=checkpoint_v2):
     v2_results = dc.read("insights", namespace="analysis")
-    print(f"V2.0 Insights (with emotion detail): {dc.to_pandas(v2_results)}")
+    print(f"V2.0 Insights (emotion detail): {dc.to_pandas(v2_results)}")
     v2_audit = dc.read("audit", namespace="analysis")
     print(f"V2.0 Audit: {dc.to_pandas(v2_audit)}")
 
@@ -845,6 +896,8 @@ print(f"V3.0 Insights (with customer service response): {dc.to_pandas(v3_results
 v3_audit = dc.read("audit", namespace="analysis")
 print(f"V3.0 Audit: {dc.to_pandas(v3_audit)}")
 ```
+
+</details>
 
 ## Runtime Environment Requirements
 

@@ -12,9 +12,13 @@ import contextvars
 from collections import defaultdict
 
 from types import TracebackType
-from typing import Optional, List, Union, Tuple, Type
+from typing import Optional, List, Union, Tuple, Type, TYPE_CHECKING, Iterable
+
+if TYPE_CHECKING:
+    from deltacat.types.tables import Dataset
 
 import msgpack
+import pyarrow as pa
 import pyarrow.fs
 
 from deltacat.constants import (
@@ -26,19 +30,30 @@ from deltacat.constants import (
     SUCCESS_TXN_DIR_NAME,
     NANOS_PER_SEC,
 )
-
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.types import (
     TransactionOperationType,
     TransactionState,
+    TransactionStatus,
 )
+from deltacat.storage.model.namespace import NamespaceLocator
+from deltacat.storage.model.table import TableLocator
+from deltacat.storage.model.table_version import TableVersionLocator
+from deltacat.storage.model.stream import StreamLocator
+from deltacat.storage.model.partition import PartitionLocator
+from deltacat.storage.model.delta import DeltaLocator
 from deltacat.storage.model.metafile import (
     Metafile,
     MetafileRevisionInfo,
 )
+from deltacat.types.tables import (
+    DatasetType,
+    from_pyarrow,
+)
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
+    get_file_info,
 )
 from deltacat import logs
 
@@ -92,6 +107,34 @@ def setup_transaction(
     return transaction, commit_transaction
 
 
+def transaction_log_dir_and_filesystem(
+    catalog_name: Optional[str] = None,
+) -> Tuple[str, pyarrow.fs.FileSystem]:
+    """
+    Get the transaction log directory and filesystem for the given catalog.
+
+    Args:
+        catalog_name: Name of the catalog to get the transaction log directory and filesystem for.
+            If None, uses the default catalog.
+
+    Returns:
+        Tuple[str, pyarrow.fs.FileSystem]: The transaction log directory and filesystem for the given catalog.
+    """
+    # Get the catalog and its properties
+    from deltacat.catalog.model.catalog import get_catalog
+
+    catalog = get_catalog(catalog_name)
+    catalog_properties = catalog.inner
+
+    # Get transaction directory paths
+    catalog_root_normalized, filesystem = resolve_path_and_filesystem(
+        catalog_properties.root,
+        catalog_properties.filesystem,
+    )
+
+    return posixpath.join(catalog_root_normalized, TXN_DIR_NAME), filesystem
+
+
 def transaction(
     catalog_name: Optional[str] = None,
     as_of: Optional[int] = None,
@@ -104,11 +147,11 @@ def transaction(
         catalog_name: Optional name of the catalog to run the transaction against.
                      If None, uses the default catalog.
         as_of: Optional historic timestamp in nanoseconds since epoch.
-               If provided, creates a read-only transaction that provides
-               MVCC snapshot isolation as of the specified timestamp.
+                If provided, creates a read-only transaction that reads only transactions
+                with end times strictly less than the specified timestamp.
         commit_message: Optional commit message to describe the transaction purpose.
-                       Helps with time travel functionality by providing context
-                       for each transaction when browsing transaction history.
+                Helps with time travel functionality by providing context
+                for each transaction when browsing transaction history.
 
     Returns:
         Transaction: A started interactive transaction ready for use with the given catalog.
@@ -139,7 +182,6 @@ def transaction(
             catalog_properties.root,
             catalog_properties.filesystem,
             historic_timestamp=as_of,
-            read_only=True,
         )
     else:
         # Create regular read-write transaction
@@ -149,6 +191,361 @@ def transaction(
         # Initialize the lazy transaction ID
         logger.info(f"Created transaction with ID: {txn.id}")
     return txn
+
+
+def _read_txn(
+    txn_log_dir: str,
+    txn_status: TransactionStatus,
+    transaction_id: str,
+    filesystem: pyarrow.fs.FileSystem,
+) -> Transaction:
+    """
+    Read a transaction from the given catalog and transaction ID.
+
+    Args:
+        txn_log_dir: The directory containing the transaction log.
+        txn_status: The status of the transaction.
+        transaction_id: The ID of the transaction.
+        filesystem: The filesystem to use for reading the transaction.
+
+    Returns:
+        Transaction: The transaction.
+    """
+    # Transaction directories contain the actual transaction file
+    txn_dir_path = posixpath.join(
+        txn_log_dir, txn_status.dir_name(), posixpath.basename(transaction_id)
+    )
+
+    try:
+        file_info = get_file_info(txn_dir_path, filesystem)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"Transaction with ID '{transaction_id}' and status '{txn_status}' not found."
+        )
+
+    # Only read transaction directories (skip any stray files)
+    if file_info.type != pyarrow.fs.FileType.Directory:
+        raise FileNotFoundError(
+            f"Transaction directory for transaction ID '{transaction_id}' with status '{txn_status}' not found."
+        )
+
+    # List files in the transaction directory
+    txn_files = list_directory(
+        path=txn_dir_path,
+        filesystem=filesystem,
+        ignore_missing_path=True,
+    )
+
+    if not txn_files:
+        raise FileNotFoundError(
+            f"No transaction file found for transaction ID '{transaction_id}' and status '{txn_status}'."
+        )
+
+    if len(txn_files) > 1:
+        raise RuntimeError(
+            f"Expected 1 transaction file in '{txn_dir_path}', but found {len(txn_files)}"
+        )
+
+    # Get the transaction file path
+    txn_file_path, _ = txn_files[0]
+
+    # Read the transaction from the file
+    return Transaction.read(txn_file_path, filesystem)
+
+
+def read_transaction(
+    transaction_id: str,
+    catalog_name: Optional[str] = None,
+    status: TransactionStatus = TransactionStatus.SUCCESS,
+) -> Transaction:
+    """
+    Read a transaction from the given catalog and transaction ID.
+    """
+    txn_log_dir, filesystem = transaction_log_dir_and_filesystem(catalog_name)
+    return _read_txn(txn_log_dir, status, transaction_id, filesystem)
+
+
+def transactions(
+    catalog_name: Optional[str] = None,
+    read_as: "DatasetType" = None,
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
+    limit: Optional[int] = None,
+    status_in: Iterable[TransactionStatus] = [TransactionStatus.SUCCESS],
+) -> Dataset:
+    """
+    Query transaction history for a catalog.
+
+    Args:
+        catalog_name: Optional name of the catalog to query. If None, uses the default catalog.
+        read_as: Dataset type to return results as. If None, defaults to DatasetType.PYARROW.
+        start_time: Optional start timestamp in nanoseconds since epoch to filter transactions.
+        end_time: Optional end timestamp in nanoseconds since epoch to filter transactions.
+        limit: Optional maximum number of transactions to return (most recent first).
+        status_in: Optional iterable of transaction status types to include. Defaults to [TransactionStatus.SUCCESS].
+
+    Returns:
+        Dataset: Transaction history as the specified dataset type with columns:
+                 - transaction_id: Unique transaction identifier
+                 - commit_message: Optional user-provided commit message
+                 - start_time: Transaction start timestamp (nanoseconds since epoch)
+                 - end_time: Transaction end timestamp (nanoseconds since epoch, None for running)
+                 - status: Transaction status (SUCCESS, RUNNING, FAILED, PAUSED)
+                 - operation_count: Number of operations in the transaction
+                 - operation_types: Comma-separated list of distinct operation types in the transaction
+                 - namespace_count: Number of distinct namespaces affected by the transaction
+                 - table_count: Number of distinct tables affected by the transaction
+                 - table_version_count: Number of distinct table versions affected by the transaction
+                 - stream_count: Number of distinct streams affected by the transaction
+                 - partition_count: Number of distinct partitions affected by the transaction
+                 - delta_count: Number of distinct deltas affected by the transaction
+
+    Example:
+        # Get recent successful transactions
+        recent = dc.transactions(limit=10)
+
+        # Get transactions for a specific time range
+        import time
+        hour_ago = time.time_ns() - 3600 * 1000000000
+        recent_hour = dc.transactions(start_time=hour_ago)
+
+        # Get transaction history as pandas DataFrame
+        df = dc.transactions(read_as=dc.DatasetType.PANDAS)
+    """
+    # Set default read_as if not provided
+    if read_as is None:
+        read_as = DatasetType.PYARROW
+
+    if not status_in:
+        status_in = [TransactionStatus.SUCCESS]
+
+    # Get transaction directory path and filesystem
+    txn_log_dir, filesystem = transaction_log_dir_and_filesystem(catalog_name)
+
+    # Collect transaction data
+    transaction_records = {
+        "transaction_id": [],
+        "commit_message": [],
+        "start_time": [],
+        "end_time": [],
+        "status": [],
+        "operation_count": [],
+        "operation_types": [],
+        "namespace_count": [],
+        "table_count": [],
+        "table_version_count": [],
+        "stream_count": [],
+        "partition_count": [],
+        "delta_count": [],
+    }
+
+    # Helper function to process transactions in a directory
+    def process_transactions_in_directory(
+        directory: str, expected_status: TransactionStatus
+    ):
+        # TODO(pdames): Do a recursive listing to get the transaction files returned directly.
+        file_info_and_sizes = list_directory(
+            path=directory,
+            filesystem=filesystem,
+            ignore_missing_path=True,
+        )
+
+        for file_path, _ in file_info_and_sizes:
+            # Read the transaction from the file
+            # TODO(pdames): Do a recursive listing to get the transaction files returned directly.
+            try:
+                txn = _read_txn(
+                    txn_log_dir,
+                    expected_status,
+                    posixpath.basename(file_path),
+                    filesystem,
+                )
+            except FileNotFoundError:
+                # this may be a stray file or the transaction is being created - skip it
+                continue
+
+            # Apply time filters
+            # TODO(pdames): Parse start and end times from the transaction file path.
+            if (
+                start_time is not None
+                and txn.start_time
+                and txn.start_time < start_time
+            ):
+                continue
+            if end_time is not None and txn.end_time and txn.end_time > end_time:
+                continue
+
+            # Count operations and affected metadata objects by type.
+            operation_count = len(txn.operations)
+            operation_types = set()
+            affected_namespaces = set()
+            affected_tables = set()
+            affected_table_versions = set()
+            affected_streams = set()
+            affected_partitions = set()
+            affected_deltas = set()
+
+            for op in txn.operations:
+                operation_types.add(op.type)
+
+                # Determine locator type and cast to appropriate locator class
+                locator_dict = op.dest_metafile.get("locator", {})
+                if "tableName" in locator_dict and "namespaceLocator" in locator_dict:
+                    locator = TableLocator(locator_dict)
+                elif "namespace" in locator_dict:
+                    locator = NamespaceLocator(locator_dict)
+                elif "tableVersion" in locator_dict:
+                    locator = TableVersionLocator(locator_dict)
+                elif "streamId" in locator_dict:
+                    locator = StreamLocator(locator_dict)
+                elif "partitionId" in locator_dict:
+                    locator = PartitionLocator(locator_dict)
+                elif "streamPosition" in locator_dict:
+                    locator = DeltaLocator(locator_dict)
+                else:
+                    raise ValueError(
+                        f"Unknown locator type from structure: {locator_dict}"
+                    )
+
+                # Extract distinct metafiles updated by common/alias name (e.g., a table rename impacts 2 tables instead of 1)
+                if op.type in TransactionOperationType.write_operations():
+                    if locator.namespace is not None:
+                        affected_namespaces.add(locator.namespace)
+                    if isinstance(locator, TableLocator):
+                        affected_tables.add((locator.namespace, locator.table_name))
+                    elif isinstance(locator, TableVersionLocator):
+                        affected_table_versions.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                            )
+                        )
+                    elif isinstance(locator, StreamLocator):
+                        affected_tables.add((locator.namespace, locator.table_name))
+                        affected_table_versions.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                            )
+                        )
+                        affected_streams.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                                locator.stream_id,
+                            )
+                        )
+                    elif isinstance(locator, PartitionLocator):
+                        affected_tables.add((locator.namespace, locator.table_name))
+                        affected_table_versions.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                            )
+                        )
+                        affected_streams.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                                locator.stream_id,
+                            )
+                        )
+                        affected_partitions.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                                locator.stream_id,
+                                locator.partition_id,
+                            )
+                        )
+                    elif isinstance(locator, DeltaLocator):
+                        affected_tables.add((locator.namespace, locator.table_name))
+                        affected_table_versions.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                            )
+                        )
+                        affected_streams.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                                locator.stream_id,
+                            )
+                        )
+                        affected_partitions.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                                locator.stream_id,
+                                locator.partition_id,
+                            )
+                        )
+                        affected_deltas.add(
+                            (
+                                locator.namespace,
+                                locator.table_name,
+                                locator.table_version,
+                                locator.stream_id,
+                                locator.partition_id,
+                                locator.stream_position,
+                            )
+                        )
+
+            # Create transaction record
+            transaction_records["transaction_id"].append(txn.id)
+            transaction_records["commit_message"].append(txn.commit_message)
+            transaction_records["start_time"].append(txn.start_time)
+            transaction_records["end_time"].append(txn.end_time)
+            transaction_records["status"].append(expected_status)
+            transaction_records["operation_count"].append(operation_count)
+            transaction_records["operation_types"].append(operation_types)
+            transaction_records["namespace_count"].append(len(affected_namespaces))
+            transaction_records["table_count"].append(len(affected_tables))
+            transaction_records["table_version_count"].append(
+                len(affected_table_versions)
+            )
+            transaction_records["stream_count"].append(len(affected_streams))
+            transaction_records["partition_count"].append(len(affected_partitions))
+            transaction_records["delta_count"].append(len(affected_deltas))
+
+    for status in status_in:
+        dir_path = posixpath.join(txn_log_dir, status.dir_name())
+        process_transactions_in_directory(dir_path, status)
+
+    # Sort by start_time descending (most recent first)
+    # Convert to list of records, sort, then convert back
+    if transaction_records["transaction_id"]:  # Only sort if we have records
+        # Create list of tuples (start_time, record_index)
+        sorted_indices = sorted(
+            range(len(transaction_records["start_time"])),
+            key=lambda i: transaction_records["start_time"][i] or 0,
+            reverse=True,
+        )
+
+        # Reorder all columns based on sorted indices
+        for key in transaction_records:
+            transaction_records[key] = [
+                transaction_records[key][i] for i in sorted_indices
+            ]
+
+    # Apply limit
+    # TODO(pdames): Apply limit during listing (pyarrow fs doesn't support limits natively).
+    if limit is not None and limit > 0:
+        for key in transaction_records:
+            transaction_records[key] = transaction_records[key][:limit]
+
+    # Convert to requested dataset type
+    return from_pyarrow(pa.Table.from_pydict(transaction_records), read_as)
 
 
 class TransactionTimeProvider:
@@ -267,28 +664,38 @@ class TransactionHistoricTimeProvider(TransactionTimeProvider):
     as-of the specified timestamp.
     """
 
-    def __init__(self, historic_timestamp: int):
+    def __init__(
+        self,
+        historic_timestamp: int,
+        base_time_provider: TransactionTimeProvider,
+    ):
         """
-        Initialize with a fixed historic timestamp.
+        Initialize with a fixed historic timestamp and a base time provider.
 
         Args:
             historic_timestamp: Timestamp in nanoseconds since epoch to use
                               for both start and end times.
+            base_time_provider: Time provider to use for the end time.
         """
+        # Validate that historic timestamp is not in the future
+        if historic_timestamp > base_time_provider.start_time():
+            raise ValueError(
+                f"Historic timestamp {historic_timestamp} cannot be set in the future."
+            )
+        self.base_time_provider = base_time_provider
         self.historic_timestamp = historic_timestamp
 
     def start_time(self) -> int:
         """
-        Returns the fixed historic timestamp for snapshot isolation.
+        Returns the fixed historic timestamp.
         """
         return self.historic_timestamp
 
     def end_time(self) -> int:
         """
-        Returns the fixed historic timestamp. Read-only transactions
-        don't actually commit changes, so end time is the same as start time.
+        Returns the end time of the base time provider.
         """
-        return self.historic_timestamp
+        return self.base_time_provider.end_time()
 
 
 class TransactionOperation(dict):
@@ -338,7 +745,10 @@ class TransactionOperation(dict):
         """
         Returns the type of the transaction operation.
         """
-        return TransactionOperationType(self["type"])
+        val = self["type"]
+        if val is not None and not isinstance(val, TransactionOperationType):
+            self["type"] = val = TransactionOperationType(val)
+        return val
 
     @type.setter
     def type(self, txn_op_type: TransactionOperationType):
@@ -349,7 +759,10 @@ class TransactionOperation(dict):
         """
         Returns the metafile that is the target of this transaction operation.
         """
-        return self["dest_metafile"]
+        val = self["dest_metafile"]
+        if val is not None and not isinstance(val, Metafile):
+            self["dest_metafile"] = val = Metafile(val)
+        return val
 
     @dest_metafile.setter
     def dest_metafile(self, metafile: Metafile):
@@ -360,7 +773,10 @@ class TransactionOperation(dict):
         """
         Returns the metafile that is the source of this transaction operation.
         """
-        return self["src_metafile"]
+        val = self.get("src_metafile")
+        if val is not None and not isinstance(val, Metafile):
+            self["src_metafile"] = val = Metafile(val)
+        return val
 
     @src_metafile.setter
     def src_metafile(self, src_metafile: Optional[Metafile]):
@@ -421,6 +837,11 @@ class TransactionOperationList(List[TransactionOperation]):
         if val is not None and not isinstance(val, TransactionOperation):
             self[item] = val = TransactionOperation(val)
         return val
+
+    def __iter__(self):
+        """Support enumeration by returning TransactionOperation objects."""
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
 
 
 class Transaction(dict):
@@ -542,6 +963,8 @@ class Transaction(dict):
         filesystem.create_dir(failed_txn_log_dir, recursive=False)
         success_txn_log_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
         filesystem.create_dir(success_txn_log_dir, recursive=False)
+        paused_txn_log_dir = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME)
+        filesystem.create_dir(paused_txn_log_dir, recursive=False)
 
         # Check if the transaction file exists in the failed directory
         in_failed = os.path.exists(os.path.join(failed_txn_log_dir, txn_name))
@@ -552,6 +975,9 @@ class Transaction(dict):
         # Check if the transaction file exists in the success directory
         in_success = os.path.exists(os.path.join(success_txn_log_dir, txn_name))
 
+        # Check if the transaction file exists in the paused directory
+        in_paused = os.path.exists(os.path.join(paused_txn_log_dir, txn_name))
+
         if in_failed and in_running:
             return TransactionState.FAILED
         elif in_failed and not in_running:
@@ -560,6 +986,8 @@ class Transaction(dict):
             return TransactionState.SUCCESS
         elif in_running:
             return TransactionState.RUNNING
+        elif in_paused:
+            return TransactionState.PAUSED
 
     @property
     def operations(self) -> TransactionOperationList:
@@ -638,6 +1066,20 @@ class Transaction(dict):
         Sets the commit message for the transaction.
         """
         self["commit_message"] = message
+
+    @property
+    def historic_timestamp(self) -> Optional[int]:
+        """
+        Returns the historic timestamp for the transaction.
+        """
+        return self.get("historic_timestamp")
+
+    @historic_timestamp.setter
+    def historic_timestamp(self, timestamp: int):
+        """
+        Sets the historic timestamp for the transaction.
+        """
+        self["historic_timestamp"] = timestamp
 
     def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
         """
@@ -857,7 +1299,6 @@ class Transaction(dict):
         catalog_root_dir: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         historic_timestamp: Optional[int] = None,
-        read_only: bool = False,
     ) -> "Transaction":
         """
         Create directory scaffolding, timestamp the txn, and return a DEEP COPY
@@ -868,23 +1309,19 @@ class Transaction(dict):
             catalog_root_dir: Root directory for the catalog
             filesystem: Optional filesystem to use
             historic_timestamp: Optional timestamp in nanoseconds since epoch for snapshot isolation
-            read_only: If True, creates a read-only transaction that only allows read operations
         """
-        # Validate parameters
-        if historic_timestamp is not None and not read_only:
-            raise ValueError("historic_timestamp can only be used with read_only=True")
-        if read_only and historic_timestamp is None:
-            raise ValueError(
-                "read_only transactions require a historic_timestamp for MVCC snapshot isolation"
-            )
-
         # Create a deep copy
         txn: "Transaction" = copy.deepcopy(self)
 
         # Set up time provider based on transaction type
         if historic_timestamp is not None:
             # Use historic time provider for snapshot isolation
-            txn._time_provider = TransactionHistoricTimeProvider(historic_timestamp)
+            # TODO(pdames): Set base time provider to the catalog's configured time provider when more than one is supported.
+            txn._time_provider = TransactionHistoricTimeProvider(
+                historic_timestamp,
+                TransactionSystemTimeProvider(),
+            )
+            txn.historic_timestamp = historic_timestamp
         else:
             # Use system time provider for regular transactions
             txn._time_provider = TransactionSystemTimeProvider()
@@ -893,27 +1330,25 @@ class Transaction(dict):
 
         # Set up filesystem and directories
         catalog_root_normalized, filesystem = resolve_path_and_filesystem(
-            catalog_root_dir, filesystem
+            catalog_root_dir,
+            filesystem,
         )
         txn.catalog_root_normalized = catalog_root_normalized
         txn._filesystem = filesystem  # keep for pause/resume
         txn.running_log_written = False  # internal flags
         txn._list_results = []
 
-        # Mark as read-only if requested
-        if read_only:
-            txn["read_only"] = True
-            txn["historic_timestamp"] = historic_timestamp
-
         # Make sure txn/ directories exist (idempotent)
         txn_log_dir = posixpath.join(catalog_root_normalized, TXN_DIR_NAME)
         filesystem.create_dir(
-            posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME), recursive=True
+            posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME),
+            recursive=True,
         )
         for subdir in (FAILED_TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, PAUSED_TXN_DIR_NAME):
             try:
                 filesystem.create_dir(
-                    posixpath.join(txn_log_dir, subdir), recursive=False
+                    posixpath.join(txn_log_dir, subdir),
+                    recursive=False,
                 )
             except FileExistsError:
                 pass  # allowed when catalog already initialised
@@ -947,11 +1382,10 @@ class Transaction(dict):
         )
 
         # Validate read-only transaction constraints
-        if self.get("read_only", False):
+        if self.historic_timestamp is not None:
             if not operation.type.is_read_operation():
                 raise RuntimeError(
-                    f"Cannot perform {operation.type.value} operation in a read-only historic transaction. "
-                    "Read-only transactions are limited to read operations for MVCC snapshot isolation."
+                    f"Cannot perform {operation.type.value} operation in a read-only historic transaction."
                 )
 
         # Add new operation to the transaction's list of operations
@@ -1084,11 +1518,10 @@ class Transaction(dict):
             )
 
         # Read-only transactions can only perform read operations
-        if self.get("read_only", False):
+        if self.historic_timestamp is not None:
             if self._has_write_operations():
                 raise RuntimeError(
-                    "Cannot seal a read-only historic transaction that contains write operations. "
-                    "Read-only transactions are limited to read operations for MVCC snapshot isolation."
+                    "Cannot seal a read-only historic transaction that contains write operations."
                 )
 
         return self._seal_steps()
