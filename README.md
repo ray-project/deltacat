@@ -80,7 +80,7 @@ DeltaCAT can do much more than just append data to tables and read it back again
 
 <summary><span style="font-size: 1.25em; font-weight: bold;">Replacing and Dropping Tables</span></summary>
 
-If you run the quick start example repeatedly from the same working directory, you'll notice that the table it writes to just keeps growing larger. This is because DeltaCAT always appends table data by default. One way to prevent this perpetual table growth and make the example idempotent is to use the **REPLACE** write mode if the table already exists:
+If you run the quick start example repeatedly from the same working directory, you'll notice that the table it writes to just keeps growing larger. This is because DeltaCAT always **appends** table data by default. One way to prevent this perpetual table growth and make the example idempotent is to use the **REPLACE** write mode if the table already exists:
 
 ```python
 import deltacat as dc
@@ -98,11 +98,15 @@ data = pd.DataFrame({
     "age": [3, 7, 5]
 })
 
-# Check if the table exists.
-write_mode = dc.TableWriteMode.REPLACE if dc.table_exists("users") else dc.TableWriteMode.CREATE
+# Default write mode to CREATE.
+# This will fail if the table already exists.
+write_mode = dc.TableWriteMode.CREATE
 
-# Write data to a table.
-# The table will be replaced if it exists, and created if it doesn't.
+# Change write mode to REPLACE if the table already exists.
+if dc.table_exists("users"):
+    write_mode = dc.TableWriteMode.REPLACE
+
+# Write data to a fresh, empty table.
 dc.write(data, "users", mode=write_mode)
 
 # Read the data back as a Daft DataFrame.
@@ -154,8 +158,7 @@ try:
 except TableNotFoundError:
     print("Table 'users' not found. Creating it...")
 
-# Write data to a table.
-# The table will be replaced if it exists, and created if it doesn't.
+# Write data to a new table.
 dc.write(data, "users", mode=dc.TableWriteMode.CREATE)
 
 # Read the data back as a Daft DataFrame.
@@ -882,7 +885,7 @@ final_df.show()
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Auditable LLM Batch Inference</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">LLM Batch Inference</span></summary>
 
 DeltaCAT multi-table transactions, time travel queries, and automatic schema evolution can be used to create auditable LLM batch inference pipelines. For example, the following code tries different approaches to analyze the overall tone of customer feedback, then generates customer service responses based on the analysis:
 
@@ -1098,12 +1101,12 @@ The [Table](deltacat/docs/table/README.md) documentation provides a more compreh
 
 The [Schema](deltacat/docs/schema/README.md) documentation provides a more comprehensive overview of DeltaCAT's schema management APIs, supported data types, file formats, and data consistency guarantees.
 
-### Examples
-
-The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced application like external data source indexers and custom dataset compactors. They also demonstrate some experimental Apache Iceberg and Beam integrations.
-
 ### DeltaCAT URLs and Filesystem APIs
 The [DeltaCAT API Tests](deltacat/tests/test_deltacat_api.py) provide examples of how to efficiently explore, clone, and manipulate DeltaCAT catalogs by using DeltaCAT URLs together with filesystem-like list/copy/get/put APIs.
 
 ### DeltaCAT Catalog APIs
 The [Default Catalog Tests](deltacat/tests/catalog/test_default_catalog_impl.py) provide more exhaustive examples of DeltaCAT **Catalog** API behavior.
+
+### Examples
+
+The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced applications like external data source indexers and custom dataset compactors. They also demonstrate some experimental features like Apache Iceberg and Apache Beam integrations.
