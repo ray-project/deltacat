@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import logging
 import itertools
-import math
 import posixpath
-import os
-import tarfile
 from typing import Dict, List, Optional, Tuple, Iterable, Iterator
 
 import pyarrow.fs

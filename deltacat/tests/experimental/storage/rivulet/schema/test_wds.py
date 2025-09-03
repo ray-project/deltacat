@@ -150,6 +150,7 @@ def sample_wds_inconsistent(temp_dir):
     }
     return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
+
 @pytest.fixture
 def sample_wds_diff_data_types(temp_dir: Path):
     """Create a simple WebDataset shard with different data types under the same column name."""
@@ -171,6 +172,7 @@ def sample_wds_diff_data_types(temp_dir: Path):
 
     # create corresponding dummy .txt files on disk
     return _add_txt_files_and_wds_tar(files, temp_dir, name)
+
 
 class TestFromWebDataset:
     @classmethod
@@ -271,10 +273,10 @@ class TestFromWebDataset:
     def test_conflicting_data_types(self, temp_dir, sample_wds_diff_data_types):
         """Test that specifying different datatypes under the same column is handled properly for non-lossy promotions."""
         dataset = Dataset.from_webdataset(
-                name="test_conflicting_data_types",
-                file_uri=sample_wds_diff_data_types,
-                metadata_uri=temp_dir,
-                merge_keys=["filename"]
+            name="test_conflicting_data_types",
+            file_uri=sample_wds_diff_data_types,
+            metadata_uri=temp_dir,
+            merge_keys=["filename"],
         )
         assert "label" in dataset.fields
         assert "width" in dataset.fields

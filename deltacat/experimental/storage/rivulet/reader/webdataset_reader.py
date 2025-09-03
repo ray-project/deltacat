@@ -109,7 +109,9 @@ class WebDatasetReader:
                 )
                 return
 
-            unified = pa.unify_schemas([t.schema for t in tables], promote_options="permissive")
+            unified = pa.unify_schemas(
+                [t.schema for t in tables], promote_options="permissive"
+            )
             tables = [self._align_to_schema(t, unified) for t in tables]
             final_table = pa.concat_tables(tables, unify_schemas=False, promote=False)
             media_binary_array = pa.array(media_binaries, type=pa.binary())
