@@ -126,9 +126,51 @@ def sample_wds_inconsistent(temp_dir):
             "height": 300,
             "filename": "n01443538/n01443538_14754.TXT",
         },
+        f"{name}_third.json": {
+            "label": 3,
+            "width": 200,
+            "height": 300,
+            "filename": "n01443539/n01443538_14755.TXT",
+            "extra": 103,
+            "extra_3": 333,
+        },
+        f"{name}_fourth.json": {
+            "label": 4,
+            "width": 200,
+            "height": 300,
+            "filename": "n01443540/n01443538_14756.TXT",
+            "extra_4": 444,
+        },
+        f"{name}_fifth.json": {
+            "diff_label": 5,
+            "diff_width": 500,
+            "diff_height": 600,
+            "filename": "n01443541/n01443538_14757.TXT",
+        },
     }
     return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
+@pytest.fixture
+def sample_wds_diff_data_types(temp_dir: Path):
+    """Create a simple WebDataset shard with different data types under the same column name."""
+    name = "test_conflicting_data_types"
+    files = {
+        f"{name}_first.json": {
+            "label": 1,
+            "width": 500,
+            "height": 429,
+            "filename": "n01443537/n01443537_14753.TXT",
+        },
+        f"{name}_second.json": {
+            "label": 2,
+            "width": 200,
+            "height": 300.5,
+            "filename": "n01443538/n01443538_14754.TXT",
+        },
+    }
+
+    # create corresponding dummy .txt files on disk
+    return _add_txt_files_and_wds_tar(files, temp_dir, name)
 
 class TestFromWebDataset:
     @classmethod
@@ -200,16 +242,21 @@ class TestFromWebDataset:
         )
 
         # Should include all fields from both schemas
-        assert len(dataset.fields) == 6
+        assert len(dataset.fields) == 11
         assert "label" in dataset.fields
         assert "width" in dataset.fields
         assert "height" in dataset.fields
         assert "filename" in dataset.fields
         assert "extra" in dataset.fields
+        assert "extra_3" in dataset.fields
+        assert "extra_4" in dataset.fields
+        assert "diff_label" in dataset.fields
+        assert "diff_width" in dataset.fields
+        assert "diff_height" in dataset.fields
         assert "media_binary" in dataset.fields
 
         records = list(dataset.scan().to_pydict())
-        assert len(records) == 2
+        assert len(records) == 5
 
     def test_multiple_merge_key_handling(self, temp_dir, sample_wds_simple):
         """Test that specifying more than 1 merge key raises an error."""
@@ -220,6 +267,22 @@ class TestFromWebDataset:
                 metadata_uri=temp_dir,
                 merge_keys=["label", "filename"],
             )
+
+    def test_conflicting_data_types(self, temp_dir, sample_wds_diff_data_types):
+        """Test that specifying different datatypes under the same column is handled (converted to string)."""
+        dataset = Dataset.from_webdataset(
+                name="test_conflicting_data_types",
+                file_uri=sample_wds_diff_data_types,
+                metadata_uri=temp_dir,
+                merge_keys=["filename"]
+        )
+        assert "label" in dataset.fields
+        assert "width" in dataset.fields
+        assert "height" in dataset.fields
+        assert dataset.fields["label"].datatype == Datatype.int64()
+        print("-------", dataset.fields["width"].datatype, dataset.fields["height"].datatype)
+        assert dataset.fields["width"].datatype == Datatype.int64()
+        assert dataset.fields["height"].datatype == Datatype.float()
 
     def test_invalid_merge_key_handling(self, temp_dir, sample_wds_simple):
         """Test that specifying a non-existent field as merge key raises an error."""
