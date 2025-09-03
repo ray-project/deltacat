@@ -208,6 +208,9 @@ class TestFromWebDataset:
         assert "extra" in dataset.fields
         assert "media_binary" in dataset.fields
 
+        records = list(dataset.scan().to_pydict())
+        assert len(records) == 2
+
     def test_multiple_merge_key_handling(self, temp_dir, sample_wds_simple):
         """Test that specifying more than 1 merge key raises an error."""
         with pytest.raises(ValueError):

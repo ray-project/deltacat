@@ -41,7 +41,9 @@ from deltacat.experimental.storage.rivulet.reader.dataset_reader import DatasetR
 from deltacat.experimental.storage.rivulet.reader.query_expression import (
     QueryExpression,
 )
-
+from deltacat.experimental.storage.rivulet.reader.webdataset_reader import (
+    WebDatasetReader,
+)
 from deltacat.experimental.storage.rivulet.writer.dataset_writer import DatasetWriter
 from deltacat.experimental.storage.rivulet.writer.memtable_dataset_writer import (
     MemtableDatasetWriter,
@@ -510,31 +512,6 @@ class Dataset:
             Dataset: New dataset instance with the schema automatically inferred
                      from the tar file.
         """
-
-        def align_table_to_schema(tbl: pa.Table, schema: pa.Schema) -> pa.Table:
-            # Start with existing columns (may need casts)
-            arrays = []
-            cols = {f.name: i for i, f in enumerate(tbl.schema)}
-            for field in schema:
-                if field.name in cols:
-                    arr = tbl.column(field.name)
-                    # If type differs, cast the column
-                    if not arr.type.equals(field.type):
-                        arr = arr.cast(field.type, safe=False)
-                    arrays.append(arr)
-                else:
-                    # Add a null-filled column of the right type
-                    arrays.append(pa.nulls(tbl.num_rows, type=field.type))
-
-            return pa.Table.from_arrays(arrays, schema=schema)
-
-        def concat_with_schema_union(t1: pa.Table, t2: pa.Table) -> pa.Table:
-            unified = pa.unify_schemas([t1.schema, t2.schema])
-            t1a = align_table_to_schema(t1, unified)
-            t2a = align_table_to_schema(t2, unified)
-            # promote=True lets Arrow upcast (e.g., int32→int64) if needed
-            return pa.concat_tables([t1a, t2a], promote=True, ignore_metadata=True)
-
         # TODO: integrate this with filesystem from deltacat catalog
         file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
         if metadata_uri is None:
@@ -550,100 +527,20 @@ class Dataset:
                     "File URI and metadata URI must be on the same filesystem."
                 )
 
-        # Validate merge_keys field (check that we only have one merge key)
-        if not merge_keys or not isinstance(merge_keys, str):
-            if len(merge_keys) == 1:
-                merge_keys = merge_keys[0]
-            else:
-                raise ValueError(
-                    "Multiple merge keys are not supported in from_webdataset(). Please specify only 1 merge key as a string."
-                )
-
         # Read the WebDataset into a PyArrow Table
-        dataset_schema = Schema()
-        media_binaries = []
-
-        with tarfile.open(file_uri, "r") as tar:
-            tar_members = tar.getmembers()
-            current_batch = None
-            reading_frame_size = batch_size
-            total_batches = math.ceil(len(tar_members) / reading_frame_size)
-
-            for i in range(total_batches):
-                reading_frame_start = i * reading_frame_size
-                reading_frame_end = reading_frame_start + reading_frame_size
-                for member in tar_members[reading_frame_start:reading_frame_end]:
-                    # Ignore hidden files if the imported tar isn't cleaned.
-                    if member.name.startswith("._"):
-                        continue
-                    if member.isfile() and member.name.endswith(".json"):
-                        f = tar.extractfile(member)
-                        if f:
-                            try:
-                                merge_key = merge_keys
-
-                                pyarrow_table = pyarrow.json.read_json(f)
-                                media_filename = pyarrow_table[merge_key][0].as_py()
-                                media_basename = os.path.basename(media_filename)
-                                media_member = next(
-                                    (
-                                        t
-                                        for t in tar_members
-                                        if t.name.endswith(media_basename)
-                                    ),
-                                    None,
-                                )
-
-                                if media_member:
-                                    fi = tar.extractfile(media_member)
-                                    if fi:
-                                        media_binary = fi.read()
-                                        media_binaries.extend([media_binary])
-
-                                if current_batch is None:
-                                    current_batch = pyarrow_table
-                                else:
-                                    # TODO: batch size 1 but still concating?
-                                    if current_batch.schema == pyarrow_table.schema:
-                                        current_batch = pa.concat_tables(
-                                            [current_batch, pyarrow_table],
-                                            unify_schemas=True,
-                                        )
-                                    else:
-                                        current_batch = concat_with_schema_union(
-                                            current_batch, pyarrow_table
-                                        )
-                            except Exception as e:
-                                print(f"Error with {member.name}:", e)
-
-                            if current_batch is not None:
-                                try:
-                                    dataset_schema.merge(
-                                        Schema.from_pyarrow(
-                                            current_batch.schema, merge_keys=merge_keys
-                                        )
-                                    )
-                                except Exception as e:
-                                    print(f"Error merging schema: {e}")
-
-            if current_batch is not None and media_binaries:
-                if len(media_binaries) == current_batch.num_rows:
-                    try:
-                        image_column = pyarrow.array(
-                            media_binaries, type=pyarrow.binary()
-                        )
-                        current_batch = current_batch.add_column(
-                            len(current_batch.schema), "media_binary", image_column
-                        )
-                        # Edit dataset_schema to have media_binaries as a field object
-                        dataset_schema.add_field(
-                            Field("media_binary", Datatype.from_pyarrow(pa.binary()))
-                        )
-                    except Exception as e:
-                        print(f"Mismatch between media binaries and batch rows: {e}")
-
-        if current_batch is None:
-            raise ValueError("No valid JSON files found in the webdataset tar file.")
+        wds_parser = WebDatasetReader(
+            name=name,
+            file_uri=file_uri,
+            merge_keys=merge_keys,
+            schema_mode=schema_mode,
+            batch_size=batch_size,
+            namespace=namespace,
+        )
+        pyarrow_table = wds_parser.to_pyarrow()
+        # Create the Dataset and write to it
+        dataset_schema = Schema.from_pyarrow(
+            pyarrow_table.schema, merge_keys=merge_keys
+        )
 
         dataset = cls(
             dataset_name=name,
@@ -654,7 +551,7 @@ class Dataset:
         )
 
         writer = dataset.writer()
-        writer.write(current_batch.to_batches())
+        writer.write(pyarrow_table.to_batches())
         writer.flush()
         return dataset
 
