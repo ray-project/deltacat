@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/deltacat-logo-alpha-750.png" alt="deltacat logo" style="width:55%; height:auto; text-align: center;">
+  <img src="https://github.com/ray-project/deltacat/raw/2.0/media/deltacat-logo-alpha-750.png" alt="deltacat logo" style="width:55%; height:auto; text-align: center;">
 </p>
 
 DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
@@ -11,16 +11,16 @@ It uses the Ray distributed compute framework together with [Apache Arrow](https
 merge-on-read and copy-on-write operations.
 
 DeltaCAT provides the following high-level components:
-1. [**Catalog**](deltacat/catalog/interface.py): High-level APIs to create, discover, organize, share, and manage datasets.
-2. [**Compute**](deltacat/compute/): Distributed data management procedures to read, write, and optimize datasets.
-3. [**Storage**](deltacat/storage/): In-memory and on-disk multimodal dataset formats.
+1. [**Catalog**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/catalog/interface.py): High-level APIs to create, discover, organize, share, and manage datasets.
+2. [**Compute**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/compute/): Distributed data management procedures to read, write, and optimize datasets.
+3. [**Storage**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/storage/): In-memory and on-disk multimodal dataset formats.
 4. **Sync** (in development): Synchronize DeltaCAT datasets to data warehouses and other table formats.
 
 ## Overview
 DeltaCAT's **Catalog**, **Compute**, and **Storage** layers work together to bring ACID-compliant data management to any Ray application. These components automate data indexing, change management, dataset read/write optimization, schema evolution, and other common data management tasks across any set of data files readable by Ray Data, Daft, Pandas, Polars, PyArrow, or NumPy.
 
 <p align="center">
-  <img src="media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:100%; height:auto; text-align: center;">
+  <img src="https://github.com/ray-project/deltacat/raw/2.0/media/deltacat-tech-overview.png" alt="deltacat tech overview" style="width:100%; height:auto; text-align: center;">
 </p>
 
 Data consumers that prefer to stay within the ecosystem of Pythonic data management tools can use DeltaCAT's native table format to manage their data with minimal overhead. For integration with other data analytics frameworks (e.g., Apache Spark, Trino, Apache Flink), DeltaCAT's **Sync** component offers zero-copy synchronization of your tables to Apache Iceberg and other table formats.
@@ -447,7 +447,7 @@ products_df = dc.read("catalog", namespace="inventory", read_as=dc.DatasetType.P
 orders_df = dc.read("transactions", namespace="sales", read_as=dc.DatasetType.PANDAS)
 
 # Tables with the same name can exist in different namespaces
-# Create separate marketing and finance views of the same data
+# Create separate marketing and finance views of users
 marketing_users = pd.DataFrame({
     "user_id": [1, 2, 3],
     "segment": ["premium", "standard", "premium"],
@@ -1008,9 +1008,9 @@ checkpoint_v2 = time.time_ns()
 time.sleep(0.1)
 
 # Doc processing V3.0
-# Generate customer service responses based on sentiment and emotion analysis results.
+# Generate customer service responses based on emotion analysis results.
 with dc.transaction():
-    # First, read the current insights table with sentiment and emotion analysis
+    # First, read the current insights table with emotion analysis
     current_insights = dc.read("insights", namespace="analysis")
 
     # Define a UDF to generate customer service responses based on analysis results.
@@ -1024,7 +1024,7 @@ with dc.transaction():
         results = []
 
         for analysis in analysis_series.to_pylist():
-            # Create appropriate response prompt based on sentiment and emotion analysis.
+            # Create appropriate response prompt based on emotion analysis.
             if analysis in ["sadness"]:
                 prompt = "Dear valued customer, we sincerely apologize for the inconvenience and"
             elif analysis in ["joy"]:
@@ -1095,18 +1095,18 @@ Taken together, these requirements make DeltaCAT suitable for production use on 
 ## Additional Resources
 ### Table Documentation
 
-The [Table](deltacat/docs/table/README.md) documentation provides a more comprehensive overview of DeltaCAT's table management APIs, including how to create, read, write, and manage tables.
+The [Table](https://github.com/ray-project/deltacat/tree/2.0/deltacat/docs/table/README.md) documentation provides a more comprehensive overview of DeltaCAT's table management APIs, including how to create, read, write, and manage tables.
 
 ### Schema Documentation
 
-The [Schema](deltacat/docs/schema/README.md) documentation provides a more comprehensive overview of DeltaCAT's schema management APIs, supported data types, file formats, and data consistency guarantees.
+The [Schema](https://github.com/ray-project/deltacat/tree/2.0/deltacat/docs/schema/README.md) documentation provides a more comprehensive overview of DeltaCAT's schema management APIs, supported data types, file formats, and data consistency guarantees.
 
 ### DeltaCAT URLs and Filesystem APIs
-The [DeltaCAT API Tests](deltacat/tests/test_deltacat_api.py) provide examples of how to efficiently explore, clone, and manipulate DeltaCAT catalogs by using DeltaCAT URLs together with filesystem-like list/copy/get/put APIs.
+The [DeltaCAT API Tests](https://github.com/ray-project/deltacat/tree/2.0/deltacat/tests/test_deltacat_api.py) provide examples of how to efficiently explore, clone, and manipulate DeltaCAT catalogs by using DeltaCAT URLs together with filesystem-like list/copy/get/put APIs.
 
 ### DeltaCAT Catalog APIs
-The [Default Catalog Tests](deltacat/tests/catalog/test_default_catalog_impl.py) provide more exhaustive examples of DeltaCAT **Catalog** API behavior.
+The [Default Catalog Tests](https://github.com/ray-project/deltacat/tree/2.0/deltacat/tests/catalog/test_default_catalog_impl.py) provide more exhaustive examples of DeltaCAT **Catalog** API behavior.
 
 ### Examples
 
-The [DeltaCAT Examples](deltacat/examples/) show how to build more advanced applications like external data source indexers and custom dataset compactors. They also demonstrate some experimental features like Apache Iceberg and Apache Beam integrations.
+The [DeltaCAT Examples](https://github.com/ray-project/deltacat/tree/2.0/deltacat/examples/) show how to build more advanced applications like external data source indexers and custom dataset compactors. They also demonstrate some experimental features like Apache Iceberg and Apache Beam integrations.
