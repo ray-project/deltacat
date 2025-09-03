@@ -269,7 +269,7 @@ class TestFromWebDataset:
             )
 
     def test_conflicting_data_types(self, temp_dir, sample_wds_diff_data_types):
-        """Test that specifying different datatypes under the same column is handled (converted to string)."""
+        """Test that specifying different datatypes under the same column is handled properly for non-lossy promotions."""
         dataset = Dataset.from_webdataset(
                 name="test_conflicting_data_types",
                 file_uri=sample_wds_diff_data_types,
@@ -280,7 +280,6 @@ class TestFromWebDataset:
         assert "width" in dataset.fields
         assert "height" in dataset.fields
         assert dataset.fields["label"].datatype == Datatype.int64()
-        print("-------", dataset.fields["width"].datatype, dataset.fields["height"].datatype)
         assert dataset.fields["width"].datatype == Datatype.int64()
         assert dataset.fields["height"].datatype == Datatype.float()
 
