@@ -605,8 +605,8 @@ dc.init(catalogs={
         filesystem=pa.fs.LocalFileSystem()
     )),
     "prod": dc.Catalog(config=dc.CatalogProperties(
-        root=tempfile.mkdtemp(),  # Use temporary directory for prod
-        filesystem=pa.fs.LocalFileSystem()
+        root="s3://example/deltacat/",  # Use S3 for prod
+        filesystem=pa.fs.S3FileSystem()
     ))
 })
 
@@ -800,7 +800,7 @@ print("\nTime travel validation successful!")
 
 <summary><span style="font-size: 1.25em; font-weight: bold;">Multimodal Batch Inference</span></summary>
 
-DeltaCAT's support for merging new fields into existing records and multimodal datasets can be used to build a multimodal batch inference pipeline. For example, the following code indexes images of cats, then merges in new fields with breed precitions predictions for each image:
+DeltaCAT's support for merging new fields into existing records and multimodal datasets can be used to build a multimodal batch inference pipeline. For example, the following code indexes images of cats, then merges in new fields with breed predictions for each image:
 
 > **Requirements**: This example requires PyTorch ≥ 2.8.0 and torchvision ≥ 0.23.0. Install via: `pip install torch>=2.8.0 torchvision>=0.23.0`
 
