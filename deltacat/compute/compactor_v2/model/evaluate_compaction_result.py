@@ -13,7 +13,6 @@ from typing import Optional
 class ExecutionCompactionResult:
     new_compacted_partition: Optional[Partition]
     new_round_completion_info: Optional[RoundCompletionInfo]
-    round_completion_file_s3_url: Optional[str]
     is_inplace_compacted: bool
 
     def __iter__(self):

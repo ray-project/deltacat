@@ -87,11 +87,13 @@ class LocalMergeFileGroupsProvider(MergeFileGroupsProvider):
     def __init__(
         self,
         uniform_deltas: List[DeltaAnnotated],
+        all_column_names: List[str],
         read_kwargs_provider: Optional[ReadKwargsProvider],
         deltacat_storage=metastore,
         deltacat_storage_kwargs: Optional[dict] = None,
     ):
         self._deltas = uniform_deltas
+        self._all_column_names = all_column_names
         self._read_kwargs_provider = read_kwargs_provider
         self._deltacat_storage = deltacat_storage
         self._deltacat_storage_kwargs = deltacat_storage_kwargs
@@ -110,6 +112,7 @@ class LocalMergeFileGroupsProvider(MergeFileGroupsProvider):
                 total_size_bytes,
             ) = read_delta_file_envelopes(
                 annotated_delta,
+                self._all_column_names,
                 self._read_kwargs_provider,
                 self._deltacat_storage,
                 self._deltacat_storage_kwargs,

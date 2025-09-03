@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List
 from deltacat.storage.model.metafile import Metafile
 from deltacat.storage.model.locator import Locator, LocatorName
 
-NamespaceProperties = dict[str, Any]
+NamespaceProperties = Dict[str, Any]
 
 
 class Namespace(Metafile):
@@ -45,6 +45,13 @@ class Namespace(Metafile):
     @properties.setter
     def properties(self, properties: Optional[NamespaceProperties]) -> None:
         self["properties"] = properties
+
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return (
+            f"dc://{catalog_name}/{self.namespace}/"
+            if catalog_name
+            else f"namespace://{self.namespace}/"
+        )
 
 
 class NamespaceLocatorName(LocatorName):

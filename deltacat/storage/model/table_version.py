@@ -34,6 +34,7 @@ from deltacat.storage.model.table import (
 from deltacat.types.media import ContentType
 from deltacat.storage.model.sort_key import SortScheme, SortSchemeList
 from deltacat.storage.model.types import LifecycleState
+from deltacat.types.tables import TableProperty
 
 TableVersionProperties = Dict[str, Any]
 
@@ -251,6 +252,13 @@ class TableVersion(Metafile):
             return table_version_locator.table_version
         return None
 
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/"
+        )
+
     def is_supported_content_type(self, content_type: ContentType):
         supported_content_types = self.content_types
         return (not supported_content_types) or (
@@ -354,6 +362,9 @@ class TableVersion(Metafile):
             else (None, None)
         )
         return int(version_number) if version_number is not None else None
+
+    def read_table_property(self, property: TableProperty) -> Any:
+        return TableProperty.read_table_property(self, property)
 
     @staticmethod
     def next_version(previous_version: Optional[str] = None) -> str:

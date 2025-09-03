@@ -23,6 +23,7 @@ from deltacat.types.tables import TABLE_CLASS_TO_SIZE_FUNC
 
 from deltacat.utils.performance import timed_invocation
 from deltacat.storage import (
+    DeltaType,
     Partition,
 )
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
@@ -47,12 +48,20 @@ def materialize(
         # TODO (pdames): compare performance to pandas-native materialize path
         df = compacted_table.to_pandas(split_blocks=True, self_destruct=True)
         compacted_table = df
+    # Extract schema from table_writer_kwargs to pass as direct parameter
+    # This ensures schema_id is properly set in the manifest
+    schema = None
+    if input.table_writer_kwargs and "schema" in input.table_writer_kwargs:
+        schema = input.table_writer_kwargs["schema"]
+
     delta, stage_delta_time = timed_invocation(
         input.deltacat_storage.stage_delta,
         compacted_table,
         input.write_to_partition,
+        delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
         max_records_per_entry=input.max_records_per_output_file,
         content_type=input.compacted_file_content_type,
+        schema=schema,  # Pass schema as direct parameter for schema_id extraction
         table_writer_kwargs=input.table_writer_kwargs,
         **input.deltacat_storage_kwargs,
     )
@@ -112,6 +121,7 @@ def generate_local_merge_input(
     return MergeInput.of(
         merge_file_groups_provider=LocalMergeFileGroupsProvider(
             annotated_deltas,
+            all_column_names=params.all_column_names,
             read_kwargs_provider=params.read_kwargs_provider,
             deltacat_storage=params.deltacat_storage,
             deltacat_storage_kwargs=params.deltacat_storage_kwargs,
@@ -119,6 +129,7 @@ def generate_local_merge_input(
         write_to_partition=compacted_partition,
         compacted_file_content_type=params.compacted_file_content_type,
         primary_keys=params.primary_keys,
+        all_column_names=params.all_column_names,
         sort_keys=params.sort_keys,
         drop_duplicates=params.drop_duplicates,
         max_records_per_output_file=params.records_per_compacted_file,
@@ -134,4 +145,5 @@ def generate_local_merge_input(
         delete_file_envelopes=delete_file_envelopes,
         disable_copy_by_reference=params.disable_copy_by_reference,
         hash_bucket_count=params.hash_bucket_count,
+        original_fields=params.original_fields,
     )

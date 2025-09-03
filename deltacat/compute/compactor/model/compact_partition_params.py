@@ -3,7 +3,7 @@ import importlib
 import copy
 import json
 import posixpath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from deltacat.io.object_store import IObjectStore
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.media import ContentType
@@ -55,8 +55,21 @@ class CompactPartitionParams(dict):
             params.get("source_partition_locator") is not None
         ), "source_partition_locator is a required arg"
         assert params.get("catalog") is not None, "catalog is a required arg"
+        assert (
+            params.get("all_column_names") is not None
+        ), "all_column_names is a required arg"
 
         result = CompactPartitionParams(params)
+        assert (
+            result.destination_partition_locator.partition_id
+        ), "destination_partition_locator must have a globally unique partition_id"
+        assert (
+            result.source_partition_locator.partition_id
+        ), "source_partition_locator must have a globally unique partition_id"
+        if result.rebase_source_partition_locator:
+            assert (
+                result.rebase_source_partition_locator.partition_id
+            ), "rebase_source_partition_locator must have a globally unique partition_id"
 
         result.records_per_compacted_file = params.get(
             "records_per_compacted_file", MAX_RECORDS_PER_COMPACTED_FILE
@@ -72,6 +85,7 @@ class CompactPartitionParams(dict):
         result.catalog = params.get("catalog")
         result.deltacat_storage_kwargs = params.get("deltacat_storage_kwargs", {})
         result.list_deltas_kwargs = params.get("list_deltas_kwargs", {})
+        result.all_column_names = params.get("all_column_names")
 
         # Add catalog to deltacat_storage_kwargs
         result.deltacat_storage_kwargs["catalog"] = result.catalog
@@ -134,6 +148,8 @@ class CompactPartitionParams(dict):
 
         if result.primary_keys:
             result.primary_keys = sorted(result.primary_keys)
+
+        result.original_fields = params.get("original_fields")
 
         # assertions
         assert (
@@ -306,6 +322,14 @@ class CompactPartitionParams(dict):
     @deltacat_storage_kwargs.setter
     def deltacat_storage_kwargs(self, kwargs: dict) -> None:
         self["deltacat_storage_kwargs"] = kwargs
+
+    @property
+    def all_column_names(self) -> List[str]:
+        return self.get("all_column_names")
+
+    @all_column_names.setter
+    def all_column_names(self, column_names: List[str]) -> None:
+        self["all_column_names"] = column_names
 
     @property
     def records_per_compacted_file(self) -> int:
@@ -493,6 +517,22 @@ class CompactPartitionParams(dict):
     @table_writer_kwargs.setter
     def table_writer_kwargs(self, kwargs: dict) -> None:
         self["table_writer_kwargs"] = kwargs
+
+    @property
+    def expected_previous_partition_id(self) -> Optional[str]:
+        return self.get("expected_previous_partition_id")
+
+    @expected_previous_partition_id.setter
+    def expected_previous_partition_id(self, partition_id: Optional[str]) -> None:
+        self["expected_previous_partition_id"] = partition_id
+
+    @property
+    def original_fields(self) -> Optional[Set[str]]:
+        return self.get("original_fields")
+
+    @original_fields.setter
+    def original_fields(self, fields: Optional[Set[str]]) -> None:
+        self["original_fields"] = fields
 
     @staticmethod
     def json_handler_for_compact_partition_params(obj):

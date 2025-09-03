@@ -1,6 +1,7 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
+import json
 import posixpath
 from typing import Any, Dict, List, Optional
 
@@ -48,8 +49,7 @@ class Delta(Metafile):
     ) -> Delta:
         """
         Creates a Delta metadata model with the given Delta Locator, Delta Type,
-        manifest metadata, properties, manifest, and previous delta stream
-        position.
+        manifest metadata, properties, manifest, and previous delta stream position.
         """
         delta = Delta()
         delta.locator = locator
@@ -276,11 +276,25 @@ class Delta(Metafile):
         return None
 
     @property
+    def partition_values_json(self) -> Optional[str]:
+        partition_values = (
+            self.partition_values if self.partition_values is not None else None
+        )
+        return json.dumps(partition_values)
+
+    @property
     def stream_position(self) -> Optional[int]:
         delta_locator = self.locator
         if delta_locator:
             return delta_locator.stream_position
         return None
+
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+        )
 
     def to_serializable(self) -> Delta:
         serializable = self
@@ -378,7 +392,17 @@ class DeltaLocator(Locator, dict):
                 partition_values,
                 partition_id,
             )
-            if partition_values and partition_id
+            if any(
+                [
+                    partition_id,
+                    partition_values,
+                    stream_id,
+                    stream_format,
+                    table_name,
+                    table_version,
+                    namespace,
+                ]
+            )
             else None
         )
         return DeltaLocator.of(

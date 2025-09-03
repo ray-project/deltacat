@@ -98,7 +98,12 @@ def run(
     # Parse primary keys and sort keys
     primary_keys_set = parse_primary_keys(primary_keys)
     sort_keys_list = parse_sort_keys(sort_keys) if sort_keys else None
-
+    all_column_names = metastore.get_table_version_column_names(
+        namespace,
+        table_name,
+        table_version,
+        catalog=catalog,
+    )
     # Create compaction parameters using the same approach as bootstrap.py
     params_dict = {
         "catalog": catalog,
@@ -112,6 +117,7 @@ def run(
             "equivalent_table_types": [],
         },
         "primary_keys": list(primary_keys_set),
+        "all_column_names": all_column_names,
         "rebase_source_partition_locator": None,
         "rebase_source_partition_high_watermark": None,
         "records_per_compacted_file": records_per_file,
@@ -151,10 +157,9 @@ def run(
         print(f"   Hash Bucket Count: {hash_bucket_count}")
 
     # Run compaction
-    result = compact_partition(CompactPartitionParams.of(params_dict))
+    compact_partition(CompactPartitionParams.of(params_dict))
 
     print(f"✅ Compaction completed successfully!")
-    print(f"   Result: {result}")
 
 
 if __name__ == "__main__":

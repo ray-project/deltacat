@@ -4,12 +4,14 @@ import logging
 import itertools
 
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from deltacat.storage.model.schema import FieldLocator
 
 from deltacat import logs
 
-from deltacat.storage.model.schema import FieldLocator
 from deltacat.types.media import (
     ContentType,
     ContentEncoding,
@@ -74,7 +76,7 @@ class EntryParams(dict):
 
     @staticmethod
     def of(
-        equality_field_locators: Optional[List[FieldLocator]] = None,
+        equality_field_locators: Optional[List["FieldLocator"]] = None,
     ) -> EntryParams:
         params = EntryParams()
         if equality_field_locators is not None:
@@ -82,7 +84,7 @@ class EntryParams(dict):
         return params
 
     @property
-    def equality_field_locators(self) -> Optional[List[FieldLocator]]:
+    def equality_field_locators(self) -> Optional[List["FieldLocator"]]:
         return self.get("equality_field_locators")
 
 
@@ -128,11 +130,35 @@ class Manifest(dict):
         content_encoding = None
         credentials = None
         content_type_params = None
+        schema_id = None
+        sort_scheme_id = None
         if entries:
             content_type = entries[0].meta.content_type
             content_encoding = entries[0].meta.content_encoding
             credentials = entries[0].meta.credentials
             content_type_params = entries[0].meta.content_type_parameters
+
+            # Keep the latest schema ID
+            # Schema IDs are >= 0, and schema evolution always increments the last schema ID
+            entry_schema_ids = [
+                entry.meta.schema_id if entry.meta.schema_id is not None else -1
+                for entry in entries
+            ]
+            max_schema_id = max(entry_schema_ids) if entry_schema_ids else -1
+            schema_id = max_schema_id if max_schema_id >= 0 else None
+
+            # Handle sort_scheme_id: set to None if entries have multiple different sort_scheme_ids
+            entry_sort_scheme_ids = set(
+                entry.meta.sort_scheme_id
+                for entry in entries
+                if entry.meta.sort_scheme_id is not None
+            )
+            sort_scheme_id = (
+                list(entry_sort_scheme_ids)[0]
+                if len(entry_sort_scheme_ids) == 1
+                else None
+            )
+
             for entry in entries:
                 meta = entry.meta
                 if meta.content_type != content_type:
@@ -140,7 +166,7 @@ class Manifest(dict):
                 if meta.content_encoding != content_encoding:
                     content_encoding = None
                 entry_content_type = meta.content_type
-                if entry_content_type != content_type:
+                if content_type and entry_content_type != content_type:
                     msg = (
                         f"Expected all manifest entries to have content "
                         f"type '{content_type}' but found "
@@ -148,7 +174,7 @@ class Manifest(dict):
                     )
                     raise ValueError(msg)
                 entry_content_encoding = meta.get("content_encoding", None)
-                if entry_content_encoding != content_encoding:
+                if content_encoding and entry_content_encoding != content_encoding:
                     msg = (
                         f"Expected all manifest entries to have content "
                         f"encoding '{content_encoding}' but found "
@@ -200,6 +226,8 @@ class Manifest(dict):
             content_type_parameters=content_type_params,
             entry_type=entry_type,
             entry_params=entry_params,
+            schema_id=schema_id,
+            sort_scheme_id=sort_scheme_id,
         )
         manifest = Manifest._build_manifest(meta, entries, author, uuid)
         return manifest
@@ -266,6 +294,8 @@ class ManifestMeta(dict):
         content_type_parameters: Optional[List[Dict[str, str]]] = None,
         entry_type: Optional[EntryType] = None,
         entry_params: Optional[EntryParams] = None,
+        schema_id: Optional[int] = None,
+        sort_scheme_id: Optional[str] = None,
     ) -> ManifestMeta:
         manifest_meta = ManifestMeta()
         if record_count is not None:
@@ -288,6 +318,10 @@ class ManifestMeta(dict):
             )
         if entry_params is not None:
             manifest_meta["entry_params"] = entry_params
+        if schema_id is not None:
+            manifest_meta["schema_id"] = schema_id
+        if sort_scheme_id is not None:
+            manifest_meta["sort_scheme_id"] = sort_scheme_id
         return manifest_meta
 
     @staticmethod
@@ -305,6 +339,8 @@ class ManifestMeta(dict):
             content_type_parameters=obj.get("content_type_parameters"),
             entry_type=obj.get("entry_type"),
             entry_params=obj.get("entry_params"),
+            schema_id=obj.get("schema_id"),
+            sort_scheme_id=obj.get("sort_scheme_id"),
         )
 
     @property
@@ -352,6 +388,14 @@ class ManifestMeta(dict):
         if val is not None and not isinstance(val, EntryParams):
             self["entry_params"] = val = EntryParams(val)
         return val
+
+    @property
+    def schema_id(self) -> Optional[int]:
+        return self.get("schema_id")
+
+    @property
+    def sort_scheme_id(self) -> Optional[str]:
+        return self.get("sort_scheme_id")
 
 
 class ManifestEntry(dict):
@@ -431,6 +475,8 @@ class ManifestEntry(dict):
         content_type_parameters: Optional[List[Dict[str, str]]] = None,
         entry_type: Optional[EntryType] = None,
         entry_params: Optional[EntryParams] = None,
+        schema_id: Optional[int] = None,
+        sort_scheme_id: Optional[str] = None,
     ) -> ManifestEntry:
         """
         Creates a manifest entry from a path using a pyarrow filesystem.
@@ -445,6 +491,12 @@ class ManifestEntry(dict):
                 be derived from file extension.
             content_encoding: Optional content encoding override. If not
                 provided, will be derived from file extension.
+            credentials: Optional credentials required to read this manifest entry.
+            content_type_parameters: Optional content type parameters.
+            entry_type: Optional entry type of this manifest entry. Defaults to DATA.
+            entry_params: Optional entry type parameters.
+            schema_id: Schema ID used to write this manifest entry.
+            sort_scheme_id: Sort scheme ID used to write this manifest entry.
 
         Returns:
             A ManifestEntry instance
@@ -515,6 +567,8 @@ class ManifestEntry(dict):
             content_type_parameters=content_type_parameters,
             entry_type=entry_type,
             entry_params=entry_params,
+            schema_id=schema_id,
+            sort_scheme_id=sort_scheme_id,
         )
         manifest_entry = ManifestEntry.of(path, manifest_entry_meta)
         return manifest_entry
@@ -583,3 +637,7 @@ class ManifestEntryList(List[ManifestEntry]):
         if val is not None and not isinstance(val, ManifestEntry):
             self[item] = val = ManifestEntry(val)
         return val
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion

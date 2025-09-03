@@ -109,6 +109,15 @@ make benchmark-aws
 ```
 Run AWS benchmarks.
 
+#### type-mappings
+```shell
+make type-mappings
+```
+Regenerates type mapping documentation and corresponding Python module. Specifically this:
+1. Regenerates the markdown documentation at `docs/schema/README.md`
+2. Regenerates the writer/reader compatibility mapping file at `utils/reader_compatibility_mapping.py`
+This should be run after any changes to PyArrow, Polars, Pandas, Ray, or Daft dependency versions.
+
 ## Cloud Integration Testing
 ### AWS
 You can deploy and test your local DeltaCAT changes on any AWS environment that can run Ray applications (e.g. EC2, Glue

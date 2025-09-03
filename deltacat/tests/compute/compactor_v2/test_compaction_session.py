@@ -15,7 +15,11 @@ from deltacat.compute.compactor.model.compaction_session_audit_info import (
     CompactionSessionAuditInfo,
 )
 from deltacat.compute.resource_estimation import ResourceEstimationMethod
-from deltacat.tests.compute.test_util_common import get_rcf, read_audit_file
+from deltacat.exceptions import ValidationError
+from deltacat.tests.compute.test_util_common import (
+    get_rci_from_partition,
+    read_audit_file,
+)
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -172,9 +176,8 @@ class TestCompactionSessionMain:
             partition=dest_partition,
             catalog=catalog,
         )
-
         # Test compact_partition with minimal parameters
-        rcf_url = compact_partition(
+        compact_partition(
             CompactPartitionParams.of(
                 {
                     "catalog": catalog,
@@ -191,6 +194,7 @@ class TestCompactionSessionMain:
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "name", "value"],
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
@@ -200,10 +204,6 @@ class TestCompactionSessionMain:
         )
 
         # Basic verification - if we get here without exceptions, the basic flow works
-        print(f"✅ Compaction completed successfully! RCF URL: {rcf_url}")
-
-        # Verify that an RCF URL was generated
-        assert rcf_url is not None, "Expected a non-None RCF URL"
 
         # Get a fresh reference to the destination partition to see updates
         updated_dest_partition = metastore.get_partition(
@@ -258,7 +258,7 @@ class TestCompactionSessionMain:
         last_position = source_partition.stream_position or 0
 
         # Attempt compaction
-        rcf_url = compact_partition(
+        compact_partition(
             CompactPartitionParams.of(
                 {
                     "catalog": catalog,
@@ -275,6 +275,7 @@ class TestCompactionSessionMain:
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
@@ -283,11 +284,8 @@ class TestCompactionSessionMain:
             )
         )
 
-        # Verify that no RCF is written
-        assert rcf_url is None
-
-    def test_compact_partition_when_rcf_was_written_by_past_commit(self, catalog):
-        """Backward compatibility test for when a RCF was written by a previous commit."""
+    def test_compact_partition_when_incremental_then_rci_stats_accurate(self, catalog):
+        """Test case which asserts the RCI stats are correctly generated for a rebase and incremental use-case."""
         # Create source and destination namespaces/tables
         _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
         _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
@@ -302,134 +300,7 @@ class TestCompactionSessionMain:
         dest_partition = self._stage_and_commit_partition(dest_stream, catalog)
 
         # First compaction with backfill data
-        rcf_url = compact_partition(
-            CompactPartitionParams.of(
-                {
-                    "catalog": catalog,
-                    "compacted_file_content_type": ContentType.PARQUET,
-                    "dd_max_parallelism_ratio": 1.0,
-                    "deltacat_storage": metastore,
-                    "deltacat_storage_kwargs": {"catalog": catalog},
-                    "destination_partition_locator": dest_partition.locator,
-                    "drop_duplicates": True,
-                    "hash_bucket_count": 1,
-                    "last_stream_position_to_compact": source_delta.stream_position,
-                    "list_deltas_kwargs": {
-                        "catalog": catalog,
-                        "equivalent_table_types": [],
-                    },
-                    "primary_keys": [],
-                    "rebase_source_partition_locator": source_delta.partition_locator,
-                    "rebase_source_partition_high_watermark": source_delta.stream_position,
-                    "records_per_compacted_file": 4000,
-                    "source_partition_locator": source_delta.partition_locator,
-                }
-            )
-        )
-
-        # Now simulate the backward compatibility scenario by moving the RCF
-        # from new location to old location using the catalog's filesystem
-        from deltacat.utils.filesystem import resolve_path_and_filesystem
-        import os
-
-        # Get the filesystem and resolve the RCF path
-        rcf_path, filesystem = resolve_path_and_filesystem(rcf_url)
-
-        # Determine the old location path (without the subdirectory structure)
-        # Extract directory components to simulate the old vs new location structure
-        rcf_dir = os.path.dirname(rcf_path)
-        rcf_filename = os.path.basename(rcf_path)
-        parent_dir = os.path.dirname(rcf_dir)
-        old_location_path = os.path.join(parent_dir, rcf_filename)
-
-        # Copy the RCF from new location to old location
-        with filesystem.open_input_stream(rcf_path) as source_stream:
-            content = source_stream.read()
-            with filesystem.open_output_stream(old_location_path) as dest_stream:
-                dest_stream.write(content)
-
-        # Delete the RCF from the new location
-        filesystem.delete_file(rcf_path)
-
-        # Now commit incremental data and run incremental compaction
-        new_source_delta = self._stage_and_commit_delta(
-            self.INCREMENTAL_DATA, source_partition, catalog
-        )
-
-        # Use the original destination partition for incremental compaction
-        new_rcf_url = compact_partition(
-            CompactPartitionParams.of(
-                {
-                    "catalog": catalog,
-                    "compacted_file_content_type": ContentType.PARQUET,
-                    "dd_max_parallelism_ratio": 1.0,
-                    "deltacat_storage": metastore,
-                    "deltacat_storage_kwargs": {"catalog": catalog},
-                    "destination_partition_locator": dest_partition.locator,
-                    "drop_duplicates": True,
-                    "hash_bucket_count": 1,
-                    "last_stream_position_to_compact": new_source_delta.stream_position,
-                    "list_deltas_kwargs": {
-                        "catalog": catalog,
-                        "equivalent_table_types": [],
-                    },
-                    "primary_keys": ["pk"],
-                    "rebase_source_partition_locator": None,
-                    "rebase_source_partition_high_watermark": None,
-                    "records_per_compacted_file": 4000,
-                    "source_partition_locator": new_source_delta.partition_locator,
-                }
-            )
-        )
-
-        rcf = get_rcf(new_rcf_url)
-
-        compaction_audit = CompactionSessionAuditInfo(
-            **read_audit_file(rcf.compaction_audit_url)
-        )
-
-        # Verify incremental compaction metrics are reasonable (looser bounds due to storage differences)
-        # Note: inflation values may be None in some storage implementations
-        if rcf.input_inflation is not None:
-            assert 0.01 <= rcf.input_inflation <= 0.2  # Reasonable inflation range
-        if rcf.input_average_record_size_bytes is not None:
-            assert (
-                5 <= rcf.input_average_record_size_bytes <= 50
-            )  # Reasonable record size range
-
-        assert compaction_audit.input_records >= 4  # At least the backfill records
-        assert compaction_audit.records_deduped >= 0
-        assert compaction_audit.records_deleted == 0
-        assert compaction_audit.untouched_file_count >= 0
-        assert compaction_audit.untouched_record_count >= 0
-        # Allow larger tolerance for size differences
-        assert compaction_audit.untouched_file_ratio >= 0
-        assert compaction_audit.uniform_deltas_created >= 1
-        assert compaction_audit.hash_bucket_count == 1
-        assert compaction_audit.input_file_count >= 1
-        assert compaction_audit.output_file_count >= 1
-        # Allow larger tolerance for file size differences between storage implementations
-        # File sizes can vary significantly due to different compression, metadata, etc.
-        assert compaction_audit.output_size_bytes > 0
-        assert compaction_audit.input_size_bytes > 0
-
-    def test_compact_partition_when_incremental_then_rcf_stats_accurate(self, catalog):
-        """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case."""
-        # Create source and destination namespaces/tables
-        _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
-        _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
-
-        # Create source partition and commit backfill data
-        source_partition = self._stage_and_commit_partition(source_stream, catalog)
-        source_delta = self._stage_and_commit_delta(
-            self.BACKFILL_DATA, source_partition, catalog
-        )
-
-        # Create destination partition
-        dest_partition = self._stage_and_commit_partition(dest_stream, catalog)
-
-        # First compaction with backfill data
-        rcf_url = compact_partition(
+        compact_partition(
             CompactPartitionParams.of(
                 {
                     "catalog": catalog,
@@ -446,6 +317,8 @@ class TestCompactionSessionMain:
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
+                    "original_fields": {"pk", "value"},
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
@@ -454,20 +327,26 @@ class TestCompactionSessionMain:
             )
         )
 
-        backfill_rcf = get_rcf(rcf_url)
+        # Get RoundCompletionInfo from the compacted partition instead of file
+        backfill_rci = get_rci_from_partition(
+            dest_partition.locator, metastore, catalog=catalog
+        )
+        # Get catalog root for audit file resolution
+        catalog_root = catalog.root
+
         compaction_audit = CompactionSessionAuditInfo(
-            **read_audit_file(backfill_rcf.compaction_audit_url)
+            **read_audit_file(backfill_rci.compaction_audit_url, catalog_root)
         )
 
         # Verify that inflation and record size values are reasonable (not exact due to storage differences)
         # Note: inflation values may be None in some storage implementations
-        if backfill_rcf.input_inflation is not None:
+        if backfill_rci.input_inflation is not None:
             assert (
-                0.01 <= backfill_rcf.input_inflation <= 0.2
+                0.01 <= backfill_rci.input_inflation <= 0.2
             )  # Reasonable inflation range
-        if backfill_rcf.input_average_record_size_bytes is not None:
+        if backfill_rci.input_average_record_size_bytes is not None:
             assert (
-                5 <= backfill_rcf.input_average_record_size_bytes <= 50
+                5 <= backfill_rci.input_average_record_size_bytes <= 50
             )  # Reasonable record size range
 
         assert compaction_audit.input_records == 4
@@ -492,7 +371,7 @@ class TestCompactionSessionMain:
         )
 
         # Use the original destination partition for incremental compaction
-        new_rcf_url = compact_partition(
+        compact_partition(
             CompactPartitionParams.of(
                 {
                     "catalog": catalog,
@@ -502,13 +381,15 @@ class TestCompactionSessionMain:
                     "deltacat_storage_kwargs": {"catalog": catalog},
                     "destination_partition_locator": dest_partition.locator,
                     "drop_duplicates": True,
-                    "hash_bucket_count": 1,
+                    "hash_bucket_count": 2,
                     "last_stream_position_to_compact": new_source_delta.stream_position,
                     "list_deltas_kwargs": {
                         "catalog": catalog,
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
+                    "original_fields": {"pk", "value"},
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
@@ -517,18 +398,24 @@ class TestCompactionSessionMain:
             )
         )
 
-        new_rcf = get_rcf(new_rcf_url)
+        # Get RoundCompletionInfo from the compacted partition instead of file
+        new_rci = get_rci_from_partition(
+            dest_partition.locator, metastore, catalog=catalog
+        )
+        # Get catalog root for audit file resolution
+        catalog_root = catalog.root
+
         compaction_audit = CompactionSessionAuditInfo(
-            **read_audit_file(new_rcf.compaction_audit_url)
+            **read_audit_file(new_rci.compaction_audit_url, catalog_root)
         )
 
         # Verify incremental compaction metrics are reasonable (looser bounds due to storage differences)
         # Note: inflation values may be None in some storage implementations
-        if new_rcf.input_inflation is not None:
-            assert 0.01 <= new_rcf.input_inflation <= 0.2  # Reasonable inflation range
-        if new_rcf.input_average_record_size_bytes is not None:
+        if new_rci.input_inflation is not None:
+            assert 0.01 <= new_rci.input_inflation <= 0.2  # Reasonable inflation range
+        if new_rci.input_average_record_size_bytes is not None:
             assert (
-                5 <= new_rcf.input_average_record_size_bytes <= 50
+                5 <= new_rci.input_average_record_size_bytes <= 50
             )  # Reasonable record size range
 
         assert compaction_audit.input_records >= 4  # At least the backfill records
@@ -539,7 +426,7 @@ class TestCompactionSessionMain:
         # Allow larger tolerance for size differences
         assert compaction_audit.untouched_file_ratio >= 0
         assert compaction_audit.uniform_deltas_created >= 1
-        assert compaction_audit.hash_bucket_count == 1
+        assert compaction_audit.hash_bucket_count == 2
         assert compaction_audit.input_file_count >= 1
         assert compaction_audit.output_file_count >= 1
         # Allow larger tolerance for file size differences between storage implementations
@@ -547,10 +434,93 @@ class TestCompactionSessionMain:
         assert compaction_audit.output_size_bytes > 0
         assert compaction_audit.input_size_bytes > 0
 
+    def test_compact_partition_when_hash_bucket_count_changes_then_validation_error(
+        self, catalog
+    ):
+        """Test that changing hash bucket count between compactions raises ValidationError."""
+        # Create source and destination namespaces/tables
+        _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
+        _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
+
+        # Create source partition and commit backfill data
+        source_partition = self._stage_and_commit_partition(source_stream, catalog)
+        source_delta = self._stage_and_commit_delta(
+            self.BACKFILL_DATA, source_partition, catalog
+        )
+
+        # Create destination partition
+        dest_partition = self._stage_and_commit_partition(dest_stream, catalog)
+
+        # First compaction with hash_bucket_count=2
+        compact_partition(
+            CompactPartitionParams.of(
+                {
+                    "catalog": catalog,
+                    "compacted_file_content_type": ContentType.PARQUET,
+                    "dd_max_parallelism_ratio": 1.0,
+                    "deltacat_storage": metastore,
+                    "deltacat_storage_kwargs": {"catalog": catalog},
+                    "destination_partition_locator": dest_partition.locator,
+                    "drop_duplicates": True,
+                    "hash_bucket_count": 2,
+                    "last_stream_position_to_compact": source_delta.stream_position,
+                    "list_deltas_kwargs": {
+                        "catalog": catalog,
+                        "equivalent_table_types": [],
+                    },
+                    "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
+                    "rebase_source_partition_locator": source_delta.partition_locator,
+                    "rebase_source_partition_high_watermark": source_delta.stream_position,
+                    "records_per_compacted_file": 4000,
+                    "source_partition_locator": source_delta.partition_locator,
+                }
+            )
+        )
+
+        # Now commit incremental data and run incremental compaction with different hash bucket count
+        new_source_delta = self._stage_and_commit_delta(
+            self.INCREMENTAL_DATA, source_partition, catalog
+        )
+
+        # This should raise ValidationError due to hash bucket count mismatch (2 vs 1)
+        with pytest.raises(ValidationError) as exc_info:
+            compact_partition(
+                CompactPartitionParams.of(
+                    {
+                        "catalog": catalog,
+                        "compacted_file_content_type": ContentType.PARQUET,
+                        "dd_max_parallelism_ratio": 1.0,
+                        "deltacat_storage": metastore,
+                        "deltacat_storage_kwargs": {"catalog": catalog},
+                        "destination_partition_locator": dest_partition.locator,
+                        "drop_duplicates": True,
+                        "hash_bucket_count": 1,  # Different from initial compaction (2)
+                        "last_stream_position_to_compact": new_source_delta.stream_position,
+                        "list_deltas_kwargs": {
+                            "catalog": catalog,
+                            "equivalent_table_types": [],
+                        },
+                        "primary_keys": ["pk"],
+                        "all_column_names": ["pk", "value"],
+                        "rebase_source_partition_locator": None,
+                        "rebase_source_partition_high_watermark": None,
+                        "records_per_compacted_file": 4000,
+                        "source_partition_locator": new_source_delta.partition_locator,
+                    }
+                )
+            )
+
+        # Verify the error message contains the expected hash bucket count mismatch details
+        error_message = str(exc_info.value)
+        assert "Partition hash bucket count for compaction has changed" in error_message
+        assert "Hash bucket count in RCI=2" in error_message
+        assert "hash bucket count in params=1" in error_message
+
     def test_compact_partition_when_incremental_then_intelligent_estimation_sanity(
         self, catalog
     ):
-        """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case with intelligent estimation."""
+        """Test case which asserts the RCI stats are correctly generated for a rebase and incremental use-case with intelligent estimation."""
         # Create source and destination namespaces/tables
         _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
         _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
@@ -582,6 +552,7 @@ class TestCompactionSessionMain:
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
@@ -594,7 +565,7 @@ class TestCompactionSessionMain:
     def test_compact_partition_when_incremental_then_content_type_meta_estimation_sanity(
         self, catalog
     ):
-        """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case with content type meta estimation."""
+        """Test case which asserts the RCI stats are correctly generated for a rebase and incremental use-case with content type meta estimation."""
         # Create source and destination namespaces/tables
         _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
         _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
@@ -626,6 +597,7 @@ class TestCompactionSessionMain:
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,
@@ -638,7 +610,7 @@ class TestCompactionSessionMain:
     def test_compact_partition_when_incremental_then_previous_inflation_estimation_sanity(
         self, catalog
     ):
-        """Test case which asserts the RCF stats are correctly generated for a rebase and incremental use-case with previous inflation estimation."""
+        """Test case which asserts the RCI stats are correctly generated for a rebase and incremental use-case with previous inflation estimation."""
         # Create source and destination namespaces/tables
         _, _, _, source_stream = self._create_namespace_and_table("source", catalog)
         _, _, _, dest_stream = self._create_namespace_and_table("destination", catalog)
@@ -670,6 +642,7 @@ class TestCompactionSessionMain:
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["pk"],
+                    "all_column_names": ["pk", "value"],
                     "rebase_source_partition_locator": source_delta.partition_locator,
                     "rebase_source_partition_high_watermark": source_delta.stream_position,
                     "records_per_compacted_file": 4000,

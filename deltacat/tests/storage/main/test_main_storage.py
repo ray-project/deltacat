@@ -12,7 +12,18 @@ import ray
 import ray.data
 
 from deltacat import PartitionKey, PartitionScheme
-from deltacat.exceptions import TableNotFoundError, UnclassifiedDeltaCatError
+from deltacat.exceptions import (
+    SchemaValidationError,
+    TableNotFoundError,
+    UnclassifiedDeltaCatError,
+    NamespaceNotFoundError,
+    NamespaceAlreadyExistsError,
+    TableAlreadyExistsError,
+    TableVersionNotFoundError,
+    TableValidationError,
+    StreamNotFoundError,
+    PartitionNotFoundError,
+)
 from deltacat.storage import (
     metastore,
     CommitState,
@@ -47,7 +58,7 @@ from deltacat.storage import (
 from deltacat.types.media import (
     ContentType,
     ContentEncoding,
-    TableType,
+    DatasetType,
     StorageType,
     DistributedDatasetType,
 )
@@ -163,8 +174,8 @@ class TestNamespace:
 
     def test_delete_namespace_not_exists(self):
         # When we try to delete a non-existent namespace
-        # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        # Then we should get a NamespaceNotFoundError
+        with pytest.raises(NamespaceNotFoundError):
             metastore.delete_namespace(
                 namespace="non_existent_namespace",
                 catalog=self.catalog,
@@ -178,23 +189,13 @@ class TestNamespace:
         )
 
         # When we delete the namespace with purge=True
-        metastore.delete_namespace(
-            namespace="namespace1",
-            purge=True,
-            catalog=self.catalog,
-        )
-
-        # Then the namespace should not exist anymore
-        assert not metastore.namespace_exists(
-            namespace="namespace1",
-            catalog=self.catalog,
-        )
-
-        # And it should not be listed in namespaces
-        list_result = metastore.list_namespaces(catalog=self.catalog)
-        namespaces = list_result.all_items()
-        assert len(namespaces) == 1  # Only namespace2 should remain
-        assert namespaces[0].equivalent_to(self.namespace2)
+        # Then we should get a ValueError due to purge not being supported
+        with pytest.raises(NotImplementedError):
+            metastore.delete_namespace(
+                namespace="namespace1",
+                purge=True,
+                catalog=self.catalog,
+            )
 
     def test_delete_namespace_operations_after_delete(self):
         # Given a namespace that exists
@@ -211,7 +212,7 @@ class TestNamespace:
         )
 
         # Then trying to create a table in the deleted namespace should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.create_table_version(
                 namespace=namespace,
                 table_name="test_table",
@@ -220,14 +221,14 @@ class TestNamespace:
             )
 
         # And trying to list tables in the deleted namespace should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.list_tables(
                 namespace=namespace,
                 catalog=self.catalog,
             )
 
         # And trying to delete the namespace again should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.delete_namespace(
                 namespace=namespace,
                 catalog=self.catalog,
@@ -318,7 +319,7 @@ class TestNamespace:
 
     def test_update_namespace_not_exists(self):
         # When we try to update a non-existent namespace
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceNotFoundError):
             metastore.update_namespace(
                 namespace="non_existent_namespace",
                 properties={"description": "Test"},
@@ -340,7 +341,7 @@ class TestNamespace:
 
         # When we try to rename namespace1 to namespace2
         # Then it should fail since namespace2 already exists
-        with pytest.raises(ValueError):
+        with pytest.raises(NamespaceAlreadyExistsError):
             metastore.update_namespace(
                 namespace=namespace1,
                 new_namespace=namespace2,
@@ -436,7 +437,7 @@ class TestTable:
         # When we delete the table
         metastore.delete_table(
             namespace=self.test_namespace.namespace,
-            name=self.test_table1.table_name,
+            table_name=self.test_table1.table_name,
             catalog=self.catalog,
         )
         # Then the table should not exist anymore
@@ -462,26 +463,14 @@ class TestTable:
             catalog=self.catalog,
         )
         # When we delete the table with purge=True
-        metastore.delete_table(
-            namespace=self.test_namespace.namespace,
-            name=self.test_table1.table_name,
-            purge=True,
-            catalog=self.catalog,
-        )
-        # Then the table should not exist anymore
-        assert not metastore.table_exists(
-            namespace=self.test_namespace.namespace,
-            table_name=self.test_table1.table_name,
-            catalog=self.catalog,
-        )
-        # And it should not be listed in tables
-        list_result = metastore.list_tables(
-            namespace=self.test_namespace.namespace,
-            catalog=self.catalog,
-        )
-        tables = list_result.all_items()
-        assert len(tables) == 1  # Only table2 should remain
-        assert tables[0].equivalent_to(self.test_table2)
+        # Then we should get a NotImplementedError due to purge not being supported
+        with pytest.raises(NotImplementedError):
+            metastore.delete_table(
+                namespace=self.test_namespace.namespace,
+                table_name=self.test_table1.table_name,
+                purge=True,
+                catalog=self.catalog,
+            )
 
     def test_delete_table_not_exists(self):
         # When we try to delete a non-existent table
@@ -489,7 +478,7 @@ class TestTable:
         with pytest.raises(TableNotFoundError):
             metastore.delete_table(
                 namespace=self.test_namespace.namespace,
-                name="non_existent_table",
+                table_name="non_existent_table",
                 catalog=self.catalog,
             )
 
@@ -499,7 +488,7 @@ class TestTable:
         with pytest.raises(TableNotFoundError):
             metastore.delete_table(
                 namespace="non_existent_namespace",
-                name=self.test_table1.table_name,
+                table_name=self.test_table1.table_name,
                 catalog=self.catalog,
             )
 
@@ -509,13 +498,13 @@ class TestTable:
         table_version = self.tv1.table_version
         metastore.delete_table(
             namespace=self.test_namespace.namespace,
-            name=table_name,
+            table_name=table_name,
             catalog=self.catalog,
         )
 
         # When we update the table version's description
         # This should fail with ValueError since the table no longer exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableVersionNotFoundError):
             metastore.update_table_version(
                 namespace=self.test_namespace.namespace,
                 table_name=table_name,
@@ -526,7 +515,7 @@ class TestTable:
 
         # When we create a stream under the deleted table version
         # This should fail with ValueError since the table no longer exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableVersionNotFoundError):
             metastore.stage_stream(
                 namespace=self.test_namespace.namespace,
                 table_name=table_name,
@@ -537,7 +526,7 @@ class TestTable:
         # When we create a stream under the deleted table, but omit the table
         # version to force resolution of the latest active table version.
         # This should fail with ValueError since the table no longer exists.
-        with pytest.raises(ValueError):
+        with pytest.raises(TableNotFoundError):
             metastore.stage_stream(
                 namespace=self.test_namespace.namespace,
                 table_name=table_name,
@@ -546,7 +535,7 @@ class TestTable:
 
         # When we stage a partition to the deleted table version's stream
         # This should fail with ValueError since the table no longer exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableVersionNotFoundError):
             metastore.stage_partition(
                 stream=self.stream1,
                 partition_values=[123, "abc"],
@@ -594,7 +583,7 @@ class TestTable:
 
         # When we try to rename table1 to table2's name
         # Then it should fail since table2 already exists
-        with pytest.raises(ValueError):
+        with pytest.raises(TableAlreadyExistsError):
             metastore.update_table(
                 namespace=self.test_namespace.namespace,
                 table_name=self.test_table1.table_name,
@@ -667,7 +656,7 @@ class TestTableVersion:
         table_version = create_test_table_version()
         # when we try to create ordinal table version 1 again
         # expect an error to be raised (ordinal version 3 expected)
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -767,7 +756,7 @@ class TestTableVersion:
             kwargs_copy[key] = "i_dont_exist"
             # when we list table versions
             # expect an error to be raised
-            with pytest.raises(ValueError):
+            with pytest.raises(TableNotFoundError):
                 metastore.list_table_versions(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -795,7 +784,7 @@ class TestTableVersion:
             kwargs_copy[key] = "i_dont_exist"
             # when we get the latest table version
             # expect an error to be raised
-            with pytest.raises(ValueError):
+            with pytest.raises(TableNotFoundError):
                 metastore.get_latest_table_version(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -863,7 +852,7 @@ class TestTableVersion:
         )
         # when we try to update the schema
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.update_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1009,7 +998,7 @@ class TestTableVersion:
         )
         # when we try to update the partition scheme
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.update_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1173,7 +1162,7 @@ class TestTableVersion:
         )
         # when we try to update the sort scheme
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.update_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1484,7 +1473,7 @@ class TestTableVersion:
             kwargs_copy[key] = "i_dont_exist"
             # when we get the latest active table version
             # expect an error to be raised
-            with pytest.raises(ValueError):
+            with pytest.raises(TableNotFoundError):
                 metastore.get_latest_active_table_version(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -1577,7 +1566,7 @@ class TestTableVersion:
         # given an existing table version
         # when we try to create a table version with the same ID
         # expect an error to be raised
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1675,7 +1664,7 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="Partition key field 'non_existent_field' not found in schema",
         ):
             metastore.create_table_version(
@@ -1715,7 +1704,8 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError, match="Sort key field 'non_existent_field' not found in schema"
+            SchemaValidationError,
+            match="Sort key field 'non_existent_field' not found in schema",
         ):
             metastore.create_table_version(
                 namespace=self.table.namespace,
@@ -1745,7 +1735,7 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="Partition key field 'non_existent_field' not found in schema",
         ):
             metastore.update_table_version(
@@ -1776,7 +1766,8 @@ class TestTableVersion:
 
         # Expect error when field doesn't exist in schema
         with pytest.raises(
-            ValueError, match="Sort key field 'non_existent_field' not found in schema"
+            SchemaValidationError,
+            match="Sort key field 'non_existent_field' not found in schema",
         ):
             metastore.update_table_version(
                 namespace=self.table.namespace,
@@ -1912,8 +1903,8 @@ class TestStream:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            kwargs_copy[key] = "i_dont_exist"
-            with pytest.raises(ValueError):
+            kwargs_copy[key] = "i_dont_exist.1"
+            with pytest.raises(TableVersionNotFoundError):
                 metastore.list_streams(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -2057,7 +2048,7 @@ class TestStream:
         # TODO(pdames): Add new getter method for deleted but not GC'd streams?
 
     def test_delete_missing_stream(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(StreamNotFoundError):
             metastore.delete_stream(
                 namespace="test_stream_ns",
                 table_name="mystreamtable",
@@ -2074,8 +2065,8 @@ class TestStream:
         }
         for key in kwargs.keys():
             kwargs_copy = copy.copy(kwargs)
-            kwargs_copy[key] = "i_dont_exist"
-            with pytest.raises(ValueError):
+            kwargs_copy[key] = "i_dont_exist.1"
+            with pytest.raises(StreamNotFoundError):
                 metastore.delete_stream(
                     catalog=self.catalog,
                     **kwargs_copy,
@@ -2538,7 +2529,7 @@ class TestPartition:
         # When we try to delete a non-existent partition
         partition_values = [456, "def"]
         # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(PartitionNotFoundError):
             metastore.delete_partition(
                 stream_locator=self.stream.locator,
                 partition_values=partition_values,
@@ -2559,7 +2550,7 @@ class TestPartition:
         # When we try to delete the staged partition
         # Then we should get a ValueError since only committed partitions
         # can be deleted
-        with pytest.raises(ValueError):
+        with pytest.raises(PartitionNotFoundError):
             metastore.delete_partition(
                 stream_locator=self.stream.locator,
                 partition_values=partition_values,
@@ -2624,7 +2615,7 @@ class TestPartition:
         bad_scheme_id = "nonexistent_scheme_id"
         # When we try to stage a partition with a bad scheme ID
         # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(TableValidationError):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=partition_values,
@@ -2642,14 +2633,13 @@ class TestPartition:
         )
         partition = Partition.of(
             locator=partition_locator,
-            schema=None,
             content_types=None,
             state=CommitState.STAGED,
             partition_scheme_id=self.tv.partition_scheme.id,
         )
         # When we try to commit the partition without staging
         # Then we should get a ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(PartitionNotFoundError):
             metastore.commit_partition(
                 partition=partition,
                 catalog=self.catalog,
@@ -2678,7 +2668,7 @@ class TestPartition:
         # Then the partition should be staged with empty values and
         # UNPARTITIONED_SCHEME_ID
         assert staged_partition is not None
-        assert staged_partition.partition_values == []
+        assert staged_partition.partition_values is None
         assert staged_partition.partition_scheme_id == UNPARTITIONED_SCHEME_ID
 
     def test_stage_partition_type_validation(self):
@@ -2700,7 +2690,8 @@ class TestPartition:
 
         # When trying to stage with invalid type for col1 (string instead of int32)
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type int32"
+            TableValidationError,
+            match="incompatible with partition transform return type int32",
         ):
             metastore.stage_partition(
                 stream=self.stream,
@@ -2711,7 +2702,8 @@ class TestPartition:
 
         # When trying to stage with invalid type for col2 (int instead of string)
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type string"
+            TableValidationError,
+            match="incompatible with partition transform return type string",
         ):
             metastore.stage_partition(
                 stream=self.stream,
@@ -2723,7 +2715,9 @@ class TestPartition:
     def test_stage_partition_wrong_number_of_values(self):
         """Test that the number of partition values must match the number of partition keys."""
         # When trying to stage with too few values
-        with pytest.raises(ValueError, match="does not match number of partition keys"):
+        with pytest.raises(
+            TableValidationError, match="does not match number of partition keys"
+        ):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=[42],  # Missing second value
@@ -2732,7 +2726,9 @@ class TestPartition:
             )
 
         # When trying to stage with too many values
-        with pytest.raises(ValueError, match="does not match number of partition keys"):
+        with pytest.raises(
+            TableValidationError, match="does not match number of partition keys"
+        ):
             metastore.stage_partition(
                 stream=self.stream,
                 partition_values=[42, "test", "extra"],
@@ -2866,7 +2862,7 @@ class TestPartition:
 
         # Test invalid bucket transform value type
         invalid_bucket_values = [
-            "not_an_int",  # Should be decimal128(38, 0) from bucket transform
+            "not_an_int",  # Should be int32() from bucket transform
             2024,
             3,
             14,
@@ -2875,8 +2871,8 @@ class TestPartition:
             None,
         ]
         with pytest.raises(
-            ValueError,
-            match="incompatible with partition transform return type decimal128\\(38, 0\\)",
+            TableValidationError,
+            match="incompatible with partition transform return type int32()",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -2888,7 +2884,7 @@ class TestPartition:
         # Test invalid year transform value type
         invalid_year_values = [
             5,  # Valid bucket transform value
-            "not_an_int",  # Should be int64 from year transform
+            "not_an_int",  # Should be int32 from year transform
             3,
             14,
             15,
@@ -2896,7 +2892,8 @@ class TestPartition:
             None,
         ]
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type int64"
+            TableValidationError,
+            match="incompatible with partition transform return type int32",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -2909,14 +2906,15 @@ class TestPartition:
         invalid_month_values = [
             5,
             2024,
-            "not_an_int",  # Should be int64 from month transform
+            "not_an_int",  # Should be int32 from month transform
             14,
             15,
             "foo",
             None,
         ]
         with pytest.raises(
-            ValueError, match="incompatible with partition transform return type int64"
+            TableValidationError,
+            match="incompatible with partition transform return type int32",
         ):
             metastore.stage_partition(
                 stream=stream,
@@ -3164,26 +3162,21 @@ class TestPartition:
         )
         partitions_list = list_result.all_items()
 
-        # Then we should get both partitions
-        assert len(partitions_list) == 2
+        # Then we should get only one committed unpartitioned partition
+        assert len(partitions_list) == 1
 
-        # Verify both partitions are committed and have the right scheme ID
-        for p in partitions_list:
-            assert p.state == CommitState.COMMITTED
-            assert p.partition_scheme_id == UNPARTITIONED_SCHEME_ID
-            assert p.locator.stream_locator == self.unpartitioned_stream.locator
+        # Verify the committed unpartitioned partition is committed and has the right scheme ID
+        assert partitions_list[0].state == CommitState.COMMITTED
+        assert partitions_list[0].partition_scheme_id == UNPARTITIONED_SCHEME_ID
+        assert (
+            partitions_list[0].locator.stream_locator
+            == self.unpartitioned_stream.locator
+        )
 
         # Verify we have one with empty list and one with None
-        partition_values_set = {
-            tuple(p.partition_values) if p.partition_values is not None else None
-            for p in partitions_list
-        }
-        assert None in partition_values_set  # None values
-        assert (
-            () in partition_values_set
-        )  # Empty list (converted to empty tuple for set membership)
+        assert partitions_list[0].partition_values is None
 
-        # Verify we can retrieve each partition individually
+        # Verify we can retrieve the partition either by empty list or none partition values
         retrieved_empty_list = metastore.get_partition(
             stream_locator=self.unpartitioned_stream.locator,
             partition_values=[],
@@ -3191,7 +3184,7 @@ class TestPartition:
             catalog=self.catalog,
         )
         assert retrieved_empty_list is not None
-        assert retrieved_empty_list.partition_values == []
+        assert retrieved_empty_list.partition_values is None
 
         retrieved_none_values = metastore.get_partition(
             stream_locator=self.unpartitioned_stream.locator,
@@ -3349,7 +3342,7 @@ class TestPartition:
         """Test list_partitions error handling with invalid namespace."""
         # When we try to list partitions with an invalid namespace
         # Then we should get a ValueError
-        with pytest.raises(ValueError, match="Default stream.*not found"):
+        with pytest.raises(StreamNotFoundError, match="Default stream.*not found"):
             metastore.list_partitions(
                 namespace="non_existent_namespace",
                 table_name="mypartitiontable",
@@ -3361,7 +3354,7 @@ class TestPartition:
         """Test list_partitions error handling with invalid table name."""
         # When we try to list partitions with an invalid table name
         # Then we should get a ValueError
-        with pytest.raises(ValueError, match="Default stream.*not found"):
+        with pytest.raises(StreamNotFoundError, match="Default stream.*not found"):
             metastore.list_partitions(
                 namespace="test_partition_ns",
                 table_name="non_existent_table",
@@ -3373,7 +3366,7 @@ class TestPartition:
         """Test list_partitions error handling with invalid table version."""
         # When we try to list partitions with an invalid table version
         # Then we should get a ValueError
-        with pytest.raises(ValueError, match="Default stream.*not found"):
+        with pytest.raises(StreamNotFoundError, match="Default stream.*not found"):
             metastore.list_partitions(
                 namespace="test_partition_ns",
                 table_name="mypartitiontable",
@@ -3501,7 +3494,7 @@ class TestDelta:
         )
         schema = Schema.of(
             schema=arrow_schema,
-            schema_id="test_schema_id",
+            schema_id=1,
         )
 
         # Create and commit table version with schema
@@ -4908,7 +4901,7 @@ class TestDelta:
         staged_delta.locator.partition_locator.partition_id = "invalid_partition_id"
 
         # Attempt to commit should raise an error
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(PartitionNotFoundError) as exc_info:
             metastore.commit_delta(
                 delta=staged_delta,
                 catalog=self.catalog,
@@ -5313,7 +5306,7 @@ class TestDelta:
     def test_get_delta_invalid_namespace(self):
         # Test error handling when trying to retrieve delta with invalid namespace
         # Attempt to retrieve delta with invalid namespace
-        with pytest.raises(ValueError):
+        with pytest.raises(StreamNotFoundError):
             metastore.get_delta(
                 namespace="non_existent_namespace",
                 table_name="test_table",
@@ -5923,7 +5916,7 @@ class TestDelta:
         staged_delta.locator.stream_position = initial_stream_position
 
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="Delta stream position .* must be greater than previous stream position",
         ):
             metastore.commit_delta(
@@ -5936,7 +5929,7 @@ class TestDelta:
             staged_delta.locator.stream_position = initial_stream_position - 1
 
             with pytest.raises(
-                ValueError,
+                TableValidationError,
                 match="Delta stream position .* must be greater than previous stream position",
             ):
                 metastore.commit_delta(
@@ -5989,7 +5982,7 @@ class TestDelta:
         selected_columns = ["id", "name", "city"]
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6044,7 +6037,7 @@ class TestDelta:
         delta_locator = committed_delta.locator
         downloaded_tables = metastore.download_delta(
             delta_like=delta_locator,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6094,12 +6087,12 @@ class TestDelta:
         # Test with invalid column names (one valid, one invalid)
         invalid_columns = ["id", "non_existent_column"]
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="One or more columns .* are not present in table version columns",
         ):
             metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.LOCAL,
                 columns=invalid_columns,
                 catalog=self.catalog,
@@ -6142,7 +6135,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             catalog=self.catalog,
         )
 
@@ -6191,7 +6184,7 @@ class TestDelta:
         # Download as pandas DataFrame
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6240,7 +6233,7 @@ class TestDelta:
         # Download as PyArrow Table
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6291,7 +6284,7 @@ class TestDelta:
         # Download as Polars DataFrame
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6335,7 +6328,7 @@ class TestDelta:
         # Download as NumPy array
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6390,7 +6383,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             catalog=self.catalog,
         )
 
@@ -6439,7 +6432,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             catalog=self.catalog,
         )
 
@@ -6483,28 +6476,28 @@ class TestDelta:
         # Download as different table types
         pandas_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
 
         pyarrow_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
 
         polars_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
 
         numpy_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6579,28 +6572,28 @@ class TestDelta:
         pandas_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             catalog=self.catalog,
         )
 
         pyarrow_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             catalog=self.catalog,
         )
 
         polars_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             catalog=self.catalog,
         )
 
         numpy_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=entry_index,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             catalog=self.catalog,
         )
 
@@ -6685,7 +6678,7 @@ class TestDelta:
         # Test with pandas
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PANDAS,
+            table_type=DatasetType.PANDAS,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6707,7 +6700,7 @@ class TestDelta:
         # Test with PyArrow
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6729,7 +6722,7 @@ class TestDelta:
         # Test with Polars
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6751,7 +6744,7 @@ class TestDelta:
         # Test with NumPy
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             storage_type=StorageType.LOCAL,
             columns=selected_columns,
             catalog=self.catalog,
@@ -6812,7 +6805,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             catalog=self.catalog,
         )
 
@@ -6861,7 +6854,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.NUMPY,
+            table_type=DatasetType.NUMPY,
             catalog=self.catalog,
         )
 
@@ -6906,7 +6899,7 @@ class TestDelta:
         # Try to download as Polars DataFrame - this may fail due to known Polars+JSON issues
         downloaded_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -6966,7 +6959,7 @@ class TestDelta:
         downloaded_table = metastore.download_delta_manifest_entry(
             delta_like=committed_delta,
             entry_index=0,
-            table_type=TableType.POLARS,
+            table_type=DatasetType.POLARS,
             catalog=self.catalog,
         )
 
@@ -7013,7 +7006,7 @@ class TestDelta:
         # Test distributed download with Ray Dataset
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             max_parallelism=4,
@@ -7075,7 +7068,7 @@ class TestDelta:
         delta_locator = committed_delta.locator
         distributed_dataset = metastore.download_delta(
             delta_like=delta_locator,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
@@ -7124,9 +7117,9 @@ class TestDelta:
 
         # Test different table types with distributed download
         table_types_to_test = [
-            TableType.PYARROW,
-            TableType.PANDAS,
-            TableType.POLARS,  # Now supported in distributed Ray datasets
+            DatasetType.PYARROW,
+            DatasetType.PANDAS,
+            DatasetType.POLARS,  # Now supported in distributed Ray datasets
         ]
 
         for table_type in table_types_to_test:
@@ -7194,7 +7187,7 @@ class TestDelta:
             # Test distributed download
             distributed_dataset = metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
                 catalog=self.catalog,
@@ -7249,7 +7242,7 @@ class TestDelta:
         selected_columns = ["id", "name", "age"]
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             columns=selected_columns,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7309,7 +7302,7 @@ class TestDelta:
         for max_parallelism in parallelism_settings:
             distributed_dataset = metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 max_parallelism=max_parallelism,
                 distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7366,7 +7359,7 @@ class TestDelta:
         # Test distributed download with high parallelism
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             max_parallelism=8,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7420,9 +7413,9 @@ class TestDelta:
 
         # Download as different table types with distributed storage
         table_types_to_test = [
-            TableType.PYARROW,
-            TableType.PANDAS,
-            TableType.POLARS,  # Now supported in distributed Ray datasets
+            DatasetType.PYARROW,
+            DatasetType.PANDAS,
+            DatasetType.POLARS,  # Now supported in distributed Ray datasets
         ]
 
         downloaded_dfs = {}
@@ -7442,7 +7435,7 @@ class TestDelta:
             downloaded_dfs[table_type] = downloaded_df
 
         # Verify consistency across table types
-        base_df = downloaded_dfs[TableType.PYARROW]
+        base_df = downloaded_dfs[DatasetType.PYARROW]
         for table_type, df in downloaded_dfs.items():
             assert len(df) == len(base_df), f"Row count mismatch for {table_type}"
             assert set(df.columns) == set(
@@ -7495,7 +7488,7 @@ class TestDelta:
         # Test download with custom Ray options
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             ray_options_provider=custom_ray_options_provider,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7552,7 +7545,7 @@ class TestDelta:
         # Download using local storage
         local_tables = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.LOCAL,
             catalog=self.catalog,
         )
@@ -7567,7 +7560,7 @@ class TestDelta:
         # Download using distributed storage
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
@@ -7613,12 +7606,12 @@ class TestDelta:
 
         # Test with invalid column names
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="One or more columns .* are not present in table version columns",
         ):
             metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 columns=["id", "non_existent_column"],
                 distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
@@ -7662,7 +7655,7 @@ class TestDelta:
         # Download using DAFT distributed dataset type
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
@@ -7710,7 +7703,7 @@ class TestDelta:
         # Download using DeltaLocator with DAFT
         distributed_dataset = metastore.download_delta(
             delta_like=committed_delta.locator,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
@@ -7759,7 +7752,7 @@ class TestDelta:
         # Download using DAFT
         daft_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.DAFT,
             catalog=self.catalog,
@@ -7768,7 +7761,7 @@ class TestDelta:
         # Download using Ray
         ray_dataset = metastore.download_delta(
             delta_like=committed_delta,
-            table_type=TableType.PYARROW,
+            table_type=DatasetType.PYARROW,
             storage_type=StorageType.DISTRIBUTED,
             distributed_dataset_type=DistributedDatasetType.RAY_DATASET,
             catalog=self.catalog,
@@ -7805,12 +7798,12 @@ class TestDelta:
 
         # Test with invalid column names using DAFT
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="One or more columns .* are not present in table version columns",
         ):
             metastore.download_delta(
                 delta_like=committed_delta,
-                table_type=TableType.PYARROW,
+                table_type=DatasetType.PYARROW,
                 storage_type=StorageType.DISTRIBUTED,
                 columns=["id", "invalid_column"],
                 distributed_dataset_type=DistributedDatasetType.DAFT,

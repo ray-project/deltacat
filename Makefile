@@ -67,5 +67,14 @@ benchmark-aws: install
 benchmark: install
 	pytest -m benchmark deltacat/benchmarking
 
+type-mappings: install
+	@echo "Generating type mappings..."
+	venv/bin/python deltacat/docs/autogen/schema/inference/generate_type_mappings.py
+	@echo "Parsing type mappings to markdown..."
+	venv/bin/python deltacat/docs/autogen/schema/inference/parse_json_type_mappings.py generate_type_mappings_results.json
+	@echo "Generating Python compatibility mapping..."
+	venv/bin/python deltacat/docs/autogen/schema/inference/parse_json_type_mappings.py generate_type_mappings_results.json --python
+	@echo "Type mappings generation complete!"
+
 publish: test test-integration rebuild
 	twine upload dist/*

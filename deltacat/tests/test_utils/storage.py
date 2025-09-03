@@ -224,28 +224,8 @@ def create_test_partition():
         partition_values=["a", 1],
         partition_id="test_partition_id",
     )
-    schema = Schema.of(
-        [
-            Field.of(
-                field=pa.field("some_string", pa.string(), nullable=False),
-                field_id=1,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_int32", pa.int32(), nullable=False),
-                field_id=2,
-                is_merge_key=True,
-            ),
-            Field.of(
-                field=pa.field("some_float64", pa.float64()),
-                field_id=3,
-                is_merge_key=False,
-            ),
-        ]
-    )
     return Partition.of(
         locator=partition_locator,
-        schema=schema,
         content_types=[ContentType.PARQUET],
         state=CommitState.STAGED,
         previous_stream_position=0,

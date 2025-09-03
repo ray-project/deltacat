@@ -8,6 +8,11 @@ from deltacat.api import (
     list,
     put,
 )
+from deltacat.storage.model.transaction import (
+    transaction,
+    transactions,
+    read_transaction,
+)
 from deltacat.catalog import (  # noqa: F401
     alter_namespace,
     alter_table,
@@ -28,6 +33,7 @@ from deltacat.catalog import (  # noqa: F401
     truncate_table,
     write_to_table,
     init,
+    init_local,
     is_initialized,
     clear_catalogs,
     get_catalog,
@@ -44,6 +50,12 @@ from deltacat.compute import (
     local_job_client,
 )
 from deltacat.storage import (
+    BucketingStrategy,
+    BucketTransform,
+    BucketTransformParameters,
+    DayTransform,
+    HourTransform,
+    IdentityTransform,
     Dataset,
     DistributedDataset,
     Field,
@@ -59,6 +71,17 @@ from deltacat.storage import (
     SortKey,
     SortOrder,
     SortScheme,
+    TableProperties,
+    TransactionStatus,
+    Transform,
+    TransformName,
+    TransformParameters,
+    TruncateTransform,
+    TruncateTransformParameters,
+    TruncateStrategy,
+    UnknownTransform,
+    VoidTransform,
+    YearTransform,
     NullOrder,
 )
 from deltacat.types.media import (
@@ -67,9 +90,25 @@ from deltacat.types.media import (
     DatasetType,
     DatastoreType,
 )
-
-from deltacat.types.tables import TableWriteMode
+from deltacat.types.tables import (
+    TableWriteMode,
+    TableProperty,
+    TableReadOptimizationLevel,
+    SchemaEvolutionMode,
+    from_pandas,
+    from_pyarrow,
+    from_manifest_table,
+    to_pyarrow,
+    to_pandas,
+    dataset_length,
+    dataset_size,
+    dataset_column_names,
+    dataset_schema,
+)
 from deltacat.utils.url import DeltaCatUrl
+
+write = write_to_table
+read = read_table
 
 __iceberg__ = []
 if importlib.util.find_spec("pyiceberg") is not None:
@@ -94,6 +133,8 @@ __all__ = [
     "get",
     "list",
     "put",
+    "transaction",
+    "transactions",
     "alter_table",
     "create_table",
     "drop_table",
@@ -110,9 +151,13 @@ __all__ = [
     "create_namespace",
     "drop_namespace",
     "default_namespace",
+    "write",
     "write_to_table",
+    "read",
     "read_table",
+    "read_transaction",
     "init",
+    "init_local",
     "is_initialized",
     "clear_catalogs",
     "get_catalog",
@@ -120,6 +165,18 @@ __all__ = [
     "pop_catalog",
     "put_catalog",
     "raise_if_not_initialized",
+    "dataset_length",
+    "dataset_size",
+    "dataset_column_names",
+    "dataset_schema",
+    "from_pandas",
+    "from_pyarrow",
+    "from_manifest_table",
+    "to_pandas",
+    "to_pyarrow",
+    "BucketingStrategy",
+    "BucketTransform",
+    "BucketTransformParameters",
     "Catalog",
     "CatalogProperties",
     "ContentType",
@@ -127,13 +184,17 @@ __all__ = [
     "Dataset",
     "DatasetType",
     "DatastoreType",
+    "DayTransform",
     "DeltaCatUrl",
     "DistributedDataset",
     "Field",
+    "HourTransform",
+    "IdentityTransform",
     "LifecycleState",
     "ListResult",
     "LocalDataset",
     "LocalTable",
+    "MonthTransform",
     "Namespace",
     "NullOrder",
     "PartitionKey",
@@ -145,6 +206,20 @@ __all__ = [
     "SortScheme",
     "TableDefinition",
     "TableWriteMode",
+    "TableProperties",
+    "TableProperty",
+    "TableReadOptimizationLevel",
+    "SchemaEvolutionMode",
+    "TransactionStatus",
+    "Transform",
+    "TransformName",
+    "TransformParameters",
+    "TruncateTransform",
+    "TruncateTransformParameters",
+    "TruncateStrategy",
+    "UnknownTransform",
+    "VoidTransform",
+    "YearTransform",
 ]
 
 __all__ += __iceberg__

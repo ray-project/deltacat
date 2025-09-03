@@ -103,11 +103,6 @@ class IncrementalCompactionTestCaseParams(BaseCompactorTestCase):
     add_late_deltas: Optional[List[Tuple[pa.Table, DeltaType, Optional[EntryParams]]]]
 
 
-@dataclass(frozen=True)
-class NoRCFOutputCompactionTestCaseParams(BaseCompactorTestCase):
-    pass
-
-
 def with_compactor_version_func_test_param(
     test_cases: Dict[str, BaseCompactorTestCase] = None
 ):
@@ -135,7 +130,7 @@ def with_compactor_version_func_test_param(
 
 
 INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
-    "1-incremental-pkstr-sknone-norcf": IncrementalCompactionTestCaseParams(
+    "1-incremental-pkstr-sknone-norci": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
@@ -161,7 +156,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         skip_enabled_compact_partition_drivers=None,
         assert_compaction_audit=assert_compaction_audit,
     ),
-    "2-incremental-pkstr-skstr-norcf": IncrementalCompactionTestCaseParams(
+    "2-incremental-pkstr-skstr-norci": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=ZERO_VALUED_SORT_KEY,
         partition_keys=[PartitionKey.of("region_id", PartitionKeyType.INT)],
@@ -190,7 +185,7 @@ INCREMENTAL_TEST_CASES: Dict[str, IncrementalCompactionTestCaseParams] = {
         skip_enabled_compact_partition_drivers=None,
         assert_compaction_audit=assert_compaction_audit,
     ),
-    "3-incremental-pkstr-multiskstr-norcf": IncrementalCompactionTestCaseParams(
+    "3-incremental-pkstr-multiskstr-norci": IncrementalCompactionTestCaseParams(
         primary_keys={"pk_col_1"},
         sort_keys=[
             SortKey.of(key=["sk_col_1"]),

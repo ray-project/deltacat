@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import uuid
 
 
 class TestCompactPartitionParams(unittest.TestCase):
@@ -31,12 +32,13 @@ class TestCompactPartitionParams(unittest.TestCase):
                     "format": "fooType",
                 },
                 "partitionValues": [],
-                "partitionId": None,
+                "partitionId": str(uuid.uuid4()),
             },
             "hash_bucket_count": 200,
             "last_stream_position_to_compact": 168000000000,
             "list_deltas_kwargs": {"equivalent_table_types": []},
             "primary_keys": {"id"},
+            "all_column_names": ["id", "foo", "bar", "baz"],
             "properties": {
                 "parent_stream_position": "1688000000000",
             },

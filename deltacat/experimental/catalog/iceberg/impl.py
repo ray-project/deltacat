@@ -198,7 +198,7 @@ def create_table(
     name: str,
     *args,
     namespace: Optional[str] = None,
-    version: Optional[str] = None,
+    table_version: Optional[str] = None,
     lifecycle_state: Optional[LifecycleState] = None,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
@@ -242,7 +242,7 @@ def create_table(
     IcebergStorage.create_table_version(
         namespace=namespace,
         table_name=name,
-        table_version=version,
+        table_version=table_version,
         schema=schema,
         partition_scheme=partition_scheme,
         sort_keys=sort_keys,

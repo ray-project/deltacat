@@ -1,19 +1,17 @@
 # Allow classes to use self-referencing Type hints in Python 3.7.
 from __future__ import annotations
 
-import base64
+import json
 import posixpath
 
 import pyarrow
-import pyarrow as pa
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
-from deltacat.constants import METAFILE_FORMAT, METAFILE_FORMAT_JSON, TXN_DIR_NAME
+from deltacat.constants import TXN_DIR_NAME
 from deltacat.storage.model.schema import (
     FieldLocator,
-    Schema,
 )
 from deltacat.storage.model.locator import (
     Locator,
@@ -33,39 +31,50 @@ from deltacat.storage.model.types import (
 )
 from deltacat.types.media import ContentType
 
+if TYPE_CHECKING:
+    from deltacat.compute.compactor import RoundCompletionInfo
+
 
 """
 An ordered list of partition values. Partition values are typically derived
 by applying one or more transforms to a table's fields.
 """
 PartitionValues = List[Any]
+
+"""
+Constants for special partition types.
+"""
 UNPARTITIONED_SCHEME_NAME = "unpartitioned_scheme"
 UNPARTITIONED_SCHEME_ID = "deadbeef-7277-49a4-a195-fdc8ed235d42"
+UNKNOWN_PARTITION_ID = "deadbeef-2fe7-4557-82c9-da53b1862003"  # a partition ID that is assumed to exist but is not known
+UNSPECIFIED_PARTITION_ID = "deadbeef-5bff-41ea-b82c-e531f445632b"  # a partition ID that has been left intentionally unspecified
 
 
 class Partition(Metafile):
     @staticmethod
     def of(
         locator: Optional[PartitionLocator],
-        schema: Optional[Schema],
         content_types: Optional[List[ContentType]],
         state: Optional[CommitState] = None,
         previous_stream_position: Optional[int] = None,
         previous_partition_id: Optional[str] = None,
         stream_position: Optional[int] = None,
         partition_scheme_id: Optional[str] = None,
+        compaction_round_completion_info: Optional[RoundCompletionInfo] = None,
     ) -> Partition:
         partition = Partition()
         partition.locator = locator
-        partition.schema = schema
         partition.content_types = content_types
         partition.state = state
         partition.previous_stream_position = previous_stream_position
         partition.previous_partition_id = previous_partition_id
         partition.stream_position = stream_position
         partition.partition_scheme_id = (
-            partition_scheme_id if locator.partition_values else UNPARTITIONED_SCHEME_ID
+            partition_scheme_id
+            if locator and locator.partition_values
+            else UNPARTITIONED_SCHEME_ID
         )
+        partition.compaction_round_completion_info = compaction_round_completion_info
         return partition
 
     @property
@@ -82,17 +91,6 @@ class Partition(Metafile):
     @property
     def locator_alias(self) -> Optional[PartitionLocatorAlias]:
         return PartitionLocatorAlias.of(self)
-
-    @property
-    def schema(self) -> Optional[Schema]:
-        val: Dict[str, Any] = self.get("schema")
-        if val is not None and not isinstance(val, Schema):
-            self.schema = val = Schema(val)
-        return val
-
-    @schema.setter
-    def schema(self, schema: Optional[Schema]) -> None:
-        self["schema"] = schema
 
     @property
     def content_types(self) -> Optional[List[ContentType]]:
@@ -149,6 +147,27 @@ class Partition(Metafile):
     @partition_scheme_id.setter
     def partition_scheme_id(self, partition_scheme_id: Optional[str]) -> None:
         self["partitionSchemeId"] = partition_scheme_id
+
+    @property
+    def compaction_round_completion_info(self) -> Optional[RoundCompletionInfo]:
+        """
+        Round completion info for compaction operations.
+        This replaces the need for separate round completion files.
+        """
+        val: Dict[str, Any] = self.get("compactionRoundCompletionInfo")
+        if val is not None:
+            # Import here to avoid circular imports
+            from deltacat.compute.compactor import RoundCompletionInfo
+
+            if not isinstance(val, RoundCompletionInfo):
+                self["compactionRoundCompletionInfo"] = val = RoundCompletionInfo(val)
+        return val
+
+    @compaction_round_completion_info.setter
+    def compaction_round_completion_info(
+        self, compaction_round_completion_info: Optional[RoundCompletionInfo]
+    ) -> None:
+        self["compactionRoundCompletionInfo"] = compaction_round_completion_info
 
     @property
     def partition_id(self) -> Optional[str]:
@@ -234,6 +253,13 @@ class Partition(Metafile):
             return partition_locator.table_version
         return None
 
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
+        )
+
     def is_supported_content_type(self, content_type: ContentType) -> bool:
         supported_content_types = self.content_types
         return (not supported_content_types) or (
@@ -242,14 +268,6 @@ class Partition(Metafile):
 
     def to_serializable(self) -> Partition:
         serializable: Partition = Partition.update_for(self)
-        if serializable.schema:
-            schema_bytes = serializable.schema.serialize().to_pybytes()
-            serializable.schema = (
-                base64.b64encode(schema_bytes).decode("utf-8")
-                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
-                else schema_bytes
-            )
-
         if serializable.table_locator:
             # replace the mutable table locator
             serializable.table_version_locator.table_locator = TableLocator.at(
@@ -263,17 +281,6 @@ class Partition(Metafile):
         path: str,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
     ) -> Partition:
-        if self.get("schema"):
-            schema_data = self["schema"]
-            schema_bytes = (
-                base64.b64decode(schema_data)
-                if METAFILE_FORMAT == METAFILE_FORMAT_JSON
-                else schema_data
-            )
-            self["schema"] = Schema.deserialize(pa.py_buffer(schema_bytes))
-        else:
-            self["schema"] = None
-
         # restore the table locator from its mapped immutable metafile ID
         if self.table_locator and self.table_locator.table_name == self.id:
             parent_rev_dir_path = Metafile._parent_metafile_rev_dir_path(
@@ -360,7 +367,7 @@ class PartitionLocator(Locator, dict):
                 stream_id,
                 stream_format,
             )
-            if stream_id and stream_format
+            if stream_format or stream_id
             else None
         )
         return PartitionLocator.of(
@@ -394,7 +401,9 @@ class PartitionLocator(Locator, dict):
 
     @partition_values.setter
     def partition_values(self, partition_values: Optional[PartitionValues]) -> None:
-        self["partitionValues"] = partition_values
+        self["partitionValues"] = (
+            partition_values or None
+        )  # normalize empty partition values to None
 
     @property
     def partition_id(self) -> Optional[str]:
@@ -544,6 +553,10 @@ class PartitionKeyList(List[PartitionKey]):
             self[item] = val = PartitionKey(val)
         return val
 
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
+
 
 class PartitionScheme(dict):
     @staticmethod
@@ -665,6 +678,10 @@ class PartitionSchemeList(List[PartitionScheme]):
         if val is not None and not isinstance(val, PartitionScheme):
             self[item] = val = PartitionScheme(val)
         return val
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]  # This triggers __getitem__ conversion
 
 
 class PartitionLocatorAliasName(LocatorName):

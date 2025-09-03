@@ -1,4 +1,3 @@
-import unittest
 import pytest
 import tempfile
 import shutil
@@ -12,6 +11,7 @@ from deltacat.catalog import (
     clear_catalogs,
     get_catalog,
     init,
+    init_local,
     is_initialized,
     put_catalog,
 )
@@ -41,21 +41,21 @@ def reset_catalogs():
     clear_catalogs()
 
 
-class TestCatalog(unittest.TestCase):
+class TestCatalog:
     """Tests for the Catalog class itself, without Ray initialization."""
 
     def test_catalog_constructor(self):
         """Test that the Catalog constructor correctly initializes with the given implementation."""
         catalog = Catalog(impl=MockCatalogImpl)
 
-        self.assertEqual(catalog.impl, MockCatalogImpl)
+        assert catalog.impl == MockCatalogImpl
 
         # Check that inner state was correctly initialized
         # This just asserts that kwargs were plumbed through from Catalog constructor
-        self.assertTrue(catalog.inner["initialized"])
-        self.assertIsNone(catalog.inner["config"])
-        self.assertEqual(catalog.inner["args"], ())
-        self.assertEqual(catalog.inner["kwargs"], {})
+        assert catalog.inner["initialized"]
+        assert catalog.inner["config"] is None
+        assert catalog.inner["args"] == ()
+        assert catalog.inner["kwargs"] == {}
 
     def test_iceberg_factory_method(self):
         """Test the iceberg factory method correctly creates an Iceberg catalog."""
@@ -71,9 +71,9 @@ class TestCatalog(unittest.TestCase):
             catalog = IcebergCatalog.from_config(config)
 
             # Check that the implementation is set to iceberg_catalog
-            self.assertEqual(catalog.impl, mock_iceberg_catalog)
+            assert catalog.impl == mock_iceberg_catalog
             # Check that the inner state is set to the output of initialize
-            self.assertEqual(catalog.inner, {"iceberg": True})
+            assert catalog.inner == {"iceberg": True}
 
 
 class TestCatalogsIntegration:
@@ -215,6 +215,51 @@ class TestCatalogsIntegration:
         # Try to get the default catalog
         with pytest.raises(ValueError):
             get_catalog()
+
+    def test_init_local(self, reset_catalogs):
+        """Test that init_local() creates a default local catalog."""
+        # Initialize with default local catalog
+        init_local(force=True)
+
+        assert is_initialized()
+
+        # Should be able to get the default catalog
+        default_catalog = get_catalog()
+        assert default_catalog is not None
+
+        # The default catalog should be accessible by name "default"
+        named_catalog = get_catalog("default")
+        assert named_catalog is not None
+        assert named_catalog.impl.__name__ == "deltacat.catalog.main.impl"
+
+    def test_init_local_with_path(self, reset_catalogs):
+        """Test that init_local(path) creates a default local catalog with specified path."""
+        # Create a temporary directory for the test
+        custom_path = tempfile.mkdtemp()
+
+        try:
+            # Initialize with custom path
+            init_local(path=custom_path, force=True)
+
+            assert is_initialized()
+
+            # Should be able to get the default catalog
+            default_catalog = get_catalog()
+            assert default_catalog is not None
+
+            # The default catalog should be accessible by name "default"
+            named_catalog = get_catalog("default")
+            assert named_catalog is not None
+            assert named_catalog.impl.__name__ == "deltacat.catalog.main.impl"
+
+            # Verify the catalog is using the custom path
+            catalog_properties = named_catalog.inner
+            assert catalog_properties.root == custom_path
+
+        finally:
+            # Clean up the temporary directory
+            if os.path.exists(custom_path):
+                shutil.rmtree(custom_path)
 
     def test_default_catalog_initialization(self, reset_catalogs):
         """Test that a Default catalog can be initialized and accessed using the factory method."""

@@ -197,7 +197,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         name=f"{table_name}_compacted",
         namespace=dest_namespace,
         schema=source_table_def.table_version.schema,
-        description="Compacted events table (destination)",
+        table_description="Compacted events table (destination)",
         fail_if_exists=False,  # Allow overwriting for idempotency
         catalog="default",
     )
@@ -624,7 +624,7 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         print(f"   Last stream position: {actual_stream_position}")
 
         # Run the compaction using the same pattern as the working tests
-        rcf_url = compact_partition(
+        compact_partition(
             CompactPartitionParams.of(
                 {
                     "catalog": catalog,
@@ -641,6 +641,13 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
                         "equivalent_table_types": [],
                     },
                     "primary_keys": ["id"],
+                    "all_column_names": [
+                        "id",
+                        "timestamp",
+                        "user_id",
+                        "event_type",
+                        "data",
+                    ],
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
                     "records_per_compacted_file": 4000,
@@ -650,7 +657,6 @@ def run_compaction(source_partition, dest_partition, catalog, actual_stream_posi
         )
 
         print(f"✅ Compaction completed successfully!")
-        print(f"📁 RCF URL: {rcf_url}")
 
         # Show detailed data after compaction
         print(f"\n📊 DATA AFTER COMPACTION")

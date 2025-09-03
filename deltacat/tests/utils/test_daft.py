@@ -1,8 +1,7 @@
 import unittest
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.utils.daft import (
-    daft_s3_file_to_table,
-    s3_files_to_dataframe,
+    daft_file_to_pyarrow_table,
     files_to_dataframe,
 )
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
@@ -12,11 +11,11 @@ import pyarrow as pa
 from pyarrow import parquet as pq
 
 
-class TestDaftS3FileToTable(unittest.TestCase):
+class TestDaftFileToPyarrowTable(unittest.TestCase):
     MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
 
-    def test_read_from_s3_all_columns(self):
-        table = daft_s3_file_to_table(
+    def test_read_from_local_all_columns(self):
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -24,8 +23,8 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.names, ["a", "b"])
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_via_include_columns(self):
-        table = daft_s3_file_to_table(
+    def test_read_from_local_single_column_via_include_columns(self):
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -34,8 +33,8 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_via_column_names(self):
-        table = daft_s3_file_to_table(
+    def test_read_from_local_single_column_via_column_names(self):
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -44,12 +43,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_with_schema(self):
+    def test_read_from_local_single_column_with_schema(self):
         schema = pa.schema([("a", pa.int8()), ("b", pa.string())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -60,12 +59,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.field("a").type, pa.int8())
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_with_schema_reverse_order(self):
+    def test_read_from_local_single_column_with_schema_reverse_order(self):
         schema = pa.schema([("b", pa.string()), ("a", pa.int8())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -75,12 +74,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.field("a").type, pa.int8())
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_with_schema_subset_cols(self):
+    def test_read_from_local_single_column_with_schema_subset_cols(self):
         schema = pa.schema([("a", pa.int8())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -90,12 +89,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.field("a").type, pa.int8())
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_with_schema_extra_cols(self):
+    def test_read_from_local_single_column_with_schema_extra_cols(self):
         schema = pa.schema([("a", pa.int8()), ("MISSING", pa.string())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -108,12 +107,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.field("MISSING").type, pa.string())
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_with_schema_extra_cols_column_names(self):
+    def test_read_from_local_single_column_with_schema_extra_cols_column_names(self):
         schema = pa.schema([("a", pa.int8()), ("MISSING", pa.string())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -127,12 +126,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.field("MISSING").type, pa.string())
         self.assertEqual(table.num_rows, 100)
 
-    def test_read_from_s3_single_column_with_schema_only_missing_col(self):
+    def test_read_from_local_single_column_with_schema_only_missing_col(self):
         schema = pa.schema([("a", pa.int8()), ("MISSING", pa.string())])
         pa_read_func_kwargs_provider = ReadKwargsProviderPyArrowSchemaOverride(
             schema=schema
         )
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -146,12 +145,12 @@ class TestDaftS3FileToTable(unittest.TestCase):
         self.assertEqual(table.schema.field("MISSING").type, pa.string())
         self.assertEqual(table.num_rows, 0)
 
-    def test_read_from_s3_single_column_with_row_groups(self):
+    def test_read_from_local_single_column_with_row_groups(self):
 
         metadata = pq.read_metadata(self.MVP_PATH)
         ppp = PartialParquetParameters.of(pq_metadata=metadata)
         ppp["row_groups_to_download"] = ppp.row_groups_to_download[1:2]
-        table = daft_s3_file_to_table(
+        table = daft_file_to_pyarrow_table(
             self.MVP_PATH,
             content_encoding=ContentEncoding.IDENTITY.value,
             content_type=ContentType.PARQUET.value,
@@ -160,46 +159,6 @@ class TestDaftS3FileToTable(unittest.TestCase):
         )
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 10)
-
-
-class TestDaftS3FilesToDataFrame(unittest.TestCase):
-    MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
-
-    def test_read_from_s3_all_columns(self):
-        df = s3_files_to_dataframe(
-            uris=[self.MVP_PATH],
-            content_encoding=ContentEncoding.IDENTITY.value,
-            content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
-        )
-
-        table = df.to_arrow()
-        self.assertEqual(table.schema.names, ["a", "b"])
-        self.assertEqual(table.num_rows, 100)
-
-    def test_does_not_read_from_s3_if_not_materialized(self):
-        df = s3_files_to_dataframe(
-            uris=[self.MVP_PATH],
-            content_encoding=ContentEncoding.IDENTITY.value,
-            content_type=ContentType.PARQUET.value,
-            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
-        )
-
-        self.assertRaises(RuntimeError, lambda: len(df))
-        df.collect()
-        self.assertEqual(len(df), 100)
-
-    def test_raises_error_if_not_supported_content_type(self):
-
-        self.assertRaises(
-            AssertionError,
-            lambda: s3_files_to_dataframe(
-                uris=[self.MVP_PATH],
-                content_encoding=ContentEncoding.IDENTITY.value,
-                content_type=ContentType.UNESCAPED_TSV.value,
-                ray_init_options={"local_mode": True, "ignore_reinit_error": True},
-            ),
-        )
 
 
 class TestFilesToDataFrame(unittest.TestCase):
@@ -245,23 +204,54 @@ class TestFilesToDataFrame(unittest.TestCase):
         df.collect()
         self.assertEqual(len(df), 100)
 
+    def test_supports_unescaped_tsv_content_type(self):
+        # Test that UNESCAPED_TSV is now supported (was previously unsupported)
+        # Use a CSV file since we're testing TSV reader functionality
+        csv_path = "deltacat/tests/utils/data/non_empty_valid.csv"
+        df = files_to_dataframe(
+            uris=[csv_path],
+            content_encoding=ContentEncoding.IDENTITY.value,
+            content_type=ContentType.UNESCAPED_TSV.value,
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+        )
+        # Should succeed without raising an exception - this tests that UNESCAPED_TSV is supported
+        table = df.to_arrow()
+        # Just verify we got some data back, don't assert specific schema since we're reading CSV as TSV
+        self.assertGreater(table.num_rows, 0)
+        self.assertGreater(len(table.schema.names), 0)
+
+    def test_supports_gzip_content_encoding(self):
+        # Test that GZIP encoding is now supported (was previously unsupported)
+        df = files_to_dataframe(
+            uris=[self.MVP_PATH],
+            content_encoding=ContentEncoding.GZIP.value,
+            content_type=ContentType.PARQUET.value,
+            ray_init_options={"local_mode": True, "ignore_reinit_error": True},
+        )
+        # Should succeed without raising an exception
+        table = df.to_arrow()
+        self.assertEqual(table.schema.names, ["a", "b"])
+        self.assertEqual(table.num_rows, 100)
+
     def test_raises_error_if_not_supported_content_type(self):
+        # Test that truly unsupported content types raise NotImplementedError
         self.assertRaises(
-            AssertionError,
+            NotImplementedError,
             lambda: files_to_dataframe(
                 uris=[self.MVP_PATH],
                 content_encoding=ContentEncoding.IDENTITY.value,
-                content_type=ContentType.UNESCAPED_TSV.value,
+                content_type=ContentType.AVRO.value,  # AVRO is actually unsupported
                 ray_init_options={"local_mode": True, "ignore_reinit_error": True},
             ),
         )
 
     def test_raises_error_if_not_supported_content_encoding(self):
+        # Test that truly unsupported content encodings raise NotImplementedError
         self.assertRaises(
-            AssertionError,
+            NotImplementedError,
             lambda: files_to_dataframe(
                 uris=[self.MVP_PATH],
-                content_encoding=ContentEncoding.GZIP.value,
+                content_encoding=ContentEncoding.ZSTD.value,  # ZSTD is actually unsupported
                 content_type=ContentType.PARQUET.value,
                 ray_init_options={"local_mode": True, "ignore_reinit_error": True},
             ),

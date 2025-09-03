@@ -30,8 +30,9 @@ def contains_delete_deltas(deltas: List[Delta]) -> bool:
 
 def read_delta_file_envelopes(
     annotated_delta: DeltaAnnotated,
+    all_column_names: List[str],
     read_kwargs_provider: Optional[ReadKwargsProvider],
-    deltacat_storage=metastore,
+    deltacat_storage: metastore = metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> Tuple[Optional[List[DeltaFileEnvelope]], int, int]:
     tables = deltacat_storage.download_delta(
@@ -39,6 +40,7 @@ def read_delta_file_envelopes(
         max_parallelism=1,
         file_reader_kwargs_provider=read_kwargs_provider,
         storage_type=StorageType.LOCAL,
+        all_column_names=all_column_names,
         **deltacat_storage_kwargs,
     )
     annotations = annotated_delta.annotations

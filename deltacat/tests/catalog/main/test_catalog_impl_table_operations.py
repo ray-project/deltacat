@@ -11,16 +11,20 @@ import daft
 
 import deltacat.catalog.main.impl as catalog
 from deltacat.catalog import get_catalog_properties
-from deltacat.storage.model.schema import Schema
+from deltacat.storage.model.schema import (
+    Schema,
+    Field,
+)
+from deltacat.storage.model.types import SchemaConsistencyType
 from deltacat.storage.model.sort_key import SortKey, SortScheme, SortOrder, NullOrder
-from deltacat.storage.model.table import TableProperties
-from deltacat.storage.model.namespace import NamespaceProperties
 from deltacat.storage.model.types import LifecycleState
 from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableNotFoundError,
+    TableValidationError,
+    SchemaValidationError,
 )
-from deltacat.types.tables import TableWriteMode
+from deltacat.types.tables import TableWriteMode, TableProperty, SchemaEvolutionMode
 from deltacat.types.media import ContentType
 
 
@@ -86,7 +90,8 @@ class TestCatalogTableOperations:
         # Create a test namespace
         cls.test_namespace = "test_write_operations"
         catalog.create_namespace(
-            namespace=cls.test_namespace, inner=cls.catalog_properties
+            namespace=cls.test_namespace,
+            inner=cls.catalog_properties,
         )
 
     @classmethod
@@ -102,20 +107,18 @@ class TestCatalogTableOperations:
         schema = Schema(arrow=sample_arrow_schema)
 
         # Create table properties
-        table_properties = TableProperties(
-            {"owner": "test-user", "department": "engineering"}
-        )
+        table_properties = {"owner": "test-user", "department": "engineering"}
 
         # Create namespace properties
-        namespace_properties = NamespaceProperties({"description": "Test Namespace"})
+        namespace_properties = {"description": "Test Namespace"}
 
         # Create the table
         table_definition = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             sort_keys=sample_sort_keys,
-            description="Test table for unit tests",
+            table_description="Test table for unit tests",
             table_properties=table_properties,
             namespace_properties=namespace_properties,
             inner=catalog_properties,
@@ -123,7 +126,9 @@ class TestCatalogTableOperations:
 
         # Verify table was created
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         table = table_definition.table
@@ -133,7 +138,7 @@ class TestCatalogTableOperations:
         assert table_version.table_name == table_name
         assert table_version.namespace == namespace_name
         assert table_version.description == "Test table for unit tests"
-        assert table_version.state == LifecycleState.CREATED
+        assert table_version.state == LifecycleState.ACTIVE
         assert table.properties.get("owner") == "test-user"
         assert table.properties.get("department") == "engineering"
         assert table_version.schema.arrow.names == sample_arrow_schema.names
@@ -147,15 +152,17 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
-            description="First creation",
+            table_description="First creation",
             inner=catalog_properties,
         )
 
         # Verify table exists
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Try to create the same table again, should raise TableAlreadyExistsError
@@ -164,9 +171,9 @@ class TestCatalogTableOperations:
             match=f"Table {namespace_name}.{table_name} already exists",
         ):
             catalog.create_table(
-                name=table_name,
+                table=table_name,
                 namespace=namespace_name,
-                description="Second creation attempt",
+                table_description="Second creation attempt",
                 inner=catalog_properties,
             )
 
@@ -177,21 +184,23 @@ class TestCatalogTableOperations:
 
         # Create the table with original description
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
-            description="Original description",
+            table_description="Original description",
             inner=catalog_properties,
         )
 
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            catalog=catalog_properties,
         )
 
         # Create the same table with fail_if_exists=False
         table_definition = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
-            description="Updated description",
+            table_description="Updated description",
             fail_if_exists=False,
             inner=catalog_properties,
         )
@@ -209,22 +218,30 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name, namespace=namespace_name, inner=catalog_properties
+            table=table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Verify table exists
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Drop the table
         catalog.drop_table(
-            name=table_name, namespace=namespace_name, inner=catalog_properties
+            table=table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Verify table no longer exists
         assert not catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
     def test_drop_table_not_exists(self, test_namespace):
@@ -233,14 +250,56 @@ class TestCatalogTableOperations:
 
         # Verify table doesn't exist
         assert not catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Try to drop the table, should raise TableNotFoundError
         with pytest.raises(TableNotFoundError, match=table_name):
             catalog.drop_table(
-                name=table_name, namespace=namespace_name, inner=catalog_properties
+                table=table_name,
+                namespace=namespace_name,
+                inner=catalog_properties,
             )
+
+    def test_rename_namespace(self, test_namespace):
+        namespace_name, catalog_properties = test_namespace
+        original_name = "test_original_table"
+        new_name = "test_renamed_namespace"
+
+        # Create the table with original name
+        catalog.create_table(
+            table=original_name,
+            namespace=namespace_name,
+            table_description="Table to in namespace to be renamed",
+            inner=catalog_properties,
+        )
+
+        # Verify original table exists
+        assert catalog.table_exists(
+            original_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+
+        # Rename the namespace
+        catalog.alter_namespace(
+            namespace=namespace_name,
+            new_namespace=new_name,
+            inner=catalog_properties,
+        )
+
+        # Verify new namespace exists and old namespace doesn't
+        assert catalog.namespace_exists(new_name, inner=catalog_properties)
+        assert not catalog.namespace_exists(namespace_name, inner=catalog_properties)
+
+        # Verify we can still discover the table in the new namespace
+        assert catalog.table_exists(
+            original_name,
+            namespace=new_name,
+            inner=catalog_properties,
+        )
 
     def test_rename_table(self, test_namespace):
         namespace_name, catalog_properties = test_namespace
@@ -249,15 +308,17 @@ class TestCatalogTableOperations:
 
         # Create the table with original name
         catalog.create_table(
-            name=original_name,
+            table=original_name,
             namespace=namespace_name,
-            description="Table to be renamed",
+            table_description="Table to be renamed",
             inner=catalog_properties,
         )
 
         # Verify original table exists
         assert catalog.table_exists(
-            original_name, namespace=namespace_name, inner=catalog_properties
+            original_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Rename the table
@@ -270,10 +331,14 @@ class TestCatalogTableOperations:
 
         # Verify new table exists and old table doesn't
         assert catalog.table_exists(
-            new_name, namespace=namespace_name, inner=catalog_properties
+            new_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
         assert not catalog.table_exists(
-            original_name, namespace=namespace_name, inner=catalog_properties
+            original_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
     def test_rename_table_not_exists(self, test_namespace):
@@ -283,7 +348,9 @@ class TestCatalogTableOperations:
 
         # Verify table doesn't exist
         assert not catalog.table_exists(
-            original_name, namespace=namespace_name, inner=catalog_properties
+            original_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Try to rename the table, should raise TableNotFoundError
@@ -302,17 +369,23 @@ class TestCatalogTableOperations:
 
         # Create a table
         catalog.create_table(
-            name=existing_table, namespace=namespace_name, inner=catalog_properties
+            table=existing_table,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Check existing table
         assert catalog.table_exists(
-            existing_table, namespace=namespace_name, inner=catalog_properties
+            existing_table,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Check non-existing table
         assert not catalog.table_exists(
-            non_existing_table, namespace=namespace_name, inner=catalog_properties
+            non_existing_table,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
     def test_create_table_with_default_namespace(self, catalog_setup):
@@ -321,7 +394,7 @@ class TestCatalogTableOperations:
 
         # Create table with default namespace
         table_definition = catalog.create_table(
-            name=table_name, inner=catalog_properties
+            table=table_name, inner=catalog_properties
         )
 
         table = table_definition.table
@@ -329,7 +402,9 @@ class TestCatalogTableOperations:
         default_ns = catalog.default_namespace()
         assert table.namespace == default_ns
         assert catalog.table_exists(
-            table_name, namespace=default_ns, inner=catalog_properties
+            table_name,
+            namespace=default_ns,
+            inner=catalog_properties,
         )
 
     def test_create_table_with_missing_namespace(self, catalog_setup):
@@ -342,11 +417,15 @@ class TestCatalogTableOperations:
 
         # Try to create table with non-existent namespace
         catalog.create_table(
-            name=table_name, namespace=new_namespace, inner=catalog_properties
+            table=table_name,
+            namespace=new_namespace,
+            inner=catalog_properties,
         )
 
         assert catalog.table_exists(
-            table_name, namespace=new_namespace, inner=catalog_properties
+            table_name,
+            namespace=new_namespace,
+            inner=catalog_properties,
         )
         assert catalog.namespace_exists(new_namespace, inner=catalog_properties)
 
@@ -356,17 +435,15 @@ class TestCatalogTableOperations:
 
         # Create initial schema and properties
         schema = Schema.of(schema=sample_arrow_schema)
-        initial_properties = TableProperties(
-            {"owner": "original-user", "department": "engineering"}
-        )
+        initial_properties = {"owner": "original-user", "department": "engineering"}
 
         # Create the table with initial properties
         table = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=namespace_name,
             schema=schema,
             sort_keys=sample_sort_keys,
-            description="Initial description",
+            table_description="Initial description",
             table_properties=initial_properties,
             inner=catalog_properties,
         )
@@ -374,39 +451,37 @@ class TestCatalogTableOperations:
 
         # Verify table was created with initial properties
         assert catalog.table_exists(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
-        # Create updated schema
-        updated_arrow_schema = pa.schema(
-            [
-                pa.field("count", pa.float64()),  # Added field
-            ]
-        )
-
-        new_schema = old_schema.add_subschema(
-            name="updated_schema",
-            schema=updated_arrow_schema,
-        )
+        # Create schema update operations to add a new field
+        new_field = Field.of(pa.field("count", pa.float64(), nullable=True))
+        schema_update = old_schema.update().add_field(new_field)
 
         # Create updated properties
-        updated_properties = TableProperties(
-            {"owner": "new-user", "department": "data-science", "priority": "high"}
-        )
+        updated_properties = {
+            "owner": "new-user",
+            "department": "data-science",
+            "priority": "high",
+        }
 
-        # Alter the table with new properties
+        # Alter the table with new properties and schema updates
         catalog.alter_table(
             table=table_name,
             namespace=namespace_name,
-            schema_updates=new_schema,
-            description="Updated description",
-            properties=updated_properties,
+            schema_updates=schema_update,
+            table_description="Updated description",
+            table_properties=updated_properties,
             inner=catalog_properties,
         )
 
         # Get the updated table definition
         updated_table_def = catalog.get_table(
-            table_name, namespace=namespace_name, inner=catalog_properties
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         updated_table = updated_table_def.table
@@ -414,10 +489,22 @@ class TestCatalogTableOperations:
 
         # Verify table properties were updated
         assert updated_table_version.description == "Updated description"
-        assert updated_table_version.state == LifecycleState.CREATED
+        assert updated_table_version.state == LifecycleState.ACTIVE
         assert updated_table.properties.get("owner") == "new-user"
         assert updated_table.properties.get("department") == "data-science"
         assert updated_table.properties.get("priority") == "high"
+
+        # Verify schema was updated with new field
+        updated_schema = updated_table_version.schema
+        assert updated_schema.field("count") is not None
+        assert updated_schema.field("count").arrow.type == pa.float64()
+        assert updated_schema.field("count").arrow.nullable is True
+        assert (
+            updated_schema.field("count").id == 3
+        )  # Next sequential ID after id(0), name(1), value(2)
+
+        # Verify schema ID was incremented (proving SchemaUpdate was used)
+        assert updated_schema.id == old_schema.id + 1
 
     def test_alter_table_not_exists(self, test_namespace):
         """Test altering a table that doesn't exist"""
@@ -426,7 +513,9 @@ class TestCatalogTableOperations:
 
         # Verify table doesn't exist
         assert not catalog.table_exists(
-            nonexistent_table, namespace=namespace_name, inner=catalog_properties
+            nonexistent_table,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Try to alter the nonexistent table, should raise TableNotFoundError
@@ -434,9 +523,275 @@ class TestCatalogTableOperations:
             catalog.alter_table(
                 table=nonexistent_table,
                 namespace=namespace_name,
-                description="Updated description",
+                table_description="Updated description",
                 inner=catalog_properties,
             )
+
+    def test_alter_table_with_multiple_schema_operations(
+        self, test_namespace, sample_arrow_schema
+    ):
+        """Test altering a table with multiple schema update operations."""
+        namespace_name, catalog_properties = test_namespace
+        table_name = "test_alter_table_multiple_ops"
+
+        # Create initial schema
+        schema = Schema.of(schema=sample_arrow_schema)
+        print("schema.max_field_id", schema.max_field_id)
+
+        # Create the table
+        table = catalog.create_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema=schema,
+            table_description="Initial description",
+            inner=catalog_properties,
+        )
+
+        original_schema = table.table_version.schema
+
+        # Create multiple schema update operations
+        new_field1 = Field.of(pa.field("count", pa.int64(), nullable=True))
+        new_field2 = Field.of(
+            pa.field("status", pa.string(), nullable=False),
+            past_default="active",
+        )
+
+        schema_update = (
+            original_schema.update().add_field(new_field1).add_field(new_field2)
+        )
+        print("original_schema.max_field_id", original_schema.max_field_id)
+        print(
+            "schema_update.base_schema.max_field_id",
+            schema_update.base_schema.max_field_id,
+        )
+
+        # Alter the table
+        catalog.alter_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema_updates=schema_update,
+            table_description="Updated with multiple fields",
+            inner=catalog_properties,
+        )
+
+        # Get the updated table
+        updated_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+
+        updated_schema = updated_table_def.table_version.schema
+
+        # Verify both fields were added
+        assert updated_schema.field("count") is not None
+        assert updated_schema.field("count").arrow.type == pa.int64()
+        assert (
+            updated_schema.field("count").id == 3
+        )  # Next sequential ID after id(0), name(1), value(2)
+
+        assert updated_schema.field("status") is not None
+        assert updated_schema.field("status").arrow.type == pa.string()
+        assert (
+            updated_schema.field("status").id == 4
+        )  # Next sequential ID after count(3)
+        assert updated_schema.field("status").past_default == "active"
+
+        # Verify schema ID was incremented
+        assert updated_schema.id == original_schema.id + 1
+
+    def test_alter_table_with_remove_operation(self, test_namespace):
+        """Test altering a table with field removal (requires allow_incompatible_changes)."""
+        namespace_name, catalog_properties = test_namespace
+        table_name = "test_alter_table_remove"
+
+        # Create schema with multiple fields
+        initial_fields = [
+            Field.of(
+                pa.field("id", pa.int64(), nullable=False),
+                is_merge_key=True,
+                field_id=1,
+            ),
+            Field.of(pa.field("name", pa.string(), nullable=True), field_id=2),
+            Field.of(pa.field("temp_field", pa.float64(), nullable=True), field_id=3),
+        ]
+        schema = Schema.of(initial_fields)
+
+        # Create the table
+        table = catalog.create_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema=schema,
+            inner=catalog_properties,
+        )
+        original_schema = table.table_version.schema
+        temp_field = original_schema.field("temp_field")
+        assert temp_field is not None
+
+        schema_update = original_schema.update(True).remove_field("temp_field")
+
+        catalog.alter_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema_updates=schema_update,
+            inner=catalog_properties,
+        )
+
+        # If successful, verify the field was removed
+        updated_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+        updated_schema = updated_table_def.table_version.schema
+
+        # temp_field should be removed
+        with pytest.raises(KeyError):
+            updated_schema.field("temp_field")
+
+        # all other fields should be present
+        assert updated_schema.field("id") is not None
+        assert updated_schema.field("id").arrow.type == pa.int64()
+        assert updated_schema.field("id").id == 1
+        assert updated_schema.field("name") is not None
+        assert updated_schema.field("name").arrow.type == pa.string()
+        assert updated_schema.field("name").id == 2
+
+    def test_alter_table_with_update_operation(self, test_namespace):
+        """Test altering a table with field update operation."""
+        namespace_name, catalog_properties = test_namespace
+        table_name = "test_alter_table_update"
+
+        # Create schema with a field to update
+        initial_fields = [
+            Field.of(
+                pa.field("id", pa.int64(), nullable=False),
+                is_merge_key=True,
+                field_id=1,
+            ),
+            Field.of(pa.field("value", pa.int32(), nullable=True), field_id=2),
+        ]
+        schema = Schema.of(initial_fields)
+
+        # Create the table
+        table = catalog.create_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema=schema,
+            inner=catalog_properties,
+        )
+
+        original_schema = table.table_version.schema
+
+        # Update the value field to int64 (compatible type widening)
+        schema_update = original_schema.update().update_field_type("value", pa.int64())
+
+        # Alter the table
+        catalog.alter_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema_updates=schema_update,
+            inner=catalog_properties,
+        )
+
+        # Get the updated table
+        updated_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+
+        updated_schema = updated_table_def.table_version.schema
+
+        # Verify field was updated
+        assert updated_schema.field("value").arrow.type == pa.int64()
+        assert updated_schema.field("value").id == 2
+
+        # Verify schema ID was incremented
+        assert updated_schema.id == original_schema.id + 1
+
+    def test_alter_table_with_schema_evolution_disabled(self, test_namespace):
+        """Test that alter_table raises TableValidationError when schema evolution is disabled."""
+        namespace_name, catalog_properties = test_namespace
+        table_name = "test_alter_table_schema_evolution_disabled"
+
+        # Create initial schema
+        initial_fields = [
+            Field.of(
+                pa.field("id", pa.int64(), nullable=False),
+                is_merge_key=True,
+                field_id=1,
+            ),
+            Field.of(pa.field("value", pa.int32(), nullable=True), field_id=2),
+        ]
+        schema = Schema.of(initial_fields)
+
+        # Create table with SCHEMA_EVOLUTION_MODE.DISABLED
+        table_properties = {
+            TableProperty.SCHEMA_EVOLUTION_MODE: SchemaEvolutionMode.DISABLED
+        }
+
+        table = catalog.create_table(
+            table=table_name,
+            namespace=namespace_name,
+            schema=schema,
+            table_properties=table_properties,
+            inner=catalog_properties,
+        )
+
+        original_schema = table.table_version.schema
+
+        # Try to add a new field - this should be blocked
+        new_field = Field.of(pa.field("description", pa.string(), nullable=True))
+        schema_update = original_schema.update().add_field(new_field)
+
+        # Alter table with schema updates should raise TableValidationError
+        with pytest.raises(
+            TableValidationError,
+            match="Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates.",
+        ):
+            catalog.alter_table(
+                table=table_name,
+                namespace=namespace_name,
+                schema_updates=schema_update,
+                inner=catalog_properties,
+            )
+
+        # Verify the schema wasn't changed
+        unchanged_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+        unchanged_schema = unchanged_table_def.table_version.schema
+
+        # Schema should be unchanged
+        assert unchanged_schema.id == original_schema.id
+        assert len(unchanged_schema.fields) == len(original_schema.fields)
+
+        # Verify the new field was not added
+        field_names = [field.arrow.name for field in unchanged_schema.fields]
+        assert "description" not in field_names
+
+        # Test that alter_table works without schema_updates even when schema evolution is disabled
+        catalog.alter_table(
+            table=table_name,
+            namespace=namespace_name,
+            table_description="Updated description without schema changes",
+            inner=catalog_properties,
+        )
+
+        # Verify that table description was updated but schema remains unchanged
+        final_table_def = catalog.get_table(
+            table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
+        )
+        assert (
+            final_table_def.table_version.description
+            == "Updated description without schema changes"
+        )
+        assert final_table_def.table_version.schema.id == original_schema.id
 
     def test_drop_with_purge_validation(self, test_namespace):
         """Test that using purge flag raises ValidationError"""
@@ -445,7 +800,9 @@ class TestCatalogTableOperations:
 
         # Create the table
         catalog.create_table(
-            name=table_name, namespace=namespace_name, inner=catalog_properties
+            table=table_name,
+            namespace=namespace_name,
+            inner=catalog_properties,
         )
 
         # Try to drop with purge=True, should raise ValidationError
@@ -453,7 +810,7 @@ class TestCatalogTableOperations:
             NotImplementedError, match="Purge flag is not currently supported"
         ):
             catalog.drop_table(
-                name=table_name,
+                table=table_name,
                 namespace=namespace_name,
                 purge=True,
                 inner=catalog_properties,
@@ -472,7 +829,7 @@ class TestCatalogTableOperations:
         )
 
         table_def = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -495,7 +852,7 @@ class TestCatalogTableOperations:
 
         # Create table first
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -504,7 +861,7 @@ class TestCatalogTableOperations:
         # Try to create again with fail_if_exists=True (default)
         with pytest.raises(TableAlreadyExistsError):
             catalog.create_table(
-                name=table_name,
+                table=table_name,
                 namespace=self.test_namespace,
                 schema=schema,
                 fail_if_exists=True,
@@ -518,7 +875,7 @@ class TestCatalogTableOperations:
 
         # Create table first
         table_def1 = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -526,7 +883,7 @@ class TestCatalogTableOperations:
 
         # Create again with fail_if_exists=False should return existing table
         table_def2 = catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             fail_if_exists=False,
@@ -603,15 +960,19 @@ class TestWriteToTable:
         import ray
 
         # Initialize Ray if not already initialized
+        # Note: Use distributed mode (not local_mode=True) to avoid Ray 2.46.0 internal bug
         if not ray.is_initialized():
-            ray.init(local_mode=True)
+            ray.init()
 
-        data = [
-            {"id": 1, "name": "Alice", "age": 25, "city": "NYC"},
-            {"id": 2, "name": "Bob", "age": 30, "city": "LA"},
-            {"id": 3, "name": "Charlie", "age": 35, "city": "Chicago"},
-        ]
-        return rd.from_items(data)
+        data = pa.table(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", "Bob", "Charlie", "Dave", "Eve"],
+                "age": [25, 30, 35, 40, 45],
+                "city": ["NYC", "LA", "Chicago", "Houston", "Phoenix"],
+            }
+        )
+        return rd.from_arrow(data)
 
     def _create_test_daft_data(self):
         """Create test Daft DataFrame for schema inference testing."""
@@ -646,7 +1007,7 @@ class TestWriteToTable:
         )
 
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             schema=schema,
             inner=self.catalog_properties,
@@ -690,7 +1051,7 @@ class TestWriteToTable:
 
         # Verify table has correct schema
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -800,7 +1161,9 @@ class TestWriteToTable:
         )
 
         # Try to create again should fail
-        with pytest.raises(ValueError, match="already exists and mode is CREATE"):
+        with pytest.raises(
+            TableAlreadyExistsError, match="already exists and mode is CREATE"
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -839,7 +1202,10 @@ class TestWriteToTable:
         table_name = "test_append_fail"
         data = self._create_test_pandas_data()
 
-        with pytest.raises(ValueError, match="does not exist and mode is"):
+        with pytest.raises(
+            TableNotFoundError,
+            match="does not exist and write mode is append. Use CREATE or AUTO mode",
+        ):
             catalog.write_to_table(
                 data=data,
                 table=table_name,
@@ -867,7 +1233,7 @@ class TestWriteToTable:
 
         # APPEND mode should fail since table has merge keys
         with pytest.raises(
-            ValueError,
+            SchemaValidationError,
             match="APPEND mode cannot be used with tables that have merge keys",
         ):
             catalog.write_to_table(
@@ -910,16 +1276,26 @@ class TestWriteToTable:
         table_name = "test_explicit_schema"
         data = self._create_test_pandas_data()
 
-        # Define explicit schema
+        # Define explicit schema with COERCE consistency types to preserve exact types
         explicit_schema = Schema.of(
-            schema=pa.schema(
-                [
-                    ("id", pa.int64()),
-                    ("name", pa.string()),
-                    ("age", pa.int32()),  # Different from inferred schema
-                    ("city", pa.string()),
-                ]
-            )
+            schema=[
+                Field.of(
+                    pa.field("id", pa.int64()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),
+                Field.of(
+                    pa.field("name", pa.string()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),
+                Field.of(
+                    pa.field("age", pa.int32()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),  # Different from inferred schema
+                Field.of(
+                    pa.field("city", pa.string()),
+                    consistency_type=SchemaConsistencyType.COERCE,
+                ),
+            ]
         )
 
         catalog.write_to_table(
@@ -933,7 +1309,7 @@ class TestWriteToTable:
 
         # Verify schema was used
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -955,7 +1331,7 @@ class TestWriteToTable:
 
         # Verify table was created with schema=None (schemaless)
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -993,13 +1369,13 @@ class TestWriteToTable:
 
         # Verify both tables were created
         table_inferred = catalog.get_table(
-            name=table_name_inferred,
+            table=table_name_inferred,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
 
         table_schemaless = catalog.get_table(
-            name=table_name_schemaless,
+            table=table_name_schemaless,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1037,7 +1413,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1068,7 +1444,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1098,7 +1474,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1110,18 +1486,11 @@ class TestWriteToTable:
 
     def test_schema_inference_ray_dataset(self):
         """Test schema inference from Ray Dataset"""
-
-        # in Ray 2.46.0 this fails due to the following internal Ray Core Error:
-        # task_manager.cc:618: Check failed: stream_it != object_ref_streams_.end() PeekObjectRefStream API can be used only when the stream has been created and not removed
-        pytest.skip(
-            "Skip crashing Ray Dataset schema inference test. See Comments. "
-            "Update Ray version and re-enable."
-        )
         table_name = "test_schema_inference_ray"
-        data = self._create_test_ray_data()
+        ray_data = self._create_test_ray_data()
 
         catalog.write_to_table(
-            data=data,
+            data=ray_data,
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
@@ -1129,7 +1498,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1154,7 +1523,7 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1179,13 +1548,15 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
 
         schema = table_def.table_version.schema.arrow
-        assert "column_0" in schema.names
+        assert (
+            "0" in schema.names
+        )  # pandas converts 1D numpy array with column name "0"
         assert len(schema.names) == 1
 
     def test_schema_inference_numpy_2d(self):
@@ -1202,14 +1573,16 @@ class TestWriteToTable:
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
 
         schema = table_def.table_version.schema.arrow
-        assert "column_0" in schema.names
-        assert "column_1" in schema.names
+        assert (
+            "0" in schema.names
+        )  # pandas converts 2D numpy array with column names "0", "1"
+        assert "1" in schema.names
         assert len(schema.names) == 2
 
     def test_numpy_3d_array_error(self):
@@ -1249,6 +1622,7 @@ class TestWriteToTable:
                 mode=TableWriteMode.CREATE,
                 content_type=content_type,
                 inner=self.catalog_properties,
+                schema=None,
             )
 
             assert catalog.table_exists(
@@ -1268,13 +1642,13 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
-            description="Test table with properties",
+            table_description="Test table with properties",
             lifecycle_state=LifecycleState.ACTIVE,
             inner=self.catalog_properties,
         )
 
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1295,7 +1669,9 @@ class TestWriteToTable:
         # Use a plain dict which doesn't have schema inference
         unsupported_data = {"key": "value"}
 
-        with pytest.raises(ValueError, match="Could not infer schema from data"):
+        with pytest.raises(
+            ValueError, match="No schema inference function found for table type"
+        ):
             catalog.write_to_table(
                 data=unsupported_data,
                 table=table_name,
@@ -1386,7 +1762,7 @@ class TestWriteToTable:
 
         # MERGE mode should fail since table has no merge keys
         with pytest.raises(
-            ValueError,
+            TableValidationError,
             match="MERGE mode requires tables to have at least one merge key",
         ):
             catalog.write_to_table(
@@ -1436,7 +1812,7 @@ class TestWriteToTable:
 
         # Get the table definition to access stream information
         table_def = catalog.get_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             inner=self.catalog_properties,
         )
@@ -1574,7 +1950,7 @@ class TestWriteToTable:
 
         # Create table with sort keys
         catalog.create_table(
-            name=table_name,
+            table=table_name,
             namespace=self.test_namespace,
             sort_keys=sort_scheme,
             inner=self.catalog_properties,

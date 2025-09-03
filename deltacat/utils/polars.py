@@ -1,5 +1,4 @@
 import logging
-import io
 import bz2
 import gzip
 from functools import partial
@@ -21,7 +20,6 @@ from deltacat.types.media import (
     ContentType,
     ContentEncoding,
     DELIMITED_TEXT_CONTENT_TYPES,
-    EXPLICIT_COMPRESSION_CONTENT_TYPES,
     TABULAR_CONTENT_TYPES,
 )
 from deltacat.types.partial_download import PartialFileDownloadParams
@@ -44,16 +42,27 @@ def write_json(
     fs_open_kwargs: Dict[str, any] = {},
     **write_kwargs,
 ) -> None:
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_ndjson(out, **write_kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses
+                table.write_ndjson(f, **write_kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_ndjson(f, **write_kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            # TODO (pdames): Add support for client-specified compression types.
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_ndjson(out, **write_kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    table.write_ndjson(out, **write_kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_ndjson(f, **write_kwargs)
 
 
 def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
@@ -71,16 +80,19 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, any]:
         return {
             "separator": "\t",
             "include_header": False,
+            "quote_style": "necessary",
         }
     if content_type == ContentType.CSV.value:
         return {
             "separator": ",",
             "include_header": False,
+            "quote_style": "necessary",
         }
     if content_type == ContentType.PSV.value:
         return {
             "separator": "|",
             "include_header": False,
+            "quote_style": "necessary",
         }
     if content_type in {
         ContentType.PARQUET.value,
@@ -104,15 +116,27 @@ def write_csv(
     """
     Write a polars DataFrame to a CSV file (or other delimited text format).
     """
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_csv(out, **kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses
+                table.write_csv(f, **kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_csv(f, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                table.write_csv(out, **kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    table.write_csv(out, **kwargs)
+            else:
+                # No compression indicated, write uncompressed
+                table.write_csv(f, **kwargs)
 
 
 def write_avro(
@@ -235,6 +259,7 @@ def dataframe_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """
@@ -327,6 +352,7 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
             "separator": "\t",
             "has_header": False,
             "null_values": [""],
+            "quote_char": None,
         }
     if content_type == ContentType.TSV.value:
         return {"separator": "\t", "has_header": False}
@@ -376,74 +402,19 @@ def concat_dataframes(dataframes: List[pl.DataFrame]) -> Optional[pl.DataFrame]:
     return pl.concat(dataframes)
 
 
-def s3_file_to_dataframe(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pl_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
+def append_column_to_table(
+    table: pl.DataFrame,
+    column_name: str,
+    column_value: Any,
 ) -> pl.DataFrame:
+    return table.with_columns(pl.lit(column_value).alias(column_name))
 
-    from deltacat.aws import s3u as s3_utils
 
-    logger.debug(
-        f"Reading {s3_url} to Polars. Content type: {content_type}. "
-        f"Encoding: {content_encoding}"
-    )
-    s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
-    logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
-
-    # Handle ORC files specially since polars doesn't have native support
-    if content_type == ContentType.ORC.value:
-        # Use pandas to read ORC and convert to polars
-        import pandas as pd
-
-        pd_df = pd.read_orc(io.BytesIO(s3_obj["Body"].read()))
-        dataframe = pl.from_pandas(pd_df)
-        logger.debug(f"Time to read {s3_url} into Polars DataFrame via pandas")
-        return dataframe
-
-    pl_read_func = CONTENT_TYPE_TO_PL_READ_FUNC.get(content_type)
-    if not pl_read_func:
-        raise NotImplementedError(
-            f"Polars reader for content type '{content_type}' not "
-            f"implemented. Known content types: "
-            f"{list(CONTENT_TYPE_TO_PL_READ_FUNC.keys())}"
-        )
-
-    kwargs = content_type_to_reader_kwargs(content_type)
-    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
-
-    # Handle compression for delimited text files
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-        if content_encoding == ContentEncoding.GZIP.value:
-            # Polars can handle gzip compression automatically for CSV-like files
-            # For gzip files, we need to handle them specially
-            import gzip
-
-            with gzip.GzipFile(fileobj=io.BytesIO(s3_obj["Body"].read())) as gz:
-                source = io.BytesIO(gz.read())
-        elif content_encoding == ContentEncoding.BZIP2.value:
-            # Polars doesn't natively support bz2, need to decompress first
-            import bz2
-
-            data = bz2.decompress(s3_obj["Body"].read())
-            source = io.BytesIO(data)
-        else:
-            source = io.BytesIO(s3_obj["Body"].read())
-    else:
-        source = io.BytesIO(s3_obj["Body"].read())
-
-    if pl_read_func_kwargs_provider:
-        kwargs = pl_read_func_kwargs_provider(content_type, kwargs)
-
-    logger.debug(f"Reading {s3_url} via {pl_read_func} with kwargs: {kwargs}")
-
-    dataframe, latency = timed_invocation(pl_read_func, source, **kwargs)
-    logger.debug(f"Time to read {s3_url} into Polars DataFrame: {latency}s")
-    return dataframe
+def select_columns(
+    table: pl.DataFrame,
+    column_names: List[str],
+) -> pl.DataFrame:
+    return table.select(column_names)
 
 
 def file_to_dataframe(

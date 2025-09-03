@@ -79,11 +79,11 @@ def materialize(
     def _stage_delta_from_manifest_entry_reference_list(
         manifest_entry_list_reference: List[ManifestEntry],
         partition: Partition,
-        delta_type: DeltaType = DeltaType.UPSERT,
+        delta_type: DeltaType = DeltaType.APPEND,
     ) -> Delta:
         assert (
-            delta_type == DeltaType.UPSERT
-        ), "Stage delta with existing manifest entries only supports UPSERT delta type!"
+            delta_type == DeltaType.APPEND
+        ), "Compaction should always produce APPEND deltas for consistent read operations!"
         manifest = Manifest.of(
             entries=ManifestEntryList.of(manifest_entry_list_reference),
             uuid=str(uuid4()),
@@ -111,6 +111,7 @@ def materialize(
             deltacat_storage.stage_delta,
             compacted_table,
             partition,
+            delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
             max_records_per_entry=max_records_per_output_file,
             content_type=compacted_file_content_type,
             table_writer_kwargs=table_writer_kwargs,

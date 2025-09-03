@@ -37,6 +37,7 @@ def discover_deltas(
 ) -> Tuple[List[Delta], int]:
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
+
     # Source One: new deltas from uncompacted table for incremental compaction or deltas from compacted table for rebase
     start_position_exclusive = (
         high_watermark.get(source_partition_locator)

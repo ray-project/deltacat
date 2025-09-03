@@ -21,6 +21,7 @@ from deltacat.catalog.delegate import (
 from deltacat.catalog.model.catalog import (  # noqa: F401
     all_catalogs,
     init,
+    init_local,
     is_initialized,
     clear_catalogs,
     get_catalog,
@@ -57,6 +58,7 @@ __all__ = [
     "write_to_table",
     "all_catalogs",
     "init",
+    "init_local",
     "is_initialized",
     "clear_catalogs",
     "get_catalog",

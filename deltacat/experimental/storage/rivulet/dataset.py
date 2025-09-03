@@ -52,7 +52,6 @@ from deltacat.storage import (
     TableVersion,
     TableVersionLocator,
     Transaction,
-    TransactionType,
     TransactionOperation,
     TransactionOperationType,
 )
@@ -299,7 +298,6 @@ class Dataset:
                     partition_values=DEFAULT_PARTITION_VALUES,
                     partition_id=self._partition_id,
                 ),
-                schema=None,
                 content_types=None,
             ),
         ]
@@ -312,7 +310,6 @@ class Dataset:
         ]
 
         transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=TransactionOperationList.of(txn_operations),
         )
 

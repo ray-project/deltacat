@@ -62,6 +62,7 @@ class TestHashBucketMain(unittest.TestCase):
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            all_column_names=["pk", "value"],
         )
 
         # action
@@ -94,6 +95,7 @@ class TestHashBucketMain(unittest.TestCase):
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            all_column_names=["pk", "value"],
         )
 
         # action
@@ -125,6 +127,7 @@ class TestHashBucketMain(unittest.TestCase):
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            all_column_names=["pk", "value"],
         )
 
         # action
@@ -156,6 +159,7 @@ class TestHashBucketMain(unittest.TestCase):
             deltacat_storage=metastore,
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            all_column_names=["pk1", "pk2", "value"],
         )
 
         # action
@@ -189,6 +193,7 @@ class TestHashBucketMain(unittest.TestCase):
             deltacat_storage=metastore,  # Use real metastore instead of mock
             deltacat_storage_kwargs=self.deltacat_storage_kwargs,
             object_store=object_store,
+            all_column_names=["pk1", "pk2", "value"],
         )
 
         # action

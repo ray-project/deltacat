@@ -1,3 +1,4 @@
+from deltacat.constants import DEFAULT_NAMESPACE
 from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     task_resource_options_provider,
@@ -86,7 +87,7 @@ def converter_session(params: ConverterSessionParams, **kwargs: Any) -> TableMet
     catalog = params.catalog
     table_name = params.iceberg_table_name
     if "." not in table_name:
-        iceberg_namespace = params.iceberg_namespace or "default"
+        iceberg_namespace = params.iceberg_namespace or DEFAULT_NAMESPACE
         table_name = params.iceberg_table_name
         table_identifier = f"{iceberg_namespace}.{table_name}"
     else:

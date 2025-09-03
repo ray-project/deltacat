@@ -43,6 +43,28 @@ from deltacat.storage import (
     TableVersionLocator,
 )
 
+
+def _normalize_partition_values_from_json(partition_values):
+    """
+    Normalize partition values parsed from JSON URLs.
+
+    Both None and empty list [] represent unpartitioned data, but they should be
+    normalized to None for consistent lookup and validation.
+
+    Args:
+        partition_values: Partition values parsed from JSON
+
+    Returns:
+        None for unpartitioned data (both None and [] inputs),
+        original value for partitioned data
+    """
+    if partition_values is None or (
+        isinstance(partition_values, list) and len(partition_values) == 0
+    ):
+        return None
+    return partition_values
+
+
 RAY_DATASTORE_TYPE_TO_READER = {
     DatastoreType.AUDIO: lambda url: functools.partial(
         ray.data.read_audio,
@@ -753,7 +775,7 @@ class DeltaCatUrl:
             ):
                 self.stream = StreamFormat.DELTACAT
             else:
-                self.stream = StreamFormat(self.stream)
+                self.stream = StreamFormat(self.unresolved_stream)
 
     def __str__(self):
         return self.url
@@ -1108,7 +1130,11 @@ def _stage_and_commit_partition(
         namespace=partition.namespace,
         table_name=partition.table_name,
         table_version=partition.table_version,
-        stream_format=StreamFormat(partition.stream_format),
+        stream_format=StreamFormat(
+            partition.stream_format or StreamFormat.DELTACAT.value
+        ),
+        *args,
+        **kwargs,
     )
     partition = metastore.stage_partition(
         stream=stream,
@@ -1133,6 +1159,7 @@ class DeltaCatUrlWriter:
     ):
         self._url = url
         self._metafile = metafile
+
         if url.is_deltacat_catalog_url():
             if url.path_elements:
                 url.resolve_catalog()
@@ -1184,7 +1211,7 @@ class DeltaCatUrlWriter:
             # TODO(pdames): Honor deep vs. shallow copies. Deep copies require
             #  first ensuring that all files in the source delta manifest are
             #  staged to the target catalog before commit. For deltas whose
-            #  manifests reference local files, shallow delta copies will be
+            #  manifests reference local files, shallow delta copies may be
             #  invalid in the target catalog, and should be blocked or
             #  converted to a deep copy automatically.
             return functools.partial(
@@ -1201,6 +1228,7 @@ class DeltaCatUrlWriter:
                 stream_id=None,
                 stream_format=url.stream,
                 partition_values=json.loads(url.partition),
+                partition_id=None,
             )
             return functools.partial(
                 _stage_and_commit_partition,
@@ -1233,13 +1261,12 @@ class DeltaCatUrlWriter:
                 namespace=table_version.namespace,
                 table_name=table_version.table_name,
                 table_version=table_version.table_version,
+                lifecycle_state=table_version.state,
                 schema=table_version.schema,
                 partition_scheme=table_version.partition_scheme,
                 sort_keys=table_version.sort_scheme,
                 table_version_description=table_version.description,
                 table_version_properties=table_version.properties,
-                table_description=table_version.description,
-                table_properties=table_version.properties,
                 supported_content_types=table_version.content_types,
                 catalog=url.catalog,
             )
@@ -1250,11 +1277,11 @@ class DeltaCatUrlWriter:
                 table_name=url.table,
             )
             return functools.partial(
-                metastore.create_table_version,
+                metastore.create_table,
                 namespace=table.namespace,
                 table_name=table.table_name,
-                table_description=table.description,
-                table_properties=table.properties,
+                description=table.description,
+                properties=table.properties,
                 catalog=url.catalog,
             )
         if url.unresolved_namespace:

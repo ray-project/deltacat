@@ -1,5 +1,4 @@
 import csv
-import io
 import logging
 import math
 import bz2
@@ -16,7 +15,6 @@ from ray.data.datasource import FilenameProvider
 from deltacat import logs
 from deltacat.types.media import (
     DELIMITED_TEXT_CONTENT_TYPES,
-    EXPLICIT_COMPRESSION_CONTENT_TYPES,
     TABULAR_CONTENT_TYPES,
     ContentEncoding,
     ContentType,
@@ -362,6 +360,7 @@ def content_type_to_reader_kwargs(content_type: str) -> Dict[str, Any]:
             "header": None,
             "na_values": [""],
             "keep_default_na": False,
+            "quoting": csv.QUOTE_NONE,
         }
     if content_type == ContentType.TSV.value:
         return {"sep": "\t", "header": None}
@@ -389,7 +388,8 @@ ENCODING_TO_PD_COMPRESSION: Dict[str, str] = {
 
 
 def slice_dataframe(
-    dataframe: pd.DataFrame, max_len: Optional[int]
+    dataframe: pd.DataFrame,
+    max_len: Optional[int],
 ) -> List[pd.DataFrame]:
     """
     Iteratively create dataframe slices.
@@ -411,6 +411,22 @@ def concat_dataframes(dataframes: List[pd.DataFrame]) -> Optional[pd.DataFrame]:
     return pd.concat(dataframes, axis=0, copy=False)
 
 
+def append_column_to_dataframe(
+    dataframe: pd.DataFrame,
+    column_name: str,
+    column_value: Any,
+) -> pd.DataFrame:
+    dataframe[column_name] = column_value
+    return dataframe
+
+
+def select_columns(
+    dataframe: pd.DataFrame,
+    column_names: List[str],
+) -> pd.DataFrame:
+    return dataframe[column_names]
+
+
 def _add_column_kwargs(
     content_type: str,
     column_names: Optional[List[str]],
@@ -430,41 +446,6 @@ def _add_column_kwargs(
                     f"Ignoring request to include columns {include_columns} "
                     f"for non-tabular content type {content_type}"
                 )
-
-
-def s3_file_to_dataframe(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
-) -> pd.DataFrame:
-
-    from deltacat.aws import s3u as s3_utils
-
-    logger.debug(
-        f"Reading {s3_url} to Pandas. Content type: {content_type}. "
-        f"Encoding: {content_encoding}"
-    )
-    s3_obj = s3_utils.get_object_at_url(s3_url, **s3_client_kwargs)
-    logger.debug(f"Read S3 object from {s3_url}: {s3_obj}")
-    pd_read_func = CONTENT_TYPE_TO_PD_READ_FUNC[content_type]
-    args = [io.BytesIO(s3_obj["Body"].read())]
-    kwargs = content_type_to_reader_kwargs(content_type)
-    _add_column_kwargs(content_type, column_names, include_columns, kwargs)
-
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
-        kwargs["compression"] = ENCODING_TO_PD_COMPRESSION.get(
-            content_encoding, "infer"
-        )
-    if pd_read_func_kwargs_provider:
-        kwargs = pd_read_func_kwargs_provider(content_type, kwargs)
-    logger.debug(f"Reading {s3_url} via {pd_read_func} with kwargs: {kwargs}")
-    dataframe, latency = timed_invocation(pd_read_func, *args, **kwargs)
-    logger.debug(f"Time to read {s3_url} into Pandas Dataframe: {latency}s")
-    return dataframe
 
 
 def file_to_dataframe(
@@ -548,15 +529,82 @@ def write_csv(
     # TODO (pdames): Add support for client-specified compression types.
     if kwargs.get("header") is None:
         kwargs["header"] = False
+
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_csv(out, **kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses, no need for additional compression
+                dataframe.to_csv(f, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_csv(out, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_csv(out, **kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_csv(out, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_csv(out, **kwargs)
+
+
+def _preprocess_dataframe_for_parquet(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocess DataFrame to convert PyArrow types to native Python types for parquet compatibility.
+
+    This handles the case where from_pyarrow() creates pandas DataFrames with PyArrow array objects
+    that cannot be serialized by pandas.to_parquet().
+    """
+    # Check if any columns contain PyArrow arrays
+    needs_conversion = False
+    for col in dataframe.columns:
+        if dataframe[col].dtype == object:
+            # Check if the column contains PyArrow arrays
+            sample_val = dataframe[col].iloc[0] if len(dataframe) > 0 else None
+            if (
+                sample_val is not None
+                and hasattr(sample_val, "__class__")
+                and "pyarrow" in str(type(sample_val))
+            ):
+                needs_conversion = True
+                break
+
+    if not needs_conversion:
+        return dataframe
+
+    # Create a copy and convert PyArrow types
+    df_copy = dataframe.copy()
+
+    for col in df_copy.columns:
+        if df_copy[col].dtype == object and len(df_copy) > 0:
+            sample_val = df_copy[col].iloc[0]
+
+            # Convert PyArrow arrays to Python lists
+            if hasattr(sample_val, "__class__") and "pyarrow" in str(type(sample_val)):
+                try:
+                    if hasattr(sample_val, "to_pylist"):
+                        # PyArrow array - convert to Python list
+                        df_copy[col] = df_copy[col].apply(
+                            lambda x: x.to_pylist() if hasattr(x, "to_pylist") else x
+                        )
+                    elif hasattr(sample_val, "as_py"):
+                        # PyArrow scalar - convert to Python value
+                        df_copy[col] = df_copy[col].apply(
+                            lambda x: x.as_py() if hasattr(x, "as_py") else x
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not convert PyArrow column {col}: {e}. Keeping original values."
+                    )
+
+    return df_copy
 
 
 def write_parquet(
@@ -567,13 +615,16 @@ def write_parquet(
     fs_open_kwargs: Dict[str, any] = {},
     **kwargs,
 ) -> None:
+    # Preprocess DataFrame to handle PyArrow types
+    processed_df = _preprocess_dataframe_for_parquet(dataframe)
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            dataframe.to_parquet(f, **kwargs)
+            processed_df.to_parquet(f, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            dataframe.to_parquet(f, **kwargs)
+            processed_df.to_parquet(f, **kwargs)
 
 
 def write_orc(
@@ -618,16 +669,29 @@ def write_json(
     fs_open_kwargs: Dict[str, any] = {},
     **kwargs,
 ) -> None:
+    # Check if the path already indicates compression to avoid double compression
+    should_compress = path.endswith(".gz")
+
     if not filesystem or isinstance(filesystem, pafs.FileSystem):
         path, filesystem = resolve_path_and_filesystem(path, filesystem)
         with filesystem.open_output_stream(path, **fs_open_kwargs) as f:
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_json(out, **kwargs)
+            if should_compress:
+                # Path ends with .gz, PyArrow filesystem automatically compresses, no need for additional compression
+                dataframe.to_json(f, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_json(out, **kwargs)
     else:
         with filesystem.open(path, "wb", **fs_open_kwargs) as f:
-            # TODO (pdames): Add support for client-specified compression types.
-            with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
-                dataframe.to_json(out, **kwargs)
+            if should_compress:
+                # For fsspec filesystems, we need to apply compression explicitly
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_json(out, **kwargs)
+            else:
+                # No compression indicated, apply explicit compression
+                with pa.CompressedOutputStream(f, ContentEncoding.GZIP.value) as out:
+                    dataframe.to_json(out, **kwargs)
 
 
 def write_avro(
@@ -689,6 +753,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "sep": "\t",
             "header": False,
             "lineterminator": "\n",
+            "quoting": csv.QUOTE_MINIMAL,
             "index": False,
         }
     if content_type == ContentType.CSV.value:
@@ -697,6 +762,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "header": False,
             "index": False,
             "lineterminator": "\n",
+            "quoting": csv.QUOTE_MINIMAL,
             "index": False,
         }
     if content_type == ContentType.PSV.value:
@@ -705,6 +771,7 @@ def content_type_to_writer_kwargs(content_type: str) -> Dict[str, Any]:
             "header": False,
             "index": False,
             "lineterminator": "\n",
+            "quoting": csv.QUOTE_MINIMAL,
         }
     if content_type == ContentType.PARQUET.value:
         return {"index": False}
@@ -725,6 +792,7 @@ def dataframe_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """

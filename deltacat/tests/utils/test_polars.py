@@ -9,7 +9,6 @@ import io
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.utils.polars import (
     dataframe_to_file,
-    s3_file_to_dataframe,
     file_to_dataframe,
     content_type_to_reader_kwargs,
     _add_column_kwargs,
@@ -46,7 +45,7 @@ class TestPolarsWriters(TestCase):
         assert result.equals(self.df)
 
     def test_write_csv(self):
-        path = f"{self.base_path}/test.csv"
+        path = f"{self.base_path}/test.csv.gz"
 
         dataframe_to_file(
             self.df, path, self.fs, lambda x: path, content_type=ContentType.CSV.value
@@ -62,7 +61,7 @@ class TestPolarsWriters(TestCase):
                 assert '"e,f\tg|h",2' in content
 
     def test_write_tsv(self):
-        path = f"{self.base_path}/test.tsv"
+        path = f"{self.base_path}/test.tsv.gz"
 
         dataframe_to_file(
             self.df,
@@ -82,7 +81,7 @@ class TestPolarsWriters(TestCase):
                 assert '"e,f\tg|h"\t2' in content
 
     def test_write_psv(self):
-        path = f"{self.base_path}/test.psv"
+        path = f"{self.base_path}/test.psv.gz"
 
         dataframe_to_file(
             self.df,
@@ -104,7 +103,7 @@ class TestPolarsWriters(TestCase):
     def test_write_unescaped_tsv(self):
         # Create DataFrame without delimiters for unescaped TSV
         df = pl.DataFrame({"col1": ["abc", "def"], "col2": [1, 2]})
-        path = f"{self.base_path}/test.tsv"
+        path = f"{self.base_path}/test.tsv.gz"
 
         dataframe_to_file(
             df,
@@ -153,7 +152,7 @@ class TestPolarsWriters(TestCase):
         assert result.equals(self.df)
 
     def test_write_json(self):
-        path = f"{self.base_path}/test.json"
+        path = f"{self.base_path}/test.json.gz"
 
         dataframe_to_file(
             self.df, path, self.fs, lambda x: path, content_type=ContentType.JSON.value
@@ -298,6 +297,7 @@ class TestPolarsReaders(TestCase):
             "separator": "\t",
             "has_header": False,
             "null_values": [""],
+            "quote_char": None,
         }
         assert unescaped_kwargs == expected_unescaped
 
@@ -459,64 +459,6 @@ class TestPolarsReaders(TestCase):
         # Test None input
         result = concat_dataframes(None)
         assert result is None
-
-    def test_s3_file_to_dataframe_mock(self):
-        # Test the s3_file_to_dataframe function by mocking S3 response
-        import unittest.mock
-        from deltacat.aws import s3u as s3_utils
-
-        # Create test data for CSV
-        csv_content = '"a,b\tc|d",1,1.1\n"e,f\tg|h",2,2.2\ntest,3,3.3\n'
-        compressed_content = gzip.compress(csv_content.encode("utf-8"))
-
-        # Mock S3 response
-        mock_s3_response = {"Body": unittest.mock.MagicMock()}
-        mock_s3_response["Body"].read.return_value = compressed_content
-
-        with unittest.mock.patch.object(
-            s3_utils, "get_object_at_url", return_value=mock_s3_response
-        ):
-            # Test CSV reading
-            result = s3_file_to_dataframe(
-                "s3://test-bucket/test.csv",
-                ContentType.CSV.value,
-                ContentEncoding.GZIP.value,
-                column_names=["col1", "col2", "col3"],
-            )
-
-            assert len(result) == 3
-            assert list(result.columns) == ["col1", "col2", "col3"]
-            assert result["col1"].to_list() == ["a,b\tc|d", "e,f\tg|h", "test"]
-
-    def test_s3_file_to_dataframe_orc_mock(self):
-        # Test ORC handling via pandas conversion
-        import unittest.mock
-        import pandas as pd
-        from deltacat.aws import s3u as s3_utils
-
-        # Create test ORC data
-        test_df = pd.DataFrame(
-            {"col1": ["test1", "test2"], "col2": [1, 2], "col3": [1.1, 2.2]}
-        )
-
-        # Mock S3 response (content doesn't matter since we're mocking pd.read_orc)
-        mock_s3_response = {"Body": unittest.mock.MagicMock()}
-        mock_s3_response["Body"].read.return_value = b"fake_orc_content"
-
-        # Mock both S3 read and pandas ORC read
-        with unittest.mock.patch.object(
-            s3_utils, "get_object_at_url", return_value=mock_s3_response
-        ):
-            with unittest.mock.patch("pandas.read_orc", return_value=test_df):
-                result = s3_file_to_dataframe(
-                    "s3://test-bucket/test.orc",
-                    ContentType.ORC.value,
-                    ContentEncoding.IDENTITY.value,
-                )
-
-                assert len(result) == 2
-                assert list(result.columns) == ["col1", "col2", "col3"]
-                assert result["col1"].to_list() == ["test1", "test2"]
 
     def test_file_to_dataframe_csv(self):
         # Test reading CSV with file_to_dataframe

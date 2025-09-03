@@ -7,7 +7,6 @@ from deltacat.storage import (
     Transaction,
     TransactionOperation,
     TransactionOperationType,
-    TransactionType,
 )
 
 from deltacat.constants import (
@@ -201,10 +200,7 @@ class TestJanitorJob:
             for meta in meta_to_create
         ]
 
-        transaction = Transaction.of(
-            txn_type=TransactionType.APPEND,
-            txn_operations=txn_operations,
-        )
+        transaction = Transaction.of(txn_operations)
         write_paths, txn_log_path = transaction.commit(temp_dir)
 
         # Get filename of committed transaction (from success directory)

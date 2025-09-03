@@ -10,7 +10,6 @@ from deltacat.storage import (
     Delta,
     DeltaType,
     Transaction,
-    TransactionType,
     TransactionOperation,
     TransactionOperationType,
 )
@@ -169,7 +168,6 @@ class DeltacatManifestIO(ManifestIO):
         delta["level"] = level
 
         tx_results = Transaction.of(
-            txn_type=TransactionType.APPEND,
             txn_operations=TransactionOperationList.of(
                 [
                     TransactionOperation.of(

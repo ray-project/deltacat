@@ -20,6 +20,9 @@ from deltacat.storage.model.metafile import (
 from deltacat.storage.model.transaction import (
     TransactionOperation,
     Transaction,
+    read_transaction,
+    transactions,
+    transaction,
 )
 from deltacat.storage.model.namespace import (
     Namespace,
@@ -44,6 +47,9 @@ from deltacat.storage.model.schema import (
     NestedFieldName,
     Schema,
     SchemaList,
+    SchemaUpdate,
+    SchemaUpdateOperation,
+    SchemaUpdateOperations,
 )
 from deltacat.storage.model.stream import (
     Stream,
@@ -76,6 +82,7 @@ from deltacat.storage.model.transform import (
     MonthTransform,
     YearTransform,
     TruncateTransform,
+    TruncateStrategy,
 )
 from deltacat.storage.model.types import (
     CommitState,
@@ -89,8 +96,8 @@ from deltacat.storage.model.types import (
     SchemaConsistencyType,
     StreamFormat,
     SortOrder,
-    TransactionType,
     TransactionOperationType,
+    TransactionStatus,
 )
 from deltacat.storage.model.sort_key import (
     SortKey,
@@ -148,6 +155,9 @@ __all__ = [
     "PartitionValues",
     "Schema",
     "SchemaList",
+    "SchemaUpdate",
+    "SchemaUpdateOperation",
+    "SchemaUpdateOperations",
     "SchemaConsistencyType",
     "SortKey",
     "SortKeyList",
@@ -167,13 +177,17 @@ __all__ = [
     "Transaction",
     "TransactionOperation",
     "TransactionOperationType",
-    "TransactionType",
+    "TransactionStatus",
     "Transform",
     "TransformName",
     "TransformParameters",
     "TruncateTransform",
     "TruncateTransformParameters",
+    "TruncateStrategy",
     "UnknownTransform",
     "VoidTransform",
     "YearTransform",
+    "read_transaction",
+    "transactions",
+    "transaction",
 ]

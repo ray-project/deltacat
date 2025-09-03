@@ -1,6 +1,8 @@
 import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import uuid
 import pytest
+
 import pyarrow as pa
 import ray
 import pandas as pd
@@ -19,10 +21,10 @@ from deltacat.compute.compactor.model.compactor_version import CompactorVersion
 from deltacat.tests.compute.test_util_common import (
     create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
     create_incremental_deltas_on_source_table_main,
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKey,
-    get_compacted_delta_locator_from_rcf,
+    get_compacted_delta_locator_from_partition,
 )
 from deltacat.tests.compute.compact_partition_rebase_then_incremental_test_cases import (
     REBASE_THEN_INCREMENTAL_TEST_CASES,
@@ -228,10 +230,18 @@ def test_compact_partition_rebase_then_incremental_main(
         converted_partition_values_for_lookup,
         **ds_mock_kwargs,
     )
+    # Generate a destination partition ID based on the source partition
+    destination_partition_id = str(uuid.uuid4())
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         converted_partition_values_for_lookup,
-        None,
+        destination_partition_id,
+    )
+    all_column_names = metastore.get_table_version_column_names(
+        destination_partition_locator.namespace,
+        destination_partition_locator.table_name,
+        destination_partition_locator.table_version,
+        **ds_mock_kwargs,
     )
     rebased_partition: Partition = metastore.get_partition(
         rebased_table_stream.locator,
@@ -266,8 +276,18 @@ def test_compact_partition_rebase_then_incremental_main(
                     **{"equivalent_table_types": []},
                 },
                 "object_store": FileObjectStore(test_dir),
+                "original_fields": {
+                    "pk_col_1",
+                    "pk_col_2",
+                    "sk_col_1",
+                    "sk_col_2",
+                    "col_1",
+                    "col_2",
+                    "region_id",
+                },
                 "pg_config": pgm,
                 "primary_keys": primary_keys,
+                "all_column_names": all_column_names,
                 "read_kwargs_provider": read_kwargs_provider_param,
                 "rebase_source_partition_locator": source_partition.locator,
                 "records_per_compacted_file": records_per_compacted_file_param,
@@ -276,14 +296,26 @@ def test_compact_partition_rebase_then_incremental_main(
             }
         )
         # execute
-        rcf_file_path = benchmark(compact_partition_func, compact_partition_params)
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            rcf_file_path
+        benchmark(compact_partition_func, compact_partition_params)
+        compacted_delta_locator: DeltaLocator = (
+            get_compacted_delta_locator_from_partition(
+                destination_partition_locator,
+                metastore,
+                catalog=catalog,
+            )
         )
         tables = metastore.download_delta(
-            compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
+            compacted_delta_locator,
+            storage_type=StorageType.LOCAL,
+            **ds_mock_kwargs,
         )
         actual_rebase_compacted_table = pa.concat_tables(tables)
+        all_column_names = metastore.get_table_version_column_names(
+            destination_partition_locator.namespace,
+            destination_partition_locator.table_name,
+            destination_partition_locator.table_version,
+            **ds_mock_kwargs,
+        )
         # if no primary key is specified then sort by sort_key for consistent assertion
         sorting_cols: List[Any] = (
             [(val, "ascending") for val in primary_keys]
@@ -348,8 +380,18 @@ def test_compact_partition_rebase_then_incremental_main(
                         **{"equivalent_table_types": []},
                     },
                     "object_store": FileObjectStore(test_dir),
+                    "original_fields": {
+                        "pk_col_1",
+                        "pk_col_2",
+                        "sk_col_1",
+                        "sk_col_2",
+                        "col_1",
+                        "col_2",
+                        "region_id",
+                    },
                     "pg_config": pgm,
                     "primary_keys": primary_keys,
+                    "all_column_names": all_column_names,
                     "read_kwargs_provider": read_kwargs_provider_param,
                     "rebase_source_partition_locator": None,
                     "rebase_source_partition_high_watermark": None,
@@ -363,10 +405,12 @@ def test_compact_partition_rebase_then_incremental_main(
                     compact_partition_func(compact_partition_params)
                 assert expected_terminal_exception_message in str(exc_info.value)
                 return
-            rcf_file_path = compact_partition_func(compact_partition_params)
+            compact_partition_func(compact_partition_params)
             # assert
             compacted_delta_locator: DeltaLocator = (
-                get_compacted_delta_locator_from_rcf(rcf_file_path)
+                get_compacted_delta_locator_from_partition(
+                    destination_partition_locator, metastore, catalog=catalog
+                )
             )
             tables = metastore.download_delta(
                 compacted_delta_locator,
@@ -376,9 +420,14 @@ def test_compact_partition_rebase_then_incremental_main(
             actual_compact_partition_result = pa.concat_tables(tables)
 
             # Get compaction audit for verification if needed
-            round_completion_info = get_rcf(rcf_file_path)
+            round_completion_info = get_rci_from_partition(
+                destination_partition_locator, metastore, catalog=catalog
+            )
+            # Get catalog root for audit file resolution
+            catalog_root = catalog.root
+
             compaction_audit_obj: dict = read_audit_file(
-                round_completion_info.compaction_audit_url
+                round_completion_info.compaction_audit_url, catalog_root
             )
             compaction_audit = CompactionSessionAuditInfo(**compaction_audit_obj)
 

@@ -3,6 +3,7 @@ from typing import Callable, Dict, List, Optional, Union
 
 from fsspec import AbstractFileSystem
 
+import pyarrow as pa
 from pyarrow import csv as pacsv
 import pyarrow.fs as pafs
 
@@ -58,7 +59,15 @@ def write_csv(
         )
         return {"write_options": write_options}
 
-    pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
+    # Check if the block_path_provider will generate .gz files to avoid double compression
+    pa_open_stream_args = {}
+    if not (
+        hasattr(block_path_provider, "content_encoding")
+        and block_path_provider.content_encoding == ContentEncoding.GZIP
+    ):
+        # Block path provider will not generate .gz files, so we need to apply explicit compression
+        pa_open_stream_args["compression"] = ContentEncoding.GZIP.value
+
     dataset.write_csv(
         base_path,
         arrow_open_stream_args=pa_open_stream_args,
@@ -81,7 +90,15 @@ def write_json(
     """
     Write a Ray Dataset to a JSON file using Ray's native JSON writer.
     """
-    pa_open_stream_args = {"compression": ContentEncoding.GZIP.value}
+    # Check if the block_path_provider will generate .gz files to avoid double compression
+    pa_open_stream_args = {}
+    if not (
+        hasattr(block_path_provider, "content_encoding")
+        and block_path_provider.content_encoding == ContentEncoding.GZIP
+    ):
+        # Block path provider will not generate .gz files, so we need to apply explicit compression
+        pa_open_stream_args["compression"] = ContentEncoding.GZIP.value
+
     dataset.write_json(
         base_path,
         arrow_open_stream_args=pa_open_stream_args,
@@ -162,6 +179,7 @@ def dataset_to_file(
     filesystem: Optional[Union[AbstractFileSystem, pafs.FileSystem]],
     block_path_provider: Union[Callable, FilenameProvider],
     content_type: str = ContentType.PARQUET.value,
+    schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> None:
     """

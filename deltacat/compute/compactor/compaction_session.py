@@ -41,7 +41,7 @@ from deltacat.compute.compactor.steps import dedupe as dd
 from deltacat.compute.compactor.steps import hash_bucket as hb
 from deltacat.compute.compactor.steps import materialize as mat
 from deltacat.compute.compactor.utils import io
-from deltacat.compute.compactor.utils import round_completion_file as rcf
+from deltacat.compute.compactor.utils import round_completion_reader as rci
 
 from deltacat.types.media import ContentType
 from deltacat.utils.placement import PlacementGroupConfig
@@ -153,7 +153,7 @@ def compact_partition(
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
-) -> Optional[str]:
+) -> None:
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
     if not importlib.util.find_spec("memray"):
@@ -166,11 +166,7 @@ def compact_partition(
         f"compaction_partition.bin"
     ) if enable_profiler else nullcontext():
         partition = None
-        (
-            new_partition,
-            new_rci,
-            new_rcf_partition_locator,
-        ) = _execute_compaction_round(
+        (new_partition, new_rci,) = _execute_compaction_round(
             source_partition_locator,
             destination_partition_locator,
             primary_keys,
@@ -202,22 +198,16 @@ def compact_partition(
         logger.info(
             f"Partition-{source_partition_locator.partition_values}-> Compaction session data processing completed"
         )
-        round_completion_file_path = None
         if partition:
             logger.info(f"Committing compacted partition to: {partition.locator}")
+            # Set the round completion info on the partition before committing
+            partition.compaction_round_completion_info = new_rci
             partition = deltacat_storage.commit_partition(
-                partition, **deltacat_storage_kwargs
+                partition,
+                **deltacat_storage_kwargs,
             )
             logger.info(f"Committed compacted partition: {partition}")
-
-            round_completion_file_path = rcf.write_round_completion_file(
-                base_path=compaction_artifact_path,
-                source_partition_locator=new_rcf_partition_locator,
-                destination_partition_locator=partition.locator,
-                round_completion_info=new_rci,
-            )
         logger.info(f"Completed compaction session for: {source_partition_locator}")
-        return round_completion_file_path
 
 
 def _execute_compaction_round(
@@ -245,10 +235,10 @@ def _execute_compaction_round(
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs,
-) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo], Optional[str]]:
+) -> Tuple[Optional[Partition], Optional[RoundCompletionInfo]]:
     if deltacat_storage_kwargs is None:
         deltacat_storage_kwargs = {}
-    rcf_source_partition_locator = (
+    rci_source_partition_locator = (
         rebase_source_partition_locator
         if rebase_source_partition_locator
         else source_partition_locator
@@ -257,7 +247,7 @@ def _execute_compaction_round(
     audit_url = posixpath.join(
         compaction_artifact_path,
         "compaction-audit.json",
-        f"{rcf_source_partition_locator.hexdigest()}.json",
+        f"{rci_source_partition_locator.hexdigest()}.json",
     )
 
     logger.info(f"Compaction audit will be written to {audit_url}")
@@ -332,10 +322,11 @@ def _execute_compaction_round(
     # read the results from any previously completed compaction round
     round_completion_info = None
     if not rebase_source_partition_locator:
-        round_completion_info = rcf.read_round_completion_file(
-            base_path=compaction_artifact_path,
+        round_completion_info = rci.read_round_completion_info(
             source_partition_locator=source_partition_locator,
             destination_partition_locator=destination_partition_locator,
+            deltacat_storage=deltacat_storage,
+            deltacat_storage_kwargs=deltacat_storage_kwargs,
         )
         if not round_completion_info:
             logger.info(
@@ -386,7 +377,7 @@ def _execute_compaction_round(
 
     if not input_deltas:
         logger.info("No input deltas found to compact.")
-        return None, None, None
+        return None, None
 
     # limit the input deltas to fit on this cluster and convert them to
     # annotated deltas of equivalent size for easy parallel distribution
@@ -508,6 +499,7 @@ def _execute_compaction_round(
         compacted_stream_locator.table_version,
         **deltacat_storage_kwargs,
     )
+
     partition = deltacat_storage.stage_partition(
         stream,
         destination_partition_locator.partition_values,
@@ -713,6 +705,7 @@ def _execute_compaction_round(
         hash_bucket_count,
         None,
         CompactorVersion.V1.value,
+        prev_source_partition_locator=rci_source_partition_locator,
     )
 
     logger.info(
@@ -724,14 +717,13 @@ def _execute_compaction_round(
     return (
         partition,
         new_round_completion_info,
-        rcf_source_partition_locator,
     )
 
 
 def compact_partition_from_request(
     compact_partition_params: CompactPartitionParams,
     *compact_partition_pos_args,
-) -> Optional[str]:
+) -> None:
     """
     Wrapper for compact_partition that allows for the compact_partition parameters to be
     passed in as a custom dictionary-like CompactPartitionParams object along with any compact_partition positional arguments.
@@ -756,7 +748,7 @@ def compact_partition_from_request(
     kwargs_params.pop("last_stream_position_to_compact", None)
     # Don't pop compaction_artifact_path as it's a computed property, not stored in the dict
 
-    return compact_partition(
+    compact_partition(
         source_partition_locator,
         destination_partition_locator,
         primary_keys,

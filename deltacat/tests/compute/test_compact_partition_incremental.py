@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+import uuid
 import pytest
+
 import pyarrow as pa
 import ray
 
@@ -8,7 +10,7 @@ from pytest_benchmark.fixture import BenchmarkFixture
 from deltacat.types.media import StorageType
 
 from deltacat.tests.compute.test_util_common import (
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKeyType,
 )
@@ -242,10 +244,12 @@ def test_compact_partition_incremental_main(
         partition_scheme_id="default_partition_scheme" if partition_keys else None,
         **ds_mock_kwargs,
     )
+    # Generate a destination partition ID based on the source partition
+    destination_partition_id = str(uuid.uuid4())
     destination_partition_locator: PartitionLocator = PartitionLocator.of(
         destination_table_stream.locator,
         converted_partition_values,
-        None,
+        destination_partition_id,
     )
     num_workers, worker_instance_cpu = DEFAULT_NUM_WORKERS, DEFAULT_WORKER_INSTANCE_CPUS
     total_cpus: int = num_workers * worker_instance_cpu
@@ -255,6 +259,12 @@ def test_compact_partition_incremental_main(
         ).pgs[0]
         if create_placement_group_param
         else None
+    )
+    all_column_names = metastore.get_table_version_column_names(
+        destination_table_stream.locator.table_locator.namespace,
+        destination_table_stream.locator.table_locator.table_name,
+        destination_table_stream.locator.table_version_locator.table_version,
+        catalog=catalog,
     )
     compact_partition_params = CompactPartitionParams.of(
         {
@@ -270,6 +280,7 @@ def test_compact_partition_incremental_main(
             "list_deltas_kwargs": {**ds_mock_kwargs, **{"equivalent_table_types": []}},
             "pg_config": pgm,
             "primary_keys": primary_keys,
+            "all_column_names": all_column_names,
             "read_kwargs_provider": read_kwargs_provider_param,
             "rebase_source_partition_locator": None,
             "rebase_source_partition_high_watermark": None,
@@ -284,7 +295,7 @@ def test_compact_partition_incremental_main(
         """
         This callable runs right before invoking the benchmark target function (compaction).
         This is needed as the benchmark module will invoke the target function multiple times
-        in a single test run, which can lead to non-idempotent behavior if RCFs are generated.
+        in a single test run, which can lead to non-idempotent behavior if RCIs are generated.
 
         Returns: args, kwargs
         """
@@ -302,24 +313,28 @@ def test_compact_partition_incremental_main(
             compact_partition_func(compact_partition_params)
         assert expected_terminal_exception_message in str(exc_info.value)
         return
-    rcf_file_s3_uri = benchmark.pedantic(
-        compact_partition_func, setup=_incremental_compaction_setup
-    )
+    benchmark.pedantic(compact_partition_func, setup=_incremental_compaction_setup)
 
-    # validate
-    round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
+    # validate - get RoundCompletionInfo from the compacted partition
+    round_completion_info: RoundCompletionInfo = get_rci_from_partition(
+        destination_partition_locator, metastore, catalog=catalog
+    )
     compacted_delta_locator: DeltaLocator = (
         round_completion_info.compacted_delta_locator
     )
 
+    # Get catalog root for audit file resolution
+    catalog_root = catalog.root
+
     compaction_audit_obj: Dict[str, Any] = read_audit_file(
-        round_completion_info.compaction_audit_url
+        round_completion_info.compaction_audit_url, catalog_root
     )
+
     compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
         **compaction_audit_obj
     )
 
-    # assert if RCF covers all files
+    # assert if RCI covers all files
     if compactor_version != CompactorVersion.V1.value:
         previous_end = None
         for start, end in round_completion_info.hb_index_to_entry_range.values():
@@ -363,7 +378,7 @@ def test_compact_partition_incremental_main(
             == destination_partition_locator.partition_values
             and source_partition.locator.stream_id
             == destination_partition_locator.stream_id
-        ), f"The source partition: {source_partition.locator.canonical_string} should match the destination partition: {destination_partition_locator.canonical_string}"
+        ), f"The source partition: {source_partition.locator} should match the destination partition: {destination_partition_locator}"
         assert (
             compacted_delta_locator.stream_id == source_partition.locator.stream_id
         ), "The compacted delta should be in the same stream as the source"

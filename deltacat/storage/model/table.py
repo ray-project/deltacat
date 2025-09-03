@@ -13,8 +13,9 @@ from deltacat.storage.model.namespace import (
 )
 from deltacat.storage.model.metafile import Metafile, MetafileRevisionInfo
 from deltacat.constants import TXN_DIR_NAME
+from deltacat.types.tables import TableProperty
 
-TableProperties = dict[str, Any]
+TableProperties = Dict[str, Any]
 
 
 class Table(Metafile):
@@ -125,6 +126,16 @@ class Table(Metafile):
         table_locator = self.locator
         if table_locator:
             table_locator.table_name = table_name
+
+    def url(self, catalog_name: Optional[str] = None) -> str:
+        return (
+            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/"
+            if catalog_name
+            else f"table://{self.namespace}/{self.table_name}/"
+        )
+
+    def read_table_property(self, property: TableProperty) -> Any:
+        return TableProperty.read_table_property(self, property)
 
     def to_serializable(self) -> Table:
         serializable = self

@@ -11,7 +11,7 @@ from deltacat.utils.pyarrow import MAX_INT_BYTES
 import deltacat.compute.compactor_v2.utils.merge as merge_utils
 from uuid import uuid4
 from deltacat import logs
-from typing import Callable, Iterator, List, Optional, Tuple
+from typing import Callable, Iterator, List, Optional, Tuple, Set
 from deltacat.compute.compactor_v2.model.merge_result import MergeResult
 from deltacat.compute.compactor_v2.model.merge_file_group import MergeFileGroup
 from deltacat.compute.compactor.model.materialize_result import MaterializeResult
@@ -94,9 +94,12 @@ def _build_incremental_table(
     # sort by delta file stream position now instead of sorting every row later
     is_delete = False
     for df_envelope in df_envelopes:
-        assert (
-            df_envelope.delta_type != DeltaType.APPEND
-        ), "APPEND type deltas are not supported. Kindly use UPSERT or DELETE"
+        # Allow APPEND, UPSERT, and DELETE delta types
+        assert df_envelope.delta_type in (
+            DeltaType.APPEND,
+            DeltaType.UPSERT,
+            DeltaType.DELETE,
+        ), "Only APPEND, UPSERT, and DELETE delta types are supported"
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
 
@@ -108,8 +111,26 @@ def _build_incremental_table(
             )
 
         hb_tables.append(table)
-    result = pa.concat_tables(hb_tables)
+    result = _concat_or_coerce_tables(hb_tables)
     return result
+
+
+def _concat_or_coerce_tables(all_tables: List[pa.Table]) -> pa.Table:
+    try:
+        return pa.concat_tables(all_tables)
+    except pa.ArrowInvalid:
+        # Fallback path: schema evolution needed - try PyArrow's built-in unification
+        if all_tables:
+            try:
+                return pa.concat_tables(
+                    all_tables, promote_options="permissive", unify_schemas=True
+                )
+            except (pa.ArrowInvalid, TypeError, pa.ArrowNotImplementedError):
+                # If PyArrow unification fails, re-raise the original error
+                raise
+        else:
+            # Empty table list - should not happen but handle gracefully
+            raise RuntimeError("Expected at least one table to merge, but found none.")
 
 
 def _merge_tables(
@@ -118,6 +139,7 @@ def _merge_tables(
     can_drop_duplicates: bool,
     hb_index: int,
     num_buckets: int,
+    original_fields: Set[str],
     compacted_table: Optional[pa.Table] = None,
 ) -> pa.Table:
     """
@@ -159,7 +181,7 @@ def _merge_tables(
             all_tables[incremental_idx], DeltaType.DELETE
         )
         # we need not drop duplicates
-        return pa.concat_tables(all_tables)
+        return _concat_or_coerce_tables(all_tables)
 
     all_tables = generate_pk_hash_column(all_tables, primary_keys=primary_keys)
 
@@ -168,6 +190,12 @@ def _merge_tables(
     incremental_table = drop_duplicates(
         all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
     )
+
+    # Always drop DELETE rows from incremental table
+    incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
+
+    # Default to using incremental records as-is, override only if merging is needed
+    incremental_data = incremental_table
 
     if compacted_table:
         compacted_table = all_tables[0]
@@ -194,22 +222,88 @@ def _merge_tables(
                 incremental_pk_hash_str, pa.large_string()
             )
 
-        records_to_keep = pc.invert(
-            pc.is_in(
-                compacted_pk_hash_str,
-                incremental_pk_hash_str,
-            )
+        records_to_update = pc.is_in(
+            compacted_pk_hash_str,
+            incremental_pk_hash_str,
         )
 
+        records_to_keep = pc.invert(records_to_update)
+
+        # Keep records that don't have updates
         result_table_list.append(compacted_table.filter(records_to_keep))
 
-    incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)
-    result_table_list.append(incremental_table)
+        # Override default if merging is needed
+        if pc.sum(records_to_update).as_py() > 0:  # There are records to update
+            old_records_to_update = compacted_table.filter(records_to_update)
+            # Perform partial UPSERT: merge old and new records field by field
+            incremental_data = _merge_records_partially(
+                old_records=old_records_to_update,
+                new_records=incremental_table,
+                original_fields=original_fields,
+            )
 
-    final_table = pa.concat_tables(result_table_list)
+    # Add the determined incremental data
+    result_table_list.append(incremental_data)
+
+    final_table = _concat_or_coerce_tables(result_table_list)
     final_table = final_table.drop([sc._PK_HASH_STRING_COLUMN_NAME])
 
     return final_table
+
+
+def _merge_records_partially(
+    old_records: pa.Table, new_records: pa.Table, original_fields: Set[str]
+) -> pa.Table:
+    """
+    Merge records field by field for partial UPSERT behavior. Fills missing
+    fields in new_records with values from old_records.
+
+    Args:
+        old_records: Records from the compacted table that need updates
+        new_records: New records with potential partial field updates
+
+    Returns:
+        Table with merged records where missing fields preserve old values
+    """
+    # Get field sets (excluding hash column which is used for joining)
+    old_fields = set(old_records.column_names) - {sc._PK_HASH_STRING_COLUMN_NAME}
+    new_fields = set(new_records.column_names) - {sc._PK_HASH_STRING_COLUMN_NAME}
+
+    # Find fields that are missing from new_records but exist in old_records
+    missing_fields = old_fields - new_fields
+
+    # Find fields that were auto-added by schema coercion (missing from original user data)
+    # These should be treated as missing fields and filled from old_records
+    auto_added_null_fields = set()
+
+    # Use definitive information about which fields were originally provided
+    # Any field that exists in both tables but was NOT in the original user data
+    # should be treated as auto-added by schema coercion
+    for field_name in old_fields & new_fields:  # Fields that exist in both
+        if field_name not in original_fields:
+            auto_added_null_fields.add(field_name)
+
+    # Combine missing fields with auto-added null fields
+    fields_to_fill = missing_fields | auto_added_null_fields
+
+    # Start with new_records and add missing fields from old_records
+    result_columns = {}
+
+    # Copy all existing columns from new_records
+    for column_name in new_records.column_names:
+        result_columns[column_name] = new_records[column_name]
+
+    # Fill in missing/auto-added null fields with values from old_records
+    for field_name in fields_to_fill:
+        # For missing fields, use the old values entirely
+        result_columns[field_name] = old_records[field_name]
+
+    # Create the enhanced new_records table with all fields filled
+    enhanced_new_records = pa.table(result_columns)
+
+    # Now we can return the enhanced table - it has all the fields with proper values
+    # Missing fields are filled with old values, explicitly null fields remain null
+    return enhanced_new_records
 
 
 def _validate_bucketing_spec_compliance(
@@ -217,11 +311,11 @@ def _validate_bucketing_spec_compliance(
     num_buckets: int,
     hb_index: int,
     primary_keys: List[str],
-    rcf: RoundCompletionInfo = None,
+    rci: Optional[RoundCompletionInfo] = None,
     log_prefix=None,
 ) -> None:
-    if rcf is not None:
-        message_prefix = f"{log_prefix}{rcf.compacted_delta_locator.namespace}.{rcf.compacted_delta_locator.table_name}.{rcf.compacted_delta_locator.table_version}.{rcf.compacted_delta_locator.partition_id}.{rcf.compacted_delta_locator.partition_values}"
+    if rci is not None:
+        message_prefix = f"{log_prefix}{rci.compacted_delta_locator.namespace}.{rci.compacted_delta_locator.table_name}.{rci.compacted_delta_locator.table_version}.{rci.compacted_delta_locator.partition_id}.{rci.compacted_delta_locator.partition_values}"
     else:
         message_prefix = f"{log_prefix}"
     pki_table = generate_pk_hash_column(
@@ -251,14 +345,16 @@ def _validate_bucketing_spec_compliance(
 
 def _download_compacted_table(
     hb_index: int,
-    rcf: RoundCompletionInfo,
+    rci: RoundCompletionInfo,
     primary_keys: List[str],
+    all_column_names: List[str],
+    compacted_delta_manifest: Optional[Manifest] = None,
     read_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    deltacat_storage=metastore,
+    deltacat_storage: metastore = metastore,
     deltacat_storage_kwargs: Optional[dict] = None,
 ) -> pa.Table:
     tables = []
-    hb_index_to_indices = rcf.hb_index_to_entry_range
+    hb_index_to_indices = rci.hb_index_to_entry_range
 
     if str(hb_index) not in hb_index_to_indices:
         return None
@@ -268,9 +364,16 @@ def _download_compacted_table(
     ), "indices should not be none and contains exactly two elements"
     for offset in range(indices[1] - indices[0]):
         table = deltacat_storage.download_delta_manifest_entry(
-            rcf.compacted_delta_locator,
+            Delta.of(
+                rci.compacted_delta_locator,
+                DeltaType.APPEND,
+                compacted_delta_manifest.meta,
+                None,
+                compacted_delta_manifest,
+            ),
             entry_index=(indices[0] + offset),
             file_reader_kwargs_provider=read_kwargs_provider,
+            all_column_names=all_column_names,
             **deltacat_storage_kwargs,
         )
 
@@ -291,10 +394,10 @@ def _download_compacted_table(
     if primary_keys and check_bucketing_spec:
         _validate_bucketing_spec_compliance(
             compacted_table,
-            rcf.hash_bucket_count,
+            rci.hash_bucket_count,
             hb_index,
             primary_keys,
-            rcf=rcf,
+            rci=rci,
             log_prefix=_EXISTING_VARIANT_LOG_PREFIX,
         )
     return compacted_table
@@ -304,14 +407,8 @@ def _copy_all_manifest_files_from_old_hash_buckets(
     hb_index_copy_by_reference: List[int],
     round_completion_info: RoundCompletionInfo,
     write_to_partition: Partition,
-    deltacat_storage=metastore,
-    deltacat_storage_kwargs: Optional[dict] = None,
+    compacted_manifest: Optional[Manifest] = None,
 ) -> List[MaterializeResult]:
-
-    compacted_delta_locator = round_completion_info.compacted_delta_locator
-    manifest = deltacat_storage.get_delta_manifest(
-        compacted_delta_locator, **deltacat_storage_kwargs
-    )
 
     manifest_entry_referenced_list = []
     materialize_result_list = []
@@ -329,27 +426,27 @@ def _copy_all_manifest_files_from_old_hash_buckets(
         for offset in range(indices[1] - indices[0]):
             entry_index = indices[0] + offset
             assert entry_index < len(
-                manifest.entries
-            ), f"entry index: {entry_index} >= {len(manifest.entries)}"
-            manifest_entry = manifest.entries[entry_index]
+                compacted_manifest.entries
+            ), f"entry index: {entry_index} >= {len(compacted_manifest.entries)}"
+            manifest_entry = compacted_manifest.entries[entry_index]
             manifest_entry_referenced_list.append(manifest_entry)
 
-        manifest = Manifest.of(
+        compacted_manifest = Manifest.of(
             entries=manifest_entry_referenced_list, uuid=str(uuid4())
         )
         delta = Delta.of(
             locator=DeltaLocator.of(write_to_partition.locator),
-            delta_type=DeltaType.UPSERT,
-            meta=manifest.meta,
-            manifest=manifest,
+            delta_type=DeltaType.APPEND,  # Compaction always produces APPEND deltas
+            meta=compacted_manifest.meta,
+            manifest=compacted_manifest,
             previous_stream_position=write_to_partition.stream_position,
             properties={},
         )
         referenced_pyarrow_write_result = PyArrowWriteResult.of(
             len(manifest_entry_referenced_list),
-            manifest.meta.source_content_length,
-            manifest.meta.content_length,
-            manifest.meta.record_count,
+            compacted_manifest.meta.source_content_length,
+            compacted_manifest.meta.content_length,
+            compacted_manifest.meta.record_count,
         )
         materialize_result = MaterializeResult.of(
             delta=delta,
@@ -374,6 +471,7 @@ def _has_previous_compacted_table(input: MergeInput, hb_idx: int) -> bool:
     """
     return (
         input.round_completion_info
+        and input.compacted_manifest is not None
         and input.round_completion_info.hb_index_to_entry_range
         and input.round_completion_info.hb_index_to_entry_range.get(str(hb_idx))
         is not None
@@ -391,6 +489,7 @@ def _can_copy_by_reference(
         not has_delete
         and not merge_file_group.dfe_groups
         and input.round_completion_info is not None
+        and input.compacted_manifest is not None
     )
 
     if input.disable_copy_by_reference:
@@ -489,9 +588,9 @@ def _compact_tables(
         delete_file_envelopes + df_envelopes
     )
     assert all(
-        dfe.delta_type in (DeltaType.UPSERT, DeltaType.DELETE)
+        dfe.delta_type in (DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
         for dfe in reordered_all_dfes
-    ), "All reordered delta file envelopes must be of the UPSERT or DELETE"
+    ), "All reordered delta file envelopes must be of the APPEND, UPSERT or DELETE"
     table = compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
@@ -499,7 +598,7 @@ def _compact_tables(
     for i, (delta_type, delta_type_sequence) in enumerate(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
-        if delta_type is DeltaType.UPSERT:
+        if delta_type is DeltaType.UPSERT or delta_type is DeltaType.APPEND:
             (table, incremental_len, deduped_records, merge_time,) = _apply_upserts(
                 input=input,
                 dfe_list=delta_type_sequence,
@@ -540,8 +639,9 @@ def _apply_upserts(
     prev_table=None,
 ) -> Tuple[pa.Table, int, int, int]:
     assert all(
-        dfe.delta_type is DeltaType.UPSERT for dfe in dfe_list
-    ), "All incoming delta file envelopes must of the DeltaType.UPSERT"
+        dfe.delta_type is DeltaType.UPSERT or dfe.delta_type is DeltaType.APPEND
+        for dfe in dfe_list
+    ), "All incoming delta file envelopes must of the DeltaType.UPSERT or DeltaType.APPEND"
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."
@@ -565,9 +665,10 @@ def _apply_upserts(
         table=table,
         primary_keys=input.primary_keys,
         can_drop_duplicates=input.drop_duplicates,
-        compacted_table=prev_table,
         hb_index=hb_idx,
         num_buckets=input.hash_bucket_count,
+        original_fields=input.original_fields,
+        compacted_table=prev_table,
     )
     deduped_records = hb_table_record_count - len(table)
     return table, incremental_len, deduped_records, merge_time
@@ -584,8 +685,7 @@ def _copy_manifests_from_hash_bucketing(
                 hb_index_copy_by_reference_ids,
                 input.round_completion_info,
                 input.write_to_partition,
-                input.deltacat_storage,
-                input.deltacat_storage_kwargs,
+                input.compacted_manifest,
             )
         )
         logger.info(
@@ -625,12 +725,13 @@ def _timed_merge(input: MergeInput) -> MergeResult:
             ):
                 hb_index_copy_by_ref_ids.append(merge_file_group.hb_index)
                 continue
-
             if _has_previous_compacted_table(input, merge_file_group.hb_index):
                 compacted_table = _download_compacted_table(
                     hb_index=merge_file_group.hb_index,
-                    rcf=input.round_completion_info,
+                    rci=input.round_completion_info,
                     primary_keys=input.primary_keys,
+                    all_column_names=input.all_column_names,
+                    compacted_delta_manifest=input.compacted_manifest,
                     read_kwargs_provider=input.read_kwargs_provider,
                     deltacat_storage=input.deltacat_storage,
                     deltacat_storage_kwargs=input.deltacat_storage_kwargs,

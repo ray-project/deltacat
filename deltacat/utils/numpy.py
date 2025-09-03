@@ -1,7 +1,7 @@
 from typing import List, Optional, Callable, Union, Dict, Any
 
+import pandas as pd
 import numpy as np
-import pyarrow as pa
 from fsspec import AbstractFileSystem
 import pyarrow.fs as pafs
 import logging
@@ -9,7 +9,7 @@ import logging
 from ray.data.datasource import FilenameProvider
 from deltacat.types.media import ContentType, ContentEncoding
 from deltacat.utils import pandas as pd_utils
-from deltacat.utils import pyarrow as pa_utils
+
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat import logs
 from deltacat.utils.performance import timed_invocation
@@ -27,28 +27,6 @@ def slice_ndarray(np_array: np.ndarray, max_len: Optional[int]) -> List[np.ndarr
 
     # Slice along the first dimension of the ndarray.
     return [np_array[i : i + max_len] for i in range(0, len(np_array), max_len)]
-
-
-def s3_file_to_ndarray(
-    s3_url: str,
-    content_type: str,
-    content_encoding: str,
-    column_names: Optional[List[str]] = None,
-    include_columns: Optional[List[str]] = None,
-    pd_read_func_kwargs_provider: Optional[ReadKwargsProvider] = None,
-    **s3_client_kwargs,
-) -> np.ndarray:
-    # TODO: Compare perf to s3 -> pyarrow -> pandas [Series/DataFrame] -> numpy
-    dataframe = pd_utils.s3_file_to_dataframe(
-        s3_url,
-        content_type,
-        content_encoding,
-        column_names,
-        include_columns,
-        pd_read_func_kwargs_provider,
-        **s3_client_kwargs,
-    )
-    return dataframe.to_numpy()
 
 
 def file_to_ndarray(
@@ -123,14 +101,64 @@ def ndarray_to_file(
     """
     Writes the given Numpy ndarray to a file.
     """
+    import pyarrow as pa
 
-    # PyArrow only supports 1D ndarrays, so convert to list of 1D arrays
-    np_arrays = [array for array in np_array]
-    pa_utils.table_to_file(
-        pa.table({"data": np_arrays}),
+    # Extract schema from kwargs if available
+    schema = kwargs.pop("schema", None)
+
+    # Convert to pandas DataFrame with proper column names if schema is available
+    if schema and isinstance(schema, pa.Schema):
+        if np_array.ndim == 1:
+            # 1D array: single column
+            column_names = [schema.names[0]] if schema.names else ["0"]
+            df = pd.DataFrame({column_names[0]: np_array})
+        elif np_array.ndim == 2:
+            # 2D array: multiple columns
+            column_names = (
+                schema.names
+                if len(schema.names) == np_array.shape[1]
+                else [f"{i}" for i in range(np_array.shape[1])]
+            )
+            df = pd.DataFrame(np_array, columns=column_names)
+        else:
+            raise ValueError(
+                f"NumPy arrays with {np_array.ndim} dimensions are not supported"
+            )
+    else:
+        # Fallback to generic column names
+        df = pd.DataFrame(np_array)
+
+    pd_utils.dataframe_to_file(
+        df,
         path,
         filesystem,
         block_path_provider,
         content_type,
         **kwargs,
     )
+
+
+def concat_ndarrays(arrays: List[np.ndarray]) -> Optional[np.ndarray]:
+    """
+    Concatenate a list of NumPy ndarrays into a single ndarray.
+
+    Args:
+        arrays: List of NumPy ndarrays to concatenate
+
+    Returns:
+        Concatenated NumPy ndarray, or None if input is empty
+    """
+    if arrays is None or not len(arrays):
+        return None
+    if len(arrays) == 1:
+        return next(iter(arrays))
+    return np.concatenate(arrays, axis=0)
+
+
+def append_column_to_ndarray(
+    np_array: np.ndarray,
+    column_name: str,
+    column_value: Any,
+) -> np.ndarray:
+    # Add a new column with value repeating for each row of np_array
+    return np.concatenate((np_array, np.full((len(np_array), 1), column_value)), axis=1)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, List, Union, Set
 
 import base64
 import json
@@ -21,6 +21,12 @@ from deltacat.constants import (
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
+)
+from deltacat.exceptions import (
+    ObjectNotFoundError,
+    ObjectDeletedError,
+    ObjectAlreadyExistsError,
+    ConcurrentModificationError,
 )
 from deltacat.storage.model.list_result import ListResult
 from deltacat.storage.model.locator import Locator
@@ -74,7 +80,7 @@ class MetafileRevisionInfo(dict):
     ) -> List[MetafileRevisionInfo]:
         if not success_txn_log_dir:
             err_msg = f"No transaction log found for: {revision_dir_path}."
-            raise ValueError(err_msg)
+            raise ObjectNotFoundError(err_msg)
         # find the latest committed revision of the target metafile
         sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=revision_dir_path,
@@ -123,7 +129,7 @@ class MetafileRevisionInfo(dict):
         :param revision_dir_path: root path of directory for metafile
         :param ignore_missing_revision: if True, will return
         MetafileRevisionInfo.undefined() on no revisions
-        :raises ValueError if no revisions are found AND
+        :raises ObjectNotFoundError if no revisions are found AND
         ignore_missing_revision=False
         """
         revisions = MetafileRevisionInfo.list_revisions(
@@ -136,7 +142,7 @@ class MetafileRevisionInfo(dict):
         )
         if not revisions and not ignore_missing_revision:
             err_msg = f"No committed revision found at {revision_dir_path}."
-            raise ValueError(err_msg)
+            raise ObjectNotFoundError(err_msg)
         return revisions[0] if revisions else MetafileRevisionInfo.undefined()
 
     @staticmethod
@@ -197,20 +203,20 @@ class MetafileRevisionInfo(dict):
             # update/delete fails if the last metafile was deleted
             if mri.txn_op_type == TransactionOperationType.DELETE:
                 if current_txn_op_type != TransactionOperationType.CREATE:
-                    raise ValueError(
+                    raise ObjectDeletedError(
                         f"Metafile {current_txn_op_type.value} failed "
                         f"for transaction ID {current_txn_id} failed. "
                         f"Metafile state at {mri.path} is deleted."
                     )
             # create fails unless the last metafile was deleted
             elif is_create_txn:
-                raise ValueError(
+                raise ObjectAlreadyExistsError(
                     f"Metafile creation for transaction ID {current_txn_id} "
                     f"failed. Metafile commit at {mri.path} already exists."
                 )
         elif not is_create_txn:
             # update/delete fails if the last metafile doesn't exist
-            raise ValueError(
+            raise ObjectNotFoundError(
                 f"Metafile {current_txn_op_type.value} failed for "
                 f"transaction ID {current_txn_id} failed. Metafile at "
                 f"{mri.path} does not exist."
@@ -237,7 +243,7 @@ class MetafileRevisionInfo(dict):
         :param current_txn_revision_file_path: Path to a metafile revision
         written by the current transaction to check for conflicts against.
         :param filesystem: Filesystem that can read the metafile revision.
-        :raises RuntimeError: if a conflict is found with another transaction.
+        :raises ConcurrentModificationError: if a conflict is found with another transaction.
         """
         revision_dir_path = posixpath.dirname(current_txn_revision_file_path)
         cur_txn_mri = MetafileRevisionInfo.parse(current_txn_revision_file_path)
@@ -265,7 +271,7 @@ class MetafileRevisionInfo(dict):
                 #  it 1-2 seconds per operation, and record known failed
                 #  transaction IDs)
                 if mri.txn_id > cur_txn_mri.txn_id:
-                    raise RuntimeError(
+                    raise ConcurrentModificationError(
                         f"Aborting transaction {cur_txn_mri.txn_id} due to "
                         f"concurrent conflict at "
                         f"{current_txn_revision_file_path} with transaction "
@@ -291,7 +297,7 @@ class MetafileRevisionInfo(dict):
                 #  that tells future transactions to only consider this txn
                 #  complete if the conflicting txn is not complete, etc.
                 if txn_end_time:
-                    raise RuntimeError(
+                    raise ConcurrentModificationError(
                         f"Aborting transaction {cur_txn_mri.txn_id} due to "
                         f"concurrent conflict at {revision_dir_path} with "
                         f"previously completed transaction {mri.txn_id} at "
@@ -314,7 +320,7 @@ class MetafileRevisionInfo(dict):
                 f"Expected to find at least 1 Metafile at "
                 f"{revision_dir_path} but found none."
             )
-            raise ValueError(err_msg)
+            raise ObjectNotFoundError(err_msg)
         return list(list(zip(*file_paths_and_sizes))[0]) if file_paths_and_sizes else []
 
     @property
@@ -609,9 +615,8 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
-        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
-    ) -> None:
+    ) -> Tuple[List[str], List[str]]:
         """
         Serialize and write this object to a metadata file within the context
         of a transaction.
@@ -621,10 +626,10 @@ class Metafile(dict):
         :param current_txn_op: Transaction operation for this write.
         :param current_txn_start_time: Transaction start time for this write.
         :param current_txn_id: Transaction ID for this write.
-        :param current_txn_type: Transaction type for this write.
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
+        :return: List of fully qualified paths to the metadata files written.
         """
         if not filesystem:
             catalog_root_dir, filesystem = resolve_path_and_filesystem(
@@ -632,13 +637,12 @@ class Metafile(dict):
                 filesystem=filesystem,
             )
 
-        self._write_metafile_revisions(
+        return self._write_metafile_revisions(
             catalog_root=catalog_root_dir,
             success_txn_log_dir=success_txn_log_dir,
             current_txn_op=current_txn_op,
             current_txn_start_time=current_txn_start_time,
             current_txn_id=current_txn_id,
-            current_txn_type=current_txn_type,
             filesystem=filesystem,
         )
 
@@ -690,22 +694,58 @@ class Metafile(dict):
         with filesystem.open_output_stream(path) as file:
             file.write(serialized)
 
+    @staticmethod
+    def _equivalent_minus_exclusions(d1: dict, d2: dict, exclusions: Set[str]) -> bool:
+        if d1.get("streamLocator") and d2.get("streamLocator"):
+            # stream locators should be equivalent minus streamId
+            exclusions.add("streamId")
+            if not Metafile._equivalent_minus_exclusions(
+                d1["streamLocator"], d2["streamLocator"], exclusions
+            ):
+                return False
+        if d1.get("partitionLocator") and d2.get("partitionLocator"):
+            # partition locators should be equivalent minus partitionId and parent stream locator streamId
+            exclusions.add("partitionId")
+            if not Metafile._equivalent_minus_exclusions(
+                d1["partitionLocator"], d2["partitionLocator"], exclusions
+            ):
+                return False
+        if d1.get("deltaLocator") and d2.get("deltaLocator"):
+            # delta locators should be equivalent minus parent partition/stream locator partitionId and streamId
+            if not Metafile._equivalent_minus_exclusions(
+                d1["deltaLocator"], d2["deltaLocator"], exclusions
+            ):
+                return False
+        for k, v in d1.items():
+            if k == "partitionValues" and not d2.get(k):
+                # consider [] and None equivalent unpartitioned values
+                v = v or d2.get(k)
+            if k not in exclusions and (k not in d2 or d2[k] != v):
+                return False
+        for k in d2.keys():
+            if k not in exclusions and k not in d1:
+                return False
+        return True
+
     def equivalent_to(self, other: Metafile) -> bool:
         """
         True if this Metafile is equivalent to the other Metafile minus its
-        unique ID and ancestor IDs.
+        unique ID, ancestor IDs, and other internal system properties.
 
         :param other: Metafile to compare to.
         :return: True if the other metafile is equivalent, false if not.
         """
-        identifiers = {"id", "ancestor_ids"}
-        for k, v in self.items():
-            if k not in identifiers and (k not in other or other[k] != v):
-                return False
-        for k in other.keys():
-            if k not in identifiers and k not in self:
-                return False
-        return True
+        identifiers = {
+            "id",
+            "ancestor_ids",
+            "previousStreamId",
+            "previousPartitionId",
+            "streamLocator",
+            "partitionLocator",
+            "deltaLocator",
+            "compactionRoundCompletionInfo",
+        }
+        return Metafile._equivalent_minus_exclusions(self, other, identifiers)
 
     @property
     def named_immutable_id(self) -> Optional[str]:
@@ -749,6 +789,20 @@ class Metafile(dict):
         if not _id:
             _id = self["id"] = str(uuid.uuid4())
         return _id
+
+    @property
+    def name(self) -> Optional[str]:
+        """
+        Returns the common name of this metafile. Used as a human
+        readable name for this metafile that is unique amongst its
+        siblings (e.g., namespace/table name, table version, stream
+        format, partition values + scheme ID, delta stream position).
+        """
+        return (
+            self.locator_alias.name.join()
+            if self.locator_alias
+            else self.locator.name.join()
+        )
 
     @property
     def locator(self) -> Optional[Locator]:
@@ -861,10 +915,8 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
-        except ValueError:
+        except ObjectNotFoundError:
             # one or more ancestor's don't exist - return an empty list result
-            # TODO(pdames): Raise and catch a more explicit AncestorNotFound
-            #  error type here.
             return ListResult.empty()
         try:
             locator = (
@@ -888,11 +940,11 @@ class Metafile(dict):
                 if locator
                 else None
             )
-        except ValueError:
-            # the metafile has been deleted
+        except ObjectNotFoundError:
+            # the metafile does not exist
             return ListResult.empty()
         if not immutable_id:
-            # the metafile does not exist
+            # the metafile has been deleted
             return ListResult.empty()
         revision_dir_path = posixpath.join(
             parent_root,
@@ -1036,7 +1088,7 @@ class Metafile(dict):
         Resolves the immutable metafile ID for the given locator.
 
         :return: Immutable ID read from mapping file. None if no mapping exists.
-        :raises: ValueError if the id is found but has been deleted
+        :raises: ObjectNotFoundError if the id is not found.
         """
         metafile_id = locator.name.immutable_id
         if not metafile_id:
@@ -1059,12 +1111,10 @@ class Metafile(dict):
             if not mri.exists():
                 return None
             if mri.txn_op_type == TransactionOperationType.DELETE:
-                err_msg = (
-                    f"Locator {locator} to metafile ID resolution failed "
-                    f"because its metafile ID mapping was deleted. You may "
-                    f"have an old reference to a renamed or deleted object."
-                )
-                raise ValueError(err_msg)
+                # Return None for DELETE revisions to allow graceful handling
+                # of renamed objects. The from_serializable mechanism can then
+                # restore the correct locator from parent metadata.
+                return None
             metafile_id = posixpath.splitext(mri.path)[1][1:]
         return metafile_id
 
@@ -1102,7 +1152,7 @@ class Metafile(dict):
             )
             if not ancestor_id:
                 err_msg = f"Ancestor does not exist: {parent_locator}."
-                raise ValueError(err_msg)
+                raise ObjectNotFoundError(err_msg)
             metafile_root = posixpath.join(
                 metafile_root,
                 ancestor_id,
@@ -1113,7 +1163,7 @@ class Metafile(dict):
                     filesystem=filesystem,
                 )
             except FileNotFoundError:
-                raise ValueError(
+                raise ObjectNotFoundError(
                     f"Ancestor {parent_locator} does not exist at: " f"{metafile_root}"
                 )
             ancestor_ids.append(ancestor_id)
@@ -1129,7 +1179,7 @@ class Metafile(dict):
         current_txn_start_time: int,
         current_txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
-    ) -> None:
+    ) -> str:
         name_resolution_dir_path = locator.path(parent_obj_path)
         # TODO(pdames): Don't write updated revisions with the same mapping as
         #  the latest revision.
@@ -1147,6 +1197,7 @@ class Metafile(dict):
         with filesystem.open_output_stream(revision_file_path):
             pass  # Just create an empty ID file to map to the locator
         current_txn_op.append_locator_write_path(revision_file_path)
+        return revision_file_path
 
     def _write_metafile_revision(
         self,
@@ -1157,7 +1208,7 @@ class Metafile(dict):
         current_txn_start_time: int,
         current_txn_id: str,
         filesystem: pyarrow.fs.FileSystem,
-    ) -> None:
+    ) -> str:
         mri = MetafileRevisionInfo.new_revision(
             revision_dir_path=revision_dir_path,
             current_txn_op_type=current_txn_op_type,
@@ -1171,6 +1222,7 @@ class Metafile(dict):
             filesystem=filesystem,
         )
         current_txn_op.append_metafile_write_path(mri.path)
+        return mri.path
 
     def _write_metafile_revisions(
         self,
@@ -1179,14 +1231,15 @@ class Metafile(dict):
         current_txn_op: deltacat.storage.model.transaction.TransactionOperation,
         current_txn_start_time: int,
         current_txn_id: str,
-        current_txn_type: deltacat.storage.model.transaction.TransactionType,
         filesystem: pyarrow.fs.FileSystem,
-    ) -> None:
+    ) -> Tuple[List[str], List[str]]:
         """
         Generates the fully qualified paths required to write this metafile as
         part of the given transaction. All paths returned will be based in the
         given root directory.
         """
+        metafile_write_paths = []
+        locator_write_paths = []
         parent_obj_path = self.parent_root_path(
             catalog_root=catalog_root,
             current_txn_start_time=current_txn_start_time,
@@ -1214,13 +1267,8 @@ class Metafile(dict):
         if mutable_dest_locator:
             # the locator name is mutable, so we need to persist a mapping
             # from the locator back to its immutable metafile ID
-            is_alter_update_txn_op = (
-                current_txn_type
-                == deltacat.storage.model.transaction.TransactionType.ALTER
-                and current_txn_op.type == TransactionOperationType.UPDATE
-            )
-            if is_alter_update_txn_op:
-                # mutable locator alter updates are used to either transition
+            if current_txn_op.type == TransactionOperationType.UPDATE:
+                # mutable locator updates are used to either transition
                 # staged streams/partitions (which have no locator alias) to
                 # committed (and create the locator alias) or to rename an
                 # existing mutable locator
@@ -1228,18 +1276,21 @@ class Metafile(dict):
                     if mutable_src_locator is not None:
                         # this update includes a rename
                         # mark the source metafile mapping as deleted
-                        current_txn_op.src_metafile._write_locator_to_id_map_file(
-                            locator=mutable_src_locator,
-                            success_txn_log_dir=success_txn_log_dir,
-                            parent_obj_path=parent_obj_path,
-                            current_txn_op=current_txn_op,
-                            current_txn_op_type=TransactionOperationType.DELETE,
-                            current_txn_start_time=current_txn_start_time,
-                            current_txn_id=current_txn_id,
-                            filesystem=filesystem,
+                        locator_write_path = (
+                            current_txn_op.src_metafile._write_locator_to_id_map_file(
+                                locator=mutable_src_locator,
+                                success_txn_log_dir=success_txn_log_dir,
+                                parent_obj_path=parent_obj_path,
+                                current_txn_op=current_txn_op,
+                                current_txn_op_type=TransactionOperationType.DELETE,
+                                current_txn_start_time=current_txn_start_time,
+                                current_txn_id=current_txn_id,
+                                filesystem=filesystem,
+                            )
                         )
+                        locator_write_paths.append(locator_write_path)
                     # mark the dest metafile mapping as created
-                    self._write_locator_to_id_map_file(
+                    locator_write_path = self._write_locator_to_id_map_file(
                         locator=mutable_dest_locator,
                         success_txn_log_dir=success_txn_log_dir,
                         parent_obj_path=parent_obj_path,
@@ -1249,13 +1300,14 @@ class Metafile(dict):
                         current_txn_id=current_txn_id,
                         filesystem=filesystem,
                     )
+                    locator_write_paths.append(locator_write_path)
                 # else this is a mutable locator no-op update - do nothing
             else:
-                # this is either a create/delete operation or an
-                # update operation that is part of an overwrite/restate
+                # this is either a create/delete operation or a
+                # replace operation that is part of an overwrite/restate
                 # transaction (e.g. committing a staged replacement for a
                 # previously committed stream/partition).
-                self._write_locator_to_id_map_file(
+                locator_write_path = self._write_locator_to_id_map_file(
                     locator=mutable_dest_locator,
                     success_txn_log_dir=success_txn_log_dir,
                     parent_obj_path=parent_obj_path,
@@ -1265,13 +1317,15 @@ class Metafile(dict):
                     current_txn_id=current_txn_id,
                     filesystem=filesystem,
                 )
+                locator_write_paths.append(locator_write_path)
         metafile_revision_dir_path = posixpath.join(
             parent_obj_path,
             self.id,
             REVISION_DIR_NAME,
         )
         if (
-            current_txn_op.type == TransactionOperationType.UPDATE
+            current_txn_op.type
+            in [TransactionOperationType.UPDATE, TransactionOperationType.REPLACE]
             and current_txn_op.src_metafile.id != current_txn_op.dest_metafile.id
         ):
             # TODO(pdames): block operations including both a rename & replace?
@@ -1282,7 +1336,7 @@ class Metafile(dict):
                 current_txn_op.src_metafile.id,
                 REVISION_DIR_NAME,
             )
-            self._write_metafile_revision(
+            metafile_write_path = self._write_metafile_revision(
                 success_txn_log_dir=success_txn_log_dir,
                 revision_dir_path=src_metafile_revision_dir_path,
                 current_txn_op=current_txn_op,
@@ -1291,9 +1345,10 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
+            metafile_write_paths.append(metafile_write_path)
             try:
                 # mark the dest metafile as created
-                self._write_metafile_revision(
+                metafile_write_path = self._write_metafile_revision(
                     success_txn_log_dir=success_txn_log_dir,
                     revision_dir_path=metafile_revision_dir_path,
                     current_txn_op=current_txn_op,
@@ -1302,14 +1357,13 @@ class Metafile(dict):
                     current_txn_id=current_txn_id,
                     filesystem=filesystem,
                 )
-            except ValueError as e:
-                # TODO(pdames): raise/catch a DuplicateMetafileCreate exception.
-                if "already exists" not in str(e):
-                    raise e
+                metafile_write_paths.append(metafile_write_path)
+            except ObjectAlreadyExistsError:
                 # src metafile is being replaced by an existing dest metafile
+                pass
 
         else:
-            self._write_metafile_revision(
+            metafile_write_path = self._write_metafile_revision(
                 success_txn_log_dir=success_txn_log_dir,
                 revision_dir_path=metafile_revision_dir_path,
                 current_txn_op=current_txn_op,
@@ -1318,6 +1372,8 @@ class Metafile(dict):
                 current_txn_id=current_txn_id,
                 filesystem=filesystem,
             )
+            metafile_write_paths.append(metafile_write_path)
+        return metafile_write_paths, locator_write_paths
 
     def _list_metafiles(
         self,

@@ -41,7 +41,7 @@ from deltacat.experimental.storage.iceberg.model import (
     NamespaceMapper,
     TableMapper,
 )
-from deltacat.types.media import ContentType, StorageType, TableType
+from deltacat.types.media import ContentType, StorageType, DatasetType
 from deltacat.utils.common import ReadKwargsProvider
 
 from pyiceberg.catalog import Catalog
@@ -281,7 +281,7 @@ def get_latest_delta(
 
 def download_delta(
     delta_like: Union[Delta, DeltaLocator],
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     storage_type: StorageType = StorageType.DISTRIBUTED,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -303,7 +303,7 @@ def download_delta(
 def download_delta_manifest_entry(
     delta_like: Union[Delta, DeltaLocator],
     entry_index: int,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,
@@ -603,6 +603,8 @@ def stage_delta(
     properties: Optional[DeltaProperties] = None,
     s3_table_writer_kwargs: Optional[Dict[str, Any]] = None,
     content_type: ContentType = ContentType.PARQUET,
+    schema: Optional[Schema] = None,
+    sort_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Delta:

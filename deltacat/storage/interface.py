@@ -31,11 +31,12 @@ from deltacat.storage import (
     TableVersionProperties,
 )
 from deltacat.storage.model.manifest import Manifest
+from deltacat.storage.model.partition import UNKNOWN_PARTITION_ID
 from deltacat.types.media import (
     ContentType,
     DistributedDatasetType,
     StorageType,
-    TableType,
+    DatasetType,
 )
 from deltacat.utils.common import ReadKwargsProvider
 
@@ -206,7 +207,7 @@ def get_latest_delta(
 
 def download_delta(
     delta_like: Union[Delta, DeltaLocator],
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     storage_type: StorageType = StorageType.DISTRIBUTED,
     max_parallelism: Optional[int] = None,
     columns: Optional[List[str]] = None,
@@ -229,7 +230,7 @@ def download_delta(
 def download_delta_manifest_entry(
     delta_like: Union[Delta, DeltaLocator],
     entry_index: int,
-    table_type: TableType = TableType.PYARROW,
+    table_type: DatasetType = DatasetType.PYARROW,
     columns: Optional[List[str]] = None,
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     *args,
@@ -289,9 +290,9 @@ def create_table_version(
     namespace: str,
     table_name: str,
     table_version: Optional[str] = None,
+    lifecycle_state: Optional[LifecycleState] = LifecycleState.CREATED,
     schema: Optional[Schema] = None,
     partition_scheme: Optional[PartitionScheme] = None,
-    # TODO(pdames): rename to `sort_scheme`
     sort_keys: Optional[SortScheme] = None,
     table_version_description: Optional[str] = None,
     table_version_properties: Optional[TableVersionProperties] = None,
@@ -300,9 +301,9 @@ def create_table_version(
     supported_content_types: Optional[List[ContentType]] = None,
     *args,
     **kwargs,
-) -> Tuple[Optional[Table], TableVersion, Stream]:
+) -> Tuple[Table, TableVersion, Stream]:
     """
-    Create a table version with an unreleased lifecycle state and an empty delta
+    Create a table version with the given or CREATED lifecycle state and an empty delta
     stream. Table versions may be schemaless and unpartitioned to improve write
     performance, or have their writes governed by a schema and partition scheme
     to improve data consistency and read performance.
@@ -315,6 +316,20 @@ def create_table_version(
     raise NotImplementedError("create_table_version not implemented")
 
 
+def create_table(
+    namespace: str,
+    table_name: str,
+    description: Optional[str] = None,
+    properties: Optional[TableProperties] = None,
+    *args,
+    **kwargs,
+) -> Table:
+    """
+    Create a new table. Raises an error if the given table already exists.
+    """
+    raise NotImplementedError("create_table not implemented")
+
+
 def update_table(
     namespace: str,
     table_name: str,
@@ -323,7 +338,7 @@ def update_table(
     new_table_name: Optional[str] = None,
     *args,
     **kwargs,
-) -> None:
+) -> Table:
     """
     Update table metadata describing the table versions it contains. By default,
     a table's properties are empty, and its description is equal to that given
@@ -346,7 +361,7 @@ def update_table_version(
     sort_keys: Optional[SortScheme] = None,
     *args,
     **kwargs,
-) -> None:
+) -> Tuple[Optional[Table], TableVersion, Optional[Stream]]:
     """
     Update a table version. Notably, updating an unreleased table version's
     lifecycle state to 'active' telegraphs that it is ready for external
@@ -411,15 +426,15 @@ def delete_stream(
 
 def delete_table(
     namespace: str,
-    name: str,
+    table_name: str,
     purge: bool = False,
     *args,
     **kwargs,
 ) -> None:
     """
-    Drops the given table and all its contents (table versions, streams, partitions,
-    and deltas). If purge is True, also removes all data files associated with the table.
-    Raises an error if the given table does not exist.
+    Drops the given table from the catalog. If purge is True, also removes
+    all data files associated with the table. Raises an error if the given table
+    does not exist.
     """
     raise NotImplementedError("delete_table not implemented")
 
@@ -431,10 +446,9 @@ def delete_namespace(
     **kwargs,
 ) -> None:
     """
-    Drops a table namespace and all its contents. If purge is True, then all
-    tables, table versions, and deltas will be deleted. Otherwise, the namespace
-    will be dropped only if it is empty. Raises an error if the given namespace
-    does not exist.
+    Drops the given namespace from the catalog. If purge is True, also removes
+    all data files associated with the namespace. Raises an error if the given
+    namespace does not exist.
     """
     raise NotImplementedError("drop_namespace not implemented")
 
@@ -510,6 +524,7 @@ def stage_partition(
 def commit_partition(
     partition: Partition,
     previous_partition: Optional[Partition] = None,
+    expected_previous_partition_id: Optional[str] = UNKNOWN_PARTITION_ID,
     *args,
     **kwargs,
 ) -> Partition:
@@ -591,6 +606,8 @@ def stage_delta(
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
+    schema: Optional[Schema] = None,
+    sort_scheme_id: Optional[str] = None,
     *args,
     **kwargs,
 ) -> Delta:

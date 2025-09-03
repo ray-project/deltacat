@@ -1,6 +1,7 @@
 import logging
 import ray
 import functools
+from typing import List
 from deltacat.compute.compactor_v2.constants import (
     TASK_MAX_PARALLELISM,
     MAX_PARQUET_METADATA_SIZE,
@@ -14,7 +15,7 @@ from deltacat.storage import (
     metastore,
 )
 from typing import Dict, Optional, Any
-from deltacat.types.media import TableType
+from deltacat.types.media import DatasetType
 from deltacat.types.media import ContentType
 from deltacat.types.partial_download import PartialParquetParameters
 from deltacat.exceptions import RetryableError
@@ -74,6 +75,7 @@ class AppendContentTypeParamsCache:
 def _download_parquet_metadata_for_manifest_entry(
     delta: Delta,
     entry_index: int,
+    all_column_names: List[str],
     deltacat_storage: metastore,
     deltacat_storage_kwargs: Optional[Dict[Any, Any]] = {},
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
@@ -86,11 +88,13 @@ def _download_parquet_metadata_for_manifest_entry(
             "'file_reader_kwargs_provider' is also present in deltacat_storage_kwargs. Removing to prevent multiple values for keyword argument"
         )
         deltacat_storage_kwargs.pop("file_reader_kwargs_provider")
+
     pq_file = deltacat_storage.download_delta_manifest_entry(
         delta,
         entry_index=entry_index,
-        table_type=TableType.PYARROW_PARQUET,
+        table_type=DatasetType.PYARROW_PARQUET,
         file_reader_kwargs_provider=file_reader_kwargs_provider,
+        all_column_names=all_column_names,
         **deltacat_storage_kwargs,
     )
 
@@ -104,9 +108,10 @@ def _download_parquet_metadata_for_manifest_entry(
 
 def append_content_type_params(
     delta: Delta,
+    all_column_names: List[str],
     task_max_parallelism: int = TASK_MAX_PARALLELISM,
     max_parquet_meta_size_bytes: Optional[int] = MAX_PARQUET_METADATA_SIZE,
-    deltacat_storage=metastore,
+    deltacat_storage: metastore = metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
 ) -> bool:
@@ -172,13 +177,19 @@ def append_content_type_params(
         max_parquet_meta_size_bytes=max_parquet_meta_size_bytes,
     )
 
+    # create a copy of deltacat_storage_kwargs without transaction key
+    deltacat_storage_kwargs_copy = {
+        k: v for k, v in deltacat_storage_kwargs.items() if k != "transaction"
+    }
+
     def input_provider(index, item) -> Dict:
         return {
             "file_reader_kwargs_provider": file_reader_kwargs_provider,
-            "deltacat_storage_kwargs": deltacat_storage_kwargs,
+            "deltacat_storage_kwargs": deltacat_storage_kwargs_copy,
             "deltacat_storage": deltacat_storage,
             "delta": delta,
             "entry_index": item,
+            "all_column_names": all_column_names,
         }
 
     logger.info(

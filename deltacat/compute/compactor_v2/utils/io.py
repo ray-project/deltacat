@@ -67,6 +67,11 @@ def discover_deltas(
         f"Length of input deltas from delta source table is {len(delta_source_incremental_deltas)}"
         f" from ({previous_compacted_high_watermark}, {last_stream_position_to_compact}]"
     )
+    logger.info(f"DEBUG: source_partition_locator = {source_partition_locator}")
+    logger.info(
+        f"DEBUG: source_partition_locator.partition_id = {getattr(source_partition_locator, 'partition_id', 'NO_PARTITION_ID')}"
+    )
+    logger.info(f"DEBUG: total input deltas found = {len(result)}")
 
     if rebase_source_partition_locator:
         previous_compacted_deltas = io_v1._discover_deltas(
@@ -93,6 +98,7 @@ def create_uniform_input_deltas(
     hash_bucket_count: int,
     compaction_audit: CompactionSessionAuditInfo,
     compact_partition_params: CompactPartitionParams,
+    all_column_names: List[str],
     deltacat_storage=metastore,
     deltacat_storage_kwargs: Optional[Dict[str, Any]] = {},
 ) -> List[DeltaAnnotated]:
@@ -113,6 +119,7 @@ def create_uniform_input_deltas(
             )
             append_content_type_params(
                 delta=delta,
+                all_column_names=all_column_names,
                 deltacat_storage=deltacat_storage,
                 deltacat_storage_kwargs=deltacat_storage_kwargs,
                 task_max_parallelism=compact_partition_params.task_max_parallelism,

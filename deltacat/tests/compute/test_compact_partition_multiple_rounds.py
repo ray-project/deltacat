@@ -12,10 +12,10 @@ from deltacat.tests.compute.test_util_constant import (
     DEFAULT_WORKER_INSTANCE_CPUS,
 )
 from deltacat.tests.compute.test_util_common import (
-    get_rcf,
+    get_rci_from_partition,
     read_audit_file,
     PartitionKey,
-    get_compacted_delta_locator_from_rcf,
+    get_compacted_delta_locator_from_partition,
 )
 from deltacat.tests.compute.test_util_common import (
     multiple_rounds_create_src_w_deltas_destination_rebase_w_deltas_strategy_main,
@@ -223,7 +223,12 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         partition_scheme_id=rebased_table_stream.partition_scheme.id,
         **ds_mock_kwargs,
     )
-
+    all_column_names = metastore.get_table_version_column_names(
+        rebased_table_stream.locator.table_locator.namespace,
+        rebased_table_stream.locator.table_locator.table_name,
+        rebased_table_stream.locator.table_version_locator.table_version,
+        catalog=ds_mock_kwargs.get("inner"),
+    )
     total_cpus = DEFAULT_NUM_WORKERS * DEFAULT_WORKER_INSTANCE_CPUS
     pgm = None
     if create_placement_group_param:
@@ -248,6 +253,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
                 "object_store": FileObjectStore(test_dir),
                 "pg_config": pgm,
                 "primary_keys": primary_keys,
+                "all_column_names": all_column_names,
                 "read_kwargs_provider": read_kwargs_provider_param,
                 "rebase_source_partition_locator": source_partition.locator,
                 "rebase_source_partition_high_watermark": rebased_partition.stream_position,
@@ -274,18 +280,25 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         object_store_clear_spy = mocker.spy(FileObjectStore, "clear")
 
         # execute
-        rcf_file_s3_uri = benchmark(compact_partition_func, compact_partition_params)
+        benchmark(compact_partition_func, compact_partition_params)
 
-        round_completion_info: RoundCompletionInfo = get_rcf(rcf_file_s3_uri)
+        # Get RoundCompletionInfo from the compacted partition
+        round_completion_info: RoundCompletionInfo = get_rci_from_partition(
+            rebased_partition.locator, metastore, catalog=ds_mock_kwargs.get("inner")
+        )
+
+        # Get catalog root for audit file resolution
+        catalog = ds_mock_kwargs.get("inner")
+        catalog_root = catalog.root
 
         compaction_audit_obj: Dict[str, Any] = read_audit_file(
-            round_completion_info.compaction_audit_url
+            round_completion_info.compaction_audit_url, catalog_root
         )
         compaction_audit: CompactionSessionAuditInfo = CompactionSessionAuditInfo(
             **compaction_audit_obj
         )
 
-        # assert if RCF covers all files
+        # assert if RCI covers all files
         # multiple rounds feature is only supported in V2 compactor
         previous_end = None
         for start, end in round_completion_info.hb_index_to_entry_range.values():
@@ -299,8 +312,12 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination_ma
         assert (
             execute_compaction_result_spy.call_args.args[-1] is False
         ), "Table version erroneously marked as in-place compacted!"
-        compacted_delta_locator: DeltaLocator = get_compacted_delta_locator_from_rcf(
-            rcf_file_s3_uri
+        compacted_delta_locator: DeltaLocator = (
+            get_compacted_delta_locator_from_partition(
+                rebased_partition.locator,
+                metastore,
+                catalog=ds_mock_kwargs.get("inner"),
+            )
         )
         tables = metastore.download_delta(
             compacted_delta_locator, storage_type=StorageType.LOCAL, **ds_mock_kwargs
