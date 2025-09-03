@@ -32,6 +32,10 @@ DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table**
 
 ### Quick Start
 
+Install DeltaCAT with: `pip install deltacat`
+
+Then run this script to create and read your first table:
+
 ```python
 import deltacat as dc
 import pandas as pd
