@@ -105,7 +105,12 @@ def run(
 
 if __name__ == "__main__":
     """
-    # Run this example through a command of the form:
+    This example shows how to submit jobs to a remote Ray cluster that indexes source files into arbitrary destinations with 
+    optional file format conversion using DeltaCAT URLs. It provides the option to run multiple sequential or concurrent jobs 
+    for benchmarking.
+
+    # For example, the following command launches a remote Ray Cluster on AWS, downloads an external OpenAlex dataset text file, 
+    # converts it to Parquet, and writes it back to AWS S3. It submits 100 jobs in parallel, each with a timeout of 90 seconds:
     $ python ./deltacat/examples/job_runner.py -- \
     $ --source text+s3://openalex-mag-format/data_dump_v1/2022-07-08/nlp/PaperAbstractsInvertedIndex.txt_part31 \
     $ --dest parquet+s3://deltacat-example-output/openalex/PaperAbstractsInvertedIndex.part31.parquet \

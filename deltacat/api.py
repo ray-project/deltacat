@@ -83,8 +83,8 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def copy(
-    src: DeltaCatUrl,
-    dst: DeltaCatUrl,
+    src: Union[DeltaCatUrl, str],
+    dst: Union[DeltaCatUrl, str],
     *,
     transforms: List[Callable[[Dataset, DeltaCatUrl], Dataset]] = [],
     extension_to_memory_multiplier: Dict[str, float] = {
@@ -153,6 +153,10 @@ def copy(
     Returns:
         None
     """
+    if isinstance(src, str):
+        src = DeltaCatUrl(src)
+    if isinstance(dst, str):
+        dst = DeltaCatUrl(dst)
     if src.is_deltacat_catalog_url() or dst.is_deltacat_catalog_url():
         return _copy_dc(src, dst, recursive=src.url.endswith("/**"))
     else:
@@ -305,12 +309,14 @@ class CustomReadKwargsProvider(ReadKwargsProvider):
 
 
 def list(
-    url: DeltaCatUrl,
+    url: Union[DeltaCatUrl, str],
     *,
     recursive: bool = False,
     dataset_type: Optional[DatasetType] = None,
     **kwargs,
 ) -> Union[List[Metafile], LocalTable, DistributedDataset]:
+    if isinstance(url, str):
+        url = DeltaCatUrl(url)
     if not url.is_deltacat_catalog_url():
         raise NotImplementedError("List only supports DeltaCAT Catalog URLs.")
     if dataset_type in DatasetType.distributed():
@@ -346,20 +352,24 @@ def list(
 
 
 def get(
-    url,
+    url: Union[DeltaCatUrl, str],
     *args,
     **kwargs,
 ) -> Union[Metafile, Dataset]:
+    if isinstance(url, str):
+        url = DeltaCatUrl(url)
     reader = DeltaCatUrlReader(url)
     return reader.read(*args, **kwargs)
 
 
 def put(
-    url: DeltaCatUrl,
+    url: Union[DeltaCatUrl, str],
     metafile: Optional[Metafile] = None,
     *args,
     **kwargs,
 ) -> Union[Metafile, str]:
+    if isinstance(url, str):
+        url = DeltaCatUrl(url)
     writer = DeltaCatUrlWriter(url, metafile=metafile)
     return writer.write(*args, **kwargs)
 
