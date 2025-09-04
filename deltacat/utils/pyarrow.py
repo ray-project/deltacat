@@ -1525,7 +1525,7 @@ def concat_tables(
         else:
             converted_tables.append(table)
 
-    return pa.concat_tables(converted_tables)
+    return pa.concat_tables(converted_tables, promote_options="permissive")
 
 
 def delta_manifest_to_table(

@@ -408,7 +408,7 @@ def concat_dataframes(dataframes: List[pd.DataFrame]) -> Optional[pd.DataFrame]:
         return None
     if len(dataframes) == 1:
         return next(iter(dataframes))
-    return pd.concat(dataframes, axis=0, copy=False)
+    return pd.concat(dataframes, axis=0, copy=False, ignore_index=True)
 
 
 def append_column_to_dataframe(

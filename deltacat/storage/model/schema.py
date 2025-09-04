@@ -23,6 +23,7 @@ from deltacat.exceptions import (
     SchemaValidationError,
 )
 from deltacat.storage.model.types import (
+    LocalTable,
     SchemaConsistencyType,
     SortOrder,
     NullOrder,
@@ -30,6 +31,7 @@ from deltacat.storage.model.types import (
 from deltacat.types.tables import (
     get_table_length,
     to_pyarrow,
+    get_table_column_names,
     from_pyarrow,
     get_dataset_type,
     SchemaEvolutionMode,
@@ -1174,8 +1176,7 @@ class Schema(dict):
 
     def coerce(
         self,
-        dataset: Union[pa.Table, pd.DataFrame, np.ndarray, Any],
-        manifest_entry_schema: Optional[Schema] = None,
+        dataset: LocalTable,
     ) -> Union[pa.Table, pd.DataFrame, np.ndarray, Any]:
         """Coerce a dataset to match this schema using field type promotion.
 
@@ -1196,7 +1197,6 @@ class Schema(dict):
 
         Args:
             dataset: Dataset to coerce to this schema
-            manifest_entry_schema: Original manifest entry schema used to write the dataset.
 
         Returns:
             Dataset of the same type, coerced to match this schema.
@@ -1208,10 +1208,23 @@ class Schema(dict):
             # No fields defined in schema, return original dataset
             return dataset
 
+        # Create pyarrow schema of fields common to the table schema and input dataset
+        common_fields = []
+        dataset_column_names = [
+            name.lower() for name in get_table_column_names(dataset)
+        ]
+        for field in self.fields:
+            if field.arrow.name.lower() in dataset_column_names:
+                common_fields.append(field.arrow)
+        # If no common fields, return original dataset
+        if not common_fields:
+            return dataset
+        common_schema = pa.schema(common_fields)
+
         # Convert dataset to PyArrow table for processing
         pa_table = to_pyarrow(
             dataset,
-            schema=manifest_entry_schema.arrow if manifest_entry_schema else None,
+            schema=common_schema,
         )
 
         # Process columns using field coercion

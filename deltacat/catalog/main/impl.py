@@ -446,7 +446,9 @@ def write_to_table(
                 "transaction": write_transaction,  # Pass transaction to update_table_version
             }
 
-            _get_storage(**catalog_kwargs).update_table_version(
+            _, updated_table_version_obj, _ = _get_storage(
+                **catalog_kwargs
+            ).update_table_version(
                 namespace=namespace,
                 table_name=table,
                 table_version=table_version_obj.table_version,
@@ -465,9 +467,9 @@ def write_to_table(
             content_type,
             commit_staged_partition,
             table_version_obj,
+            updated_table_version_obj if schema_modified else None,
             namespace,
             table,
-            schema=updated_schema if schema_modified else table_version_obj.schema,
             original_fields=original_fields,
             **filtered_kwargs,
         )
@@ -743,61 +745,6 @@ def _convert_numpy_for_schema_validation(
         )
 
 
-def _build_entry_index_to_schema_mapping(
-    qualified_deltas: List[Delta], table_version_obj, **kwargs
-) -> List[Schema]:
-    """Build a mapping from manifest entry index to schema for reading operations.
-
-    Args:
-        qualified_deltas: List of deltas to process
-        table_version_obj: Table version containing schemas
-        **kwargs: Additional arguments passed to storage operations
-
-    Returns:
-        List mapping each manifest entry index to its corresponding schema
-
-    Raises:
-        ValueError: If a manifest's schema ID is not found in table version schemas
-    """
-    entry_index_to_schema = []
-    for delta in qualified_deltas:
-        if delta.manifest:
-            manifest = delta.manifest
-        else:
-            # Fetch manifest from storage
-            manifest = _get_storage(**kwargs).get_delta_manifest(
-                delta.locator,
-                **kwargs,
-            )
-        # Map manifest entry index to schema ID
-        schema_id = manifest.meta.schema_id
-
-        # Find the schema that matches this manifest's schema_id
-        matching_schema = None
-        if table_version_obj.schemas:
-            for schema in table_version_obj.schemas:
-                if schema.id == schema_id:
-                    matching_schema = schema
-                    break
-
-        if matching_schema is None:
-            available_schema_ids = (
-                [s.id for s in table_version_obj.schemas]
-                if table_version_obj.schemas
-                else []
-            )
-            raise ValueError(
-                f"Manifest schema ID {schema_id} not found in table version schemas. "
-                f"Available schema IDs: {available_schema_ids}. "
-            )
-
-        # Add the matching schema for each entry in this manifest
-        for _ in range(len(manifest.entries)):
-            entry_index_to_schema.append(matching_schema)
-
-    return entry_index_to_schema
-
-
 def _convert_data_if_needed(data: Dataset) -> Dataset:
     """Convert unsupported data types to supported ones."""
     if isinstance(data, daft.DataFrame):
@@ -950,10 +897,10 @@ def _stage_commit_and_compact(
     delta_type: DeltaType,
     content_type: ContentType,
     commit_staged_partition: bool,
-    table_version_obj: TableVersion,
+    original_table_version_obj: TableVersion,
+    updated_table_version_obj: Optional[TableVersion],
     namespace: str,
     table: str,
-    schema: Schema,
     original_fields: Set[str],
     **kwargs,
 ) -> None:
@@ -961,6 +908,12 @@ def _stage_commit_and_compact(
     # Remove schema from kwargs to avoid duplicate parameter conflict
     # We explicitly pass the correct schema parameter
     kwargs.pop("schema", None)
+
+    resolved_table_version_obj = (
+        updated_table_version_obj
+        if updated_table_version_obj
+        else original_table_version_obj
+    )
 
     # Stage a delta with the data
     delta = _get_storage(**kwargs).stage_delta(
@@ -971,7 +924,7 @@ def _stage_commit_and_compact(
         author=ManifestAuthor.of(
             name="deltacat.write_to_table", version=dc.__version__
         ),
-        schema=schema,
+        schema=resolved_table_version_obj.schema,
         **kwargs,
     )
 
@@ -982,25 +935,26 @@ def _stage_commit_and_compact(
 
     # Check compaction trigger decision
     should_compact = _trigger_compaction(
-        table_version_obj,
+        resolved_table_version_obj,
         delta,
         TableReadOptimizationLevel.MAX,
         **kwargs,
     )
     if should_compact:
         # Run V2 compaction session to merge or delete data
-        if table_version_obj.schema:
-            all_column_names = table_version_obj.schema.arrow.names
-        else:
+        if not original_table_version_obj.schema:
             raise RuntimeError("Table version schema is required to run compaction.")
+        original_table_version_column_names = (
+            original_table_version_obj.schema.arrow.names
+        )
         _run_compaction_session(
-            table_version_obj=table_version_obj,
+            table_version_obj=resolved_table_version_obj,
             partition=partition,
             latest_delta_stream_position=delta.stream_position,
             namespace=namespace,
             table=table,
             original_fields=original_fields,
-            all_column_names=all_column_names,
+            original_table_version_column_names=original_table_version_column_names,
             **kwargs,
         )
 
@@ -1232,7 +1186,7 @@ def _run_compaction_session(
     namespace: str,
     table: str,
     original_fields: Set[str],
-    all_column_names: List[str],
+    original_table_version_column_names: List[str],
     **kwargs,
 ) -> None:
     """
@@ -1254,7 +1208,8 @@ def _run_compaction_session(
         # Extract compaction configuration
         primary_keys = _get_compaction_primary_keys(table_version_obj)
         hash_bucket_count = _get_compaction_hash_bucket_count(
-            partition, table_version_obj
+            partition,
+            table_version_obj,
         )
 
         # Create compaction parameters
@@ -1265,7 +1220,7 @@ def _run_compaction_session(
             primary_keys,
             hash_bucket_count,
             original_fields=original_fields,
-            all_column_names=all_column_names,
+            all_column_names=original_table_version_column_names,
             **kwargs,
         )
 
@@ -1499,10 +1454,6 @@ def _download_and_process_table_data(
             return _convert_pandas_to_numpy(result)
         return result
 
-    # Get schemas for each manifest entry
-    entry_index_to_schema = _build_entry_index_to_schema_mapping(
-        qualified_deltas, table_version_obj, **kwargs
-    )
     # Standard non-empty schema table read path - merge deltas and download data
     merged_delta = Delta.merge_deltas(qualified_deltas)
 
@@ -1570,11 +1521,10 @@ def _download_and_process_table_data(
                 result,
                 table_type,
                 table_version_obj.schema,
-                entry_index_to_schema,
                 file_path_column,
                 columns,
             )
-    # Convert to numpy if original request was for numpy
+    # Convert pandas to numpy if original request was for numpy
     if original_read_as == DatasetType.NUMPY:
         return _convert_pandas_to_numpy(result)
 
@@ -1589,22 +1539,25 @@ def _convert_pandas_to_numpy(dataset: Dataset):
 
 
 def _coerce_dataset_to_schema(
-    dataset: Dataset, target_schema: pa.Schema, manifest_entry_schema: Schema
+    dataset: Dataset,
+    target_schema: pa.Schema,
 ) -> Dataset:
     """Coerce a dataset to match the target PyArrow schema using DeltaCAT Schema.coerce method."""
     # Convert target PyArrow schema to DeltaCAT schema and use its coerce method
     deltacat_schema = Schema.of(schema=target_schema)
-    return deltacat_schema.coerce(dataset, manifest_entry_schema)
+    return deltacat_schema.coerce(dataset)
 
 
 def _coerce_results_to_schema(
-    results: Dataset, target_schema: pa.Schema, entry_index_to_schema: List[Schema]
+    results: Dataset,
+    target_schema: pa.Schema,
 ) -> List[Dataset]:
     """Coerce all table results to match the target schema."""
     coerced_results = []
     for i, table_result in enumerate(results):
         coerced_result = _coerce_dataset_to_schema(
-            table_result, target_schema, entry_index_to_schema[i]
+            table_result,
+            target_schema,
         )
         coerced_results.append(coerced_result)
         logger.debug(f"Coerced table {i} to unified schema")
@@ -1631,35 +1584,10 @@ def _create_target_schema(
     return arrow_schema
 
 
-def _create_entry_schemas_for_concatenation(
-    entry_index_to_schema: List[Schema],
-    columns: Optional[List[str]] = None,
-    file_path_column: Optional[str] = None,
-) -> List[Schema]:
-    """Create entry schemas for concatenation, optionally filtered by column selection."""
-    if columns is None:
-        # No column selection - return original schemas as-is
-        return entry_index_to_schema
-
-    # Column selection - filter each entry schema
-    modified_schemas = []
-    for entry_schema in entry_index_to_schema:
-        if entry_schema and entry_schema.arrow:
-            filtered_schema = _create_target_schema(
-                entry_schema.arrow, columns, file_path_column
-            )
-            modified_schemas.append(Schema.of(schema=filtered_schema))
-        else:
-            modified_schemas.append(entry_schema)
-
-    return modified_schemas
-
-
 def _handle_local_table_concatenation(
     results: Dataset,
     table_type: DatasetType,
     table_schema: Optional[Schema],
-    entry_index_to_schema: List[Schema],
     file_path_column: Optional[str] = None,
     columns: Optional[List[str]] = None,
 ) -> Dataset:
@@ -1670,14 +1598,10 @@ def _handle_local_table_concatenation(
     target_schema = _create_target_schema(table_schema.arrow, columns, file_path_column)
     logger.debug(f"Created target schema: {target_schema.names}")
 
-    # Filter entry schemas to match column selection and file_path_column
-    modified_entry_schemas = _create_entry_schemas_for_concatenation(
-        entry_index_to_schema, columns, file_path_column
-    )
-
     # Coerce results to unified schema
     coerced_results = _coerce_results_to_schema(
-        results, target_schema, modified_entry_schemas
+        results,
+        target_schema,
     )
 
     # Second step: concatenate the coerced results
