@@ -363,11 +363,30 @@ def _resolve_url(url: Union[DeltaCatUrl, str]) -> DeltaCatUrl:
 
 def get(
     url: Union[DeltaCatUrl, str],
+    read_as: DatasetType = DatasetType.RAY_DATASET,
     *args,
     **kwargs,
 ) -> Union[Metafile, Dataset]:
+    """
+    Reads a DeltaCAT URL into a Metafile or Dataset. DeltaCAT URLs can either
+    reference objects registered in a DeltaCAT catalog, or unregistered external
+    objects that are readable into a Dataset. DeltaCAT automatically infers the right
+    Ray Data reader for the URL. If the URL is an unregistered external object,
+    the reader will be inferred from the URL's datastore type.
+
+    Args:
+        url: The DeltaCAT URL to read.
+        read_as: The DatasetType to read an unregistered external object as. Ignored for
+            registered DeltaCAT objects. Defaults to DatasetType.RAY_DATASET.
+        args: Additional arguments to pass to the reader.
+        kwargs: Additional keyword arguments to pass to the reader.
+
+    Returns:
+        A Metafile for registered DeltaCAT URLs or a Dataset containing the
+        data from the URL.
+    """
     url = _resolve_url(url)
-    reader = DeltaCatUrlReader(url)
+    reader = DeltaCatUrlReader(url, dataset_type=read_as)
     return reader.read(*args, **kwargs)
 
 

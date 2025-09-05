@@ -6,6 +6,8 @@ DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.c
 fast, scalable, ACID-compliant multimodal data lakes, and has been used to [successfully manage exabyte-scale enterprise
 data lakes](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
 
+It provides data lake level transactions & time travel, fast schema evolution for feature enrichment, zero-copy multimodal file processing, schemaless dataset management, and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads.
+
 It uses the Ray distributed compute framework together with [Apache Arrow](https://github.com/apache/arrow) and
 [Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale common table management tasks, like petabyte-scale
 merge-on-read and copy-on-write operations.
@@ -28,7 +30,7 @@ Data consumers that prefer to stay within the ecosystem of Pythonic data managem
 ## Getting Started
 DeltaCAT applications run anywhere that Ray runs, including your local laptop, cloud computing cluster, or on-premise cluster.
 
-DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of one or more data files. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
+DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of data files. A **Catalog** can be thought of as a named data lake containing a set of **Tables**. It provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
 
 ### Quick Start
 
@@ -62,7 +64,7 @@ daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
 # Append more data and add a new column.
-# Compaction and schema evolution are handled automatically.
+# Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
     "name": ["Tom", "Simpkin", "Delta"],
@@ -192,7 +194,7 @@ assert dc.dataset_length(daft_df) == 6
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Multiple Dataset & File Formats</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Multi-Format Data Processing</span></summary>
 
 DeltaCAT natively supports a variety of open dataset and file formats already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or list of PyArrow ParquetFile objects:
 
@@ -282,7 +284,7 @@ print("\n=== NumPy Table ===")
 dc.read("my_numpy_table").show()
 ```
 
-Or write to different table file formats:
+DeltaCAT tables also support persisting data in heterogeneous table file formats like Avro, ORC, or Feather:
 
 ```python
 data = pd.DataFrame({"id": [1], "name": ["Cheshire"], "age": [3]})
@@ -406,9 +408,9 @@ print(df.sort_values("user_id"))
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Zero-Copy Multimodal Processing</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Zero-Copy Multimodal URL Processing</span></summary>
 
-DeltaCAT can register and analyze existing multimodal datasets using DeltaCAT URLs with datastore type prefixes. This enables distributed processing of images, audio, text, and other file formats:
+DeltaCAT can register and process existing multimodal datasets from local or remote URLs. This enables zero-copy distributed processing of images, audio, text, and other file formats:
 
 ```python
 import deltacat as dc
@@ -417,7 +419,7 @@ import pyarrow as pa
 import tempfile
 import ray
 
-# Initialize DeltaCAT and Ray
+# Initialize DeltaCAT with a fresh temporary catalog
 dc.init_local(tempfile.mkdtemp())
 
 # Create dataset with DeltaCAT URLs pointing to existing files
@@ -435,7 +437,7 @@ urls_df = pd.DataFrame({
     ]
 })
 
-# Create table with merge key to efficiently add insights about each file
+# Create empty table with merge key to efficiently add insights about each file
 dc.create_table(
     "multimodal_files",
     schema=dc.Schema.of([
@@ -452,7 +454,7 @@ def analyze_file(row):
     file_id = row["file_id"]
     url = row["url"]
 
-    # DeltaCAT automatically infers the right reader for the URL
+    # DeltaCAT automatically infers the right Ray Data reader for the URL
     dataset = dc.get(url)
     records = dataset.take_all()
     url_type = dc.DatastoreType.from_url(url)
@@ -476,20 +478,41 @@ def analyze_file(row):
 
     return {"file_id": file_id, "analysis": analysis}
 
-# Create Ray Dataset and process files in parallel using map
-ray_dataset = ray.data.from_pandas(urls_df)
+# Read the multimodal_files table as a Ray Dataset
+ray_dataset = dc.read("multimodal_files", read_as=dc.DatasetType.RAY_DATASET)
+# Download and analyze each URL in parallel using map
 results_dataset = ray_dataset.map(analyze_file)
 
-# Collect results and convert back to pandas DataFrame
-results_df = results_dataset.to_pandas()
-dc.write(results_df, "multimodal_files", mode=dc.TableWriteMode.MERGE)
+# Write results back to the multimodal_files table
+dc.write(results_dataset, "multimodal_files", mode=dc.TableWriteMode.MERGE)
 
 # Read final results and compare to initial dataset
 print("\n=== Initial Dataset ===")
-print(urls_df)
+print(dc.to_pandas(ray_dataset))
 
 print("\n=== Final Results with Analysis ===")
 print(dc.read("multimodal_files", read_as=dc.DatasetType.PANDAS))
+```
+
+The default dataset type used by `dc.get` is a Ray Dataset but, similar to `dc.read`, `dc.get` can also read URLs into other dataset types like Daft:
+
+```python
+import deltacat as dc
+
+# Create dataset with DeltaCAT URLs pointing to existing files
+urls = [
+    # URLs with common file extensions will have their content type inferred.
+    "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv",
+    "https://raw.githubusercontent.com/burningtree/awesome-json/master/README.md",
+    # URLs without common file extensions will be read as binary by default.
+    "https://picsum.photos/200"
+]
+
+# Download each URL into a Daft DataFrame serially
+for url in urls:
+    dataset = dc.get(url, read_as=dc.DatasetType.DAFT)
+    print(f"\n=== {url} ===")
+    print(dataset.show())
 ```
 
 </details>
@@ -574,9 +597,9 @@ print(finance_df)
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Multi-Table Transactions</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Data Lake Level Transactions</span></summary>
 
-DeltaCAT transactions can span multiple tables and namespaces. Since all operations within a transaction either succeed or fail together, this simplifies keeping related datasets in sync across your entire catalog.
+DeltaCAT transactions can span multiple tables and namespaces. Since transaction history is maintained at the catalog level, every transaction operates against a consistent snapshot of every object in your data lake. Since all operations within a transaction either succeed or fail together, this simplifies keeping related datasets in sync across your entire catalog.
 
 Consider the previous example that organized tables with namespaces. One table tracked customer orders, and another table tracked the lifetime payments of each customer. If one table was updated but not the other, then it would result in an accounting discrepancy. This edge case can be eliminated by using multi-table transactions:
 
@@ -670,7 +693,7 @@ print(dc.read("users", namespace="finance", read_as=dc.DatasetType.PANDAS))
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Working with Multiple Catalogs</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Managing Multiple Data Lakes</span></summary>
 
 DeltaCAT lets you work with multiple catalogs in a single application. All catalogs registered with DeltaCAT are tracked by a Ray Actor to make them available to all workers in your Ray application.
 
@@ -745,9 +768,9 @@ print(dc.read("financial_data", catalog="prod", read_as=dc.DatasetType.PANDAS))
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Transaction History & Time Travel</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Data Lake Level Time Travel</span></summary>
 
-DeltaCAT supports time travel queries that let you read all tables in a catalog as they existed at any point in the past. Combined with multi-table transactions, this enables consistent point-in-time views across your entire data catalog.
+DeltaCAT supports time travel queries that let you read all tables in a catalog as they existed at any point in the past. Combined with catalog-level transactions, this enables consistent point-in-time views across your entire data lake.
 
 ```python
 import deltacat as dc
@@ -978,7 +1001,7 @@ final_df.show()
 
 <summary><span style="font-size: 1.25em; font-weight: bold;">LLM Batch Inference</span></summary>
 
-DeltaCAT multi-table transactions, time travel queries, and automatic schema evolution can be used to create auditable LLM batch inference pipelines. For example, the following code tries different approaches to analyze the overall tone of customer feedback, then generates customer service responses based on the analysis:
+DeltaCAT multi-table transactions, data lake time travel, and automatic schema evolution can be used to create auditable LLM batch inference pipelines. For example, the following code tries different approaches to analyze the overall tone of customer feedback, then generates customer service responses based on the analysis:
 
 ```python
 import deltacat as dc

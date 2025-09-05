@@ -1,3 +1,6 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
+
 import functools
 import json
 from typing import Callable, List, Tuple, Any, Union, Optional
@@ -231,7 +234,18 @@ RAY_DATASTORE_TYPE_TO_WRITER = {
     ),
 }
 
+
+def _daft_binary_reader(url_path: str) -> daft.DataFrame:
+    df = daft.from_pydict({"url": [url_path]})
+    return df.with_column("data", df["url"].url.download())
+
+
 DAFT_DATASTORE_TYPE_TO_READER = {
+    DatastoreType.BINARY: lambda url: functools.partial(
+        _daft_binary_reader,
+        url.url_path,
+        **url.query_params,
+    ),
     DatastoreType.CSV: lambda url: functools.partial(
         daft.io.read_csv,
         url.url_path,

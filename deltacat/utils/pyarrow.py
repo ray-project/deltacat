@@ -1493,7 +1493,9 @@ def file_to_parquet(
 
 
 def concat_tables(
-    tables: List[Union[pa.Table, papq.ParquetFile]]
+    tables: List[Union[pa.Table, papq.ParquetFile]],
+    promote_options: Optional[str] = "permissive",
+    **kwargs,
 ) -> Optional[Union[pa.Table, List[papq.ParquetFile]]]:
     """
     Concatenate a list of PyArrow Tables or ParquetFiles.
@@ -1525,7 +1527,7 @@ def concat_tables(
         else:
             converted_tables.append(table)
 
-    return pa.concat_tables(converted_tables, promote_options="permissive")
+    return pa.concat_tables(converted_tables, promote_options=promote_options, **kwargs)
 
 
 def delta_manifest_to_table(
