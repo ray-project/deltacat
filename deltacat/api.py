@@ -28,7 +28,10 @@ from deltacat.storage import (
     LocalTable,
     Metafile,
 )
-from deltacat.types.media import DatasetType
+from deltacat.types.media import (
+    DatasetType,
+    DatastoreType,
+)
 from deltacat.utils.url import (
     DeltaCatUrl,
     DeltaCatUrlReader,
@@ -153,10 +156,8 @@ def copy(
     Returns:
         None
     """
-    if isinstance(src, str):
-        src = DeltaCatUrl(src)
-    if isinstance(dst, str):
-        dst = DeltaCatUrl(dst)
+    src = _resolve_url(src)
+    dst = _resolve_url(dst)
     if src.is_deltacat_catalog_url() or dst.is_deltacat_catalog_url():
         return _copy_dc(src, dst, recursive=src.url.endswith("/**"))
     else:
@@ -315,8 +316,7 @@ def list(
     dataset_type: Optional[DatasetType] = None,
     **kwargs,
 ) -> Union[List[Metafile], LocalTable, DistributedDataset]:
-    if isinstance(url, str):
-        url = DeltaCatUrl(url)
+    url = _resolve_url(url)
     if not url.is_deltacat_catalog_url():
         raise NotImplementedError("List only supports DeltaCAT Catalog URLs.")
     if dataset_type in DatasetType.distributed():
@@ -351,13 +351,22 @@ def list(
         )
 
 
+def _resolve_url(url: Union[DeltaCatUrl, str]) -> DeltaCatUrl:
+    if isinstance(url, str):
+        try:
+            url = DeltaCatUrl(url)
+        except ValueError:
+            url = DatastoreType.get_url(url)
+            url = DeltaCatUrl(url)
+    return url
+
+
 def get(
     url: Union[DeltaCatUrl, str],
     *args,
     **kwargs,
 ) -> Union[Metafile, Dataset]:
-    if isinstance(url, str):
-        url = DeltaCatUrl(url)
+    url = _resolve_url(url)
     reader = DeltaCatUrlReader(url)
     return reader.read(*args, **kwargs)
 
@@ -368,8 +377,7 @@ def put(
     *args,
     **kwargs,
 ) -> Union[Metafile, str]:
-    if isinstance(url, str):
-        url = DeltaCatUrl(url)
+    url = _resolve_url(url)
     writer = DeltaCatUrlWriter(url, metafile=metafile)
     return writer.write(*args, **kwargs)
 
