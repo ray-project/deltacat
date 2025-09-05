@@ -325,6 +325,87 @@ print(pandas_df)
 
 <details>
 
+<summary><span style="font-size: 1.25em; font-weight: bold;">Live Feature Enrichment</span></summary>
+
+DeltaCAT can update your datasets on-the-fly to keep up with a continuous stream of new insights, and support common ML use-cases like feature enrichment. Just define a table schema with one or more merge keys to start updating and deleting existing records:
+
+```python
+import deltacat as dc
+import pandas as pd
+import pyarrow as pa
+import tempfile
+
+# Initialize DeltaCAT with a fresh temporary catalog
+dc.init_local(tempfile.mkdtemp())
+
+# Start with minimal schema - just user_id as merge key and name
+initial_schema = dc.Schema.of([
+    dc.Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
+    dc.Field.of(pa.field("name", pa.string())),
+])
+
+# Initial user data - just basic info
+initial_users = pd.DataFrame({
+    "user_id": [1, 2, 3],
+    "name": ["Jim", "Dinah", "Bob"],
+})
+
+# Write initial data with minimal schema
+dc.write(initial_users, "users", schema=initial_schema)
+
+# Read the data back as a Pandas DataFrame
+df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print("=== Initial Users (Basic Info) ===")
+print(df.sort_values("user_id"))
+
+# Later, enrich with new insights: add age/job features + new users
+enriched_data = pd.DataFrame({
+    "user_id": [1, 3, 4, 5, 6],
+    "name": ["Cheshire", "Felix", "Tom", "Simpkin", "Delta"],
+    "age": [3, 2, 5, 12, 4],
+    "job": ["Tour Guide", "Drifter", "Housekeeper", "Mouser", "Engineer"]
+})
+
+# DeltaCAT automatically evolves the schema and merges by user_id:
+# 1. Enriches existing users (Jim -> Cheshire age=3, job="Tour Guide"; Bob -> Felix)
+# 2. Adds new age/job columns with automatic schema evolution
+# 3. Inserts new users (Tom, Simpkin, Delta) with full feature set
+dc.write(enriched_data, "users")
+
+# Read back to see live feature enrichment results
+df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print("\n=== Enriched Users (Age & Job) ===")
+print(df.sort_values("user_id"))
+
+# - Cheshire (user_id=1) name updated from Jim, gets age=3, job="Tour Guide"
+# - Dinah (user_id=2) keeps original name, gets null age/job (missing features)
+# - Felix (user_id=3) name updated from Bob, gets age=2, job="Drifter"
+# - New users (4,5,6) added with complete feature set
+# - Schema automatically evolved to include age/job columns
+
+# Specify the users to delete.
+# We only need to specify matching merge key values.
+users_to_delete = pd.DataFrame({
+    "user_id": [3, 5],
+})
+
+# Delete the records that match our merge keys.
+dc.write(users_to_delete, "users", mode=dc.TableWriteMode.DELETE)
+
+# Read the table back to confirm target users have been deleted.
+df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print("\n=== After Deletion ===")
+print(df.sort_values("user_id"))
+
+# - Felix (user_id=3) has been removed
+# - Simpkin (user_id=5) has been removed
+# - All other users remain unchanged
+```
+
+</details>
+
+<details>
+
 <summary><span style="font-size: 1.25em; font-weight: bold;">Zero-Copy Multimodal Processing</span></summary>
 
 DeltaCAT can register and analyze existing multimodal datasets using DeltaCAT URLs with datastore type prefixes. This enables distributed processing of images, audio, text, and other file formats:
@@ -409,87 +490,6 @@ print(urls_df)
 
 print("\n=== Final Results with Analysis ===")
 print(dc.read("multimodal_files", read_as=dc.DatasetType.PANDAS))
-```
-
-</details>
-
-<details>
-
-<summary><span style="font-size: 1.25em; font-weight: bold;">Live Feature Enrichment</span></summary>
-
-DeltaCAT can update your datasets on-the-fly to keep up with a continuous stream of new insights, and support common ML use-cases like feature enrichment. Just define a table schema with one or more merge keys to start updating and deleting existing records:
-
-```python
-import deltacat as dc
-import pandas as pd
-import pyarrow as pa
-import tempfile
-
-# Initialize DeltaCAT with a fresh temporary catalog
-dc.init_local(tempfile.mkdtemp())
-
-# Start with minimal schema - just user_id as merge key and name
-initial_schema = dc.Schema.of([
-    dc.Field.of(pa.field("user_id", pa.int64()), is_merge_key=True),
-    dc.Field.of(pa.field("name", pa.string())),
-])
-
-# Initial user data - just basic info
-initial_users = pd.DataFrame({
-    "user_id": [1, 2, 3],
-    "name": ["Jim", "Dinah", "Bob"],
-})
-
-# Write initial data with minimal schema
-dc.write(initial_users, "users", schema=initial_schema)
-
-# Read the data back as a Pandas DataFrame
-df = dc.read("users", read_as=dc.DatasetType.PANDAS)
-print("=== Initial Users (Basic Info) ===")
-print(df.sort_values("user_id"))
-
-# Later, enrich with new insights: add age/job features + new users
-enriched_data = pd.DataFrame({
-    "user_id": [1, 3, 4, 5, 6],
-    "name": ["Cheshire", "Felix", "Tom", "Simpkin", "Delta"],
-    "age": [3, 2, 5, 12, 4],
-    "job": ["Tour Guide", "Drifter", "Housekeeper", "Mouser", "Engineer"]
-})
-
-# DeltaCAT automatically evolves the schema and merges by user_id:
-# 1. Enriches existing users (Jim -> Cheshire age=3, job="Tour Guide"; Bob -> Felix)
-# 2. Adds new age/job columns with automatic schema evolution
-# 3. Inserts new users (Tom, Simpkin, Delta) with full feature set
-dc.write(enriched_data, "users")
-
-# Read back to see live feature enrichment results
-df = dc.read("users", read_as=dc.DatasetType.PANDAS)
-print("\n=== Enriched Users (Age & Job) ===")
-print(df.sort_values("user_id"))
-
-# - Cheshire (user_id=1) name updated from Jim, gets age=3, job="Tour Guide"
-# - Dinah (user_id=2) keeps original name, gets null age/job (missing features)
-# - Felix (user_id=3) name updated from Bob, gets age=2, job="Drifter"
-# - New users (4,5,6) added with complete feature set
-# - Schema automatically evolved to include age/job columns
-
-# Specify the users to delete.
-# We only need to specify matching merge key values.
-users_to_delete = pd.DataFrame({
-    "user_id": [3, 5],
-})
-
-# Delete the records that match our merge keys.
-dc.write(users_to_delete, "users", mode=dc.TableWriteMode.DELETE)
-
-# Read the table back to confirm target users have been deleted.
-df = dc.read("users", read_as=dc.DatasetType.PANDAS)
-print("\n=== After Deletion ===")
-print(df.sort_values("user_id"))
-
-# - Felix (user_id=3) has been removed
-# - Simpkin (user_id=5) has been removed
-# - All other users remain unchanged
 ```
 
 </details>
