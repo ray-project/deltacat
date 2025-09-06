@@ -715,7 +715,7 @@ dc.init(catalogs={
         filesystem=pa.fs.LocalFileSystem()
     )),
     "prod": dc.Catalog(config=dc.CatalogProperties(
-        root="s3://example/deltacat/",  # Use S3 for prod
+        root="s3://example/deltacat",  # Use S3 for prod
         filesystem=pa.fs.S3FileSystem()
     ))
 })
