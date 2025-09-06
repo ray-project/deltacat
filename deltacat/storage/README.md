@@ -163,7 +163,7 @@ ${CATALOG_ROOT}/txn/
 
 DeltaCAT transactions rely on MVCC snapshot isolation, with conflicts isolated to concurrent operations against the same object ID. Each transaction log file contains details about what operations were performed in that transaction.
 
-Transactions transition from RUNNING → SUCCESS/PAUSED/FAILED/TIMEOUT/PURGED states, with the transaction stored in an equivalently named parent directory at `${CATALOG_ROOT}/txn/${state}/`.
+Transactions transition from RUNNING → SUCCESS/PAUSED/FAILED states, with the transaction stored in an equivalently named parent directory at `${CATALOG_ROOT}/txn/${state}/`.
 
 ## Runtime Environment Requirements
 
