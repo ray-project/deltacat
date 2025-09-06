@@ -1,3 +1,5 @@
+# Allow classes to use self-referencing Type hints in Python 3.7.
+from __future__ import annotations
 from enum import Enum
 from typing import Set, Dict
 
@@ -401,3 +403,283 @@ class DatastoreType(str, Enum):
     WARC = "warc"
     WEBDATASET = "webdataset"
     XML = "xml"
+
+    def url(self, url: str) -> str:
+        """
+        Returns a DeltaCAT URL string for this datastore type and the given base URL.
+        Typically, DeltaCAT URLs will be of the form <DatastoreType>+<URL>.
+
+        However, the following Datastore Types don't follow the <DatastoreType>+<URL> convention:
+
+        {DatastoreType.MONGO}: <mongodb_uri>?database=<db_name>&collection=<collection_name>&...
+        {DatastoreType.BIGQUERY}: bigquery://<project_id>/<dataset>?param1=val1&...
+        {DatastoreType.CLICKHOUSE}: <clickhouse_dsn>?table=<table_name>?param1=val1&...
+        {DatastoreType.DATABRICKS_TABLES}: databricks://<warehouse_id>?param1=val1&...
+        {DatastoreType.ICEBERG}: iceberg://<table_identifier>?param1=val1&...
+
+        Args:
+            url: The base URL to convert to a DeltaCAT URL.
+
+        Returns:
+            A DeltaCAT URL string for this datastore type and the given URL.
+        """
+        if self == DatastoreType.BIGQUERY:
+            raise ValueError(
+                f"No DataStore URL for BigQuery. Use a URL of the form: bigquery://<project_id>/<dataset>?param1=val1&..."
+            )
+        if self == DatastoreType.CLICKHOUSE:
+            raise ValueError(
+                f"No DataStore URL for ClickHouse. Use a URL of the form: <clickhouse_dsn>?table=<table_name>?param1=val1&..."
+            )
+        if self == DatastoreType.DATABRICKS_TABLES:
+            raise ValueError(
+                f"No DataStore URL for Databricks. Use a URL of the form: databricks://<warehouse_id>?param1=val1&..."
+            )
+        if self == DatastoreType.ICEBERG:
+            raise ValueError(
+                f"No DataStore URL for Iceberg. Use a URL of the form: iceberg://<table_identifier>?param1=val1&..."
+            )
+        if self == DatastoreType.MONGO:
+            raise ValueError(
+                f"No DataStore URL for MongoDB. Use a URL of the form: <mongodb_uri>?database=<db_name>&collection=<collection_name>&..."
+            )
+        if self in [
+            DatastoreType.DELTACAT,
+            DatastoreType.DELTACAT_NAMESPACE,
+            DatastoreType.DELTACAT_TABLE,
+            DatastoreType.DELTACAT_TABLE_VERSION,
+            DatastoreType.DELTACAT_STREAM,
+            DatastoreType.DELTACAT_PARTITION,
+            DatastoreType.DELTACAT_DELTA,
+        ]:
+            raise ValueError(
+                f"No DataStore URL for DeltaCAT. Use a URL of the form: dc://<catalog>/[namespace]/[table]/[tableversion]/[stream]/[partition]/[delta]"
+            )
+        return f"{self.value}+{url}"
+
+    @staticmethod
+    def from_url(url: str) -> DatastoreType:
+        """
+        Returns an inferred DatastoreType for the given URL.
+
+        Args:
+            url: The URL or file path to analyze for datastore type inference.
+
+        Returns:
+            An inferred DatastoreType for the given URL.
+
+        Raises:
+            ValueError: If a DatastoreType cannot be inferred from the given URL.
+        """
+        # Detect by prefix first
+        # DeltaCAT URLs
+        if url.startswith("dc://"):
+            return DatastoreType.DELTACAT
+
+        # External Datastore Types
+        if url.startswith("hudi+") or url.startswith("hudi://"):
+            return DatastoreType.HUDI
+        if url.startswith("iceberg+") or url.startswith("iceberg://"):
+            return DatastoreType.ICEBERG
+        if url.startswith("deltalake+") or url.startswith("deltalake://"):
+            return DatastoreType.DELTA_LAKE
+        if url.startswith("deltasharing+") or url.startswith("deltasharing://"):
+            return DatastoreType.DELTA_SHARING
+        if url.startswith("bigquery+") or url.startswith("bigquery://"):
+            return DatastoreType.BIGQUERY
+        if url.startswith("clickhouse+") or url.startswith("clickhouse://"):
+            return DatastoreType.CLICKHOUSE
+        if url.startswith("databricks+") or url.startswith("databricks://"):
+            return DatastoreType.DATABRICKS_TABLES
+        if url.startswith("mongodb+") or url.startswith("mongodb://"):
+            return DatastoreType.MONGO
+
+        # File Format Types
+        if url.startswith("binary+") or url.startswith("binary://"):
+            return DatastoreType.BINARY
+        if url.startswith("csv+") or url.startswith("csv://"):
+            return DatastoreType.CSV
+        if url.startswith("json+") or url.startswith("json://"):
+            return DatastoreType.JSON
+        if url.startswith("avro+") or url.startswith("avro://"):
+            return DatastoreType.AVRO
+        if url.startswith("orc+") or url.startswith("orc://"):
+            return DatastoreType.ORC
+        if url.startswith("feather+") or url.startswith("feather://"):
+            return DatastoreType.FEATHER
+        if url.startswith("numpy+") or url.startswith("numpy://"):
+            return DatastoreType.NUMPY
+        if url.startswith("parquet+") or url.startswith("parquet://"):
+            return DatastoreType.PARQUET
+        if url.startswith("hdf+") or url.startswith("hdf://"):
+            return DatastoreType.HDF
+        if url.startswith("lance+") or url.startswith("lance://"):
+            return DatastoreType.LANCE
+        if url.startswith("tfrecords+") or url.startswith("tfrecords://"):
+            return DatastoreType.TFRECORDS
+        if url.startswith("webdataset+") or url.startswith("webdataset://"):
+            return DatastoreType.WEBDATASET
+
+        # Text and Web Types
+        if url.startswith("text+") or url.startswith("text://"):
+            return DatastoreType.TEXT
+        if url.startswith("html+") or url.startswith("html://"):
+            return DatastoreType.HTML
+        if url.startswith("warc+") or url.startswith("warc://"):
+            return DatastoreType.WARC
+        if url.startswith("xml+") or url.startswith("xml://"):
+            return DatastoreType.XML
+
+        # Media Types
+        if url.startswith("audio+") or url.startswith("audio://"):
+            return DatastoreType.AUDIO
+        if url.startswith("images+") or url.startswith("images://"):
+            return DatastoreType.IMAGES
+        if url.startswith("videos+") or url.startswith("videos://"):
+            return DatastoreType.VIDEOS
+
+        extension = "." + url.split(".")[-1].lower()
+
+        # Fallback to file-extensions
+        if extension in [".parquet", ".pq"]:
+            return DatastoreType.PARQUET
+        if extension == ".csv":
+            return DatastoreType.CSV
+        if extension == ".json":
+            return DatastoreType.JSON
+        if extension == ".avro":
+            return DatastoreType.AVRO
+        if extension == ".orc":
+            return DatastoreType.ORC
+        if extension == ".feather":
+            return DatastoreType.FEATHER
+        if extension == ".npy":
+            return DatastoreType.NUMPY
+
+        # Text formats
+        if extension in [".txt", ".text", ".md"]:
+            return DatastoreType.TEXT
+
+        # Data science formats
+        if extension in [".hdf", ".h5", ".hdf5"]:
+            return DatastoreType.HDF
+        if extension == ".lance":
+            return DatastoreType.LANCE
+        if extension in [".tfrecords", ".tfrecord"]:
+            return DatastoreType.TFRECORDS
+        if extension == ".webdataset":
+            return DatastoreType.WEBDATASET
+
+        # Web formats
+        if extension in [".html", ".htm"]:
+            return DatastoreType.HTML
+        if extension == ".warc":
+            return DatastoreType.WARC
+        if extension == ".xml":
+            return DatastoreType.XML
+
+        # Binary formats
+        if extension in [".bin", ".exe", ".dll", ".so", ".dylib", ".a", ".lib"]:
+            return DatastoreType.BINARY
+
+        # Media formats - Images
+        if extension in [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".tiff",
+            ".tif",
+            ".ico",
+            ".webp",
+            ".svg",
+            ".heic",
+            ".heif",
+            ".jp2",
+            ".jfif",
+            ".pjpeg",
+            ".pjp",
+        ]:
+            return DatastoreType.IMAGES
+
+        # Media formats - Videos
+        if extension in [
+            ".mp4",
+            ".mov",
+            ".avi",
+            ".mkv",
+            ".webm",
+            ".flv",
+            ".wmv",
+            ".m4v",
+            ".3gp",
+            ".3g2",
+            ".f4v",
+            ".asf",
+            ".rm",
+            ".rmvb",
+            ".vob",
+            ".ogv",
+            ".drc",
+            ".mng",
+            ".qt",
+            ".yuv",
+            ".mpg",
+            ".mpeg",
+            ".m2v",
+            ".m2ts",
+            ".mts",
+            ".ts",
+        ]:
+            return DatastoreType.VIDEOS
+
+        # Media formats - Audio
+        if extension in [
+            ".mp3",
+            ".wav",
+            ".ogg",
+            ".flac",
+            ".aac",
+            ".m4a",
+            ".m4b",
+            ".m4p",
+            ".wma",
+            ".ra",
+            ".amr",
+            ".ape",
+            ".au",
+            ".gsm",
+            ".dss",
+            ".dvf",
+            ".msv",
+            ".opus",
+            ".tta",
+            ".voc",
+            ".vox",
+            ".wv",
+            ".3ga",
+            ".ac3",
+            ".adt",
+            ".adts",
+        ]:
+            return DatastoreType.AUDIO
+
+        # Default to binary
+        return DatastoreType.BINARY
+
+    @staticmethod
+    def get_url(url: str) -> str:
+        """
+        Returns a DeltaCAT URL string with an inferred datastore type for the given URL.
+
+        Args:
+            url: The URL or file path to analyze for datastore type inference.
+
+        Returns:
+            A DeltaCAT URL string for the inferred datastore type.
+
+        Raises:
+            ValueError: If a DeltaCAT URL cannot be inferred from the given URL.
+        """
+        return DatastoreType.from_url(url).url(url)

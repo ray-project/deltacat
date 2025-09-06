@@ -90,6 +90,9 @@ def run(
 
 if __name__ == "__main__":
     """
+    This example script demonstrates how to use the `deltacat.copy` API to copy multimodal source files into
+    arbitrary destinations with optional file format conversion and UDF transformations using DeltaCAT URLs.
+
     Example 1: Run this script locally using Ray:
     $ python indexer.py \
     $   --source 'text+s3://openalex-mag-format/data_dump_v1/2022-07-08/nlp/PaperAbstractsInvertedIndex.txt_part31' \

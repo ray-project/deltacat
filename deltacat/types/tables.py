@@ -690,7 +690,7 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable, **kwargs):
     if not tables:  # Empty list
         return pd.DataFrame()
 
-    # Convert list elements
+    # Convert list elements to the same type
     all_tables = []
     for i, table in enumerate(tables):
         try:
@@ -699,15 +699,9 @@ def _convert_all(tables: List[LocalTable], conversion_fn: Callable, **kwargs):
         except Exception as e:
             raise ValueError(f"Failed to convert list element {i}: {e}") from e
 
-    # Concatenate with error handling - handle different table types
+    # Concatenate with error handling
     try:
-        # Check if we have PyArrow tables
-        if all(isinstance(table, pa.Table) for table in all_tables):
-            # Use PyArrow concatenation for PyArrow tables
-            return pa.concat_tables(all_tables, promote_options="permissive")
-        else:
-            # Use pandas concatenation for other types
-            return pd.concat(all_tables, ignore_index=True, sort=False)
+        return concat_tables(all_tables, get_dataset_type(all_tables[0]))
     except Exception as e:
         raise ValueError(f"Failed to concatenate {len(all_tables)} tables: {e}") from e
 
@@ -879,7 +873,7 @@ def get_table_slicer(table: Union[LocalTable, DistributedDataset]) -> Callable:
     return _get_table_function(table, TABLE_CLASS_TO_SLICER_FUNC, "slicer")
 
 
-def get_dataset_type(dataset: Dataset) -> DatasetType:
+def get_dataset_type(dataset: Union[LocalTable, DistributedDataset]) -> DatasetType:
     """Get the DatasetType enum value for a given dataset object.
 
     Args:
@@ -1382,7 +1376,7 @@ class UuidBlockWritePathProvider(FilenameProvider):
         self.write_paths.append(write_path)
         if block is not None:
             self.blocks.append(block)
-        return write_path
+        return filename
 
     def __call__(
         self,

@@ -6,6 +6,7 @@ import bz2
 import gzip
 import io
 import logging
+import posixpath
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Tuple
 from datetime import datetime, date
@@ -1027,7 +1028,8 @@ def table_to_file(
             f"implemented. Known content types: "
             f"{CONTENT_TYPE_TO_PA_WRITE_FUNC.keys}"
         )
-    path = block_path_provider(base_path)
+    filename = block_path_provider(base_path)
+    path = posixpath.join(base_path, filename)
     writer_kwargs = content_type_to_writer_kwargs(content_type)
     writer_kwargs.update(kwargs)
     logger.debug(f"Writing table: {table} with kwargs: {writer_kwargs} to path: {path}")
@@ -1493,7 +1495,9 @@ def file_to_parquet(
 
 
 def concat_tables(
-    tables: List[Union[pa.Table, papq.ParquetFile]]
+    tables: List[Union[pa.Table, papq.ParquetFile]],
+    promote_options: Optional[str] = "permissive",
+    **kwargs,
 ) -> Optional[Union[pa.Table, List[papq.ParquetFile]]]:
     """
     Concatenate a list of PyArrow Tables or ParquetFiles.
@@ -1525,7 +1529,7 @@ def concat_tables(
         else:
             converted_tables.append(table)
 
-    return pa.concat_tables(converted_tables)
+    return pa.concat_tables(converted_tables, promote_options=promote_options, **kwargs)
 
 
 def delta_manifest_to_table(

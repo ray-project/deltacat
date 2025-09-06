@@ -1,6 +1,7 @@
 import csv
 import logging
 import math
+import posixpath
 import bz2
 import gzip
 from functools import partial
@@ -403,12 +404,18 @@ def slice_dataframe(
     return dataframes
 
 
-def concat_dataframes(dataframes: List[pd.DataFrame]) -> Optional[pd.DataFrame]:
+def concat_dataframes(
+    dataframes: List[pd.DataFrame],
+    axis: int = 0,
+    copy: bool = False,
+    ignore_index: bool = True,
+    **kwargs,
+) -> Optional[pd.DataFrame]:
     if dataframes is None or not len(dataframes):
         return None
     if len(dataframes) == 1:
         return next(iter(dataframes))
-    return pd.concat(dataframes, axis=0, copy=False)
+    return pd.concat(dataframes, axis=axis, copy=copy, ignore_index=ignore_index)
 
 
 def append_column_to_dataframe(
@@ -807,5 +814,6 @@ def dataframe_to_file(
             f"implemented. Known content types: "
             f"{CONTENT_TYPE_TO_PD_WRITE_FUNC.keys}"
         )
-    path = block_path_provider(base_path)
+    filename = block_path_provider(base_path)
+    path = posixpath.join(base_path, filename)
     writer(dataframe, path, filesystem=filesystem, **writer_kwargs)

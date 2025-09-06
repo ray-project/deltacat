@@ -1048,11 +1048,11 @@ class TestCopyOnWrite:
         "dataset_type",
         [
             DatasetType.PANDAS,
-            DatasetType.PYARROW,  # Now supported with field tracking pipeline
-            DatasetType.POLARS,  # Now supported with field tracking pipeline
-            DatasetType.DAFT,  # Distributed dataset type - now supported with field tracking pipeline
-            DatasetType.RAY_DATASET,  # Distributed dataset type - now supported with field tracking pipeline
-            DatasetType.NUMPY,  # Now supported with from_pandas helper and field tracking pipeline
+            DatasetType.PYARROW,
+            DatasetType.POLARS,
+            DatasetType.DAFT,
+            DatasetType.RAY_DATASET,
+            DatasetType.NUMPY,
         ],
     )
     def test_partial_upsert_all_dataset_types(self, dataset_type):
@@ -1114,8 +1114,14 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
+            read_as=dataset_type,
         )
-        result_df = result.to_pandas()
+        table = dc.get_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=self.test_namespace,
+        )
+        result_df = dc.to_pandas(result, schema=table.table_version.schema.arrow)
 
         # Verify results
         assert len(result_df) == 4, f"Should have 4 records ({dataset_type.value})"
@@ -1239,8 +1245,14 @@ class TestCopyOnWrite:
             table=table_name,
             namespace=self.test_namespace,
             catalog=self.catalog_name,
+            read_as=dataset_type,
         )
-        result_df = result.to_pandas()
+        table = dc.get_table(
+            table_name,
+            catalog=self.catalog_name,
+            namespace=self.test_namespace,
+        )
+        result_df = dc.to_pandas(result, schema=table.table_version.schema.arrow)
 
         # Verify results
         assert len(result_df) == 4, f"Should have 4 records ({dataset_type.value})"
@@ -1400,6 +1412,185 @@ class TestCopyOnWrite:
         }
 
         self._verify_dataframe_contents(result, expected_final_data)
+
+    def test_schema_evolution_delta_manifest_schema_ids(self):
+        """
+        Test that delta manifest entries record correct schema IDs during schema evolution.
+
+        This test verifies the fix for the issue where MERGE operations with new columns
+        were recording incorrect schema IDs in delta manifest entries, causing reads
+        to use old schemas instead of evolved schemas.
+        """
+        from deltacat.storage.model.metafile import Metafile
+        from deltacat.storage.model.delta import Delta
+
+        table_name = "test_schema_evolution_manifest_ids"
+
+        # Step 1: Create table with merge keys (initial schema)
+        self._create_table_with_merge_keys(table_name)
+
+        # Step 2: Write initial data using PyArrow for an exact match with the declared schema
+        # This ensures that schema evolution isn't triggered by the first write (which would
+        # result in 2 schemas created by the first write instead of 1)
+        initial_data = pa.table(
+            {
+                "id": pa.array([1, 2, 3], type=pa.int64()),
+                "name": pa.array(["Alice", "Bob", "Charlie"], type=pa.string()),
+                "age": pa.array([25, 30, 35], type=pa.int32()),
+                "city": pa.array(["NYC", "LA", "Chicago"], type=pa.string()),
+            }
+        )
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Step 3: Write MERGE data with NEW COLUMNS (triggers schema evolution)
+        merge_data = pa.table(
+            {
+                "id": pa.array([1, 2, 4], type=pa.int64()),  # Update existing + add new
+                "salary": pa.array(
+                    [50000, 60000, 55000], type=pa.int64()
+                ),  # NEW COLUMN
+                "department": pa.array(
+                    ["Engineering", "Sales", "Marketing"], type=pa.string()
+                ),  # NEW COLUMN
+            }
+        )
+
+        dc.write_to_table(
+            data=merge_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Writing the same data again shouldn't trigger schema evolution
+        dc.write_to_table(
+            data=merge_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.MERGE,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Step 4: Get table definition to access schema evolution history
+        table_def = dc.get_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        all_schemas = table_def.table_version.schemas
+
+        # Verify we have schema evolution (should have 2 schemas: original + evolved)
+        assert (
+            len(all_schemas) == 2
+        ), f"Expected 2 schemas after evolution, got {len(all_schemas)}"
+
+        initial_schema = all_schemas[0]  # Original schema
+        evolved_schema = all_schemas[1]  # Latest schema after evolution
+
+        initial_schema_id = initial_schema.id
+        evolved_schema_id = evolved_schema.id
+
+        # Step 5: Extract schema IDs from delta manifest entries
+        def extract_schema_ids_from_deltas(all_objects):
+            """Extract schema IDs from Delta objects by parsing manifest entries."""
+            schema_ids = []
+            for obj in all_objects:
+                obj_type = Metafile.get_class(obj)
+                if obj_type == Delta:
+                    delta_obj = obj
+                    # Access manifest entries to get schema IDs
+                    if delta_obj.manifest:
+                        manifest = delta_obj.manifest
+                        if manifest.entries:
+                            for i, entry in enumerate(manifest.entries):
+                                # Extract schema ID from manifest entry
+                                if entry.meta and entry.meta.schema_id is not None:
+                                    schema_id_value = entry.meta.schema_id
+                                    schema_ids.append(schema_id_value)
+            return schema_ids
+
+        # Use dc.list with recursive=True to find all objects for this table
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        all_objects = dc.list(table_url, recursive=True)
+
+        # Extract schema IDs from all delta manifest entries
+        manifest_schema_ids = extract_schema_ids_from_deltas(all_objects)
+
+        # Step 6: Verify schema ID correctness
+        # We should have exactly 4 manifest entries (1 from first write + 3 from second write + 0 from third write)
+        assert (
+            len(manifest_schema_ids) == 4
+        ), f"Expected 4 manifest entries with schema IDs, got {len(manifest_schema_ids)}"
+
+        # Check if manifest schema IDs match table schema IDs
+        table_schema_ids = {initial_schema_id, evolved_schema_id}
+        manifest_schema_ids_set = set(manifest_schema_ids)
+
+        if table_schema_ids == manifest_schema_ids_set:
+            # The first delta should use the initial schema ID
+            initial_entries = [
+                sid for sid in manifest_schema_ids if sid == initial_schema_id
+            ]
+            assert (
+                len(initial_entries) == 1
+            ), f"Expected 1 initial entry with schema ID {initial_schema_id}, but found {len(initial_entries)}"
+
+            # The second delta should use the evolved schema ID
+            evolved_entries = [
+                sid for sid in manifest_schema_ids if sid == evolved_schema_id
+            ]
+            assert (
+                len(evolved_entries) == 3
+            ), f"Expected 3 evolved entries with schema ID {evolved_schema_id}, but found {len(evolved_entries)}"
+        else:
+            # This should not happen with PyArrow tables - fail the test
+            assert (
+                False
+            ), f"Schema IDs should match. Table: {sorted(table_schema_ids)}, Manifest: {sorted(manifest_schema_ids_set)}"
+
+        # Step 7: Verify the data can be read correctly with evolved schema
+        final_data = dc.to_pandas(
+            dc.read_table(
+                table=table_name,
+                namespace=self.test_namespace,
+                catalog=self.catalog_name,
+            )
+        )
+
+        # Should have all original columns plus new columns
+        expected_columns = {"id", "name", "age", "city", "salary", "department"}
+        actual_columns = set(final_data.columns)
+        assert expected_columns.issubset(
+            actual_columns
+        ), f"Missing columns: {expected_columns - actual_columns}"
+
+        # Verify data integrity - all records should have both old and new data
+        assert (
+            len(final_data) == 4
+        ), f"Expected 4 records after merge, got {len(final_data)}"
+
+        # Check that evolved columns are properly populated
+        salary_values = final_data["salary"].dropna()
+        dept_values = final_data["department"].dropna()
+        assert (
+            len(salary_values) >= 3
+        ), f"Expected salary values for at least 3 records, got {len(salary_values)}"
+        assert (
+            len(dept_values) >= 3
+        ), f"Expected department values for at least 3 records, got {len(dept_values)}"
 
     def test_append_delta_count_compaction(self):
         """Test that compaction is triggered by appended delta count for APPEND mode writes."""

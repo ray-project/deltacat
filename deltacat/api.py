@@ -28,7 +28,10 @@ from deltacat.storage import (
     LocalTable,
     Metafile,
 )
-from deltacat.types.media import DatasetType
+from deltacat.types.media import (
+    DatasetType,
+    DatastoreType,
+)
 from deltacat.utils.url import (
     DeltaCatUrl,
     DeltaCatUrlReader,
@@ -83,8 +86,8 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def copy(
-    src: DeltaCatUrl,
-    dst: DeltaCatUrl,
+    src: Union[DeltaCatUrl, str],
+    dst: Union[DeltaCatUrl, str],
     *,
     transforms: List[Callable[[Dataset, DeltaCatUrl], Dataset]] = [],
     extension_to_memory_multiplier: Dict[str, float] = {
@@ -153,6 +156,8 @@ def copy(
     Returns:
         None
     """
+    src = _resolve_url(src)
+    dst = _resolve_url(dst)
     if src.is_deltacat_catalog_url() or dst.is_deltacat_catalog_url():
         return _copy_dc(src, dst, recursive=src.url.endswith("/**"))
     else:
@@ -305,12 +310,13 @@ class CustomReadKwargsProvider(ReadKwargsProvider):
 
 
 def list(
-    url: DeltaCatUrl,
+    url: Union[DeltaCatUrl, str],
     *,
     recursive: bool = False,
     dataset_type: Optional[DatasetType] = None,
     **kwargs,
 ) -> Union[List[Metafile], LocalTable, DistributedDataset]:
+    url = _resolve_url(url)
     if not url.is_deltacat_catalog_url():
         raise NotImplementedError("List only supports DeltaCAT Catalog URLs.")
     if dataset_type in DatasetType.distributed():
@@ -345,21 +351,52 @@ def list(
         )
 
 
+def _resolve_url(url: Union[DeltaCatUrl, str]) -> DeltaCatUrl:
+    if isinstance(url, str):
+        try:
+            url = DeltaCatUrl(url)
+        except ValueError:
+            url = DatastoreType.get_url(url)
+            url = DeltaCatUrl(url)
+    return url
+
+
 def get(
-    url,
+    url: Union[DeltaCatUrl, str],
+    read_as: DatasetType = DatasetType.RAY_DATASET,
     *args,
     **kwargs,
 ) -> Union[Metafile, Dataset]:
-    reader = DeltaCatUrlReader(url)
+    """
+    Reads a DeltaCAT URL into a Metafile or Dataset. DeltaCAT URLs can either
+    reference objects registered in a DeltaCAT catalog, or unregistered external
+    objects that are readable into a Dataset. DeltaCAT automatically infers the right
+    Ray Data reader for the URL. If the URL is an unregistered external object,
+    the reader will be inferred from the URL's datastore type.
+
+    Args:
+        url: The DeltaCAT URL to read.
+        read_as: The DatasetType to read an unregistered external object as. Ignored for
+            registered DeltaCAT objects. Defaults to DatasetType.RAY_DATASET.
+        args: Additional arguments to pass to the reader.
+        kwargs: Additional keyword arguments to pass to the reader.
+
+    Returns:
+        A Metafile for registered DeltaCAT URLs or a Dataset containing the
+        data from the URL.
+    """
+    url = _resolve_url(url)
+    reader = DeltaCatUrlReader(url, dataset_type=read_as)
     return reader.read(*args, **kwargs)
 
 
 def put(
-    url: DeltaCatUrl,
+    url: Union[DeltaCatUrl, str],
     metafile: Optional[Metafile] = None,
     *args,
     **kwargs,
 ) -> Union[Metafile, str]:
+    url = _resolve_url(url)
     writer = DeltaCatUrlWriter(url, metafile=metafile)
     return writer.write(*args, **kwargs)
 
