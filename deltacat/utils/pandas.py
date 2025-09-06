@@ -1,6 +1,7 @@
 import csv
 import logging
 import math
+import posixpath
 import bz2
 import gzip
 from functools import partial
@@ -813,5 +814,6 @@ def dataframe_to_file(
             f"implemented. Known content types: "
             f"{CONTENT_TYPE_TO_PD_WRITE_FUNC.keys}"
         )
-    path = block_path_provider(base_path)
+    filename = block_path_provider(base_path)
+    path = posixpath.join(base_path, filename)
     writer(dataframe, path, filesystem=filesystem, **writer_kwargs)

@@ -1376,7 +1376,7 @@ class UuidBlockWritePathProvider(FilenameProvider):
         self.write_paths.append(write_path)
         if block is not None:
             self.blocks.append(block)
-        return write_path
+        return filename
 
     def __call__(
         self,
