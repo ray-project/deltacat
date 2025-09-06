@@ -35,7 +35,15 @@ class TestUuidBlockWritePathProvider(unittest.TestCase):
         result = provider("base_path")
 
         self.assertTrue(isinstance(provider, FilenameProvider))
-        self.assertRegex(result, r"^base_path/[\w-]{36}$")
+        # assert that the result is a valid UUID
+        self.assertRegex(
+            result, r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        )
+        # after deleting the provider, expect to capture one write path with the base path as the prefix
+        del provider
+        write_paths = capture_object.write_paths()
+        self.assertEqual(len(write_paths), 1)
+        self.assertEqual(write_paths[0], f"base_path/{result}")
 
 
 class TestDownloadUpload(unittest.TestCase):
