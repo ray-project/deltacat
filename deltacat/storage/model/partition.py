@@ -134,6 +134,15 @@ class Partition(Metafile):
 
     @property
     def stream_position(self) -> Optional[int]:
+        """
+        Returns the latest (most recently created) ordered delta stream position for the partition.
+        In a partition with ordered and unordered deltas, this returns the stream position of the latest
+        ordered delta.
+
+        Returns:
+            Positive Int: The stream position of the latest ordered delta in the partition.
+            `None`: The stream position is not yet known (e.g., due to no ordered deltas in the partition).
+        """
         return self.get("streamPosition")
 
     @stream_position.setter

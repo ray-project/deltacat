@@ -29,10 +29,16 @@ from deltacat.storage.model.schema import (
 )
 from deltacat.storage.model.table import TableProperties, Table
 from deltacat.storage.model.types import (
+    CommitState,
     Dataset,
+    DeltaType,
     LifecycleState,
     StreamFormat,
     SchemaConsistencyType,
+)
+from deltacat.storage.model.delta import (
+    Delta,
+    MAX_DELTA_STREAM_POSITION,
 )
 from deltacat.storage.model.partition import (
     Partition,
@@ -43,9 +49,6 @@ from deltacat.storage.model.table_version import (
     TableVersion,
     TableVersionProperties,
 )
-from deltacat.storage.model.types import DeltaType
-from deltacat.storage import Delta
-from deltacat.storage.model.types import CommitState
 from deltacat.storage.model.transaction import (
     Transaction,
     setup_transaction,
@@ -511,6 +514,14 @@ def _handle_write_mode(
             table_version_obj,
             **kwargs,
         )
+    elif mode == TableWriteMode.ADD:
+        return _handle_add_mode(
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
+            **kwargs,
+        )
     elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
         return _handle_merge_delete_mode(
             mode,
@@ -577,6 +588,30 @@ def _handle_append_mode(
         **kwargs,
     )
     return stream, DeltaType.APPEND
+
+
+def _handle_add_mode(
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
+    **kwargs,
+) -> Tuple[Any, DeltaType]:
+    """Handle ADD mode by validating no merge keys and getting existing stream."""
+    if table_schema and table_schema.merge_keys:
+        raise SchemaValidationError(
+            f"ADD mode cannot be used with tables that have merge keys. "
+            f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+            f"Use MERGE mode instead."
+        )
+
+    stream = _get_table_stream(
+        namespace,
+        table,
+        table_version_obj.table_version,
+        **kwargs,
+    )
+    return stream, DeltaType.ADD
 
 
 def _handle_merge_delete_mode(
@@ -916,7 +951,7 @@ def _stage_commit_and_compact(
     )
 
     # Stage a delta with the data
-    delta = _get_storage(**kwargs).stage_delta(
+    delta: Delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
         partition=partition,
         delta_type=delta_type,
@@ -928,7 +963,7 @@ def _stage_commit_and_compact(
         **kwargs,
     )
 
-    delta = _get_storage(**kwargs).commit_delta(delta=delta, **kwargs)
+    delta: Delta = _get_storage(**kwargs).commit_delta(delta=delta, **kwargs)
 
     if commit_staged_partition:
         _get_storage(**kwargs).commit_partition(partition=partition, **kwargs)
@@ -950,7 +985,7 @@ def _stage_commit_and_compact(
         _run_compaction_session(
             table_version_obj=resolved_table_version_obj,
             partition=partition,
-            latest_delta_stream_position=delta.stream_position,
+            latest_delta_stream_position=MAX_DELTA_STREAM_POSITION,
             namespace=namespace,
             table=table,
             original_fields=original_fields,
@@ -965,9 +1000,6 @@ def _trigger_compaction(
     target_read_optimization_level: TableReadOptimizationLevel,
     **kwargs,
 ) -> bool:
-    # Import inside function to avoid circular imports
-    from deltacat.compute.compactor.utils import round_completion_reader as rci
-
     # Extract delta type from latest_delta if available, otherwise default to no compaction
     if latest_delta is not None:
         delta_type = latest_delta.type
@@ -985,47 +1017,14 @@ def _trigger_compaction(
     ):
         if delta_type == DeltaType.DELETE or delta_type == DeltaType.UPSERT:
             return True
-        elif delta_type == DeltaType.APPEND:
-            # Get default stream to determine partition locator
-            stream = _get_table_stream(
-                table_version_obj.locator.namespace,
-                table_version_obj.locator.table_name,
-                table_version_obj.locator.table_version,
-                **kwargs,
-            )
-
-            if not stream:
-                return False
-
-            # Use provided partition_values or None for unpartitioned tables
-            partition_locator = PartitionLocator.of(
-                stream_locator=stream.locator,
-                partition_values=partition_values,
-                partition_id=None,
-            )
-
-            # Get round completion info to determine high watermark
-            round_completion_info = rci.read_round_completion_info(
-                source_partition_locator=partition_locator,
-                destination_partition_locator=partition_locator,
-                deltacat_storage=_get_storage(**kwargs),
-                deltacat_storage_kwargs=kwargs,
-            )
-
-            high_watermark = (
-                round_completion_info.high_watermark
-                if round_completion_info
-                and isinstance(round_completion_info.high_watermark, int)
-                else 0
-            )
-
+        elif delta_type in (DeltaType.APPEND, DeltaType.ADD):
             # Get all deltas appended since last compaction
             deltas = _get_storage(**kwargs).list_deltas(
                 namespace=table_version_obj.locator.namespace,
                 table_name=table_version_obj.locator.table_name,
                 table_version=table_version_obj.locator.table_version,
                 partition_values=partition_values,
-                start_stream_position=high_watermark + 1,
+                start_stream_position=1,  # the last compacted delta will always have stream position 1
                 **kwargs,
             )
 
@@ -1066,6 +1065,8 @@ def _trigger_compaction(
                 and appended_records_since_last_compaction >= record_trigger
             ):
                 return True
+        else:
+            raise RuntimeError(f"Unexpected delta type for compaction trigger: {delta_type}")
     return False
 
 
@@ -1211,7 +1212,7 @@ def _run_compaction_session(
             partition,
             table_version_obj,
         )
-
+        
         # Create compaction parameters
         compact_partition_params = _create_compaction_params(
             table_version_obj,
@@ -2774,7 +2775,7 @@ def _get_deltas_from_partition_filter(
         if deltas:
             non_append_deltas = []
             for delta in deltas:
-                if delta.type != DeltaType.APPEND:
+                if delta.type not in (DeltaType.ADD, DeltaType.APPEND):
                     non_append_deltas.append(delta)
                 else:
                     result_deltas.append(delta)
@@ -2784,12 +2785,12 @@ def _get_deltas_from_partition_filter(
                     (str(delta.locator), delta.type) for delta in non_append_deltas[:5]
                 ]  # Show first 5
                 raise NotImplementedError(
-                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-append deltas "
-                    f"with types {delta_types}. All deltas must be APPEND type for read operations. "
-                    f"Examples: {delta_info}. Please run compaction first to merge non-append deltas."
+                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-ADD/APPEND deltas "
+                    f"with types {delta_types}. All deltas must be ADD or APPEND type for read operations. "
+                    f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND deltas."
                 )
 
-            logger.info(f"Validated {len(deltas)} qualified deltas are all APPEND type")
+            logger.info(f"Validated {len(deltas)} qualified deltas are all ADD or APPEND type")
     return result_deltas
 
 

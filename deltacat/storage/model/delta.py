@@ -36,6 +36,9 @@ from deltacat.storage.model.types import (
 
 DeltaProperties = Dict[str, Any]
 
+# Max 64-bit unsigned integer value supported by msgpack
+MAX_DELTA_STREAM_POSITION = 2**64 - 1
+
 
 class Delta(Metafile):
     @staticmethod

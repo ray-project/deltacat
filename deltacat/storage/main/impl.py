@@ -1,7 +1,7 @@
 import logging
 import uuid
 import posixpath
-import pyarrow
+import secrets
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
@@ -667,7 +667,7 @@ def list_partition_deltas(
         )
     except ObjectNotFoundError as e:
         raise PartitionNotFoundError(
-            f"Partition {partition_like.locator} not found"
+            f"Partition {partition_like} not found"
         ) from e
     all_deltas = all_deltas_list_result.all_items()
     filtered_deltas = [
@@ -1051,7 +1051,7 @@ def _download_manifest_entry(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     content_type: Optional[ContentType] = None,
     content_encoding: Optional[ContentEncoding] = None,
-    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    filesystem: Optional[pa.fs.FileSystem] = None,
 ) -> LocalTable:
 
     return download_manifest_entry(
@@ -2684,7 +2684,8 @@ def commit_delta(
     resolved_delta_type = delta_type if delta_type is not None else DeltaType.UPSERT
     delta.type = resolved_delta_type
     delta.properties = kwargs.get("properties") or delta.properties
-
+    new_parent_partition: Optional[Partition] = None
+    # resolve the parent partition
     if delta.partition_id:
         parent_partition = get_partition_by_id(
             stream_locator=delta.stream_locator,
@@ -2705,23 +2706,40 @@ def commit_delta(
         raise PartitionNotFoundError(f"Partition not found: {delta.locator}")
     # ensure that we always use a fully qualified partition locator
     delta.locator.partition_locator = parent_partition.locator
-    # resolve the delta's stream position
-    delta.previous_stream_position = parent_partition.stream_position or 0
-    if delta.stream_position is not None:
-        if delta.stream_position <= delta.previous_stream_position:
-            # manually specified delta stream positions must be greater than the
-            # previous stream position
-            raise TableValidationError(
-                f"Delta stream position {delta.stream_position} must be "
-                f"greater than previous stream position "
-                f"{delta.previous_stream_position}"
-            )
-    else:
-        delta.locator.stream_position = delta.previous_stream_position + 1
 
-    # update the parent partition's stream position
-    new_parent_partition: Partition = Metafile.update_for(parent_partition)
-    new_parent_partition.stream_position = delta.locator.stream_position
+    # resolve the delta's stream position
+    if delta.type != DeltaType.ADD:
+        # this is an ordered delta
+        delta.previous_stream_position = parent_partition.stream_position or 0
+        if delta.stream_position is not None:
+            if delta.stream_position <= delta.previous_stream_position:
+                # manually specified delta stream positions must be greater than the
+                # previous stream position
+                raise TableValidationError(
+                    f"Delta stream position {delta.stream_position} must be "
+                    f"greater than previous stream position "
+                    f"{delta.previous_stream_position}"
+                )
+        else:
+            delta.locator.stream_position = delta.previous_stream_position + 1
+        # update the parent partition's stream position
+        new_parent_partition: Partition = Metafile.update_for(parent_partition)
+        new_parent_partition.stream_position = delta.locator.stream_position
+    else:
+        # this is an unordered delta - generate a unique 64-bit stream position
+        # Combine high-resolution timestamp with random bits to guarantee uniqueness
+        import time
+        
+        # Get high-resolution timestamp in nanoseconds (since epoch)
+        timestamp_ns = time.time_ns()
+        
+        # Use lower 40 bits of timestamp + 24 random bits for uniqueness
+        # This gives us ~1100 years of timestamp range + 16M random values per nanosecond
+        timestamp_part = timestamp_ns & 0xFFFFFFFFFF  # 40 bits of timestamp
+        random_part = secrets.randbits(24)  # 24 bits of randomness
+        
+        # Combine: [40-bit timestamp][24-bit random] = 64-bit unique stream position
+        delta.locator.stream_position = (timestamp_part << 24) | random_part
 
     # Add operations to the transaction
     # the 1st operation creates the delta
@@ -2731,14 +2749,16 @@ def commit_delta(
             dest_metafile=delta,
         ),
     )
-    # the 2nd operation alters the stream position of the partition
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.UPDATE,
-            dest_metafile=new_parent_partition,
-            src_metafile=parent_partition,
-        ),
-    )
+    if new_parent_partition:
+        # For ordered APPEND deltas,,
+        # the 2nd operation alters the latest ordered stream position of the partition
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=new_parent_partition,
+                src_metafile=parent_partition,
+            ),
+        )
 
     if commit_transaction:
         transaction.seal()

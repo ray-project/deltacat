@@ -549,7 +549,8 @@ class TableWriteMode(str, Enum):
     AUTO: CREATE if the table doesn't exist, APPEND if the table exists
     without merge keys, and MERGE if the table exists with merge keys.
     CREATE: Create the table if it doesn't exist, throw an error if it does.
-    APPEND: Append to the table if it exists, throw an error if it doesn't.
+    ADD: Add unordered data to the table if it exists, throw an error if it doesn't.
+    APPEND: Append ordered data to the table if it exists, throw an error if it doesn't.
     REPLACE: Replace existing table contents with the data to write.
     MERGE: Insert or update records matching table merge keys.
     Updates or inserts records based on the table's merge and sort keys by
@@ -559,6 +560,7 @@ class TableWriteMode(str, Enum):
 
     AUTO = "auto"
     CREATE = "create"
+    ADD = "add"
     APPEND = "append"
     REPLACE = "replace"
     MERGE = "merge"
@@ -647,7 +649,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
     TableProperty.RECORDS_PER_COMPACTED_FILE: MAX_RECORDS_PER_COMPACTED_FILE,
     TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: MAX_RECORDS_PER_COMPACTED_FILE
-    * 2,
+    * 16,  # DEFAULT_COMPACTION_HASH_BUCKET_COUNT * 2
     TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
     TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 8,

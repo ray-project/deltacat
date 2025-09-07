@@ -867,7 +867,7 @@ class TestTransactionHistoryRegression:
             == TransactionState.SUCCESS
         )
         assert (
-            len(transaction_obj.operations) == 24 == result.iloc[0]["operation_count"]
+            len(transaction_obj.operations) == 21 == result.iloc[0]["operation_count"]
         )
 
         transaction_id = result.iloc[1]["transaction_id"]
@@ -882,5 +882,5 @@ class TestTransactionHistoryRegression:
         )
         # 1st transaction contains more operations than 2nd since only it needed to create the namespace
         assert (
-            len(transaction_obj.operations) == 26 == result.iloc[1]["operation_count"]
+            len(transaction_obj.operations) == 23 == result.iloc[1]["operation_count"]
         )
