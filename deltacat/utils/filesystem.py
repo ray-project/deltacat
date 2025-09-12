@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import re
 import logging
-import calendar
 from typing import Optional, Tuple, Union, List, Callable, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 import sys
@@ -266,7 +265,7 @@ def list_directory_partitioned(
     partition_value: Any,
     partition_transform: Callable[[Any], List[str]],
     limit: int,
-    partition_dir_parser: Callable[[str, int], Optional[Any]],
+    partition_dir_parser: Callable[[List[str]], Optional[Any]],
     exclude_prefixes: Optional[List[str]] = None,
     ignore_missing_path: bool = False,
     recursive: bool = False,
@@ -288,8 +287,8 @@ def list_directory_partitioned(
         exclude_prefixes: File prefixes to exclude (same as list_directory).
         ignore_missing_path: Whether to ignore missing paths (same as list_directory).
         recursive: Whether to search recursively (same as list_directory).
-        partition_dir_parser: Callable that takes a directory name and level (depth) and returns a parsed value
-            if the directory should be treated as a partition, or None to skip it.
+        partition_dir_parser: Callable that takes a list of partition directory names up to the current level
+            and returns a parsed value if the directory should be treated as a partition, or None to skip it.
 
     Returns:
         A list of (file_path, file_size) tuples, ordered from partitions closest to
@@ -345,7 +344,7 @@ def _find_existing_prior_partitions(
     exclude_prefixes: Optional[List[str]],
     recursive: bool,
     ignore_missing_path: bool,
-    partition_dir_parser: Callable[[str, int], Optional[Any]]
+    partition_dir_parser: Callable[[List[str]], Optional[Any]]
 ) -> List[Tuple[str, int]]:
     """
     Find existing partition directories that are "prior" to the target partition
@@ -356,7 +355,6 @@ def _find_existing_prior_partitions(
     if not target_partitions:
         return []
 
-    existing_partitions = []  # Still track partitions for debugging if needed
     collected_files = []
     _traverse_partitions(
         base_path,
@@ -364,7 +362,7 @@ def _find_existing_prior_partitions(
         target_partitions,
         base_path,
         0,
-        existing_partitions,
+        [],  # current_partition_path starts empty
         collected_files,
         limit,
         exclude_prefixes,
@@ -381,13 +379,13 @@ def _traverse_partitions(
     target_partitions: List[str],
     current_path: str,
     depth: int,
-    result: List[str],
+    current_partition_path: List[str],
     collected_files: List[Tuple[str, int]],
     remaining_limit: int,
     exclude_prefixes: Optional[List[str]],
     recursive: bool,
     ignore_missing_path: bool,
-    partition_dir_parser: Callable[[str, int], Optional[Any]]
+    partition_dir_parser: Callable[[List[str]], Optional[Any]]
 ) -> int:
     """
     Recursively traverse partition directories applying lexicographic ordering rules.
@@ -421,21 +419,25 @@ def _traverse_partitions(
     items = list_directory(current_path, filesystem, ignore_missing_path=should_ignore_missing)
 
     # Filter candidates based on lexicographic ordering
-    target_value_raw = target_partitions[depth]
-    # Parse the target value using the same parser for consistent types
-    target_value_parsed = partition_dir_parser(target_value_raw, depth)
-    target_value = target_value_parsed if target_value_parsed is not None else target_value_raw
     is_last_level = (depth == len(target_partitions) - 1)
+
+    # Get the target partition path up to the current depth + 1
+    target_partition_path = target_partitions[:depth + 1]
+    target_value_parsed = partition_dir_parser(target_partition_path)
+    target_value = target_value_parsed if target_value_parsed is not None else 0  # fallback for invalid
 
     candidates = []
     for item_path, _ in items:
         item_name = posixpath.basename(item_path)
 
         # Use partition_dir_parser to validate and potentially transform the directory name
-        parsed_value = partition_dir_parser(item_name, depth)
+        item_partition_path = current_partition_path + [item_name]
+        parsed_value = partition_dir_parser(item_partition_path)
         if parsed_value is None:
-            logger.warning(f"Directory '{item_name}' was skipped by partition_dir_parser")
+            logger.warning(f"Skipping invalid partition directory path '{item_partition_path}'.")
             continue
+
+        # Compare parsed timestamps for ordering
         if is_last_level:
             # Last level: strictly less than
             if parsed_value < target_value:
@@ -445,20 +447,21 @@ def _traverse_partitions(
             if parsed_value <= target_value:
                 candidates.append((parsed_value, item_name))
 
-    # Sort by parsed value in descending order to get closest partitions first
+    # Sort by parsed timestamp value in descending order to get closest partitions first
     candidates.sort(key=lambda x: x[0], reverse=True)
 
     # Recursively explore each candidate
     for _, candidate_name in candidates:
         if remaining_limit > 0:
             next_path = posixpath.join(current_path, candidate_name)
+            next_partition_path = current_partition_path + [candidate_name]
             remaining_limit = _traverse_partitions(
                 base_path,
                 filesystem,
                 target_partitions,
                 next_path,
                 depth + 1,
-                result,
+                next_partition_path,
                 collected_files,
                 remaining_limit,
                 exclude_prefixes,
@@ -892,35 +895,34 @@ def append_protocol_prefix_by_type(path: str, filesystem_type: FilesystemType) -
 
 def epoch_timestamp_partition_transform(epoch_timestamp: int) -> List[str]:
     """
-    Partition transform function for epoch timestamps.
+    Transform a UTC epoch timestamp into human-readable partition directory names.
 
-    Takes an epoch timestamp integer as input, automatically detects its precision
-    (nanoseconds, milliseconds, or seconds), and outputs a list of second-precision
-    epoch timestamps representing the end of various time periods relative to the input timestamp.
+    Takes a UTC epoch timestamp integer as input, automatically detects its precision
+    (nanoseconds, milliseconds, or seconds), and outputs a list of human-readable
+    UTC date components for partition directories.
 
     Args:
-        epoch_timestamp: An integer epoch timestamp (supports nanoseconds, milliseconds, or seconds precision)
+        epoch_timestamp: A non-negative integer UTC epoch timestamp (supports nanoseconds, milliseconds, or seconds precision).
+                        Must be >= 0. For second-precision timestamps, must be at least 10 digits long.
 
     Returns:
-        A list of 5 second-precision epoch timestamp strings representing:
-        1. End of the current year as the input timestamp
-        2. End of the current month as the input timestamp
-        3. End of the current day as the input timestamp
-        4. End of the current hour as the input timestamp
-        5. End of the current minute as the input timestamp
+        A list of 5 human-readable strings representing UTC date components:
+        1. Year (4 digits, e.g., "2024")
+        2. Month (2 digits, e.g., "01")
+        3. Day (2 digits, e.g., "15")
+        4. Hour (2 digits, e.g., "12")
+        5. Minute (2 digits, e.g., "30")
+
+    Raises:
+        TypeError: If epoch_timestamp is not an integer.
+        ValueError: If epoch_timestamp is negative or if second-precision timestamp has fewer than 10 digits.
 
     Example:
-        Input: 1704067200 (2023-12-31 16:00:00 in seconds)
-        Output: [
-            "1704095999",  # End of year: 2023-12-31 23:59:59
-            "1704095999",  # End of month: 2023-12-31 23:59:59
-            "1704095999",  # End of day: 2023-12-31 23:59:59
-            "1704070799",  # End of hour: 2023-12-31 16:59:59
-            "1704067259"   # End of minute: 2023-12-31 16:00:59
-        ]
+        Input: 1705323000 (2024-01-15 12:30:00 UTC)
+        Output: ["2024", "01", "15", "12", "30"]
     """
     if not isinstance(epoch_timestamp, int):
-        raise ValueError(f"epoch_timestamp must be an integer, got {type(epoch_timestamp)}")
+        raise TypeError(f"epoch_timestamp must be an integer, got {type(epoch_timestamp)}")
 
     # Detect timestamp precision by checking the magnitude
     # Current Unix epoch timestamps:
@@ -928,82 +930,82 @@ def epoch_timestamp_partition_transform(epoch_timestamp: int) -> List[str]:
     # - Milliseconds: ~1.7e12 (2024)
     # - Nanoseconds: ~1.7e18 (2024)
 
+    # Validate epoch timestamp
+    if epoch_timestamp < 0:
+        raise ValueError(f"Epoch timestamp must be non-negative, got {epoch_timestamp}")
+
     timestamp_str = str(epoch_timestamp)
-    if len(timestamp_str) >= 19:  # Likely nanoseconds (19 digits for 2024 timestamps)
+    if len(timestamp_str) >= 19:  # nanoseconds
         # Convert nanoseconds to seconds
-        dt = datetime.fromtimestamp(epoch_timestamp / 1_000_000_000)
-    elif len(timestamp_str) >= 13:  # Likely milliseconds (13 digits for 2024 timestamps)
+        dt = datetime.fromtimestamp(epoch_timestamp / 1_000_000_000, tz=timezone.utc)
+    elif len(timestamp_str) >= 13:  # milliseconds
         # Convert milliseconds to seconds
-        dt = datetime.fromtimestamp(epoch_timestamp / 1_000)
-    else:  # Likely seconds
-        dt = datetime.fromtimestamp(epoch_timestamp)
+        dt = datetime.fromtimestamp(epoch_timestamp / 1_000, tz=timezone.utc)
+    elif len(timestamp_str) >= 10:  # seconds
+        dt = datetime.fromtimestamp(epoch_timestamp, tz=timezone.utc)
+    else:
+        raise ValueError(
+            f"Epoch timestamp is too short ({len(timestamp_str)} digits). Expected at least 10 digits for "
+            f"second-precision timestamps (e.g., 1704067200 for Jan 1, 2024)"
+        )
 
-    # Calculate end timestamps for each period
-    partition_timestamps = []
+    # Generate human-readable partition components
+    partition_components = [
+        f"{dt.year:04d}",    # Year (4 digits)
+        f"{dt.month:02d}",   # Month (2 digits)
+        f"{dt.day:02d}",     # Day (2 digits)
+        f"{dt.hour:02d}",    # Hour (2 digits)
+        f"{dt.minute:02d}"   # Minute (2 digits)
+    ]
 
-    # 1. End of year
-    year_end = datetime(dt.year, 12, 31, 23, 59, 59)
-    partition_timestamps.append(str(int(year_end.timestamp())))
-
-    # 2. End of month
-    _, last_day = calendar.monthrange(dt.year, dt.month)
-    month_end = datetime(dt.year, dt.month, last_day, 23, 59, 59)
-    partition_timestamps.append(str(int(month_end.timestamp())))
-
-    # 3. End of day
-    day_end = datetime(dt.year, dt.month, dt.day, 23, 59, 59)
-    partition_timestamps.append(str(int(day_end.timestamp())))
-
-    # 4. End of hour
-    hour_end = datetime(dt.year, dt.month, dt.day, dt.hour, 59, 59)
-    partition_timestamps.append(str(int(hour_end.timestamp())))
-
-    # 5. End of minute
-    minute_end = datetime(dt.year, dt.month, dt.day, dt.hour, dt.minute, 59)
-    partition_timestamps.append(str(int(minute_end.timestamp())))
-
-    return partition_timestamps
+    return partition_components
 
 
-def epoch_timestamp_partition_parser(dir_name: str, level: int) -> Optional[int]:
+def epoch_timestamp_partition_parser(partition_dirs: List[str]) -> Optional[int]:
     """
-    Parser function for validating epoch timestamp partition directory names.
+    Parser function for human-readable UTC partition directory names.
 
-    This function validates that a directory name is a valid epoch timestamp string
-    and returns the timestamp value for lexicographic comparison.
+    This function takes a list of partition directory names (year, month, day, hour, minute)
+    and reconstructs the equivalent UTC epoch timestamp for lexicographic comparison.
 
     Args:
-        dir_name: Directory name to validate (should be a string representation of an epoch timestamp)
-        level: Partition level (0=year, 1=month, 2=day, 3=hour, 4=minute) - used for consistency
+        partition_dirs: List of partition directory names up to the current level.
+                       Should contain human-readable UTC date components.
 
     Returns:
-        The timestamp value as an integer if valid, or None if the directory name is not a valid timestamp.
+        The reconstructed UTC epoch timestamp as an integer, or None if invalid.
 
     Example:
-        >>> epoch_timestamp_partition_parser("1704095999", 0)
-        1704095999
-        >>> epoch_timestamp_partition_parser("invalid_name", 1)
-        None
+        >>> epoch_timestamp_partition_parser(["2024", "01", "15"])
+        1705276800  # 2024-01-15 00:00:00 UTC
+        >>> epoch_timestamp_partition_parser(["2024", "01", "15", "12", "30"])
+        1705323000  # 2024-01-15 12:30:00 UTC
     """
-    # Validate level parameter
-    if not (0 <= level <= 4):
-        raise ValueError(f"Invalid partition level {level}. Must be between 0-4 (year=0, month=1, day=2, hour=3, minute=4)")
-
-    if not dir_name:
+    if not partition_dirs:
         return None
 
     try:
-        # Validate that it's a numeric string
-        timestamp_value = int(dir_name)
+        # Extract components from the partition directory list
+        year = int(partition_dirs[0]) if len(partition_dirs) > 0 else None
+        month = int(partition_dirs[1]) if len(partition_dirs) > 1 else 1
+        day = int(partition_dirs[2]) if len(partition_dirs) > 2 else 1
+        hour = int(partition_dirs[3]) if len(partition_dirs) > 3 else 0
+        minute = int(partition_dirs[4]) if len(partition_dirs) > 4 else 0
 
-        # Basic validation: check that it's a reasonable timestamp
-        # Current Unix epoch (seconds): ~1.7e9 (2024)
-        # Allow some margin for future dates
-        if timestamp_value < 0 or timestamp_value > 3_000_000_000:  # Up to ~2065
+        # Validate ranges
+        if not (1 <= month <= 12):
+            return None
+        if not (1 <= day <= 31):
+            return None
+        if not (0 <= hour <= 23):
+            return None
+        if not (0 <= minute <= 59):
             return None
 
-        return timestamp_value
+        # Create UTC datetime object and convert to epoch timestamp
+        dt = datetime(year, month, day, hour, minute, 0, tzinfo=timezone.utc)
+        return int(dt.timestamp())
 
-    except ValueError:
-        # Not a valid integer string
+    except (ValueError, IndexError):
+        # Invalid date components
         return None
