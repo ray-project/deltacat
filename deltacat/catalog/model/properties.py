@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Any
+from typing import Optional, Any, Union, Dict
 import urllib.parse
 
 import os
@@ -145,6 +145,52 @@ class CatalogProperties:
         else:
             # Relative path - prepend the s3:// scheme
             return f"{self._original_scheme}://{path}"
+
+    @staticmethod
+    def from_serializable(config: Union[Dict[str, Any], None]) -> "CatalogProperties":
+        """
+        Deserialize a config (from YAML, dict, etc.) into a CatalogProperties.
+
+        This method can handle:
+          1. A full dict-of-properties (root, filesystem, storage)
+          2. A 'primitive-only' dict (Case 1 from YAML) — still allowed
+
+        Args:
+            config: A mapping of properties.
+
+        Returns:
+            A CatalogProperties instance.
+
+        Raises:
+            ValueError: For invalid input types or malformed configs.
+        """
+        if config is None:
+            raise ValueError("Cannot construct CatalogProperties from None")
+
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"Expected dict for CatalogProperties deserialization, "
+                f"got {type(config)}"
+            )
+
+        # Validation: all values must be serializable primitives or lists
+        if all(
+            isinstance(v, (str, int, float, bool, type(None), list))
+            for v in config.values()
+        ):
+            # Accept it directly
+            return CatalogProperties(**config)
+
+        # Otherwise, assume it’s a property mapping { key -> value }
+        expected_keys = {"root", "filesystem", "storage"}
+        for key in config:
+            if key not in expected_keys:
+                raise ValueError(
+                    f"Unrecognized CatalogProperties key '{key}'. "
+                    f"Expected one of {expected_keys}"
+                )
+
+        return CatalogProperties(**config)
 
     def __str__(self):
         return (

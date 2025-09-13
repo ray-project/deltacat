@@ -26,22 +26,13 @@ def load_catalog_configs_from_yaml(config_path: str) -> Dict[str, CatalogPropert
             f"Invalid YAML format in {config_path}. "
             f"Expected a dict, got {type(config_data)}"
         )
+    # Case 1: dict of named configs (every value is itself a dict)
+    if all(isinstance(v, dict) for v in config_data.values()):
+        return {
+            name: CatalogProperties.from_serializable(props)
+            for name, props in config_data.items()
+        }
 
-    # Case 1: single unnamed config
+    # Case 2: single unnamed config
     # e.g. {"type": "iceberg", "uri": "...", "warehouse": "prod"}
-    if all(
-        isinstance(v, (str, int, float, bool, type(None))) or isinstance(v, list)
-        for v in config_data.values()
-    ):
-        return {"default": CatalogProperties(**config_data)}
-
-    # Case 2: top-level dict of name -> dict-of-properties
-    catalogs: Dict[str, CatalogProperties] = {}
-    for name, props in config_data.items():
-        if not isinstance(props, dict):
-            raise ValueError(
-                f"Config for catalog '{name}' must be a mapping, got {type(props)}"
-            )
-        catalogs[name] = CatalogProperties(**props)
-
-    return catalogs
+    return {"default": CatalogProperties.from_serializable(config_data)}

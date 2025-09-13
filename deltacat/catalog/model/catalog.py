@@ -231,7 +231,7 @@ def init(
     if catalogs and config_path is None:
         # Only dump if the catalogs are config-backed
         try:
-            dump_catalogs_to_yaml(catalogs)
+            _dump_catalogs_to_yaml(catalogs)
         except TypeError:
             logger.debug(
                 "Skipping dumping catalogs to YAML: non-CatalogProperties inner"
@@ -432,7 +432,7 @@ def put_catalog(
         existing_catalogs[name] = catalog
 
         # Now write back full merged dictionary
-        dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
+        _dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
 
     except Exception as e:
         logger.warning(f"Failed to persist catalog {name} to config file: {e}")
@@ -440,7 +440,7 @@ def put_catalog(
     return catalog
 
 
-def dump_catalogs_to_yaml(
+def _dump_catalogs_to_yaml(
     catalogs: Union[
         Dict[str, Union[Catalog, CatalogProperties]], Catalog, CatalogProperties
     ],
