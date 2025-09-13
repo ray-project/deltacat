@@ -442,7 +442,7 @@ def put_catalog(
 
 def _dump_catalogs_to_yaml(
     catalogs: Union[
-        Dict[str, Union[Catalog, CatalogProperties]], Catalog, CatalogProperties
+        Dict[str, Union["Catalog", CatalogProperties]], "Catalog", CatalogProperties
     ],
     *,
     single_if_default: bool = True,
@@ -455,21 +455,6 @@ def _dump_catalogs_to_yaml(
     - If single_if_default=True and only one entry ("default"),
       emit a flat config instead of mapping.
     """
-    from pathlib import Path
-
-    def props_to_dict(inner: Any) -> dict:
-        if isinstance(inner, CatalogProperties):
-            return {
-                "root": getattr(inner, "root", None),
-                "filesystem": None,
-                "storage": None,
-            }
-        elif isinstance(inner, dict):  # for test mocks
-            return inner
-        else:
-            raise TypeError(
-                f"Cannot dump config: expected CatalogProperties or dict, got {type(inner)}"
-            )
 
     # Normalize to {name: CatalogProperties}
     if isinstance(catalogs, Catalog):
@@ -491,9 +476,12 @@ def _dump_catalogs_to_yaml(
 
     # Handle default flattening
     if single_if_default and set(catalogs.keys()) == {"default"}:
-        data = props_to_dict(catalogs["default"])
+        data = CatalogProperties.ensure_serializable(catalogs["default"])
     else:
-        data = {name: props_to_dict(props) for name, props in catalogs.items()}
+        data = {
+            name: CatalogProperties.ensure_serializable(obj)
+            for name, obj in catalogs.items()
+        }
 
     # Write YAML
     config_path = Path(DELTACAT_CONFIG_PATH).expanduser()

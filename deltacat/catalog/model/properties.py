@@ -146,6 +146,41 @@ class CatalogProperties:
             # Relative path - prepend the s3:// scheme
             return f"{self._original_scheme}://{path}"
 
+    def to_serializable(self) -> Dict[str, Any]:
+        """
+        Convert this CatalogProperties instance into a serializable dictionary,
+        suitable for dumping to YAML or JSON.
+
+        Returns:
+            dict of primitive config values.
+        """
+        return {
+            "root": getattr(self, "root", None),
+            # Non-serializable fields -> we serialize as None for now.
+            "filesystem": None,
+            "storage": None,
+        }
+
+    @staticmethod
+    def ensure_serializable(
+        obj: Union["CatalogProperties", Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Helper: normalize a CatalogProperties or dict-like (e.g. mock configs)
+        into a serializable dictionary. This allows tests/mocks to supply dicts
+        instead of CatalogProperties.
+        """
+        if isinstance(obj, CatalogProperties):
+            return obj.to_serializable()
+        elif isinstance(obj, dict):
+            # Assume dict is already serializable
+            return obj
+        else:
+            raise TypeError(
+                f"Unsupported type for serialization: {type(obj)}. "
+                f"Expected CatalogProperties or dict."
+            )
+
     @staticmethod
     def from_serializable(config: Union[Dict[str, Any], None]) -> "CatalogProperties":
         """
