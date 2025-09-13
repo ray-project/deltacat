@@ -341,10 +341,33 @@ def pop_catalog(name: str) -> Optional[Catalog]:
         The removed catalog, or None if not found.
     """
     global all_catalogs
-
     if not all_catalogs:
         return None
+
+    # Remove from in-memory actor
     catalog = ray.get(all_catalogs.pop.remote(name))
+
+    # --- Persist removal to disk ---
+    try:
+        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
+        if cfg_path.exists():
+            try:
+                # Load existing config
+                loaded = load_catalog_configs_from_yaml(str(cfg_path))
+                # Wrap into Catalog so _dump_catalogs_to_yaml works uniformly
+                existing_catalogs = {
+                    n: Catalog(config=props) for n, props in loaded.items()
+                }
+                if name in existing_catalogs:
+                    del existing_catalogs[name]
+
+                    # Now write full merged dictionary back to disk
+                    _dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
+            except Exception as e:
+                logger.warning(f"Failed to update catalog config file after pop: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to persist catalog removal {name} to config file: {e}")
+
     return catalog
 
 
