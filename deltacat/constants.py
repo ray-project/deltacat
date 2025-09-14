@@ -92,6 +92,7 @@ MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
 NULL_SIZE_BYTES = 4
 
 # Metastore Constants
+CATALOG_VERSION_DIR_NAME: str = "version"
 REVISION_DIR_NAME: str = "rev"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"

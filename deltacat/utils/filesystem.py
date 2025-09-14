@@ -559,15 +559,12 @@ def get_file_info_partitioned(
     # Add the filename to the partitioned directory path
     partitioned_path = posixpath.join(partitioned_path, filename)
 
-    # Get file info for the partitioned path
-    try:
-        file_info = filesystem.get_file_info(partitioned_path)
-    except OSError as e:
-        _handle_read_os_error(e, partitioned_path)
-    if file_info.type == FileType.NotFound and not ignore_missing_path:
-        raise FileNotFoundError(partitioned_path)
-
-    return file_info
+    # Get file info for the partitioned path using the existing get_file_info function
+    return get_file_info(
+        path=partitioned_path,
+        filesystem=filesystem,
+        ignore_missing_path=ignore_missing_path
+    )
 
 
 def write_file(
@@ -607,7 +604,7 @@ def write_file_partitioned(
     partition_value: Any,
     partition_transform: Callable[[Any], List[str]],
     filesystem: Optional[FileSystem] = None,
-) -> None:
+) -> str:
     """
     Write data to a file in an automatically partitioned filesystem.
 
@@ -623,6 +620,9 @@ def write_file_partitioned(
             a list of strings representing directory names. Each string in the
             list will become a directory in the partition hierarchy.
         filesystem: The filesystem implementation to use. If None, will be inferred from the path.
+
+    Returns:
+        The actual partitioned file path where the file was written.
 
     Example:
         # Partition by date components
@@ -683,6 +683,9 @@ def write_file_partitioned(
     # Write the file to the partitioned location
     with resolved_filesystem.open_output_stream(partitioned_path) as f:
         f.write(data)
+
+    # Return the actual partitioned file path where the file was written
+    return partitioned_path
 
 
 def read_file(
@@ -959,6 +962,73 @@ def epoch_timestamp_partition_transform(epoch_timestamp: int) -> List[str]:
     ]
 
     return partition_components
+
+
+def exponential_transform(value: int, base: int = 1000, levels: int = 2) -> List[str]:
+    """
+    Transform an integer value into exponential partition directory names.
+
+    This function creates a hierarchical partitioning scheme based on powers of a base.
+    Each output partition directory represents a capacity level: multiplier * base^(levels-level).
+    The algorithm ensures the total capacity across all levels is >= the input value.
+
+    Args:
+        value: The positive integer value to partition.
+        base: The base for exponential calculations (default: 1000).
+        levels: The number of partition levels to generate (default: 2).
+
+    Returns:
+        A list of string partition values representing the hierarchical structure.
+
+    Raises:
+        ValueError: If value is not positive, base is <= 1, or levels is <= 0.
+
+    Example:
+        >>> exponential_transform(1500, base=1000, levels=2)
+        ['1000000', '2000']
+
+        >>> exponential_transform(1500000, base=1000, levels=2)
+        ['2000000', '500000']
+    """
+    if not isinstance(value, int):
+        raise TypeError(f"value must be an integer, got {type(value)}")
+    if not isinstance(base, int):
+        raise TypeError(f"base must be an integer, got {type(base)}")
+    if not isinstance(levels, int):
+        raise TypeError(f"levels must be an integer, got {type(levels)}")
+
+    if value <= 0:
+        raise ValueError(f"value must be a positive integer, got {value}")
+    if base <= 1:
+        raise ValueError(f"base must be greater than 1, got {base}")
+    if levels <= 0:
+        raise ValueError(f"levels must be positive, got {levels}")
+
+    # Work from highest to lowest level, tracking the remaining value.
+    # For each level, calculate the minimum multiplier needed to handle the remaining value,
+    # then subtract that level's contribution from the remaining value for subsequent levels.
+    # Each level i contributes: (multiplier_i - 1) * base^(levels-i) to total capacity,
+    # except the final level which contributes: multiplier_i * base^(levels-i)
+
+    multipliers = []
+    remaining_value = value
+
+    for level in range(levels):
+        divisor = base ** (levels - level)
+
+        # Calculate minimum multiplier needed for this level
+        multiplier = (remaining_value + divisor - 1) // divisor
+        multipliers.append(multiplier)
+
+        # Update remaining value for next level
+        # Each level contributes (multiplier - 1) * divisor to the total capacity
+        # except the last level which contributes multiplier * divisor
+        if level < levels - 1:
+            remaining_value = max(0, remaining_value - (multiplier - 1) * divisor)
+
+    # Convert multipliers to partition values
+    partitions = [str(multiplier * (base ** (levels - level))) for level, multiplier in enumerate(multipliers)]
+    return partitions
 
 
 def epoch_timestamp_partition_parser(partition_dirs: List[str]) -> Optional[int]:
