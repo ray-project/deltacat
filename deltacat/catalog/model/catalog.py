@@ -237,6 +237,28 @@ def init(
                 "Skipping dumping catalogs to YAML: non-CatalogProperties inner"
             )
 
+        # Normalize everything to Dict[str, Catalog] ---
+        if isinstance(catalogs, Catalog):
+            # single Catalog object
+            catalogs = {DEFAULT_CATALOG: catalogs}
+        elif isinstance(catalogs, dict):
+            normalized = {}
+            for name, obj in catalogs.items():
+                if isinstance(obj, Catalog):
+                    normalized[name] = obj
+                elif isinstance(obj, CatalogProperties):
+                    # Wrap in a Catalog
+                    normalized[name] = Catalog(config=obj)
+                else:
+                    raise TypeError(
+                        f"Unsupported object type in catalogs dict: {type(obj)}"
+                    )
+            catalogs = normalized
+        else:
+            raise TypeError(
+                f"Expected a Catalog or dict[str, Catalog|CatalogProperties], but got {type(catalogs)}"
+            )
+
     # initialize ray (and ignore reinitialization errors)
     ray_init_args["ignore_reinit_error"] = True
     context = ray.init(**ray_init_args)
@@ -350,7 +372,7 @@ def pop_catalog(name: str) -> Optional[Catalog]:
     # --- Persist removal to disk ---
     try:
         cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
-        if cfg_path.exists():
+        if cfg_path.exists() and cfg_path.stat().st_size > 0:  # empty file check
             try:
                 # Load existing config
                 loaded = load_catalog_configs_from_yaml(str(cfg_path))
@@ -441,7 +463,7 @@ def put_catalog(
         cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
         existing_catalogs = {}
 
-        if cfg_path.exists():
+        if cfg_path.exists() and cfg_path.stat().st_size > 0:  # empty file check
             try:
                 loaded = load_catalog_configs_from_yaml(str(cfg_path))
                 # Wrap into Catalog so dump_catalogs_to_yaml can handle uniformly
@@ -465,7 +487,9 @@ def put_catalog(
 
 def _dump_catalogs_to_yaml(
     catalogs: Union[
-        Dict[str, Union["Catalog", CatalogProperties]], "Catalog", CatalogProperties
+        Dict[str, Union["Catalog", CatalogProperties]],
+        "Catalog",
+        CatalogProperties,
     ],
     *,
     single_if_default: bool = True,
@@ -473,21 +497,29 @@ def _dump_catalogs_to_yaml(
     """
     Write Catalog configs (Catalogs or CatalogProperties) to YAML.
 
-    - Supports Dict[str, Catalog], Dict[str, CatalogProperties],
-      a single Catalog, or a single CatalogProperties.
-    - If single_if_default=True and only one entry ("default"),
-      emit a flat config instead of mapping.
+    Supports:
+        - Dict[str, Catalog]
+        - Dict[str, CatalogProperties]
+        - single Catalog
+        - single CatalogProperties
+
+    Always normalizes to {name: dict-of-primitive-keys}
     """
 
-    # Normalize to {name: CatalogProperties}
+    # Normalize inputs into { str: CatalogProperties }
     if isinstance(catalogs, Catalog):
         catalogs = {"default": catalogs.inner}
     elif isinstance(catalogs, CatalogProperties):
         catalogs = {"default": catalogs}
     elif isinstance(catalogs, dict):
-        normalized = {}
+        normalized: Dict[str, CatalogProperties] = {}
         for name, obj in catalogs.items():
             if isinstance(obj, Catalog):
+                if not isinstance(obj.inner, CatalogProperties):
+                    raise TypeError(
+                        f"Catalog.inner must be CatalogProperties for dumping, "
+                        f"got {type(obj.inner)}"
+                    )
                 normalized[name] = obj.inner
             elif isinstance(obj, CatalogProperties):
                 normalized[name] = obj
@@ -497,16 +529,16 @@ def _dump_catalogs_to_yaml(
     else:
         raise TypeError(f"Unsupported catalogs type: {type(catalogs)}")
 
-    # Handle default flattening
+    # Serialize all values to primitive dicts
     if single_if_default and set(catalogs.keys()) == {"default"}:
         data = CatalogProperties.ensure_serializable(catalogs["default"])
     else:
         data = {
-            name: CatalogProperties.ensure_serializable(obj)
-            for name, obj in catalogs.items()
+            name: CatalogProperties.ensure_serializable(props)
+            for name, props in catalogs.items()
         }
 
-    # Write YAML
+    # Write out to YAML
     config_path = Path(DELTACAT_CONFIG_PATH).expanduser()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w") as f:
