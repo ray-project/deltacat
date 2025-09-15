@@ -21,6 +21,7 @@ from deltacat.constants import (
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
+    UNSIGNED_INT64_MAX_VALUE,
 )
 from deltacat.exceptions import (
     ObjectNotFoundError,
@@ -34,7 +35,12 @@ from deltacat.storage.model.types import TransactionOperationType
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
+    list_directory_partitioned,
     get_file_info,
+    write_file_partitioned,
+    exponential_partition_transform,
+    parse_exponential_partitions,
+    remove_exponential_partitions,
 )
 
 
@@ -70,6 +76,22 @@ class MetafileRevisionInfo(dict):
         return mri
 
     @staticmethod
+    def parse_revision(file_path: str) -> Optional[int]:
+        """Extract revision number from metafile path for partition filtering.
+        
+        Args:
+            file_path: Path to a metafile revision file.
+            
+        Returns:
+            The revision number if successfully parsed, None otherwise.
+        """
+        try:
+            mri = MetafileRevisionInfo.parse(file_path)
+            return mri.revision
+        except (ValueError, IndexError, AttributeError):
+            return None
+
+    @staticmethod
     def list_revisions(
         revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
@@ -85,6 +107,8 @@ class MetafileRevisionInfo(dict):
         sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
+            partition_value=UNSIGNED_INT64_MAX_VALUE,
+            limit=limit,
             ignore_missing_revision=True,
         )
         revisions = []
@@ -251,10 +275,20 @@ class MetafileRevisionInfo(dict):
         sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
+            partition_value=cur_txn_mri.revision,
+            limit=1000,
         )
+        
+        # If we hit the limit, there are too many concurrent conflicts - fail early
+        if len(sorted_metafile_paths) >= 1000:
+            raise ConcurrentModificationError(
+                f"Aborting transaction {cur_txn_mri.txn_id} due to excessive "
+                f"concurrent conflicts (>=1000 files) at {revision_dir_path}. "
+            )
+        
         conflict_mris = []
         while sorted_metafile_paths:
-            next_metafile_path = sorted_metafile_paths.pop()
+            next_metafile_path = sorted_metafile_paths.pop(0)
             mri = MetafileRevisionInfo.parse(next_metafile_path)
             if mri.revision < cur_txn_mri.revision:
                 # no conflict was found
@@ -308,11 +342,18 @@ class MetafileRevisionInfo(dict):
     def _sorted_file_paths(
         revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
+        partition_value: int,
+        limit: Optional[int] = None,
         ignore_missing_revision: bool = False,
     ) -> List[str]:
-        file_paths_and_sizes = list_directory(
+        file_paths_and_sizes = list_directory_partitioned(
             path=revision_dir_path,
             filesystem=filesystem,
+            partition_value=partition_value,
+            partition_transform=exponential_partition_transform,
+            partition_file_parser=MetafileRevisionInfo.parse_revision,
+            limit=limit,
+            partition_dir_parser=parse_exponential_partitions,
             ignore_missing_path=True,
         )
         if not file_paths_and_sizes and not ignore_missing_revision:
@@ -675,24 +716,28 @@ class Metafile(dict):
     def write(
         self,
         path: str,
+        revision: int,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         meta_format: Optional[str] = METAFILE_FORMAT,
-    ) -> None:
+    ) -> str:
         """
-        Serialize and write this object to a metadata file.
+        Serialize and write this object to a metadata file using partitioned storage.
         :param path: Metadata file path to write to.
+        :param revision: Revision number to use for partitioning.
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
         :param meta_format: Format to use for serializing the metadata file.
+        :return: The actual path where the file was written (may differ due to partitioning).
         """
         serialized = self.serialize(meta_format)
-        if not filesystem:
-            path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        revision_dir_path = posixpath.dirname(path)
-        filesystem.create_dir(revision_dir_path, recursive=True)
-        with filesystem.open_output_stream(path) as file:
-            file.write(serialized)
+        return write_file_partitioned(
+            path=remove_exponential_partitions(path),
+            data=serialized,
+            partition_value=revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
 
     @staticmethod
     def _equivalent_minus_exclusions(d1: dict, d2: dict, exclusions: Set[str]) -> bool:
@@ -1192,10 +1237,13 @@ class Metafile(dict):
             extension=f".{self.id}",
             success_txn_log_dir=success_txn_log_dir,
         )
-        revision_file_path = mri.path
-        filesystem.create_dir(posixpath.dirname(revision_file_path), recursive=True)
-        with filesystem.open_output_stream(revision_file_path):
-            pass  # Just create an empty ID file to map to the locator
+        revision_file_path = write_file_partitioned(
+            path=remove_exponential_partitions(mri.path),
+            data=b"",  # Just create an empty ID file to map to the locator
+            partition_value=mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
         current_txn_op.append_locator_write_path(revision_file_path)
         return revision_file_path
 
@@ -1217,12 +1265,13 @@ class Metafile(dict):
             filesystem=filesystem,
             success_txn_log_dir=success_txn_log_dir,
         )
-        self.write(
+        written_path = self.write(
             path=mri.path,
+            revision=mri.revision,
             filesystem=filesystem,
         )
-        current_txn_op.append_metafile_write_path(mri.path)
-        return mri.path
+        current_txn_op.append_metafile_write_path(written_path)
+        return written_path
 
     def _write_metafile_revisions(
         self,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from botocore import UNSIGNED
 import botocore.exceptions
 
 from daft.exceptions import DaftTransientError
@@ -67,6 +68,7 @@ BYTES_PER_PEBIBYTE = 2**50
 
 SIGNED_INT64_MIN_VALUE = -(2**63)
 SIGNED_INT64_MAX_VALUE = 2**63 - 1
+UNSIGNED_INT64_MAX_VALUE = 2**64 - 1
 
 # Time Units
 NANOS_PER_SEC = 1_000_000_000

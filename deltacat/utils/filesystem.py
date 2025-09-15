@@ -27,6 +27,8 @@ from pyarrow.fs import (
     HadoopFileSystem,
 )
 
+from deltacat.constants import UNSIGNED_INT64_MAX_VALUE
+
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -256,7 +258,7 @@ def list_directory(
             continue
         out.append((file_path, file_.size))
     # We sort the paths to guarantee a stable order.
-    return sorted(out)
+    return sorted(out, reverse=True)
 
 
 def list_directory_partitioned(
@@ -264,31 +266,35 @@ def list_directory_partitioned(
     filesystem: FileSystem,
     partition_value: Any,
     partition_transform: Callable[[Any], List[str]],
-    limit: int,
-    partition_dir_parser: Callable[[List[str]], Optional[Any]],
+    partition_file_parser: Callable[[str], Optional[Any]],
+    limit: Optional[int] = None,
+    partition_dir_parser: Callable[[List[str]], Optional[Any]] = None,
     exclude_prefixes: Optional[List[str]] = None,
     ignore_missing_path: bool = False,
     recursive: bool = False,
 ) -> List[Tuple[str, int]]:
     """
     List files in a partitioned filesystem directory structure, returning files from partitions
-    that are "prior" to the input partition according to lexicographic ordering.
+    that are less than or equal to the input partition value.
 
     This function implements complex partition traversal logic where files are returned from
-    partitions whose partition directories satisfy specific ordering constraints relative to
-    the input partition_value's transformed partition directories.
+    partitions whose parsed values are less than or equal to the parsed value of the input
+    partition_value.
 
     Args:
         path: The base directory path to search for partitioned files.
         filesystem: The filesystem implementation to use.
-        partition_value: The partition value to compare against (e.g., timestamp).
+        partition_value: The partition value to compare against (e.g., timestamp, revision number).
         partition_transform: A callable that transforms partition_value into a list of partition directory names.
-        limit: Maximum number of files to return.
+        limit: Maximum number of files to return. If None, returns all matching files (unlimited).
+        partition_dir_parser: Callable that takes a list of partition directory names up to the current level
+            and returns a parsed value if the directory should be treated as a partition, or None to skip it.
+        partition_file_parser: Callable that takes a file path and returns the original partition value
+            used to create that file. Enables precise file-level filtering for files within
+            the same partition as the target partition_value.
         exclude_prefixes: File prefixes to exclude (same as list_directory).
         ignore_missing_path: Whether to ignore missing paths (same as list_directory).
         recursive: Whether to search recursively (same as list_directory).
-        partition_dir_parser: Callable that takes a list of partition directory names up to the current level
-            and returns a parsed value if the directory should be treated as a partition, or None to skip it.
 
     Returns:
         A list of (file_path, file_size) tuples, ordered from partitions closest to
@@ -296,16 +302,16 @@ def list_directory_partitioned(
 
     Example:
         For partition_value with transform ["2024", "01", "15"] (Jan 15, 2024):
-        - Returns files from partitions like ["2024", "01", "14"], ["2024", "01", "13"], etc.
-        - Does NOT return files from ["2024", "01", "15"], ["2024", "01", "16"], etc.
+        - Returns files from partitions like ["2024", "01", "15"], ["2024", "01", "14"], ["2024", "01", "13"], etc.
+        - Does NOT return files from ["2024", "01", "16"], ["2024", "01", "17"], etc.
         - Files are ordered by proximity to the input partition.
     """
     if exclude_prefixes is None:
         exclude_prefixes = [".", "_"]
 
     # Validate inputs
-    if not isinstance(limit, int) or limit <= 0:
-        raise ValueError(f"limit must be a positive integer, got {limit}")
+    if limit is not None and (not isinstance(limit, int) or limit <= 0):
+        raise ValueError(f"limit must be a positive integer or None, got {limit}")
 
     # Get the target partition directories
     target_partitions = partition_transform(partition_value)
@@ -328,7 +334,9 @@ def list_directory_partitioned(
         exclude_prefixes,
         recursive,
         ignore_missing_path,
-        partition_dir_parser
+        partition_dir_parser,
+        partition_value,
+        partition_file_parser
     )
 
     # Files are already collected in order of partition proximity due to traversal order
@@ -340,17 +348,19 @@ def _find_existing_prior_partitions(
     base_path: str,
     filesystem: FileSystem,
     target_partitions: List[str],
-    limit: int,
+    limit: Optional[int],
     exclude_prefixes: Optional[List[str]],
     recursive: bool,
     ignore_missing_path: bool,
-    partition_dir_parser: Callable[[List[str]], Optional[Any]]
+    partition_dir_parser: Callable[[List[str]], Optional[Any]],
+    partition_value: Any,
+    partition_file_parser: Callable[[str], Optional[Any]]
 ) -> List[Tuple[str, int]]:
     """
     Find existing partition directories that are "prior" to the target partition
-    and collect files from them, stopping early when limit is reached.
-    Uses depth-first traversal with lexicographic ordering.
-    Returns the collected files (up to the limit).
+    and collect files from them, stopping early when limit is reached (if specified).
+    Uses depth-first traversal with ordering by partition value.
+    Returns the collected files (up to the limit, or all files if limit is None).
     """
     if not target_partitions:
         return []
@@ -368,7 +378,9 @@ def _find_existing_prior_partitions(
         exclude_prefixes,
         recursive,
         ignore_missing_path,
-        partition_dir_parser
+        partition_dir_parser,
+        partition_value,
+        partition_file_parser
     )
     return collected_files
 
@@ -381,14 +393,16 @@ def _traverse_partitions(
     depth: int,
     current_partition_path: List[str],
     collected_files: List[Tuple[str, int]],
-    remaining_limit: int,
+    remaining_limit: Optional[int],
     exclude_prefixes: Optional[List[str]],
     recursive: bool,
     ignore_missing_path: bool,
-    partition_dir_parser: Callable[[List[str]], Optional[Any]]
-) -> int:
+    partition_dir_parser: Callable[[List[str]], Optional[Any]],
+    partition_value: Any,
+    partition_file_parser: Callable[[str], Optional[Any]]
+) -> Optional[int]:
     """
-    Recursively traverse partition directories applying lexicographic ordering rules.
+    Recursively traverse partition directories applying partition value ordering rules.
     Returns the updated remaining_limit after processing this subtree.
     """
     if depth >= len(target_partitions):
@@ -402,12 +416,30 @@ def _traverse_partitions(
             recursive=recursive
         )
 
-        # Add files up to the remaining limit
-        files_to_add = partition_files[:remaining_limit]
+        # Only need to filter files if we're in the same partition as the target partition
+        # Files in partitions < target partition are guaranteed to be <= partition_value
+        if current_partition_path == target_partitions:
+            # We're in the target partition - need to filter files by their actual values
+            filtered_files = []
+            for file_path, file_size in partition_files:
+                file_partition_value = partition_file_parser(file_path)
+                if file_partition_value is None:
+                    logger.warning(f"Skipping invalid partition file path '{file_path}'.")
+                elif file_partition_value > partition_value:
+                    logger.debug(f"Skipping file '{file_path}' with partition value '{file_partition_value}' greater than target partition value '{partition_value}'.")
+                else:
+                    filtered_files.append((file_path, file_size))
+        else:
+            # We're in a partition < target partition - all files are valid
+            filtered_files = partition_files
+        
+        # Add files up to the remaining limit (or all files if unlimited)
+        if remaining_limit is None:
+            files_to_add = filtered_files
+        else:
+            files_to_add = filtered_files[:remaining_limit]
+            remaining_limit -= len(files_to_add)
         collected_files.extend(files_to_add)
-
-        # Update remaining limit
-        remaining_limit -= len(files_to_add)
 
         # Return the updated remaining limit
         return remaining_limit
@@ -417,9 +449,6 @@ def _traverse_partitions(
     # but use False for subsequent directories since we know they should exist
     should_ignore_missing = ignore_missing_path if depth == 0 else False
     items = list_directory(current_path, filesystem, ignore_missing_path=should_ignore_missing)
-
-    # Filter candidates based on lexicographic ordering
-    is_last_level = (depth == len(target_partitions) - 1)
 
     # Get the target partition path up to the current depth + 1
     target_partition_path = target_partitions[:depth + 1]
@@ -437,22 +466,17 @@ def _traverse_partitions(
             logger.warning(f"Skipping invalid partition directory path '{item_partition_path}'.")
             continue
 
-        # Compare parsed timestamps for ordering
-        if is_last_level:
-            # Last level: strictly less than
-            if parsed_value < target_value:
-                candidates.append((parsed_value, item_name))
-        else:
-            # Earlier levels: less than or equal
-            if parsed_value <= target_value:
-                candidates.append((parsed_value, item_name))
+        # Compare parsed values for ordering
+        # Use consistent less-than-or-equal comparison for all levels
+        if parsed_value <= target_value:
+            candidates.append((parsed_value, item_name))
 
     # Sort by parsed timestamp value in descending order to get closest partitions first
     candidates.sort(key=lambda x: x[0], reverse=True)
 
     # Recursively explore each candidate
     for _, candidate_name in candidates:
-        if remaining_limit > 0:
+        if remaining_limit is None or remaining_limit > 0:
             next_path = posixpath.join(current_path, candidate_name)
             next_partition_path = current_partition_path + [candidate_name]
             remaining_limit = _traverse_partitions(
@@ -468,6 +492,8 @@ def _traverse_partitions(
                 recursive,
                 ignore_missing_path,
                 partition_dir_parser,
+                partition_value,
+                partition_file_parser
             )
         else:
             # We've already reached the limit, stop traversal
@@ -580,10 +606,14 @@ def write_file(
         data: The data to write (string or bytes).
         filesystem: The filesystem implementation to use. If None, will be inferred from the path.
     """
-    resolved_path, resolved_filesystem = resolve_path_and_filesystem(
-        path=path,
-        filesystem=filesystem,
-    )
+    if not filesystem:
+        resolved_path, resolved_filesystem = resolve_path_and_filesystem(
+                path=path,
+                filesystem=filesystem,
+            )
+    else:
+        resolved_path = path
+        resolved_filesystem = filesystem
 
     # Create parent directories if they don't exist
     dir_path = posixpath.dirname(resolved_path)
@@ -647,10 +677,14 @@ def write_file_partitioned(
         raise ValueError("All partition directory names must be strings")
 
     # Construct the partitioned path
-    resolved_path, resolved_filesystem = resolve_path_and_filesystem(
-        path=path,
-        filesystem=filesystem,
-    )
+    if not filesystem:
+        resolved_path, resolved_filesystem = resolve_path_and_filesystem(
+            path=path,
+            filesystem=filesystem,
+        )
+    else:
+        resolved_path = path
+        resolved_filesystem = filesystem
 
     # Validate and parse the resolved path using posixpath
     try:
@@ -964,7 +998,7 @@ def epoch_timestamp_partition_transform(epoch_timestamp: int) -> List[str]:
     return partition_components
 
 
-def exponential_transform(value: int, base: int = 1000, levels: int = 2) -> List[str]:
+def exponential_partition_transform(value: int, base: int = 1000, levels: int = 2) -> List[str]:
     """
     Transform an integer value into exponential partition directory names.
 
@@ -984,10 +1018,10 @@ def exponential_transform(value: int, base: int = 1000, levels: int = 2) -> List
         ValueError: If value is not positive, base is <= 1, or levels is <= 0.
 
     Example:
-        >>> exponential_transform(1500, base=1000, levels=2)
+        >>> exponential_partition_transform(1500, base=1000, levels=2)
         ['1000000', '2000']
 
-        >>> exponential_transform(1500000, base=1000, levels=2)
+        >>> exponential_partition_transform(1500000, base=1000, levels=2)
         ['2000000', '500000']
     """
     if not isinstance(value, int):
@@ -1026,17 +1060,26 @@ def exponential_transform(value: int, base: int = 1000, levels: int = 2) -> List
         if level < levels - 1:
             remaining_value = max(0, remaining_value - (multiplier - 1) * divisor)
 
-    # Convert multipliers to partition values
-    partitions = [str(multiplier * (base ** (levels - level))) for level, multiplier in enumerate(multipliers)]
+    # Convert multipliers to partition values and validate they don't exceed max uint64
+    partitions = []
+    for level, multiplier in enumerate(multipliers):
+        partition_value = multiplier * (base ** (levels - level))
+        if partition_value > UNSIGNED_INT64_MAX_VALUE:
+            raise ValueError(
+                f"Partition value {partition_value} at level {level} exceeds maximum "
+                f"allowed value {UNSIGNED_INT64_MAX_VALUE}. Consider using a smaller "
+                f"base ({base}) or fewer levels ({levels})."
+            )
+        partitions.append(str(partition_value))
     return partitions
 
 
-def epoch_timestamp_partition_parser(partition_dirs: List[str]) -> Optional[int]:
+def parse_epoch_timestamp_partitions(partition_dirs: List[str]) -> Optional[int]:
     """
     Parser function for human-readable UTC partition directory names.
 
     This function takes a list of partition directory names (year, month, day, hour, minute)
-    and reconstructs the equivalent UTC epoch timestamp for lexicographic comparison.
+    and reconstructs the equivalent UTC epoch timestamp for comparison.
 
     Args:
         partition_dirs: List of partition directory names up to the current level.
@@ -1046,9 +1089,9 @@ def epoch_timestamp_partition_parser(partition_dirs: List[str]) -> Optional[int]
         The reconstructed UTC epoch timestamp as an integer, or None if invalid.
 
     Example:
-        >>> epoch_timestamp_partition_parser(["2024", "01", "15"])
+        >>> parse_epoch_timestamp_partitions(["2024", "01", "15"])
         1705276800  # 2024-01-15 00:00:00 UTC
-        >>> epoch_timestamp_partition_parser(["2024", "01", "15", "12", "30"])
+        >>> parse_epoch_timestamp_partitions(["2024", "01", "15", "12", "30"])
         1705323000  # 2024-01-15 12:30:00 UTC
     """
     if not partition_dirs:
@@ -1079,3 +1122,177 @@ def epoch_timestamp_partition_parser(partition_dirs: List[str]) -> Optional[int]
     except (ValueError, IndexError):
         # Invalid date components
         return None
+
+
+def parse_exponential_partitions(partition_dirs: List[str], base: int = 1000, levels: int = 2) -> Optional[int]:
+    """
+    Parser function for exponential partition directory names.
+
+    This function takes a list of partition directory names created by exponential partition transform
+    and converts them into an equivalent integer value for comparison based on the actual
+    contribution of each partition level to the total capacity.
+
+    The exponential partition transform creates hierarchical capacity levels where:
+    - Each level i contributes: (multiplier_i - 1) * base^(levels-i) to total capacity,
+    - Except the final level which contributes: multiplier_i * base^(levels-i)
+
+    Args:
+        partition_dirs: List of partition directory names up to the current level.
+                       Should contain numeric capacity values from exponential_partition_transform.
+        base: The base value used in exponential_partition_transform (default: 1000).
+        levels: The expected number of levels from exponential_partition_transform (default: 2).
+
+    Returns:
+        The actual capacity contribution as an integer for comparison purposes, or None if invalid.
+
+    Example:
+        >>> parse_exponential_partitions(["1000000", "2000"], base=1000, levels=2)  # multipliers [1, 2]
+        2000  # (1-1)*1000000 + 2*1000 = 0 + 2000 = 2000
+        >>> parse_exponential_partitions(["2000000", "500000"], base=1000, levels=2)  # multipliers [2, 500]
+        1500000  # (2-1)*1000000 + 500*1000 = 1000000 + 500000 = 1500000
+        >>> parse_exponential_partitions([])
+        None
+    """
+    if not partition_dirs:
+        return None
+
+    try:
+        # Parse partition directories and extract multipliers
+        # Use the provided base and levels parameters
+        actual_levels = len(partition_dirs)
+
+        if actual_levels == 0:
+            return None
+
+        # Validate that we have the expected number of levels
+        if actual_levels != levels:
+            # For partial paths (fewer levels than expected), we can still parse
+            # but we need to adjust our calculation
+            working_levels = actual_levels
+        else:
+            working_levels = levels
+
+        multipliers = []
+        for i, dir_name in enumerate(partition_dirs):
+            if not dir_name.isdigit():
+                return None
+            partition_value = int(dir_name)
+
+            # Validate that partition values are positive (exponential transform constraint)
+            if partition_value <= 0:
+                return None
+
+            # Extract multiplier: partition_value = multiplier * base^(working_levels-i)
+            divisor = base ** (working_levels - i)
+
+            # Validate that partition_value is an exact multiple of the divisor
+            # exponential transform ALWAYS generates exact multiples, so any non-multiple is invalid
+            if partition_value % divisor != 0:
+                return None
+
+            multiplier = partition_value // divisor
+
+            # Validate that multiplier > 0 (partition_value must be >= base^(working_levels-i))
+            # This ensures we only parse valid partition values that could be generated by exponential transform
+            if multiplier == 0:
+                return None
+
+            multipliers.append(multiplier)
+
+        # Calculate actual capacity contribution
+        total_contribution = 0
+        for i, multiplier in enumerate(multipliers):
+            divisor = base ** (working_levels - i)
+            if i < working_levels - 1:
+                # Non-final levels: (multiplier - 1) * base^(working_levels-i)
+                # Ensure we don't get negative contributions
+                contribution = max(0, (multiplier - 1) * divisor)
+            else:
+                # Final level: multiplier * base^(working_levels-i)
+                contribution = multiplier * divisor
+
+            # Check for overflow before adding
+            if total_contribution > UNSIGNED_INT64_MAX_VALUE - contribution:
+                return None  # Overflow would occur, invalid partition
+            total_contribution += contribution
+
+        # Validate final result doesn't exceed maximum
+        if total_contribution > UNSIGNED_INT64_MAX_VALUE:
+            return None
+
+        # Ensure the result is always positive (minimum 1 for valid partitions)
+        return max(1, total_contribution)
+
+    except (ValueError, IndexError, ZeroDivisionError):
+        return None
+
+
+def remove_exponential_partitions(path: str, base: int = 1000, levels: int = 2) -> str:
+    """
+    Remove exponential partitions from a path with a file basename.
+
+    Takes a path that may contain exponential partitions and returns an unpartitioned version
+    of the same path, or returns the path unchanged if there are no exponential partitions.
+
+    Args:
+        path: The path with a file basename that may contain exponential partitions.
+        base: The base used for exponential partitioning (default: 1000).
+        levels: The number of partition levels to remove (default: 2).
+
+    Returns:
+        The path with exponential partitions removed, or the original path if no valid
+        exponential partitions are found.
+
+    Raises:
+        ValueError: If base <= 1 or levels <= 0.
+
+    Example:
+        >>> exponential_partition_remover("/data/1000000/2000/file.json", base=1000, levels=2)
+        '/data/file.json'
+        >>> exponential_partition_remover("/data/file.json", base=1000, levels=2)
+        '/data/file.json'
+        >>> exponential_partition_remover("/data/1000000/2000/3000/file.json", base=1000, levels=3)
+        '/data/file.json'
+    """
+    if not isinstance(path, str):
+        raise TypeError(f"path must be a string, got {type(path)}")
+    if not isinstance(base, int):
+        raise TypeError(f"base must be an integer, got {type(base)}")
+    if not isinstance(levels, int):
+        raise TypeError(f"levels must be an integer, got {type(levels)}")
+
+    if base <= 1:
+        raise ValueError(f"base must be greater than 1, got {base}")
+    if levels <= 0:
+        raise ValueError(f"levels must be positive, got {levels}")
+
+    # Split path into directory and filename components
+    base_dir = posixpath.dirname(path)
+    filename = posixpath.basename(path)
+
+    if not filename:
+        # No filename component, return as-is
+        return path
+
+    # Split base directory into components
+    dir_parts = base_dir.split(posixpath.sep) if base_dir else []
+
+    # Check if we have enough directory components for the expected levels
+    if len(dir_parts) < levels:
+        return path  # Not enough directories to contain partitions
+
+    # Check the last 'levels' directories to see if they're valid exponential partitions
+    candidate_partitions = dir_parts[-levels:]
+
+    # Use the exponential partition parser to validate these are real partitions
+    parsed_value = parse_exponential_partitions(candidate_partitions, base, levels)
+    if parsed_value is None:
+        # Not valid exponential partitions, return original path
+        return path
+
+    # Remove the partition directories
+    unpartitioned_dir_parts = dir_parts[:-levels]
+    unpartitioned_dir = posixpath.sep.join(unpartitioned_dir_parts) if unpartitioned_dir_parts else ''
+
+    # Reconstruct the path
+    return posixpath.join(unpartitioned_dir, filename)
