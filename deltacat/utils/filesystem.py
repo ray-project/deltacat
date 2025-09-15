@@ -634,13 +634,15 @@ def write_file_partitioned(
     partition_value: Any,
     partition_transform: Callable[[Any], List[str]],
     filesystem: Optional[FileSystem] = None,
+    partition_levels_above_file: int = 0,
 ) -> str:
     """
     Write data to a file in an automatically partitioned filesystem.
 
     This function takes a partition value and a transform function that converts
     the partition value into a list of directory names. The file is then written
-    to a path constructed by appending these directory names to the base path.
+    to a path constructed by inserting these directory names at the specified
+    level above the file in the directory hierarchy.
 
     Args:
         path: The base file path to write to.
@@ -650,12 +652,16 @@ def write_file_partitioned(
             a list of strings representing directory names. Each string in the
             list will become a directory in the partition hierarchy.
         filesystem: The filesystem implementation to use. If None, will be inferred from the path.
+        partition_levels_above_file: Number of directory levels above the file
+            to insert the partition directories. Default is 0 (partitions directly
+            above the file). For example, 1 means partitions are inserted one
+            level above the file's immediate parent directory.
 
     Returns:
         The actual partitioned file path where the file was written.
 
     Example:
-        # Partition by date components
+        # Partition by date components directly above file (default behavior)
         def date_transform(date_obj):
             return [str(date_obj.year), str(date_obj.month).zfill(2), str(date_obj.day).zfill(2)]
 
@@ -666,6 +672,16 @@ def write_file_partitioned(
             partition_transform=date_transform
         )
         # File will be written to: /data/2023/12/25/events.json
+
+        # Partition one level above the file
+        write_file_partitioned(
+            path="/data/subdir/events.json",
+            data='{"event": "click"}',
+            partition_value=datetime(2023, 12, 25),
+            partition_transform=date_transform,
+            partition_levels_above_file=1
+        )
+        # File will be written to: /data/2023/12/25/subdir/events.json
     """
     # Apply the partition transform to get directory names
     partition_dirs = partition_transform(partition_value)
@@ -694,12 +710,24 @@ def write_file_partitioned(
         raise ValueError(f"Failed to parse resolved path as POSIX path: {resolved_path}. Error: {e}")
 
     # Build the full partitioned directory path using posixpath
+    # Start with the base directory
     partitioned_path = base_dir
+
+    # If we need to partition above the file, traverse up the directory hierarchy
+    for _ in range(partition_levels_above_file):
+        partitioned_path = posixpath.dirname(partitioned_path)
+
+    # Insert partition directories at the current level
     for dir_name in partition_dirs:
         # Ensure directory name doesn't contain path separators that could cause issues
         if posixpath.sep in dir_name or (posixpath.altsep and posixpath.altsep in dir_name):
             raise ValueError(f"Partition directory name cannot contain path separators: '{dir_name}'")
         partitioned_path = posixpath.join(partitioned_path, dir_name)
+
+    # Rebuild the path down to the original file location
+    for _ in range(partition_levels_above_file):
+        partitioned_path = posixpath.join(partitioned_path, posixpath.basename(base_dir))
+        base_dir = posixpath.dirname(base_dir)
 
     # Add the filename to the partitioned directory path
     partitioned_path = posixpath.join(partitioned_path, filename)

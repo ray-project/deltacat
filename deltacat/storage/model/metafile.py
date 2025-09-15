@@ -21,7 +21,7 @@ from deltacat.constants import (
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
-    UNSIGNED_INT64_MAX_VALUE,
+    MAX_REVISION_NUMBER,
 )
 from deltacat.exceptions import (
     ObjectNotFoundError,
@@ -38,6 +38,7 @@ from deltacat.utils.filesystem import (
     list_directory_partitioned,
     get_file_info,
     write_file_partitioned,
+    epoch_timestamp_partition_transform,
     exponential_partition_transform,
     parse_exponential_partitions,
     remove_exponential_partitions,
@@ -107,7 +108,7 @@ class MetafileRevisionInfo(dict):
         sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            partition_value=UNSIGNED_INT64_MAX_VALUE,
+            partition_value=MAX_REVISION_NUMBER,
             limit=limit,
             ignore_missing_revision=True,
         )
@@ -121,9 +122,13 @@ class MetafileRevisionInfo(dict):
             elif current_txn_start_time is not None:
                 # the current transaction can only build on top of the snapshot
                 # of commits from transactions that completed before it started
+                txn_log_path = deltacat.storage.model.transaction.Transaction.success_txn_log_path(
+                    success_txn_log_dir, 
+                    mri.txn_id,
+                )
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=posixpath.join(success_txn_log_dir, mri.txn_id),
+                        path=txn_log_path,
                         filesystem=filesystem,
                     )
                 )
@@ -317,9 +322,13 @@ class MetafileRevisionInfo(dict):
             # but we still need to ensure that no conflicting transactions
             # completed before seeing the conflict with this transaction
             for mri in conflict_mris:
+                txn_log_path = deltacat.storage.model.transaction.Transaction.success_txn_log_path(
+                    success_txn_log_dir, mri.txn_id
+                )
+
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=posixpath.join(success_txn_log_dir, mri.txn_id),
+                        path=txn_log_path,
                         filesystem=filesystem,
                     )
                 )

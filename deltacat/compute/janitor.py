@@ -1,11 +1,13 @@
 import time
-import os
 import posixpath
 import pyarrow.fs
 from pyarrow.fs import FileSelector, FileType
 from itertools import chain
 from deltacat.storage.model.transaction import Transaction
-from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.utils.filesystem import (
+    resolve_path_and_filesystem,
+    epoch_timestamp_partition_transform,
+)
 from deltacat.constants import (
     TXN_DIR_NAME,
     RUNNING_TXN_DIR_NAME,
@@ -144,7 +146,7 @@ def janitor_remove_files_in_failed(
     running_txn_log_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
     filesystem.create_dir(failed_txn_log_dir, recursive=True)
 
-    failed_txn_file_selector = FileSelector(failed_txn_log_dir, recursive=False)
+    failed_txn_file_selector = FileSelector(failed_txn_log_dir, recursive=True)
     failed_txn_info_list = filesystem.get_file_info(failed_txn_file_selector)
 
     for failed_txn_info in failed_txn_info_list:
@@ -180,16 +182,24 @@ def janitor_remove_files_in_failed(
 
                     new_filename = f"{txnid}"
 
-                    new_failed_txn_log_file_path = posixpath.join(
-                        failed_txn_log_dir, new_filename
-                    )
+                    # Construct partitioned path for failed transaction log
+                    partition_dirs = epoch_timestamp_partition_transform(txn.start_time)
+                    new_failed_txn_log_file_path = failed_txn_log_dir
+                    for dir_name in partition_dirs:
+                        new_failed_txn_log_file_path = posixpath.join(new_failed_txn_log_file_path, dir_name)
+                    new_failed_txn_log_file_path = posixpath.join(new_failed_txn_log_file_path, new_filename)
+
+                    # Create the partitioned directory structure
+                    partitioned_dir = posixpath.dirname(new_failed_txn_log_file_path)
+                    filesystem.create_dir(partitioned_dir, recursive=True)
+
                     running_txn_log_path = posixpath.join(
                         running_txn_log_dir, new_filename
                     )
 
-                    os.delete(running_txn_log_path)
+                    filesystem.delete_file(running_txn_log_path)
 
-                    os.rename(failed_txn_info.path, new_failed_txn_log_file_path)
+                    filesystem.move(failed_txn_info.path, new_failed_txn_log_file_path)
                     logger.debug(
                         f"Cleaned up failed transaction: {failed_txn_basename}"
                     )

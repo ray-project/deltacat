@@ -104,6 +104,7 @@ SUCCESS_TXN_DIR_NAME: str = "success"
 DATA_FILE_DIR_NAME: str = "data"
 REV_DIR_NAME: str = "rev"
 TXN_PART_SEPARATOR = "_"
+MAX_REVISION_NUMBER = 10_000_000_000_000_000_000
 
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations
