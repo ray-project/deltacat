@@ -337,11 +337,19 @@ class TestBackfillLocatorToIdMappings:
         success = migrate_catalog(source_url, dest_url, dry_run=True)
         assert success, "Dry run migration should succeed"
 
-        # Destination should be empty after dry run
+        # Destination should only contain catalog initialization files after dry run
+        # (version directory is created during catalog setup, which is expected)
         dest_contents = (
             os.listdir(self.dest_dir) if os.path.exists(self.dest_dir) else []
         )
-        assert len(dest_contents) == 0, "Destination should be empty after dry run"
+        # Filter out expected catalog initialization files
+        expected_init_files = {"version"}
+        unexpected_contents = [
+            item for item in dest_contents if item not in expected_init_files
+        ]
+        assert (
+            len(unexpected_contents) == 0
+        ), f"Destination should only contain catalog initialization files after dry run, but found: {unexpected_contents}"
 
     def test_migrate_catalog_full_migration(self):
         """Test full migration from old to new canonical string format."""

@@ -1,7 +1,7 @@
 import os
 import time
+import uuid
 import posixpath
-from pyarrow.fs import FileSelector
 
 from deltacat.storage import (
     Transaction,
@@ -14,9 +14,12 @@ from deltacat.constants import (
     RUNNING_TXN_DIR_NAME,
     FAILED_TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
-    SUCCESS_TXN_DIR_NAME,
 )
-from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.utils.filesystem import (
+    resolve_path_and_filesystem,
+    epoch_timestamp_partition_transform,
+    write_file_partitioned,
+)
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
     create_test_table,
@@ -39,20 +42,23 @@ class TestJanitorJob:
         os.makedirs(failed_txn_dir, exist_ok=True)
 
         # Create a test transaction log that is already timed out.
-        # Note: The janitor expects the first token to be the intended end time.
         start_time = time.time_ns() - 1_000_000_000  # 1 second in the past
-        txn_id = "test_transaction_id"
-        # The file name uses past_end_time as the first token so that it qualifies as timed out.
-        txn_filename = f"{start_time}{TXN_PART_SEPARATOR}{txn_id}{TXN_PART_SEPARATOR}{time.time_ns()}"
+
+        txn_uuid = str(uuid.uuid4())
+        # Create transaction ID in format {start_time}_{uuid}
+        txn_id = f"{start_time}{TXN_PART_SEPARATOR}{txn_uuid}"
+        # The filename includes end_time to indicate when transaction should be considered timed out
+        end_time = time.time_ns() - 500_000_000  # Already timed out (500ms ago)
+        txn_filename = f"{txn_id}{TXN_PART_SEPARATOR}{end_time}"
         txn_path = posixpath.join(running_txn_dir, txn_filename)
 
         # Create a mock transaction file in the running directory.
         with open(txn_path, "w") as f:
             f.write("mock transaction content")
 
-        # Create a test metafile that contains the transaction id to trigger the renaming logic.
+        # Create a test metafile that contains the transaction uuid to trigger the renaming logic.
         test_metafile_path = posixpath.join(
-            catalog_root, f"test_metafile_{txn_id}.json"
+            catalog_root, f"test_metafile_{txn_uuid}.json"
         )
         with open(test_metafile_path, "w") as f:
             f.write("mock metafile content")
@@ -68,10 +74,11 @@ class TestJanitorJob:
         # 2. Invoke brute force search to deletes the metafiles and cleans up txn log files.
         janitor_delete_timed_out_transaction(temp_dir)
 
-        new_txn_file_name = f"{txn_filename}"
-        new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_file_name)
+        # Calculate the partitioned path where the file should be moved
+        # The transaction ID is already in the correct format
+        new_failed_txn_path = Transaction.failed_txn_log_path(failed_txn_dir, txn_id)
 
-        # Verify that the renamed file exists in the failed directory.
+        # Verify that the renamed file exists in the partitioned failed directory.
         assert os.path.exists(
             new_failed_txn_path
         ), f"Expected {new_failed_txn_path} to exist."
@@ -130,21 +137,27 @@ class TestJanitorJob:
         os.makedirs(failed_txn_dir, exist_ok=True)
 
         # Create multiple timed-out transaction logs
-        txn_ids = ["txn_one", "txn_two", "txn_three"]
         start_time = time.time_ns() - 1_000_000_000  # 1 second in the past
 
         txn_filenames = []
-        for txn_id in txn_ids:
-            txn_filename = f"{start_time}{TXN_PART_SEPARATOR}{txn_id}{TXN_PART_SEPARATOR}{time.time_ns()}"
+        txn_data = []  # Store transaction IDs and UUIDs
+        for i in range(3):
+            txn_uuid = str(uuid.uuid4())
+            # Create transaction ID in format {start_time}_{uuid}
+            txn_id = f"{start_time + i * 1000}{TXN_PART_SEPARATOR}{txn_uuid}"  # Slightly different start times
+            # The filename includes end_time to indicate when transaction should be considered timed out
+            end_time = time.time_ns() - 500_000_000  # Already timed out (500ms ago)
+            txn_filename = f"{txn_id}{TXN_PART_SEPARATOR}{end_time}"
+            txn_data.append((txn_id, txn_uuid))
             txn_path = posixpath.join(running_txn_dir, txn_filename)
 
             # Create mock transaction files in the running directory
             with open(txn_path, "w") as f:
                 f.write("mock transaction content")
 
-            # Optionally, create a metafile for each transaction if your janitor function processes these as well
+            # Create a metafile for each transaction using the UUID
             test_metafile_path = posixpath.join(
-                catalog_root, f"test_metafile_{txn_id}.json"
+                catalog_root, f"test_metafile_{txn_uuid}.json"
             )
             with open(test_metafile_path, "w") as f:
                 f.write("mock metafile content")
@@ -155,11 +168,16 @@ class TestJanitorJob:
         janitor_delete_timed_out_transaction(temp_dir)
 
         # Verify that all transactions were moved to the failed directory
-        for txn_filename, txn_path, test_metafile_path in txn_filenames:
-            new_txn_filename = f"{txn_filename}"
-            new_failed_txn_path = posixpath.join(failed_txn_dir, new_txn_filename)
+        for i, (txn_filename, txn_path, test_metafile_path) in enumerate(txn_filenames):
+            # Get the transaction ID for this transaction
+            txn_id, txn_uuid = txn_data[i]
 
-            # Check if the renamed transaction file exists in the failed directory
+            # Calculate the partitioned path where the file should be moved
+            new_failed_txn_path = Transaction.failed_txn_log_path(
+                failed_txn_dir, txn_id
+            )
+
+            # Check if the renamed transaction file exists in the partitioned failed directory
             assert os.path.exists(
                 new_failed_txn_path
             ), f"Expected {new_failed_txn_path} to exist."
@@ -180,7 +198,6 @@ class TestJanitorJob:
         txn_log_dir = posixpath.join(catalog_root, TXN_DIR_NAME)
         failed_txn_dir = posixpath.join(txn_log_dir, FAILED_TXN_DIR_NAME)
         running_txn_dir = posixpath.join(txn_log_dir, RUNNING_TXN_DIR_NAME)
-        success_txn_dir = posixpath.join(txn_log_dir, SUCCESS_TXN_DIR_NAME)
 
         # Ensure all necessary directories exist
         for dir_path in [failed_txn_dir, running_txn_dir]:
@@ -201,24 +218,26 @@ class TestJanitorJob:
         ]
 
         transaction = Transaction.of(txn_operations)
-        write_paths, txn_log_path = transaction.commit(temp_dir)
+        write_paths, success_txn_log_file_path = transaction.commit(temp_dir)
 
         # Get filename of committed transaction (from success directory)
-        success_file_dir = filesystem.get_file_info(
-            FileSelector(success_txn_dir, recursive=False)
-        )
-        success_files = filesystem.get_file_info(
-            FileSelector(success_file_dir[0].path, recursive=False)
-        )
-        filename = posixpath.basename(success_file_dir[0].path)
+        filename = posixpath.basename(posixpath.dirname(success_txn_log_file_path))
 
-        # Compute destination paths
+        # Create empty partitioned failed transaction log file.
         failed_txn_path = posixpath.join(failed_txn_dir, filename)
-        running_txn_path = posixpath.join(running_txn_dir, filename)
-        # Move the file from success to failed to simulate a failed transactions
+        failed_txn_path = write_file_partitioned(
+            path=failed_txn_path,
+            data=b"",
+            partition_value=Transaction.parse_transaction_id(filename)[0],
+            partition_transform=epoch_timestamp_partition_transform,
+            filesystem=filesystem,
+        )
 
-        filesystem.copy_file(success_files[0].path, failed_txn_path)
-        filesystem.copy_file(success_files[0].path, running_txn_path)
+        # Move the file from success to failed and running to
+        # simulate a failed transaction that hasn't been cleaned up.
+        running_txn_path = posixpath.join(running_txn_dir, filename)
+        filesystem.copy_file(success_txn_log_file_path, failed_txn_path)
+        filesystem.copy_file(success_txn_log_file_path, running_txn_path)
 
         # Verify that the write path files exist before cleanup.
         for path in write_paths:

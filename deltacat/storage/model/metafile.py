@@ -8,9 +8,12 @@ from typing import Optional, Tuple, List, Union, Set
 import base64
 import json
 import msgpack
-import pyarrow.fs
 import posixpath
 import uuid
+import functools
+
+import pyarrow.fs
+
 import deltacat
 
 from deltacat.constants import (
@@ -22,6 +25,7 @@ from deltacat.constants import (
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
     MAX_REVISION_NUMBER,
+    DEFAULT_PAGE_SIZE,
 )
 from deltacat.exceptions import (
     ObjectNotFoundError,
@@ -104,16 +108,17 @@ class MetafileRevisionInfo(dict):
             err_msg = f"No transaction log found for: {revision_dir_path}."
             raise ObjectNotFoundError(err_msg)
         # find the latest committed revision of the target metafile
-        sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
+        next_page_provider = functools.partial(
+            MetafileRevisionInfo._sorted_file_paths,
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
-            partition_value=MAX_REVISION_NUMBER,
-            limit=limit,
+            limit=max(limit, DEFAULT_PAGE_SIZE),
             ignore_missing_revision=True,
         )
+        sorted_metafile_paths = next_page_provider(partition_value=MAX_REVISION_NUMBER)
         revisions = []
         while sorted_metafile_paths:
-            latest_metafile_path = sorted_metafile_paths.pop()
+            latest_metafile_path = sorted_metafile_paths.pop(0)
             mri = MetafileRevisionInfo.parse(latest_metafile_path)
             if not current_txn_id or mri.txn_id == current_txn_id:
                 # consider the current transaction (if any) to be committed
@@ -121,15 +126,13 @@ class MetafileRevisionInfo(dict):
             elif current_txn_start_time is not None:
                 # the current transaction can only build on top of the snapshot
                 # of commits from transactions that completed before it started
-                txn_log_path = (
-                    deltacat.storage.model.transaction.Transaction.success_txn_log_path(
-                        success_txn_log_dir,
-                        mri.txn_id,
-                    )
+                txn_log_dir_path = deltacat.storage.model.transaction.Transaction.success_txn_log_dir_path(
+                    success_txn_log_dir,
+                    mri.txn_id,
                 )
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=txn_log_path,
+                        path=txn_log_dir_path,
                         filesystem=filesystem,
                     )
                 )
@@ -140,8 +143,12 @@ class MetafileRevisionInfo(dict):
                     f"Current transaction ID `{current_txn_id} provided "
                     f"without a transaction start time."
                 )
-            if limit <= len(revisions):
+            limit -= len(revisions)
+            # Break if we've reached the result limit or first revision
+            if limit <= 0 or mri.revision <= 1:
                 break
+            # Continue searching for earlier revisions
+            sorted_metafile_paths = next_page_provider(partition_value=mri.revision - 1)
         return revisions
 
     @staticmethod
@@ -282,14 +289,14 @@ class MetafileRevisionInfo(dict):
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
             partition_value=cur_txn_mri.revision,
-            limit=1000,
+            limit=DEFAULT_PAGE_SIZE,
         )
 
         # If we hit the limit, there are too many concurrent conflicts - fail early
-        if len(sorted_metafile_paths) >= 1000:
+        if len(sorted_metafile_paths) >= DEFAULT_PAGE_SIZE:
             raise ConcurrentModificationError(
                 f"Aborting transaction {cur_txn_mri.txn_id} due to excessive "
-                f"concurrent conflicts (>=1000 files) at {revision_dir_path}. "
+                f"concurrent conflicts (>={DEFAULT_PAGE_SIZE} files) at {revision_dir_path}. "
             )
 
         conflict_mris = []
@@ -323,15 +330,13 @@ class MetafileRevisionInfo(dict):
             # but we still need to ensure that no conflicting transactions
             # completed before seeing the conflict with this transaction
             for mri in conflict_mris:
-                txn_log_path = (
-                    deltacat.storage.model.transaction.Transaction.success_txn_log_path(
-                        success_txn_log_dir, mri.txn_id
-                    )
+                txn_log_dir_path = deltacat.storage.model.transaction.Transaction.success_txn_log_dir_path(
+                    success_txn_log_dir, mri.txn_id
                 )
 
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=txn_log_path,
+                        path=txn_log_dir_path,
                         filesystem=filesystem,
                     )
                 )
@@ -347,7 +352,7 @@ class MetafileRevisionInfo(dict):
                         f"Aborting transaction {cur_txn_mri.txn_id} due to "
                         f"concurrent conflict at {revision_dir_path} with "
                         f"previously completed transaction {mri.txn_id} at "
-                        f"{next_metafile_path}."
+                        f"{txn_log_dir_path}/{txn_end_time}."
                     )
 
     @staticmethod
@@ -359,7 +364,9 @@ class MetafileRevisionInfo(dict):
         ignore_missing_revision: bool = False,
     ) -> List[str]:
         file_paths_and_sizes = list_directory_partitioned(
-            path=revision_dir_path,
+            path=remove_exponential_partitions(
+                revision_dir_path, is_directory_path=True
+            ),
             filesystem=filesystem,
             partition_value=partition_value,
             partition_transform=exponential_partition_transform,
@@ -961,10 +968,11 @@ class Metafile(dict):
         Retrieve all revisions of this object.
         :return: ListResult containing all revisions of this object.
         """
-        catalog_root, filesystem = resolve_path_and_filesystem(
-            catalog_root,
-            filesystem,
-        )
+        if not filesystem:
+            catalog_root, filesystem = resolve_path_and_filesystem(
+                catalog_root,
+                filesystem,
+            )
         try:
             parent_root = self.parent_root_path(
                 catalog_root=catalog_root,
@@ -1119,9 +1127,11 @@ class Metafile(dict):
         parent_number,
     ):
         # TODO(pdames): Stop parent traversal at catalog root.
+        # Remove exponential partitions from the base path first to get the correct directory structure
+        unpartitioned_base_path = remove_exponential_partitions(base_metafile_path)
         current_dir = posixpath.dirname(  # base metafile root dir
             posixpath.dirname(  # base metafile revision dir
-                base_metafile_path,
+                unpartitioned_base_path,
             )
         )
         while parent_number and current_dir != posixpath.sep:

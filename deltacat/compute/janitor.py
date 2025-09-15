@@ -25,13 +25,14 @@ def brute_force_search_matching_metafiles(
     dirty_files_names, filesystem: pyarrow.fs.FileSystem, catalog_root
 ):
     txn_dir_name = TXN_DIR_NAME
-    # collect transaction ids of the files
+    # collect transaction uuids from the transaction IDs for metafile search
     transaction_ids = []
     for dirty_file in dirty_files_names:
+        # dirty_file is a transaction ID in format {start_time}_{uuid}
         parts = dirty_file.split(TXN_PART_SEPARATOR)
-        if len(parts) < 2:
-            continue
-        transaction_ids.append(parts[1])
+        if len(parts) >= 2:
+            # Extract the UUID part for searching in metafile names
+            transaction_ids.append(parts[1])
 
     def recursive_search(path):
         try:
@@ -70,8 +71,10 @@ def brute_force_search_matching_metafiles(
         )
         old_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
 
-        # new_filename = dirty_file.replace(TIMEOUT_TXN, SUCCESSFULLY_CLEANED)
-        new_log_path = posixpath.join(failed_txn_log_dir, dirty_file)
+        # dirty_file is already the transaction ID, use it directly
+        new_log_path = Transaction.failed_txn_log_path(failed_txn_log_dir, dirty_file)
+        filesystem.create_dir(posixpath.dirname(new_log_path), recursive=True)
+
         try:
             filesystem.move(old_log_path, new_log_path)
             logger.debug(f"Renamed file from {old_log_path} to {new_log_path}")
@@ -104,8 +107,14 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
             current_time = time.time_ns()
             if end_time <= current_time:
                 src_path = running_txn_info.path
-                new_filename = f"{filename}"
-                dest_path = posixpath.join(failed_txn_log_dir, new_filename)
+                # Extract transaction ID from timeout out filename:
+                # {start_time}_{uuid}_{end_time} → {start_time}_{uuid}
+                txn_id = TXN_PART_SEPARATOR.join(
+                    parts[:-1]
+                )  # Remove last part (end_time)
+
+                dest_path = Transaction.failed_txn_log_path(failed_txn_log_dir, txn_id)
+                filesystem.create_dir(posixpath.dirname(dest_path), recursive=True)
 
                 # Move the file using copy and delete
                 with filesystem.open_input_file(src_path) as src_file:
@@ -115,7 +124,7 @@ def janitor_delete_timed_out_transaction(catalog_root: str) -> None:
                     dest_file.write(contents)
                 filesystem.delete_file(src_path)
 
-                dirty_files.append(new_filename)
+                dirty_files.append(txn_id)
 
         except Exception as e:
             logger.error(

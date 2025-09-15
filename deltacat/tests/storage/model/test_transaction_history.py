@@ -789,10 +789,10 @@ class TestTransactionHistoryRegression:
 
         # Verify default values
         assert sig.parameters["catalog_name"].default is None
-        assert sig.parameters["read_as"].default is None
+        assert sig.parameters["read_as"].default == DatasetType.PYARROW
         assert sig.parameters["start_time"].default is None
         assert sig.parameters["end_time"].default is None
-        assert sig.parameters["limit"].default is None
+        assert sig.parameters["limit"].default == 10
         assert sig.parameters["status_in"].default == [TransactionStatus.SUCCESS]
 
     def test_read_transaction(self, temp_catalog_properties):

@@ -2,15 +2,9 @@
   <img src="https://github.com/ray-project/deltacat/raw/2.0/media/deltacat-logo-alpha-750.png" alt="deltacat logo" style="width:55%; height:auto; text-align: center;">
 </p>
 
-DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
-fast, scalable, ACID-compliant multimodal data lakes, and has been used to [successfully manage exabyte-scale enterprise
-data lakes](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
+DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray), [Apache Arrow](https://github.com/apache/arrow), and [Daft](https://github.com/Eventual-Inc/Daft). It lets you define and manage fast, scalable, ACID-compliant multimodal data lakes, and has been used to [successfully manage exabyte-scale enterprise data lakes](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/). It integrates natively with Pythonic data management tools like [Pandas](https://github.com/pandas-dev/pandas), [NumPy](https://github.com/numpy/numpy), [Polars](https://github.com/pola-rs/polars), [PyArrow](https://arrow.apache.org/docs/python/index.html), [Ray Data](https://docs.ray.io/en/latest/data/data.html), and [Daft DataFrames](https://docs.daft.ai/en/stable/api/dataframe/).
 
-It provides data lake level transactions & time travel, fast schema evolution for feature enrichment, zero-copy multimodal file processing, schemaless dataset management, and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads.
-
-It uses the Ray distributed compute framework together with [Apache Arrow](https://github.com/apache/arrow) and
-[Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale common table management tasks, like petabyte-scale
-merge-on-read and copy-on-write operations.
+It runs locally for rapid development or in the cloud for production workloads. It only needs a Ray runtime environment and a PyArrow-compliant filesystem to support data lake level transactions & time travel, fast schema evolution for feature enrichment, zero-copy multimodal file processing, schemaless dataset management, and transparent dataset optimization.
 
 DeltaCAT provides the following high-level components:
 1. [**Catalog**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/catalog/interface.py): High-level APIs to create, discover, organize, share, and manage datasets.

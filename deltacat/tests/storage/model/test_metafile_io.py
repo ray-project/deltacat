@@ -66,6 +66,7 @@ from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     write_file_partitioned,
     exponential_partition_transform,
+    remove_exponential_partitions,
 )
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
@@ -236,24 +237,25 @@ class TestMetafileIO:
         # a new delta metafile revision written by a transaction that completed
         # before seeing any concurrent conflicts
         mri = MetafileRevisionInfo.parse(orig_delta_write_path)
-        mri.txn_id = "0000000000000_test-txn-id"
+        mri.txn_id = "0000000001704067200_00000000-0000-0000-0000-000000000000"
         mri.txn_op_type = TransactionOperationType.UPDATE
         mri.revision = mri.revision + 1
         conflict_delta_write_path = mri.path
+
         _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
-        with filesystem.open_output_stream(conflict_delta_write_path):
-            pass  # Just create an empty conflicting metafile revision
-        txn_log_file_dir = os.path.join(
-            temp_dir,
-            TXN_DIR_NAME,
-            SUCCESS_TXN_DIR_NAME,
-            mri.txn_id,
+        write_file_partitioned(
+            path=remove_exponential_partitions(conflict_delta_write_path),
+            data=b"",  # Just create an empty conflicting metafile revision
+            partition_value=mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
         )
-        filesystem.create_dir(txn_log_file_dir, recursive=True)
-        txn_log_file_path = os.path.join(
-            txn_log_file_dir,
-            str(time.time_ns()),
+        success_txn_log_dir = os.path.join(temp_dir, TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME)
+        txn_log_dir_path = Transaction.success_txn_log_dir_path(
+            success_txn_log_dir, mri.txn_id
         )
+        filesystem.create_dir(txn_log_dir_path, recursive=True)
+        txn_log_file_path = os.path.join(txn_log_dir_path, str(time.time_ns()))
         with filesystem.open_output_stream(txn_log_file_path):
             pass  # Just create an empty log to mark the txn as complete
 
@@ -295,13 +297,19 @@ class TestMetafileIO:
 
         # and a new delta metafile revision written by an incomplete transaction
         mri = MetafileRevisionInfo.parse(orig_delta_write_path)
-        mri.txn_id = "9999999999999_test-txn-id"
+        mri.txn_id = "9999999999999999999_99999999-9999-9999-9999-999999999999"
         mri.txn_op_type = TransactionOperationType.DELETE
         mri.revision = mri.revision + 1
         conflict_delta_write_path = mri.path
+
         _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
-        with filesystem.open_output_stream(conflict_delta_write_path):
-            pass  # Just create an empty conflicting metafile revision
+        write_file_partitioned(
+            path=remove_exponential_partitions(conflict_delta_write_path),
+            data=b"",  # write an empty conflicting delta revision
+            partition_value=mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
 
         # when a concurrent transaction tries to update the same delta
         original_delta = Delta.read(orig_delta_write_path)

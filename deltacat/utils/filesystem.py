@@ -1295,18 +1295,25 @@ def parse_exponential_partitions(
         return None
 
 
-def remove_exponential_partitions(path: str, base: int = 1000, levels: int = 2) -> str:
+def remove_exponential_partitions(
+    path: str,
+    base: int = 1000,
+    levels: int = 2,
+    is_directory_path: bool = False,
+) -> str:
     """
-    Remove exponential partitions from a path with a file basename.
+    Remove exponential partitions from a file path or directory path.
 
     Takes a path that may contain exponential partitions and returns an unpartitioned version
     of the same path, or returns the path unchanged if there are no exponential partitions.
 
     Args:
-        path: The path with a file basename that may contain exponential partitions.
+        path: The file or directory path that may contain exponential partitions.
         base: The base used for exponential partitioning (default: 1000).
         levels: The number of partition levels to remove (default: 2).
-
+        is_directory_path: Whether to treat the path as a directory path (default: False).
+                          If True, the entire path is treated as directory components.
+                          If False, the path is treated as a file path with directory + filename.
     Returns:
         The path with exponential partitions removed, or the original path if no valid
         exponential partitions are found.
@@ -1315,12 +1322,18 @@ def remove_exponential_partitions(path: str, base: int = 1000, levels: int = 2) 
         ValueError: If base <= 1 or levels <= 0.
 
     Example:
-        >>> exponential_partition_remover("/data/1000000/2000/file.json", base=1000, levels=2)
+        >>> remove_exponential_partitions("/data/1000000/2000/file.json")
         '/data/file.json'
-        >>> exponential_partition_remover("/data/file.json", base=1000, levels=2)
+        >>> remove_exponential_partitions("/data/file.json")
         '/data/file.json'
-        >>> exponential_partition_remover("/data/1000000/2000/3000/file.json", base=1000, levels=3)
+        >>> remove_exponential_partitions("/data/1000000/2000/3000/file.json", levels=3)
         '/data/file.json'
+        >>> remove_exponential_partitions("/data/1000000/2000", is_directory_path=True)
+        '/data'
+        >>> remove_exponential_partitions("/data/1000000/2000/file.json", is_directory_path=True)
+        '/data/1000000/2000/file.json'  # No partitions found in directory components
+        >>> remove_exponential_partitions("/data/1000000/2000/3000", levels=3, is_directory_path=True)
+        '/data'
     """
     if not isinstance(path, str):
         raise TypeError(f"path must be a string, got {type(path)}")
@@ -1334,16 +1347,16 @@ def remove_exponential_partitions(path: str, base: int = 1000, levels: int = 2) 
     if levels <= 0:
         raise ValueError(f"levels must be positive, got {levels}")
 
-    # Split path into directory and filename components
-    base_dir = posixpath.dirname(path)
-    filename = posixpath.basename(path)
-
-    if not filename:
-        # No filename component, return as-is
-        return path
-
-    # Split base directory into components
-    dir_parts = base_dir.split(posixpath.sep) if base_dir else []
+    if is_directory_path:
+        # Treat the entire path as directory components (for directory-only paths)
+        filename = None
+        dir_parts = path.split(posixpath.sep) if path else []
+    else:
+        # Split path into directory and filename components (for file paths)
+        base_dir = posixpath.dirname(path)
+        filename = posixpath.basename(path)
+        # Split base directory into components
+        dir_parts = base_dir.split(posixpath.sep) if base_dir else []
 
     # Check if we have enough directory components for the expected levels
     if len(dir_parts) < levels:
@@ -1365,4 +1378,6 @@ def remove_exponential_partitions(path: str, base: int = 1000, levels: int = 2) 
     )
 
     # Reconstruct the path
-    return posixpath.join(unpartitioned_dir, filename)
+    return (
+        posixpath.join(unpartitioned_dir, filename) if filename else unpartitioned_dir
+    )
