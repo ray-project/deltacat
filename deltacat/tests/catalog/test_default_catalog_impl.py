@@ -1686,7 +1686,7 @@ class TestCopyOnWrite:
         compacted_delta = final_deltas[0]
 
         # Verify the compacted delta properties
-        # Note: stream position may vary based on compaction implementation, 
+        # Note: stream position may vary based on compaction implementation,
         # the key is that compaction occurred and data is preserved
         assert (
             compacted_delta.stream_position > 0
@@ -2228,7 +2228,9 @@ class TestCopyOnWrite:
                     stream_positions.append(latest_delta.stream_position)
 
         # Verify that stream positions are random (large numbers, not sequential)
-        assert len(stream_positions) >= 2, "Should have collected stream positions from first 2 writes"
+        assert (
+            len(stream_positions) >= 2
+        ), "Should have collected stream positions from first 2 writes"
 
         for pos in stream_positions:
             assert (
@@ -2236,8 +2238,8 @@ class TestCopyOnWrite:
             ), f"Expected large random stream position for ADD delta, but found {pos}"
 
         # Verify stream positions are unique (cryptographic random generation should not produce duplicates)
-        assert (
-            len(set(stream_positions)) == len(stream_positions)
+        assert len(set(stream_positions)) == len(
+            stream_positions
         ), f"Expected unique random stream positions, but found duplicates: {stream_positions}"
 
         # Verify stream positions are not sequential (should have large differences)
@@ -2265,7 +2267,9 @@ class TestCopyOnWrite:
         )
 
         result_count = get_table_length(result)
-        assert result_count == 6, f"Expected 6 records (2 per write × 3 writes), but found {result_count}"
+        assert (
+            result_count == 6
+        ), f"Expected 6 records (2 per write × 3 writes), but found {result_count}"
 
         # Verify all records are present (ADD mode preserves all records)
         result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
@@ -2276,7 +2280,14 @@ class TestCopyOnWrite:
         ), f"Expected IDs {expected_ids}, but found {actual_ids}"
 
         # Verify records can be read back (order not guaranteed in ADD mode)
-        expected_names = {"Person1", "Person2", "Person11", "Person12", "Person21", "Person22"}
+        expected_names = {
+            "Person1",
+            "Person2",
+            "Person11",
+            "Person12",
+            "Person21",
+            "Person22",
+        }
         actual_names = set(result_df["name"].tolist())
         assert (
             actual_names == expected_names
@@ -2338,16 +2349,22 @@ class TestCopyOnWrite:
         from deltacat.storage import Metafile, Delta
 
         # ADD table stream position
-        add_url = dc.DeltaCatUrl(f"dc://{self.catalog_name}/{self.test_namespace}/{add_table}")
+        add_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{add_table}"
+        )
         add_objects = dc.list(add_url, recursive=True)
         add_deltas = [obj for obj in add_objects if Metafile.get_class(obj) == Delta]
         assert len(add_deltas) == 1, "Should have exactly 1 ADD delta"
         add_stream_position = add_deltas[0].stream_position
 
         # APPEND table stream position
-        append_url = dc.DeltaCatUrl(f"dc://{self.catalog_name}/{self.test_namespace}/{append_table}")
+        append_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{append_table}"
+        )
         append_objects = dc.list(append_url, recursive=True)
-        append_deltas = [obj for obj in append_objects if Metafile.get_class(obj) == Delta]
+        append_deltas = [
+            obj for obj in append_objects if Metafile.get_class(obj) == Delta
+        ]
         assert len(append_deltas) == 1, "Should have exactly 1 APPEND delta"
         append_stream_position = append_deltas[0].stream_position
 
@@ -2387,7 +2404,9 @@ class TestCopyOnWrite:
             catalog=self.catalog_name,
         )
 
-        assert get_table_length(add_result) == get_table_length(append_result), "Both tables should have same number of records"
+        assert get_table_length(add_result) == get_table_length(
+            append_result
+        ), "Both tables should have same number of records"
         assert get_table_length(add_result) == 2, "Both tables should have 2 records"
 
     def test_verify_delta_types_created(self):

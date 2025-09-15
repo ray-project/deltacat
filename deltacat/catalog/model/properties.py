@@ -16,8 +16,8 @@ from deltacat.constants import (
 )
 
 from deltacat.utils.filesystem import (
-    resolve_path_and_filesystem, 
-    list_directory, 
+    resolve_path_and_filesystem,
+    list_directory,
     write_file,
 )
 
@@ -55,6 +55,7 @@ class CatalogVersion(dict):
     """
     DeltaCAT catalog version.
     """
+
     @staticmethod
     def of(
         version: str,
@@ -159,26 +160,45 @@ class CatalogProperties:
         self._version = None
 
         # Try to read the catalog version file (if it exists)
-        version_files_and_sizes = list_directory(self._root, self._filesystem, ignore_missing_path=True)
+        version_dir_path = posixpath.join(self._root, CATALOG_VERSION_DIR_NAME)
+        version_files_and_sizes = list_directory(
+            version_dir_path, self._filesystem, ignore_missing_path=True
+        )
         # Extract only the filenames from the version_files
-        version_files = [version_file[0] for version_file in version_files_and_sizes]
+        version_files = [
+            posixpath.basename(version_file[0])
+            for version_file in version_files_and_sizes
+        ]
         # Construct the current catalog version
         current_version = CatalogVersion.current()
-        # Check if the catalog has already been initialized with this version 
+        # Check if the catalog has already been initialized with this version
         for version_file in version_files:
-            catalog_version = CatalogVersion.from_filename(version_file)
-            if catalog_version.version == current_version.version:
-                self._version = catalog_version
-                break
+            try:
+                catalog_version = CatalogVersion.from_filename(version_file)
+                if catalog_version.version == current_version.version:
+                    self._version = catalog_version
+                    break
+            except ValueError:
+                # Skip files that don't match the expected version filename format
+                logger.warning(
+                    f"Skipping version file '{version_file}' that doesn't match the expected version filename format"
+                )
+                continue
         if self._version is None:
             # Try to write the current version file
-            version_file_path = posixpath.join(self._root, CATALOG_VERSION_DIR_NAME, current_version.to_filename())
+            version_file_path = posixpath.join(
+                self._root, CATALOG_VERSION_DIR_NAME, current_version.to_filename()
+            )
             try:
-                write_file(version_file_path, current_version.to_filename(), self._filesystem)
+                write_file(
+                    version_file_path, current_version.to_filename(), self._filesystem
+                )
                 self._version = current_version
             except Exception as e:
                 # log a warning and continue (user may not have write permissions)
-                logger.warning(f"Failed to write current version file '{current_version.to_filename()}': {e}")
+                logger.warning(
+                    f"Failed to write current version file '{current_version.to_filename()}': {e}"
+                )
 
     @property
     def root(self) -> str:

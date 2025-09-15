@@ -38,7 +38,6 @@ from deltacat.utils.filesystem import (
     list_directory_partitioned,
     get_file_info,
     write_file_partitioned,
-    epoch_timestamp_partition_transform,
     exponential_partition_transform,
     parse_exponential_partitions,
     remove_exponential_partitions,
@@ -79,10 +78,10 @@ class MetafileRevisionInfo(dict):
     @staticmethod
     def parse_revision(file_path: str) -> Optional[int]:
         """Extract revision number from metafile path for partition filtering.
-        
+
         Args:
             file_path: Path to a metafile revision file.
-            
+
         Returns:
             The revision number if successfully parsed, None otherwise.
         """
@@ -122,9 +121,11 @@ class MetafileRevisionInfo(dict):
             elif current_txn_start_time is not None:
                 # the current transaction can only build on top of the snapshot
                 # of commits from transactions that completed before it started
-                txn_log_path = deltacat.storage.model.transaction.Transaction.success_txn_log_path(
-                    success_txn_log_dir, 
-                    mri.txn_id,
+                txn_log_path = (
+                    deltacat.storage.model.transaction.Transaction.success_txn_log_path(
+                        success_txn_log_dir,
+                        mri.txn_id,
+                    )
                 )
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
@@ -283,14 +284,14 @@ class MetafileRevisionInfo(dict):
             partition_value=cur_txn_mri.revision,
             limit=1000,
         )
-        
+
         # If we hit the limit, there are too many concurrent conflicts - fail early
         if len(sorted_metafile_paths) >= 1000:
             raise ConcurrentModificationError(
                 f"Aborting transaction {cur_txn_mri.txn_id} due to excessive "
                 f"concurrent conflicts (>=1000 files) at {revision_dir_path}. "
             )
-        
+
         conflict_mris = []
         while sorted_metafile_paths:
             next_metafile_path = sorted_metafile_paths.pop(0)
@@ -322,8 +323,10 @@ class MetafileRevisionInfo(dict):
             # but we still need to ensure that no conflicting transactions
             # completed before seeing the conflict with this transaction
             for mri in conflict_mris:
-                txn_log_path = deltacat.storage.model.transaction.Transaction.success_txn_log_path(
-                    success_txn_log_dir, mri.txn_id
+                txn_log_path = (
+                    deltacat.storage.model.transaction.Transaction.success_txn_log_path(
+                        success_txn_log_dir, mri.txn_id
+                    )
                 )
 
                 txn_end_time = (

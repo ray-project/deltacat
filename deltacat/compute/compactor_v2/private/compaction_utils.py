@@ -645,7 +645,11 @@ def _process_merge_results(
     deltas: List[Delta] = [m.delta for m in mat_results]
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
-    stream_position = params.last_stream_position_to_compact if params.last_stream_position_to_compact != MAX_DELTA_STREAM_POSITION else 1
+    stream_position = (
+        params.last_stream_position_to_compact
+        if params.last_stream_position_to_compact != MAX_DELTA_STREAM_POSITION
+        else 1
+    )
     merged_delta: Delta = Delta.merge_deltas(
         deltas,
         stream_position=stream_position,

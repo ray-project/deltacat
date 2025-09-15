@@ -186,8 +186,12 @@ def janitor_remove_files_in_failed(
                     partition_dirs = epoch_timestamp_partition_transform(txn.start_time)
                     new_failed_txn_log_file_path = failed_txn_log_dir
                     for dir_name in partition_dirs:
-                        new_failed_txn_log_file_path = posixpath.join(new_failed_txn_log_file_path, dir_name)
-                    new_failed_txn_log_file_path = posixpath.join(new_failed_txn_log_file_path, new_filename)
+                        new_failed_txn_log_file_path = posixpath.join(
+                            new_failed_txn_log_file_path, dir_name
+                        )
+                    new_failed_txn_log_file_path = posixpath.join(
+                        new_failed_txn_log_file_path, new_filename
+                    )
 
                     # Create the partitioned directory structure
                     partitioned_dir = posixpath.dirname(new_failed_txn_log_file_path)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from botocore import UNSIGNED
 import botocore.exceptions
 
 from daft.exceptions import DaftTransientError

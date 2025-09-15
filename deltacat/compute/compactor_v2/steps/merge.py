@@ -589,7 +589,8 @@ def _compact_tables(
         delete_file_envelopes + df_envelopes
     )
     assert all(
-        dfe.delta_type in (DeltaType.ADD, DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
+        dfe.delta_type
+        in (DeltaType.ADD, DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
         for dfe in reordered_all_dfes
     ), "All reordered delta file envelopes must be of the ADD, APPEND, UPSERT or DELETE"
     table = compacted_table

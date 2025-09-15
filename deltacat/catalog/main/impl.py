@@ -1066,7 +1066,9 @@ def _trigger_compaction(
             ):
                 return True
         else:
-            raise RuntimeError(f"Unexpected delta type for compaction trigger: {delta_type}")
+            raise RuntimeError(
+                f"Unexpected delta type for compaction trigger: {delta_type}"
+            )
     return False
 
 
@@ -1212,7 +1214,7 @@ def _run_compaction_session(
             partition,
             table_version_obj,
         )
-        
+
         # Create compaction parameters
         compact_partition_params = _create_compaction_params(
             table_version_obj,
@@ -2790,7 +2792,9 @@ def _get_deltas_from_partition_filter(
                     f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND deltas."
                 )
 
-            logger.info(f"Validated {len(deltas)} qualified deltas are all ADD or APPEND type")
+            logger.info(
+                f"Validated {len(deltas)} qualified deltas are all ADD or APPEND type"
+            )
     return result_deltas
 
 

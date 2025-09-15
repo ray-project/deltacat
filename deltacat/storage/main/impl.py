@@ -666,9 +666,7 @@ def list_partition_deltas(
             **kwargs,
         )
     except ObjectNotFoundError as e:
-        raise PartitionNotFoundError(
-            f"Partition {partition_like} not found"
-        ) from e
+        raise PartitionNotFoundError(f"Partition {partition_like} not found") from e
     all_deltas = all_deltas_list_result.all_items()
     filtered_deltas = [
         delta
@@ -2729,15 +2727,15 @@ def commit_delta(
         # this is an unordered delta - generate a unique 64-bit stream position
         # Combine high-resolution timestamp with random bits to guarantee uniqueness
         import time
-        
+
         # Get high-resolution timestamp in nanoseconds (since epoch)
         timestamp_ns = time.time_ns()
-        
+
         # Use lower 40 bits of timestamp + 24 random bits for uniqueness
         # This gives us ~1100 years of timestamp range + 16M random values per nanosecond
         timestamp_part = timestamp_ns & 0xFFFFFFFFFF  # 40 bits of timestamp
         random_part = secrets.randbits(24)  # 24 bits of randomness
-        
+
         # Combine: [40-bit timestamp][24-bit random] = 64-bit unique stream position
         delta.locator.stream_position = (timestamp_part << 24) | random_part
 
