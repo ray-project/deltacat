@@ -295,3 +295,115 @@ class TestCatalogsIntegration:
             == "deltacat.experimental.catalog.iceberg.impl"
         )
         assert isinstance(retrieved_catalog.inner, PyIcebergCatalog)
+
+    def test_catalog_version_file_creation(self, reset_catalogs):
+        """Test that catalog initialization creates version files correctly."""
+        import posixpath
+        from deltacat.catalog.model.properties import CatalogProperties, CatalogVersion
+        from deltacat.constants import CATALOG_VERSION_DIR_NAME
+        from deltacat.utils.filesystem import list_directory
+        import deltacat as dc
+
+        # Create a temporary directory for the test
+        catalog_root = tempfile.mkdtemp()
+
+        try:
+            # Initialize catalog - this should create version file
+            catalog_properties = CatalogProperties(root=catalog_root)
+
+            # Verify version file was created
+            version_dir_path = posixpath.join(catalog_root, CATALOG_VERSION_DIR_NAME)
+            version_files_and_sizes = list_directory(
+                version_dir_path,
+                catalog_properties.filesystem,
+                ignore_missing_path=True,
+            )
+
+            # Should have exactly one version file
+            assert (
+                len(version_files_and_sizes) == 1
+            ), f"Expected 1 version file, found {len(version_files_and_sizes)}"
+
+            # Extract the version filename
+            version_filename = posixpath.basename(version_files_and_sizes[0][0])
+
+            # Parse the version file and verify it matches current DeltaCAT version
+            catalog_version = CatalogVersion.from_filename(version_filename)
+            assert catalog_version.version == dc.__version__
+            assert isinstance(catalog_version.starting_from, int)
+            assert catalog_version.starting_from > 0
+
+            # Verify the catalog properties version matches
+            assert catalog_properties.version == catalog_version
+
+        finally:
+            # Clean up the temporary directory
+            if os.path.exists(catalog_root):
+                shutil.rmtree(catalog_root)
+
+    def test_catalog_transaction_migration_invocation(self, reset_catalogs):
+        """Test that catalog initialization invokes transaction migration."""
+        import posixpath
+        import time
+        import uuid
+        from unittest.mock import patch
+        from deltacat.catalog.model.properties import CatalogProperties
+        from deltacat.utils.filesystem import write_file
+        from deltacat.constants import (
+            TXN_DIR_NAME,
+            SUCCESS_TXN_DIR_NAME,
+            FAILED_TXN_DIR_NAME,
+        )
+
+        # Create a temporary directory for the test
+        catalog_root = tempfile.mkdtemp()
+
+        try:
+            # Create unpartitioned transaction structure to ensure migration has work to do
+            from deltacat.utils.filesystem import resolve_path_and_filesystem
+
+            _, filesystem = resolve_path_and_filesystem(catalog_root)
+
+            txn_dir = posixpath.join(catalog_root, TXN_DIR_NAME)
+            success_dir = posixpath.join(txn_dir, SUCCESS_TXN_DIR_NAME)
+            failed_dir = posixpath.join(txn_dir, FAILED_TXN_DIR_NAME)
+
+            filesystem.create_dir(success_dir, recursive=True)
+            filesystem.create_dir(failed_dir, recursive=True)
+
+            # Create unpartitioned transactions
+            current_time = time.time_ns()
+            success_txn_id = f"{current_time}_{uuid.uuid4()}"
+            failed_txn_id = f"{current_time + 1000000}_{uuid.uuid4()}"
+
+            # Success transaction: directory containing end time file
+            success_txn_dir = posixpath.join(success_dir, success_txn_id)
+            filesystem.create_dir(success_txn_dir, recursive=True)
+            txn_end_time = str(current_time + 500000)
+            success_txn_file = posixpath.join(success_txn_dir, txn_end_time)
+            write_file(success_txn_file, "success transaction data", filesystem)
+
+            # Failed transaction: single file
+            failed_file_path = posixpath.join(failed_dir, failed_txn_id)
+            write_file(failed_file_path, "failed transaction data", filesystem)
+
+            # Mock the migration function to verify it gets called
+            with patch(
+                "deltacat.experimental.compatibility.backfill_transaction_partitions.backfill_transaction_partitions"
+            ) as mock_migration:
+                # Initialize catalog - this should invoke transaction migration
+                CatalogProperties(root=catalog_root)
+
+                # Verify migration function was called exactly once
+                mock_migration.assert_called_once()
+
+                # Verify it was called with the catalog properties
+                call_args = mock_migration.call_args[0]
+                assert len(call_args) == 1
+                assert isinstance(call_args[0], CatalogProperties)
+                assert call_args[0].root == catalog_root
+
+        finally:
+            # Clean up the temporary directory
+            if os.path.exists(catalog_root):
+                shutil.rmtree(catalog_root)

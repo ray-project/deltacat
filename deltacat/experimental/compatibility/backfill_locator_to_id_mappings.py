@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Backfill script for backwards compatibility with canonical_string changes.
 

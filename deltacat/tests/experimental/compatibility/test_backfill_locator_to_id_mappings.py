@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Unit tests for the backfill script that migrates catalogs from old to new canonical string format.
 

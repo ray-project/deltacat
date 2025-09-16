@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Comprehensive test suite for transaction history queries (dc.transactions function).
 Tests all functionality to prevent regression and ensure robust behavior.

@@ -202,6 +202,21 @@ class CatalogProperties:
                     f"Failed to write current version file '{current_version.to_filename()}': {e}"
                 )
 
+        # Migrate any unpartitioned transaction files to partitioned
+        try:
+            from deltacat.experimental.compatibility.backfill_transaction_partitions import (
+                backfill_transaction_partitions,
+            )
+
+            backfill_transaction_partitions(self, show_progress=True)
+        except Exception as e:
+            # CRITICAL: Transaction migration failure must fail catalog initialization
+            # to prevent database corruption from mixed partitioned/unpartitioned transactions
+            raise RuntimeError(
+                f"Failed to migrate unpartitioned transaction files to partitioned structure: {e}. "
+                f"Catalog initialization aborted to prevent database corruption."
+            ) from e
+
     @property
     def root(self) -> str:
         return self._root
