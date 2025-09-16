@@ -135,6 +135,10 @@ def resolve_paths_and_filesystem(
     resolved_paths = []
     for path in paths:
         path = _resolve_custom_scheme(path)
+        # Normalize trailing slashes to prevent empty path components.
+        # Keep single trailing slash for root paths like "s3://bucket/" -> "s3://bucket"
+        if path.endswith("/") and not path.endswith("://"):
+            path = path.rstrip("/")
         try:
             resolved_filesystem, resolved_path = _resolve_filesystem_and_path(
                 path, filesystem
