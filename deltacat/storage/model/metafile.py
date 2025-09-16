@@ -374,6 +374,7 @@ class MetafileRevisionInfo(dict):
             limit=limit,
             partition_dir_parser=parse_exponential_partitions,
             ignore_missing_path=True,
+            return_unpartitioned=True,
         )
         if not file_paths_and_sizes and not ignore_missing_revision:
             err_msg = (

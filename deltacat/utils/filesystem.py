@@ -261,6 +261,78 @@ def list_directory(
     return sorted(out, reverse=True)
 
 
+def _collect_unpartitioned_files(
+    path: str,
+    filesystem: FileSystem,
+    partition_value: Any,
+    partition_file_parser: Callable[[str], Optional[Any]],
+    remaining_limit: Optional[int],
+    exclude_prefixes: Optional[List[str]],
+    ignore_missing_path: bool,
+    partition_start_value: Optional[Any] = None,
+    target_start_partitions: Optional[List[str]] = None,
+) -> List[Tuple[str, int]]:
+    """
+    Collect unpartitioned files from the base directory that can be parsed and are <= partition_value.
+
+    Args:
+        path: The base directory path to search for unpartitioned files.
+        filesystem: The filesystem implementation to use.
+        partition_value: The partition value to compare against.
+        partition_file_parser: Callable that parses file paths to extract partition values.
+        remaining_limit: Maximum number of files to return, or None for unlimited.
+        exclude_prefixes: File prefixes to exclude.
+        ignore_missing_path: Whether to ignore missing paths.
+
+    Returns:
+        A list of (file_path, file_size) tuples for valid unpartitioned files,
+        sorted by partition value (closest to target first).
+    """
+    # Get files directly from the base directory (not recursive to avoid partition subdirs)
+    base_files = list_directory(
+        path=path,
+        filesystem=filesystem,
+        exclude_prefixes=exclude_prefixes,
+        ignore_missing_path=ignore_missing_path,
+        recursive=False,  # Don't recurse to avoid getting partition subdirectories
+    )
+
+    # Filter unpartitioned files that can be parsed and are within the partition range
+    # Only include actual files (not directories)
+    valid_unpartitioned_files = []
+    for file_path, file_size in base_files:
+        # Skip directories (file_size is None for directories)
+        if file_size is None:
+            continue
+        file_partition_value = partition_file_parser(file_path)
+        if (
+            file_partition_value is not None
+            and file_partition_value <= partition_value
+            and (
+                partition_start_value is None
+                or file_partition_value >= partition_start_value
+            )
+        ):
+            valid_unpartitioned_files.append(
+                (file_path, file_size, file_partition_value)
+            )
+
+    # Sort unpartitioned files by partition value (closest to target first)
+    valid_unpartitioned_files.sort(
+        key=lambda x: x[2],
+        reverse=True,  # Sort by partition value descending
+    )
+
+    # Return files up to the remaining limit
+    if remaining_limit is None:
+        return [(path, size) for path, size, _ in valid_unpartitioned_files]
+    else:
+        return [
+            (path, size)
+            for path, size, _ in valid_unpartitioned_files[:remaining_limit]
+        ]
+
+
 def list_directory_partitioned(
     path: str,
     filesystem: FileSystem,
@@ -272,19 +344,22 @@ def list_directory_partitioned(
     exclude_prefixes: Optional[List[str]] = None,
     ignore_missing_path: bool = False,
     recursive: bool = False,
+    return_unpartitioned: bool = False,
+    partition_start_value: Optional[Any] = None,
 ) -> List[Tuple[str, int]]:
     """
     List files in a partitioned filesystem directory structure, returning files from partitions
-    that are less than or equal to the input partition value.
+    that are within the specified partition range.
 
     This function implements complex partition traversal logic where files are returned from
-    partitions whose parsed values are less than or equal to the parsed value of the input
-    partition_value.
+    partitions whose parsed values are within the range [partition_start_value, partition_value]
+    (inclusive). If partition_start_value is not provided, it defaults to returning files from
+    partitions <= partition_value.
 
     Args:
         path: The base directory path to search for partitioned files.
         filesystem: The filesystem implementation to use.
-        partition_value: The partition value to compare against (e.g., timestamp, revision number).
+        partition_value: The upper bound partition value to compare against (e.g., timestamp, revision number).
         partition_transform: A callable that transforms partition_value into a list of partition directory names.
         limit: Maximum number of files to return. If None, returns all matching files (unlimited).
         partition_dir_parser: Callable that takes a list of partition directory names up to the current level
@@ -294,17 +369,31 @@ def list_directory_partitioned(
             the same partition as the target partition_value.
         exclude_prefixes: File prefixes to exclude (same as list_directory).
         ignore_missing_path: Whether to ignore missing paths (same as list_directory).
-        recursive: Whether to search recursively (same as list_directory).
+        recursive: Whether to search for files in leaf partition directory nodes recursively (same as list_directory).
+        return_unpartitioned: Whether to also return files from the unpartitioned base directory
+            that can be successfully parsed by partition_file_parser and have values within the partition range.
+            This enables backwards compatibility with directories that had files written before
+            partitioning was introduced.
+        partition_start_value: The lower bound partition value (inclusive). If None, defaults to no lower bound.
+            Must be <= partition_value when provided.
 
     Returns:
         A list of (file_path, file_size) tuples, ordered from partitions closest to
         the input partition_value to those furthest away, up to the specified limit.
+        If return_unpartitioned=True, unpartitioned files are included and ordered by their
+        parsed partition values.
+
+    Raises:
+        ValueError: If partition_start_value > partition_value.
 
     Example:
-        For partition_value with transform ["2024", "01", "15"] (Jan 15, 2024):
-        - Returns files from partitions like ["2024", "01", "15"], ["2024", "01", "14"], ["2024", "01", "13"], etc.
-        - Does NOT return files from ["2024", "01", "16"], ["2024", "01", "17"], etc.
+        For partition_value with transform ["2024", "01", "15"] (Jan 15, 2024) and partition_start_value
+        with transform ["2024", "01", "10"] (Jan 10, 2024):
+        - Returns files from partitions like ["2024", "01", "15"], ["2024", "01", "14"], ..., ["2024", "01", "10"]
+        - Does NOT return files from ["2024", "01", "09"], ["2024", "01", "16"], etc.
         - Files are ordered by proximity to the input partition.
+        - If return_unpartitioned=True, also includes files directly in the base directory
+          that have partition values in range ["2024-01-10", "2024-01-15"].
     """
     if exclude_prefixes is None:
         exclude_prefixes = [".", "_"]
@@ -312,6 +401,13 @@ def list_directory_partitioned(
     # Validate inputs
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer or None, got {limit}")
+
+    # Validate partition_start_value if provided
+    if partition_start_value is not None and partition_start_value > partition_value:
+        raise ValueError(
+            f"Start value ({partition_start_value}) must be less than or equal to "
+            f"end value ({partition_value})"
+        )
 
     # Get the target partition directories
     target_partitions = partition_transform(partition_value)
@@ -321,6 +417,17 @@ def list_directory_partitioned(
         )
     if not all(isinstance(dir_name, str) for dir_name in target_partitions):
         raise ValueError("All partition directory names must be strings")
+
+    # Get the start partition directories if start_value is provided
+    target_start_partitions = None
+    if partition_start_value is not None:
+        target_start_partitions = partition_transform(partition_start_value)
+        if not isinstance(target_start_partitions, list):
+            raise ValueError(
+                f"partition_transform must return a list, got {type(target_start_partitions)}"
+            )
+        if not all(isinstance(dir_name, str) for dir_name in target_start_partitions):
+            raise ValueError("All partition directory names must be strings")
 
     # Validate partition directory names
     for dir_name in target_partitions:
@@ -343,7 +450,28 @@ def list_directory_partitioned(
         partition_dir_parser,
         partition_value,
         partition_file_parser,
+        partition_start_value,
+        target_start_partitions,
     )
+
+    # Optionally include unpartitioned files from the base directory
+    if return_unpartitioned:
+        # Calculate remaining limit after partitioned files
+        remaining_limit = limit - len(collected_files) if limit is not None else None
+
+        if remaining_limit is None or remaining_limit > 0:
+            unpartitioned_files = _collect_unpartitioned_files(
+                path=path,
+                filesystem=filesystem,
+                partition_value=partition_value,
+                partition_file_parser=partition_file_parser,
+                remaining_limit=remaining_limit,
+                exclude_prefixes=exclude_prefixes,
+                ignore_missing_path=ignore_missing_path,
+                partition_start_value=partition_start_value,
+                target_start_partitions=target_start_partitions,
+            )
+            collected_files.extend(unpartitioned_files)
 
     # Files are already collected in order of partition proximity due to traversal order
     # and limited to the specified amount due to early termination
@@ -361,6 +489,8 @@ def _find_existing_prior_partitions(
     partition_dir_parser: Callable[[List[str]], Optional[Any]],
     partition_value: Any,
     partition_file_parser: Callable[[str], Optional[Any]],
+    partition_start_value: Optional[Any],
+    target_start_partitions: Optional[List[str]],
 ) -> List[Tuple[str, int]]:
     """
     Find existing partition directories that are "prior" to the target partition
@@ -387,6 +517,8 @@ def _find_existing_prior_partitions(
         partition_dir_parser,
         partition_value,
         partition_file_parser,
+        partition_start_value,
+        target_start_partitions,
     )
     return collected_files
 
@@ -406,6 +538,8 @@ def _traverse_partitions(
     partition_dir_parser: Callable[[List[str]], Optional[Any]],
     partition_value: Any,
     partition_file_parser: Callable[[str], Optional[Any]],
+    partition_start_value: Optional[Any],
+    target_start_partitions: Optional[List[str]],
 ) -> Optional[int]:
     """
     Recursively traverse partition directories applying partition value ordering rules.
@@ -422,10 +556,23 @@ def _traverse_partitions(
             recursive=recursive,
         )
 
-        # Only need to filter files if we're in the same partition as the target partition
+        # Determine if we need file-level filtering based on partition boundaries
         # Files in partitions < target partition are guaranteed to be <= partition_value
-        if current_partition_path == target_partitions:
-            # We're in the target partition - need to filter files by their actual values
+        # Files in partitions > start partition are guaranteed to be >= partition_start_value
+
+        # Check if we're exactly at the target partition boundary (need upper bound filtering)
+        need_upper_bound_filtering = current_partition_path == target_partitions
+
+        # Check if we're exactly at the start partition boundary (need lower bound filtering)
+        # Only do expensive file-level start_value checking if we're at the boundary
+        need_lower_bound_filtering = (
+            partition_start_value is not None
+            and target_start_partitions is not None
+            and current_partition_path == target_start_partitions
+        )
+
+        if need_upper_bound_filtering or need_lower_bound_filtering:
+            # We're at a partition boundary - need to filter files by their actual values
             filtered_files = []
             for file_path, file_size in partition_files:
                 file_partition_value = partition_file_parser(file_path)
@@ -433,14 +580,31 @@ def _traverse_partitions(
                     logger.warning(
                         f"Skipping invalid partition file path '{file_path}'."
                     )
-                elif file_partition_value > partition_value:
+                    continue
+
+                # Apply upper bound filtering if we're at target partition
+                if (
+                    need_upper_bound_filtering
+                    and file_partition_value > partition_value
+                ):
                     logger.debug(
                         f"Skipping file '{file_path}' with partition value '{file_partition_value}' greater than target partition value '{partition_value}'."
                     )
-                else:
-                    filtered_files.append((file_path, file_size))
+                    continue
+
+                # Apply lower bound filtering if we're at start partition
+                if (
+                    need_lower_bound_filtering
+                    and file_partition_value < partition_start_value
+                ):
+                    logger.debug(
+                        f"Skipping file '{file_path}' with partition value '{file_partition_value}' less than start partition value '{partition_start_value}'."
+                    )
+                    continue
+
+                filtered_files.append((file_path, file_size))
         else:
-            # We're in a partition < target partition - all files are valid
+            # We're in a partition that's guaranteed to be within bounds - no file-level filtering needed
             filtered_files = partition_files
 
         # Add files up to the remaining limit (or all files if unlimited)
@@ -469,6 +633,15 @@ def _traverse_partitions(
         target_value_parsed if target_value_parsed is not None else 0
     )  # fallback for invalid
 
+    # Get the start partition path up to the current depth + 1 (if start_value provided)
+    target_start_value = None
+    if target_start_partitions is not None and len(target_start_partitions) > depth:
+        target_start_partition_path = target_start_partitions[: depth + 1]
+        target_start_value_parsed = partition_dir_parser(target_start_partition_path)
+        target_start_value = (
+            target_start_value_parsed if target_start_value_parsed is not None else 0
+        )  # fallback for invalid
+
     candidates = []
     for item_path, _ in items:
         item_name = posixpath.basename(item_path)
@@ -482,9 +655,11 @@ def _traverse_partitions(
             )
             continue
 
-        # Compare parsed values for ordering
-        # Use consistent less-than-or-equal comparison for all levels
-        if parsed_value <= target_value:
+        # Compare parsed values for ordering - now include start_value filtering
+        # Only explore directories within the range [target_start_value, target_value]
+        if parsed_value <= target_value and (
+            target_start_value is None or parsed_value >= target_start_value
+        ):
             candidates.append((parsed_value, item_name))
 
     # Sort by parsed timestamp value in descending order to get closest partitions first
@@ -510,6 +685,8 @@ def _traverse_partitions(
                 partition_dir_parser,
                 partition_value,
                 partition_file_parser,
+                partition_start_value,
+                target_start_partitions,
             )
         else:
             # We've already reached the limit, stop traversal

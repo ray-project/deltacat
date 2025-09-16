@@ -1435,6 +1435,555 @@ class TestListDirectoryPartitioned:
         assert len(unlimited_files) > len(limited_files)
         assert len(limited_files) == 2  # Limited to 2 as expected
 
+    def test_return_unpartitioned_functionality(self, temp_dir):
+        """Test the return_unpartitioned parameter for backwards compatibility."""
+        import posixpath
+        from typing import Optional, List
+
+        # Create both partitioned and unpartitioned files
+        partitioned_files = [
+            (f"{temp_dir}/2023/01/file1.json", 1000, 20230101),
+            (f"{temp_dir}/2023/02/file2.json", 2000, 20230201),
+            (f"{temp_dir}/2024/01/file3.json", 1500, 20240101),
+        ]
+
+        # Create unpartitioned files (files in base directory from before partitioning)
+        unpartitioned_files = [
+            (f"{temp_dir}/legacy_file1.json", 500, 20221201),  # Old file
+            (f"{temp_dir}/legacy_file2.json", 800, 20230115),  # Another old file
+            (
+                f"{temp_dir}/recent_file.json",
+                1200,
+                20240115,
+            ),  # Recent unpartitioned file
+            (
+                f"{temp_dir}/future_file.json",
+                900,
+                20250101,
+            ),  # Future file (should be excluded)
+        ]
+
+        # Create all partitioned files
+        for file_path, file_size, _ in partitioned_files:
+            write_file(file_path, "x" * file_size, filesystem=LocalFileSystem())
+
+        # Create all unpartitioned files
+        for file_path, file_size, _ in unpartitioned_files:
+            write_file(file_path, "x" * file_size, filesystem=LocalFileSystem())
+
+        # Create a simple parser that extracts date from filename
+        def parse_date_from_filename(file_path: str) -> Optional[int]:
+            basename = posixpath.basename(file_path)
+            if basename.startswith("legacy_file1"):
+                return 20221201
+            elif basename.startswith("legacy_file2"):
+                return 20230115
+            elif basename.startswith("recent_file"):
+                return 20240115
+            elif basename.startswith("future_file"):
+                return 20250101
+            elif basename.startswith("file1"):
+                return 20230101
+            elif basename.startswith("file2"):
+                return 20230201
+            elif basename.startswith("file3"):
+                return 20240101
+            return None
+
+        def simple_transform(value: int) -> List[str]:
+            # Transform YYYYMMDD to ["YYYY", "MM"]
+            year = str(value)[:4]
+            month = str(value)[4:6]
+            return [year, month]
+
+        def simple_parser(dirs: List[str]) -> Optional[int]:
+            # Handle partial directory paths more gracefully
+            if len(dirs) >= 1:
+                try:
+                    if len(dirs) == 1:
+                        # Just year provided
+                        year = int(dirs[0])
+                        return year * 10000 + 1 * 100 + 1  # Jan 1st of that year
+                    elif len(dirs) >= 2:
+                        # Year and month provided
+                        year = int(dirs[0])
+                        month = int(dirs[1])
+                        return year * 10000 + month * 100 + 1  # First day of month
+                except (ValueError, IndexError):
+                    return None
+            return None
+
+        target_date = 20240101  # Target: January 1, 2024
+
+        # Test with return_unpartitioned=False (default behavior)
+        partitioned_only = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=LocalFileSystem(),
+            partition_value=target_date,
+            partition_transform=simple_transform,
+            partition_file_parser=parse_date_from_filename,
+            partition_dir_parser=simple_parser,
+            return_unpartitioned=False,
+        )
+
+        # Should only return partitioned files <= target date
+        partitioned_only_paths = [path for path, _ in partitioned_only]
+        assert f"{temp_dir}/2023/01/file1.json" in partitioned_only_paths
+        assert f"{temp_dir}/2023/02/file2.json" in partitioned_only_paths
+        assert f"{temp_dir}/2024/01/file3.json" in partitioned_only_paths
+        # Should NOT include unpartitioned files
+        assert f"{temp_dir}/legacy_file1.json" not in partitioned_only_paths
+        assert f"{temp_dir}/legacy_file2.json" not in partitioned_only_paths
+        assert f"{temp_dir}/recent_file.json" not in partitioned_only_paths
+
+        # Test with return_unpartitioned=True
+        all_files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=LocalFileSystem(),
+            partition_value=target_date,
+            partition_transform=simple_transform,
+            partition_file_parser=parse_date_from_filename,
+            partition_dir_parser=simple_parser,
+            return_unpartitioned=True,
+        )
+
+        # Should include both partitioned and valid unpartitioned files
+        all_files_paths = [path for path, _ in all_files]
+
+        # Partitioned files <= target date
+        assert f"{temp_dir}/2023/01/file1.json" in all_files_paths
+        assert f"{temp_dir}/2023/02/file2.json" in all_files_paths
+        assert f"{temp_dir}/2024/01/file3.json" in all_files_paths
+
+        # Unpartitioned files <= target date
+        assert (
+            f"{temp_dir}/legacy_file1.json" in all_files_paths
+        )  # 20221201 <= 20240101
+        assert (
+            f"{temp_dir}/legacy_file2.json" in all_files_paths
+        )  # 20230115 <= 20240101
+
+        # Should NOT include future unpartitioned files
+        assert (
+            f"{temp_dir}/future_file.json" not in all_files_paths
+        )  # 20250101 > 20240101
+        assert (
+            f"{temp_dir}/recent_file.json" not in all_files_paths
+        )  # 20240115 > 20240101
+
+        # Verify file count increase
+        assert len(all_files) > len(partitioned_only)
+        assert (
+            len(all_files) == len(partitioned_only) + 2
+        )  # Added 2 valid unpartitioned files
+
+    def test_return_unpartitioned_with_limit(self, temp_dir):
+        """Test return_unpartitioned respects the limit parameter."""
+        import posixpath
+        from typing import Optional, List
+
+        # Create partitioned and unpartitioned files
+        write_file(
+            f"{temp_dir}/2023/01/file1.json", "content1", filesystem=LocalFileSystem()
+        )
+        write_file(f"{temp_dir}/legacy1.json", "content2", filesystem=LocalFileSystem())
+        write_file(f"{temp_dir}/legacy2.json", "content3", filesystem=LocalFileSystem())
+
+        def parse_filename(file_path: str) -> Optional[int]:
+            basename = posixpath.basename(file_path)
+            if "file1" in basename:
+                return 20230101
+            elif "legacy1" in basename:
+                return 20221201
+            elif "legacy2" in basename:
+                return 20221202
+            return None
+
+        def transform(value: int) -> List[str]:
+            year = str(value)[:4]
+            month = str(value)[4:6]
+            return [year, month]
+
+        def parser(dirs: List[str]) -> Optional[int]:
+            if len(dirs) >= 1:
+                try:
+                    if len(dirs) == 1:
+                        year = int(dirs[0])
+                        return year * 10000 + 1 * 100 + 1
+                    elif len(dirs) >= 2:
+                        year = int(dirs[0])
+                        month = int(dirs[1])
+                        return year * 10000 + month * 100 + 1
+                except (ValueError, IndexError):
+                    return None
+            return None
+
+        # Test with limit=2 and return_unpartitioned=True
+        limited_files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=LocalFileSystem(),
+            partition_value=20230101,
+            partition_transform=transform,
+            partition_file_parser=parse_filename,
+            partition_dir_parser=parser,
+            limit=2,
+            return_unpartitioned=True,
+        )
+
+        # Should respect the limit
+        assert len(limited_files) == 2
+
+    def test_return_unpartitioned_parser_failure(self, temp_dir):
+        """Test return_unpartitioned handles files that can't be parsed."""
+        import posixpath
+        from typing import Optional, List
+
+        # Create files that will fail parsing
+        write_file(
+            f"{temp_dir}/valid_file.json", "content1", filesystem=LocalFileSystem()
+        )
+        write_file(
+            f"{temp_dir}/invalid_file.json", "content2", filesystem=LocalFileSystem()
+        )
+        write_file(
+            f"{temp_dir}/2023/01/partitioned.json",
+            "content3",
+            filesystem=LocalFileSystem(),
+        )
+
+        def parse_filename(file_path: str) -> Optional[int]:
+            basename = posixpath.basename(file_path)
+            if "invalid_file" in basename:
+                return None  # Parsing fails
+            elif "valid_file" in basename:
+                return 20230101
+            elif "partitioned" in basename:
+                return 20230101
+            return None
+
+        def transform(value: int) -> List[str]:
+            return [str(value)[:4], str(value)[4:6]]
+
+        def parser(dirs: List[str]) -> Optional[int]:
+            if len(dirs) >= 1:
+                try:
+                    if len(dirs) == 1:
+                        year = int(dirs[0])
+                        return year * 10000 + 1 * 100 + 1
+                    elif len(dirs) >= 2:
+                        year = int(dirs[0])
+                        month = int(dirs[1])
+                        return year * 10000 + month * 100 + 1
+                except (ValueError, IndexError):
+                    return None
+            return None
+
+        files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=LocalFileSystem(),
+            partition_value=20230101,
+            partition_transform=transform,
+            partition_file_parser=parse_filename,
+            partition_dir_parser=parser,
+            return_unpartitioned=True,
+        )
+
+        files_paths = [path for path, _ in files]
+
+        # Should include parseable files
+        assert f"{temp_dir}/valid_file.json" in files_paths
+        assert f"{temp_dir}/2023/01/partitioned.json" in files_paths
+
+        # Should exclude unparseable files
+        assert f"{temp_dir}/invalid_file.json" not in files_paths
+
+    def test_return_unpartitioned_empty_base_directory(self, temp_dir):
+        """Test return_unpartitioned with empty base directory."""
+        from typing import Optional, List
+
+        # Only create partitioned files
+        write_file(
+            f"{temp_dir}/2023/01/file1.json", "content", filesystem=LocalFileSystem()
+        )
+
+        def parse_filename(file_path: str) -> Optional[int]:
+            return 20230101
+
+        def transform(value: int) -> List[str]:
+            return [str(value)[:4], str(value)[4:6]]
+
+        def parser(dirs: List[str]) -> Optional[int]:
+            if len(dirs) >= 1:
+                try:
+                    if len(dirs) == 1:
+                        year = int(dirs[0])
+                        return year * 10000 + 1 * 100 + 1
+                    elif len(dirs) >= 2:
+                        year = int(dirs[0])
+                        month = int(dirs[1])
+                        return year * 10000 + month * 100 + 1
+                except (ValueError, IndexError):
+                    return None
+            return None
+
+        files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=LocalFileSystem(),
+            partition_value=20230101,
+            partition_transform=transform,
+            partition_file_parser=parse_filename,
+            partition_dir_parser=parser,
+            return_unpartitioned=True,
+        )
+
+        # Should still work with no unpartitioned files
+        assert len(files) == 1
+        assert files[0][0] == f"{temp_dir}/2023/01/file1.json"
+
+    def test_list_partitioned_directory_with_start_value(self, temp_dir):
+        """Test listing partitioned directory with partition_start_value."""
+
+        def simple_parser(partition_dirs):
+            return parse_epoch_timestamp_partitions(partition_dirs)
+
+        # Create files with timestamps spanning multiple days
+        timestamps = [
+            1704038400,  # Dec 31, 2023 16:00:00 UTC (before range)
+            1704124800,  # Jan 1, 2024 16:00:00 UTC (in range - lower bound)
+            1704146400,  # Jan 1, 2024 22:00:00 UTC (in range)
+            1704211200,  # Jan 2, 2024 16:00:00 UTC (in range - upper bound)
+            1704297600,  # Jan 3, 2024 16:00:00 UTC (after range)
+        ]
+
+        for i, timestamp in enumerate(timestamps):
+            filename = f"file{i}.txt"
+            content = f"content {i}"
+
+            write_file_partitioned(
+                path=os.path.join(temp_dir, filename),
+                data=content,
+                partition_value=timestamp,
+                partition_transform=epoch_timestamp_partition_transform,
+            )
+
+        # List files from Jan 1, 2024 to Jan 2, 2024 (inclusive)
+        _, filesystem = resolve_path_and_filesystem(temp_dir)
+        files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=filesystem,
+            partition_value=1704211200,  # Jan 2, 2024
+            partition_transform=epoch_timestamp_partition_transform,
+            partition_file_parser=epoch_timestamp_file_parser,
+            limit=10,
+            partition_dir_parser=simple_parser,
+            partition_start_value=1704124800,  # Jan 1, 2024
+        )
+
+        # Should find 3 files (Jan 1 and Jan 2 files, but not Dec 31 or Jan 3)
+        assert len(files) == 3
+
+        # Verify the files are from the correct timestamps
+        file_timestamps = []
+        for file_path, _ in files:
+            timestamp = epoch_timestamp_file_parser(file_path)
+            file_timestamps.append(timestamp)
+
+        assert 1704124800 in file_timestamps  # Jan 1, 2024
+        assert 1704146400 in file_timestamps  # Jan 1, 2024 (later)
+        assert 1704211200 in file_timestamps  # Jan 2, 2024
+        assert 1704038400 not in file_timestamps  # Dec 31, 2023 (before range)
+        assert 1704297600 not in file_timestamps  # Jan 3, 2024 (after range)
+
+    def test_list_partitioned_directory_start_value_none(self, temp_dir):
+        """Test that partition_start_value=None behaves like before (no lower bound)."""
+
+        def simple_parser(partition_dirs):
+            return parse_epoch_timestamp_partitions(partition_dirs)
+
+        timestamps = [
+            1704038400,  # Dec 31, 2023
+            1704124800,  # Jan 1, 2024
+            1704211200,  # Jan 2, 2024
+        ]
+
+        for i, timestamp in enumerate(timestamps):
+            filename = f"file{i}.txt"
+            content = f"content {i}"
+
+            write_file_partitioned(
+                path=os.path.join(temp_dir, filename),
+                data=content,
+                partition_value=timestamp,
+                partition_transform=epoch_timestamp_partition_transform,
+            )
+
+        # Test with partition_start_value=None (should include all files <= partition_value)
+        _, filesystem = resolve_path_and_filesystem(temp_dir)
+        files_with_none = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=filesystem,
+            partition_value=1704211200,  # Jan 2, 2024
+            partition_transform=epoch_timestamp_partition_transform,
+            partition_file_parser=epoch_timestamp_file_parser,
+            limit=10,
+            partition_dir_parser=simple_parser,
+            partition_start_value=None,
+        )
+
+        # Test without partition_start_value (should be equivalent)
+        files_without = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=filesystem,
+            partition_value=1704211200,  # Jan 2, 2024
+            partition_transform=epoch_timestamp_partition_transform,
+            partition_file_parser=epoch_timestamp_file_parser,
+            limit=10,
+            partition_dir_parser=simple_parser,
+        )
+
+        # Both should return the same results
+        assert len(files_with_none) == len(files_without) == 3
+
+    def test_list_partitioned_directory_invalid_start_value(self, temp_dir):
+        """Test that ValueError is raised when partition_start_value > partition_value."""
+
+        def simple_parser(partition_dirs):
+            return parse_epoch_timestamp_partitions(partition_dirs)
+
+        _, filesystem = resolve_path_and_filesystem(temp_dir)
+
+        with pytest.raises(
+            ValueError,
+            match="Start value \\(1704211200\\) must be less than or equal to end value \\(1704124800\\)",
+        ):
+            list_directory_partitioned(
+                path=temp_dir,
+                filesystem=filesystem,
+                partition_value=1704124800,  # Jan 1, 2024
+                partition_transform=epoch_timestamp_partition_transform,
+                partition_file_parser=epoch_timestamp_file_parser,
+                limit=10,
+                partition_dir_parser=simple_parser,
+                partition_start_value=1704211200,  # Jan 2, 2024 (greater than partition_value)
+            )
+
+    def test_list_partitioned_directory_start_value_equal_to_end_value(self, temp_dir):
+        """Test that partition_start_value == partition_value works correctly."""
+
+        def simple_parser(partition_dirs):
+            return parse_epoch_timestamp_partitions(partition_dirs)
+
+        timestamps = [
+            1704038400,  # Dec 31, 2023 (before range)
+            1704124800,  # Jan 1, 2024 (in range)
+            1704211200,  # Jan 2, 2024 (after range)
+        ]
+
+        for i, timestamp in enumerate(timestamps):
+            filename = f"file{i}.txt"
+            content = f"content {i}"
+
+            write_file_partitioned(
+                path=os.path.join(temp_dir, filename),
+                data=content,
+                partition_value=timestamp,
+                partition_transform=epoch_timestamp_partition_transform,
+            )
+
+        # List files where start_value == end_value
+        _, filesystem = resolve_path_and_filesystem(temp_dir)
+        files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=filesystem,
+            partition_value=1704124800,  # Jan 1, 2024
+            partition_transform=epoch_timestamp_partition_transform,
+            partition_file_parser=epoch_timestamp_file_parser,
+            limit=10,
+            partition_dir_parser=simple_parser,
+            partition_start_value=1704124800,  # Jan 1, 2024 (same as partition_value)
+        )
+
+        # Should find only 1 file (the Jan 1 file)
+        assert len(files) == 1
+
+        file_path, _ = files[0]
+        timestamp = epoch_timestamp_file_parser(file_path)
+        assert timestamp == 1704124800  # Jan 1, 2024
+
+    def test_list_partitioned_directory_start_value_with_unpartitioned_files(
+        self, temp_dir
+    ):
+        """Test partition_start_value filtering with return_unpartitioned=True."""
+        import posixpath
+
+        def simple_parser(partition_dirs):
+            return parse_epoch_timestamp_partitions(partition_dirs)
+
+        def custom_file_parser(file_path: str):
+            """Custom parser that can handle both partitioned and unpartitioned files."""
+            # First try the standard parser for partitioned files
+            result = epoch_timestamp_file_parser(file_path)
+            if result is not None:
+                return result
+
+            # For unpartitioned files, parse based on filename
+            basename = posixpath.basename(file_path)
+            if basename == "unpartitioned_old.txt":
+                return 1704038400  # Dec 31, 2023
+            elif basename == "unpartitioned_new.txt":
+                return 1704124800  # Jan 1, 2024
+            return None
+
+        # Create some partitioned files
+        timestamps = [
+            1704038400,  # Dec 31, 2023 (before range)
+            1704124800,  # Jan 1, 2024 (in range)
+        ]
+
+        for i, timestamp in enumerate(timestamps):
+            filename = f"partitioned_file{i}.txt"
+            content = f"partitioned content {i}"
+
+            write_file_partitioned(
+                path=os.path.join(temp_dir, filename),
+                data=content,
+                partition_value=timestamp,
+                partition_transform=epoch_timestamp_partition_transform,
+            )
+
+        # Create unpartitioned files directly in the base directory
+        unpartitioned_files = [
+            ("unpartitioned_old.txt", 1704038400),  # Dec 31, 2023 (before range)
+            ("unpartitioned_new.txt", 1704124800),  # Jan 1, 2024 (in range)
+        ]
+
+        for filename, timestamp in unpartitioned_files:
+            file_path = os.path.join(temp_dir, filename)
+            content = f"unpartitioned content for {timestamp}"
+            with open(file_path, "w") as f:
+                f.write(content)
+
+        # List with return_unpartitioned=True and partition_start_value
+        files = list_directory_partitioned(
+            path=temp_dir,
+            filesystem=LocalFileSystem(),
+            partition_value=1704124800,  # Jan 1, 2024
+            partition_transform=epoch_timestamp_partition_transform,
+            partition_file_parser=custom_file_parser,
+            limit=10,
+            partition_dir_parser=simple_parser,
+            partition_start_value=1704124800,  # Jan 1, 2024
+            return_unpartitioned=True,
+        )
+
+        # Should find 2 files: 1 partitioned + 1 unpartitioned (both from Jan 1)
+        assert len(files) == 2
+
+        # Verify both files are from the correct timestamp
+        for file_path, _ in files:
+            timestamp = custom_file_parser(file_path)
+            assert timestamp == 1704124800  # Jan 1, 2024
+
 
 class TestListDirectoryPartitionedWithExponentialTransform:
     """Test list_directory_partitioned function with exponential transform."""

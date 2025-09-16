@@ -64,6 +64,7 @@ from deltacat.storage.model.metafile import (
 from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, NANOS_PER_SEC
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
+    write_file,
     write_file_partitioned,
     exponential_partition_transform,
     remove_exponential_partitions,
@@ -2484,10 +2485,25 @@ class TestMetafileIO:
                 partition_transform=exponential_partition_transform,
             )
 
+        # Create unpartitioned test revisions
+        test_revisions_unpartitioned = [
+            # one smaller than 1000
+            (
+                499,
+                "00000000000000000499_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+        ]
+
+        for revision, filename in test_revisions_unpartitioned:
+            write_file(
+                path=os.path.join(temp_dir, filename),
+                data=f"Metafile content for revision {revision}",
+            )
+
         # Test _sorted_file_paths with different partition values
         _, filesystem = resolve_path_and_filesystem(temp_dir)
 
-        # Test 1: Find revisions <= 1000 (should find 500 but not 1500, 2500, etc.)
+        # Test 1: Find revisions <= 1000 (should find 499, 500 but not 1001, 1500, 2500, etc.)
         sorted_paths_1000 = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=temp_dir,
             filesystem=filesystem,
@@ -2496,11 +2512,15 @@ class TestMetafileIO:
             ignore_missing_revision=True,
         )
 
-        # Should find only revision 500 (but not 1500, 2500, 1000500, 2000500)
+        # Should find only revision 499, 500 (but not 1001, 1500, 2500, 3001, 1000500, 2000500)
         expected_paths_1000 = [
             os.path.join(
                 temp_dir,
                 "1000000/1000/00000000000000000500_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            os.path.join(
+                temp_dir,
+                "00000000000000000499_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
             ),
         ]
         assert (
@@ -2516,7 +2536,7 @@ class TestMetafileIO:
             ignore_missing_revision=True,
         )
 
-        # Should find first 2 revisions closest to 3000: revisions 2500, 1500
+        # Should find first 3 revisions closest to 3000: revisions 2500, 1500, 3001
         expected_paths_3000_limited = [
             os.path.join(
                 temp_dir,

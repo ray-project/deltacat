@@ -54,10 +54,12 @@ from deltacat.types.tables import (
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
+    list_directory_partitioned,
     get_file_info,
     get_file_info_partitioned,
     write_file_partitioned,
     epoch_timestamp_partition_transform,
+    parse_epoch_timestamp_partitions,
 )
 from deltacat import logs
 
@@ -217,9 +219,10 @@ def _read_txn(
     """
     status_dir = posixpath.join(txn_log_dir, txn_status.dir_name())
 
-    if txn_status == TransactionStatus.SUCCESS:
-        # SUCCESS transactions are stored in partitioned directories
+    if txn_status in [TransactionStatus.SUCCESS, TransactionStatus.FAILED]:
         # Parse transaction ID to get start time for partitioning
+        # FAILED transactions store metadata directly in partitioned files named with transaction ID
+        # SUCCESS transactions are stored in partitioned directories
         start_time, _ = Transaction.parse_transaction_id(transaction_id)
 
         # Use get_file_info_partitioned to find the transaction directory
@@ -234,55 +237,37 @@ def _read_txn(
             raise FileNotFoundError(
                 f"Transaction with ID '{transaction_id}' and status '{txn_status}' not found."
             )
+        if txn_status == TransactionStatus.SUCCESS:
+            # The file_info should point to a directory
+            if file_info.type != pyarrow.fs.FileType.Directory:
+                raise FileNotFoundError(
+                    f"Transaction directory for transaction ID '{transaction_id}' with status '{txn_status}' not found."
+                )
 
-        # The file_info should point to a directory
-        if file_info.type != pyarrow.fs.FileType.Directory:
-            raise FileNotFoundError(
-                f"Transaction directory for transaction ID '{transaction_id}' with status '{txn_status}' not found."
-            )
-
-        # List files in the transaction directory
-        txn_files = list_directory(
-            path=file_info.path,
-            filesystem=filesystem,
-            ignore_missing_path=True,
-        )
-
-        if not txn_files:
-            raise FileNotFoundError(
-                f"No transaction file found for transaction ID '{transaction_id}' and status '{txn_status}'."
-            )
-
-        if len(txn_files) > 1:
-            raise RuntimeError(
-                f"Expected 1 transaction file in '{file_info.path}', but found {len(txn_files)}"
-            )
-
-        # Get the transaction file path
-        txn_file_path, _ = txn_files[0]
-
-        # Read the transaction from the file
-        return Transaction.read(txn_file_path, filesystem)
-
-    elif txn_status == TransactionStatus.FAILED:
-        # FAILED transactions store metadata directly in partitioned files named with transaction ID
-        # Parse transaction ID to get start time for partitioning
-        start_time, _ = Transaction.parse_transaction_id(transaction_id)
-
-        # Use get_file_info_partitioned to find the transaction file
-        try:
-            file_info = get_file_info_partitioned(
-                path=posixpath.join(status_dir, transaction_id),
+            # List files in the transaction directory
+            txn_files = list_directory(
+                path=file_info.path,
                 filesystem=filesystem,
-                partition_value=start_time,
-                partition_transform=epoch_timestamp_partition_transform,
+                ignore_missing_path=True,
             )
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Transaction with ID '{transaction_id}' and status '{txn_status}' not found."
-            )
+
+            if not txn_files:
+                raise FileNotFoundError(
+                    f"No transaction file found for transaction ID '{transaction_id}' and status '{txn_status}'."
+                )
+
+            if len(txn_files) > 1:
+                raise RuntimeError(
+                    f"Expected 1 transaction file in '{file_info.path}', but found {len(txn_files)}"
+                )
+
+            # Get the transaction file path
+            txn_file_path, _ = txn_files[0]
+
+            # Read the transaction from the file
+            return Transaction.read(txn_file_path, filesystem)
     else:
-        # Other transaction types (RUNNING, PAUSED) store files directly in status directory
+        # Other transaction types store files directly in status directory
         txn_file_path = posixpath.join(status_dir, transaction_id)
 
         try:
@@ -328,8 +313,8 @@ def transactions(
     Args:
         catalog_name: Optional name of the catalog to query. If None, uses the default catalog.
         read_as: Dataset type to return results as. Defaults to DatasetType.PYARROW.
-        start_time: Optional start timestamp in nanoseconds since epoch to filter transactions.
-        end_time: Optional end timestamp in nanoseconds since epoch to filter transactions.
+        start_time: Optional start timestamp in nanoseconds since epoch to filter transactions. Transactions whose start time is greater than or equal to this value will be included.
+        end_time: Optional end timestamp in nanoseconds since epoch to filter transactions. Transactions whose start time is less than or equal to this value will be included.
         limit: Optional maximum number of transactions to return (most recent first). Defaults to 10.
         status_in: Optional iterable of transaction status types to include. Defaults to [TransactionStatus.SUCCESS].
 
@@ -397,41 +382,43 @@ def transactions(
         directory: str,
         expected_status: TransactionStatus,
     ):
-        if expected_status == TransactionStatus.SUCCESS:
-            # SUCCESS transactions use partitioned structure - use recursive search
-            from pyarrow.fs import FileSelector
-
-            try:
-                file_infos = filesystem.get_file_info(
-                    FileSelector(directory, recursive=True)
-                )
-                # Extract transaction IDs from partitioned paths
-                # Structure: success/YYYY/MM/DD/HH/MM/transaction_id/end_time
-                transaction_ids = set()
-                for file_info in file_infos:
-                    if file_info.type == pyarrow.fs.FileType.File:
-                        # Get the transaction directory (parent of the end_time file)
-                        txn_dir = posixpath.dirname(file_info.path)
-                        transaction_id = posixpath.basename(txn_dir)
-                        # Only process if it looks like a transaction ID (contains underscore)
-                        if TXN_PART_SEPARATOR in transaction_id:
-                            transaction_ids.add(transaction_id)
-            except FileNotFoundError:
-                # Directory doesn't exist - no transactions to process
-                transaction_ids = set()
+        if expected_status in [TransactionStatus.SUCCESS, TransactionStatus.FAILED]:
+            # list all success/failed transactions between start_time and end_time
+            # Ensure partition_start_value <= partition_value constraint is maintained
+            transaction_dir_paths_and_sizes = list_directory_partitioned(
+                path=directory,
+                filesystem=filesystem,
+                partition_value=max(end_time or time.time_ns(), start_time or -1),
+                partition_start_value=start_time,
+                partition_transform=epoch_timestamp_partition_transform,
+                partition_file_parser=lambda path: Transaction.parse_transaction_id(
+                    posixpath.basename(path)
+                )[0],
+                partition_dir_parser=parse_epoch_timestamp_partitions,
+                limit=limit,
+                ignore_missing_path=True,
+            )
+            transaction_ids = {
+                posixpath.basename(transaction_file_path)
+                for transaction_file_path, _ in transaction_dir_paths_and_sizes
+            }
         else:
-            # FAILED/RUNNING transactions still use flat structure
+            # other transactions still use flat structure
             file_info_and_sizes = list_directory(
                 path=directory,
                 filesystem=filesystem,
                 ignore_missing_path=True,
             )
             # Extract transaction IDs from file paths
-            transaction_ids = {
-                posixpath.basename(file_path)
-                for file_path, _ in file_info_and_sizes
-                if TXN_PART_SEPARATOR in posixpath.basename(file_path)
-            }
+            transaction_ids = set()
+            for file_path, _ in file_info_and_sizes:
+                try:
+                    txn_id = posixpath.basename(file_path)
+                    transaction_id = Transaction.parse_transaction_id(txn_id)
+                    transaction_ids.add(txn_id)
+                except ValueError:
+                    logger.warning(f"Skipping invalid transaction ID: {file_path}")
+                    continue
 
         for transaction_id in transaction_ids:
             # Read the transaction from the file
@@ -445,20 +432,11 @@ def transactions(
                 )
             except FileNotFoundError:
                 # this may be a stray file or the transaction is being created - skip it
+                logger.warning(f"Skipping missing transaction ID: {transaction_id}")
                 continue
             except ValueError:
                 # Skip invalid transaction IDs (like partition directories)
-                continue
-
-            # Apply time filters
-            # TODO(pdames): Parse start and end times from the transaction file path.
-            if (
-                start_time is not None
-                and txn.start_time
-                and txn.start_time < start_time
-            ):
-                continue
-            if end_time is not None and txn.end_time and txn.end_time > end_time:
+                logger.warning(f"Skipping invalid transaction ID: {transaction_id}")
                 continue
 
             # Count operations and affected metadata objects by type.

@@ -191,7 +191,9 @@ class CatalogProperties:
             )
             try:
                 write_file(
-                    version_file_path, current_version.to_filename(), self._filesystem
+                    version_file_path,
+                    b"",  # empty file
+                    self._filesystem,
                 )
                 self._version = current_version
             except Exception as e:
