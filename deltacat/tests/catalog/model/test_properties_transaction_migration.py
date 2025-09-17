@@ -54,24 +54,45 @@ class TestCatalogPropertiesTransactionMigration:
 
             # Initialize catalog - this should trigger automatic migration
             catalog_properties = CatalogProperties(root=temp_dir)
+            assert catalog_properties.root == temp_dir
 
             # Verify transactions were migrated to partitioned structure
             # Check success transaction
-            expected_success_dir = Transaction.success_txn_log_dir_path(success_dir, success_txn_id)
-            expected_success_txn_dir = posixpath.join(expected_success_dir, success_txn_id)
-            expected_success_file = posixpath.join(expected_success_txn_dir, txn_end_time)
+            expected_success_txn_dir = Transaction.success_txn_log_dir_path(
+                success_dir, success_txn_id
+            )
+            expected_success_file = posixpath.join(
+                expected_success_txn_dir, txn_end_time
+            )
 
             # Check failed transaction
-            expected_failed_path = Transaction.failed_txn_log_path(failed_dir, failed_txn_id)
+            expected_failed_path = Transaction.failed_txn_log_path(
+                failed_dir, failed_txn_id
+            )
 
             # Verify partitioned transactions exist
-            assert filesystem.get_file_info(expected_success_txn_dir).type == pyarrow.fs.FileType.Directory
-            assert filesystem.get_file_info(expected_success_file).type == pyarrow.fs.FileType.File
-            assert filesystem.get_file_info(expected_failed_path).type == pyarrow.fs.FileType.File
+            assert (
+                filesystem.get_file_info(expected_success_txn_dir).type
+                == pyarrow.fs.FileType.Directory
+            )
+            assert (
+                filesystem.get_file_info(expected_success_file).type
+                == pyarrow.fs.FileType.File
+            )
+            assert (
+                filesystem.get_file_info(expected_failed_path).type
+                == pyarrow.fs.FileType.File
+            )
 
             # Verify original unpartitioned transactions are gone
-            assert filesystem.get_file_info(success_txn_dir).type == pyarrow.fs.FileType.NotFound
-            assert filesystem.get_file_info(failed_file_path).type == pyarrow.fs.FileType.NotFound
+            assert (
+                filesystem.get_file_info(success_txn_dir).type
+                == pyarrow.fs.FileType.NotFound
+            )
+            assert (
+                filesystem.get_file_info(failed_file_path).type
+                == pyarrow.fs.FileType.NotFound
+            )
 
     def test_catalog_initialization_no_transactions_to_migrate(self):
         """Test that catalog initialization succeeds when no transactions need migration."""
@@ -109,15 +130,21 @@ class TestCatalogPropertiesTransactionMigration:
             write_file(valid_file, "valid transaction", filesystem)
 
             # Mock the migration to fail by creating a read-only destination
-            expected_valid_dir = Transaction.success_txn_log_dir_path(success_dir, valid_txn_id)
+            expected_valid_dir = Transaction.success_txn_log_dir_path(
+                success_dir, valid_txn_id
+            )
             filesystem.create_dir(expected_valid_dir, recursive=True)
 
             try:
                 import os
+
                 os.chmod(expected_valid_dir, 0o444)  # Read-only
 
                 # Catalog initialization should fail due to migration failure
-                with pytest.raises(RuntimeError, match="Failed to migrate unpartitioned transaction files"):
+                with pytest.raises(
+                    RuntimeError,
+                    match="Failed to migrate unpartitioned transaction files",
+                ):
                     CatalogProperties(root=temp_dir)
 
                 # Restore permissions for cleanup
@@ -142,13 +169,16 @@ class TestCatalogPropertiesTransactionMigration:
             success_txn_id = f"{current_time}_{uuid.uuid4()}"
 
             # Use the correct partitioned path structure
-            partitioned_success_dir = Transaction.success_txn_log_dir_path(success_dir, success_txn_id)
-            partitioned_txn_dir = posixpath.join(partitioned_success_dir, success_txn_id)
+            partitioned_txn_dir = Transaction.success_txn_log_dir_path(
+                success_dir, success_txn_id
+            )
             filesystem.create_dir(partitioned_txn_dir, recursive=True)
 
             txn_end_time = str(current_time + 500000)
             partitioned_txn_file = posixpath.join(partitioned_txn_dir, txn_end_time)
-            write_file(partitioned_txn_file, "already partitioned transaction", filesystem)
+            write_file(
+                partitioned_txn_file, "already partitioned transaction", filesystem
+            )
 
             # Initialize catalog - should succeed without attempting migration
             catalog_properties = CatalogProperties(root=temp_dir)
@@ -159,8 +189,14 @@ class TestCatalogPropertiesTransactionMigration:
             assert catalog_properties.version is not None
 
             # Verify partitioned transaction still exists
-            assert filesystem.get_file_info(partitioned_txn_dir).type == pyarrow.fs.FileType.Directory
-            assert filesystem.get_file_info(partitioned_txn_file).type == pyarrow.fs.FileType.File
+            assert (
+                filesystem.get_file_info(partitioned_txn_dir).type
+                == pyarrow.fs.FileType.Directory
+            )
+            assert (
+                filesystem.get_file_info(partitioned_txn_file).type
+                == pyarrow.fs.FileType.File
+            )
 
     def test_catalog_initialization_mixed_partitioned_unpartitioned(self):
         """Test catalog initialization with mixed partitioned and unpartitioned transactions."""
@@ -186,8 +222,9 @@ class TestCatalogPropertiesTransactionMigration:
 
             # Create already partitioned success transaction
             part_txn_id = f"{current_time + 1000000}_{uuid.uuid4()}"
-            part_success_dir = Transaction.success_txn_log_dir_path(success_dir, part_txn_id)
-            part_txn_dir = posixpath.join(part_success_dir, part_txn_id)
+            part_txn_dir = Transaction.success_txn_log_dir_path(
+                success_dir, part_txn_id
+            )
             filesystem.create_dir(part_txn_dir, recursive=True)
             part_file = posixpath.join(part_txn_dir, str(current_time + 1500000))
             write_file(part_file, "already partitioned transaction", filesystem)
@@ -199,23 +236,47 @@ class TestCatalogPropertiesTransactionMigration:
 
             # Initialize catalog - should migrate only the unpartitioned transactions
             catalog_properties = CatalogProperties(root=temp_dir)
+            assert catalog_properties.root == temp_dir
 
             # Verify unpartitioned transaction was migrated
-            expected_unpart_dir = Transaction.success_txn_log_dir_path(success_dir, unpart_txn_id)
-            expected_unpart_txn_dir = posixpath.join(expected_unpart_dir, unpart_txn_id)
-            expected_unpart_file = posixpath.join(expected_unpart_txn_dir, str(current_time + 500000))
+            expected_unpart_txn_dir = Transaction.success_txn_log_dir_path(
+                success_dir, unpart_txn_id
+            )
+            expected_unpart_file = posixpath.join(
+                expected_unpart_txn_dir, str(current_time + 500000)
+            )
 
-            assert filesystem.get_file_info(expected_unpart_txn_dir).type == pyarrow.fs.FileType.Directory
-            assert filesystem.get_file_info(expected_unpart_file).type == pyarrow.fs.FileType.File
+            assert (
+                filesystem.get_file_info(expected_unpart_txn_dir).type
+                == pyarrow.fs.FileType.Directory
+            )
+            assert (
+                filesystem.get_file_info(expected_unpart_file).type
+                == pyarrow.fs.FileType.File
+            )
 
             # Verify already partitioned transaction remains untouched
-            assert filesystem.get_file_info(part_txn_dir).type == pyarrow.fs.FileType.Directory
+            assert (
+                filesystem.get_file_info(part_txn_dir).type
+                == pyarrow.fs.FileType.Directory
+            )
             assert filesystem.get_file_info(part_file).type == pyarrow.fs.FileType.File
 
             # Verify failed transaction was migrated
-            expected_failed_path = Transaction.failed_txn_log_path(failed_dir, failed_txn_id)
-            assert filesystem.get_file_info(expected_failed_path).type == pyarrow.fs.FileType.File
+            expected_failed_path = Transaction.failed_txn_log_path(
+                failed_dir, failed_txn_id
+            )
+            assert (
+                filesystem.get_file_info(expected_failed_path).type
+                == pyarrow.fs.FileType.File
+            )
 
             # Verify original unpartitioned files are gone
-            assert filesystem.get_file_info(unpart_txn_dir).type == pyarrow.fs.FileType.NotFound
-            assert filesystem.get_file_info(failed_file_path).type == pyarrow.fs.FileType.NotFound
+            assert (
+                filesystem.get_file_info(unpart_txn_dir).type
+                == pyarrow.fs.FileType.NotFound
+            )
+            assert (
+                filesystem.get_file_info(failed_file_path).type
+                == pyarrow.fs.FileType.NotFound
+            )

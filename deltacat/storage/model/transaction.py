@@ -1717,11 +1717,8 @@ class Transaction(dict):
             raise
         success_log_path = None
         try:
-            # write transaction log
-            success_txn_dir = posixpath.join(success_dir, self.id)
-            fs.create_dir(success_txn_dir, recursive=False)
-
-            success_log_path = posixpath.join(success_txn_dir, str(end_time))
+            # write transaction log to partitioned structure
+            success_log_path = posixpath.join(success_dir, self.id, str(end_time))
             success_log_path = write_file_partitioned(
                 path=success_log_path,
                 data=msgpack.dumps(self.to_serializable(root)),
@@ -1784,22 +1781,34 @@ class Transaction(dict):
             try:
                 fs.delete_file(path)
             except Exception:
+                logger.warning(
+                    f"Failed to delete metafile from failed transaction: {path}"
+                )
                 pass  # best-effort; janitor job will catch leftovers
         for path in self.locator_write_paths:
             try:
                 fs.delete_file(path)
             except Exception:
+                logger.warning(
+                    f"Failed to delete locator from failed transaction: {path}"
+                )
                 pass  # best-effort; janitor job will catch leftovers
 
         # 3. tidy up bookkeeping logs
         try:
             fs.delete_file(running_log_path)
         except Exception:
+            logger.warning(
+                f"Failed to delete running transaction log for failed transaction: {running_log_path}"
+            )
             pass
         if success_log_path:
             try:
                 fs.delete_file(success_log_path)
             except Exception:
+                logger.warning(
+                    f"Failed to delete successful transaction log for invalid transaction: {success_log_path}"
+                )
                 pass
 
     def __enter__(self) -> "Transaction":

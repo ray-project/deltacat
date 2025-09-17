@@ -63,7 +63,7 @@ dc.write(data, "users")
 daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
-# Append more data and add a new column.
+# Insert more data and add a new column.
 # Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
@@ -80,7 +80,7 @@ daft_df.select("name", "age", "city").show()
 ```
 
 ### Core Concepts
-DeltaCAT can do much more than just append data to tables and read it back again. Expand the sections below to see examples of other core DeltaCAT concepts and APIs.
+DeltaCAT can do much more than just add data to tables and read it back again. Expand the sections below to see examples of other core DeltaCAT concepts and APIs.
 
 <details>
 
@@ -128,7 +128,7 @@ data = pd.DataFrame({
     "age": [2, 12, 4],
     "city": ["Hollywood", "Gloucester", "San Francisco"]
 })
-dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+dc.write(data, "users", mode=dc.TableWriteMode.ADD)
 
 # Read the full table back into a Daft DataFrame.
 daft_df = dc.read("users")
@@ -172,7 +172,7 @@ dc.write(data, "users", mode=dc.TableWriteMode.CREATE)
 daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
-# Explicitly append more data and add a new column.
+# Explicitly insert more data and add a new column.
 # Compaction and schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
@@ -180,7 +180,7 @@ data = pd.DataFrame({
     "age": [2, 12, 4],
     "city": ["Hollywood", "Gloucester", "San Francisco"]
 })
-dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+dc.write(data, "users", mode=dc.TableWriteMode.ADD)
 
 # Read the full table back into a Daft DataFrame.
 daft_df = dc.read("users")

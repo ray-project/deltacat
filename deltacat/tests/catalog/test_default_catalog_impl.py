@@ -2217,15 +2217,16 @@ class TestCopyOnWrite:
                 catalog=self.catalog_name,
             )
 
-            # If this is not the final write (which triggers compaction), collect stream positions
-            if i < 2:  # Only collect for first 2 writes before compaction
+            # If this is the 2nd write (before compaction), collect stream positions
+            if i == 1:
                 objects = dc.list(table_url, recursive=True)
                 from deltacat.storage import Metafile, Delta
 
-                deltas = [obj for obj in objects if Metafile.get_class(obj) == Delta]
-                if deltas:
-                    latest_delta = max(deltas, key=lambda d: d.stream_position)
-                    stream_positions.append(latest_delta.stream_position)
+                stream_positions = [
+                    obj.stream_position
+                    for obj in objects
+                    if Metafile.get_class(obj) == Delta
+                ]
 
         # Verify that stream positions are random (large numbers, not sequential)
         assert (

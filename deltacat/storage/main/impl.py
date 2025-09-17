@@ -1,7 +1,6 @@
 import logging
 import uuid
 import posixpath
-import secrets
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
@@ -9,6 +8,7 @@ from deltacat.catalog.model.properties import get_catalog_properties
 from deltacat.constants import (
     DEFAULT_TABLE_VERSION,
     DATA_FILE_DIR_NAME,
+    UNSIGNED_INT32_MAX_VALUE,
 )
 from deltacat.exceptions import (
     TableNotFoundError,
@@ -2724,20 +2724,11 @@ def commit_delta(
         new_parent_partition: Partition = Metafile.update_for(parent_partition)
         new_parent_partition.stream_position = delta.locator.stream_position
     else:
-        # this is an unordered delta - generate a unique 64-bit stream position
-        # Combine high-resolution timestamp with random bits to guarantee uniqueness
-        import time
-
-        # Get high-resolution timestamp in nanoseconds (since epoch)
-        timestamp_ns = time.time_ns()
-
-        # Use lower 40 bits of timestamp + 24 random bits for uniqueness
-        # This gives us ~1100 years of timestamp range + 16M random values per nanosecond
-        timestamp_part = timestamp_ns & 0xFFFFFFFFFF  # 40 bits of timestamp
-        random_part = secrets.randbits(24)  # 24 bits of randomness
-
-        # Combine: [40-bit timestamp][24-bit random] = 64-bit unique stream position
-        delta.locator.stream_position = (timestamp_part << 24) | random_part
+        # this is an unordered delta - use a positive signed 64-bit UUID-based stream position
+        delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
+        # reserve stream positions <= UINT32_MAX for ordered deltas
+        while delta.locator.stream_position <= UNSIGNED_INT32_MAX_VALUE:
+            delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
 
     # Add operations to the transaction
     # the 1st operation creates the delta

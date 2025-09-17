@@ -120,36 +120,6 @@ def initialize(
         return CatalogProperties(*args, **kwargs)
 
 
-# table functions
-def _validate_write_mode_and_table_existence(
-    table: str,
-    namespace: str,
-    mode: TableWriteMode,
-    **kwargs,
-) -> bool:
-    """Validate write mode against table existence and return whether table exists."""
-    table_exists_flag = table_exists(
-        table,
-        namespace=namespace,
-        **kwargs,
-    )
-    logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
-
-    if mode == TableWriteMode.CREATE and table_exists_flag:
-        raise ValueError(
-            f"Table {namespace}.{table} already exists and mode is CREATE."
-        )
-    elif (
-        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
-        and not table_exists_flag
-    ):
-        raise TableNotFoundError(
-            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}. Use CREATE or AUTO mode to create a new table."
-        )
-
-    return table_exists_flag
-
-
 def _get_table_and_validate_write_mode(
     table: str,
     namespace: str,
@@ -363,6 +333,7 @@ def write_to_table(
             table_version_obj,
             namespace,
             table,
+            table_exists_flag,
             **kwargs,
         )
 
@@ -493,6 +464,7 @@ def _handle_write_mode(
     table_version_obj: TableVersion,
     namespace: str,
     table: str,
+    table_exists_flag: bool,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:  # Using Any for stream type to avoid complex imports
     """Handle different write modes and return appropriate stream and delta type."""
@@ -538,6 +510,7 @@ def _handle_write_mode(
             namespace,
             table,
             table_version_obj,
+            table_exists_flag,
             **kwargs,
         )
 
@@ -645,6 +618,7 @@ def _handle_auto_create_mode(
     namespace: str,
     table: str,
     table_version_obj: TableVersion,
+    table_exists_flag: bool,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle AUTO and CREATE modes by getting existing stream."""
@@ -657,6 +631,9 @@ def _handle_auto_create_mode(
     delta_type = (
         DeltaType.UPSERT
         if table_schema and table_schema.merge_keys
+        # Tables are always created with an ordered APPEND delta, then default to unordered ADD deltas
+        else DeltaType.ADD
+        if table_exists_flag
         else DeltaType.APPEND
     )
     return stream, delta_type

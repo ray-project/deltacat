@@ -75,13 +75,16 @@ Each `ParquetFile` can be materialized by calling `read` on the `ParquetFile` re
 Data from any supported dataset type is written to a table using `dc.write` with one of the following write modes:
 
 **AUTO (default)**
-CREATE the table if it doesn't exist, APPEND to the table if it exists without schema merge keys, and MERGE if the table exists with merge keys.
+CREATE the table if it doesn't exist, ADD to the table if it exists without schema merge keys, and MERGE if the table exists with merge keys.
 
 **CREATE**
 Create the table if it doesn't exist, throw an error if it does.
 
+**ADD**
+Add unordered data to the table if it exists without merge keys, throw an error if it doesn't.
+
 **APPEND**
-Append to the table if it exists without schema merge keys, throw an error otherwise.
+Append ordered data to the table if it exists without merge keys, throw an error if it doesn't.
 
 **REPLACE**
 Replace existing table contents with the data to write.
@@ -91,6 +94,14 @@ Insert or update records matching table merge keys, or throw an error if the tab
 
 **DELETE**
 Delete records matching table merge keys, or throw an error if the table has no merge keys.
+
+## Ordered vs. Unordered Writes
+Note that the only difference between **APPEND** and **ADD** writes is whether the data write order is
+preserved on read. To ensure that the data order is preserved, concurrent **APPEND** writes to the same
+table partition always fail with a concurrent modification exception. On the other hand, concurrent
+**ADD** writes will always succeed unless concurrent writers ALSO trigger concurrent copy-on-write
+table compaction (whose frequency is controlled by the READ_OPTIMIZATION_LEVEL and COMPACTION_TRIGGER
+table properties listed below).
 
 ## Merge Keys
 Table schemas may be defined with one more more merge keys. Merge keys are used to identify records that
