@@ -2760,7 +2760,13 @@ class TestCopyOnWrite:
                         round_results[writer_idx] = "success"
 
                     except Exception as e:
-                        round_exceptions[writer_idx] = e
+                        # Capture full traceback for detailed analysis
+                        import traceback
+                        full_traceback = traceback.format_exc()
+                        round_exceptions[writer_idx] = {
+                            'exception': e,
+                            'traceback': full_traceback
+                        }
                         round_results[writer_idx] = "failed"
 
                 return writer_task
@@ -2877,8 +2883,8 @@ class TestCopyOnWrite:
         # Summary statistics and validation
         total_successful_writes = len(successful_writes)
         total_expected_records = (
-            total_successful_writes * records_per_writer
-        )  # Each write has this many records
+            total_successful_writes * records_per_writer + 1
+        )  # Each write has this many records + 1 setup record
         total_actual_records = get_table_length(final_df)
 
         # With unique IDs per writer, we should have exactly the expected number of records
@@ -2908,6 +2914,605 @@ class TestCopyOnWrite:
         assert (
             conflict_rate < 0.99
         ), f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
+
+    def test_concurrent_write_stress_add_mode(self):
+        """
+        Stress test for concurrent write conflicts using ADD write mode with data integrity validation.
+        This test runs multiple rounds of parallel writes using TableWriteMode.ADD and verifies that
+        successful writes never lose data. Failed writes due to conflicts are acceptable, but
+        successful writes must preserve all their data in the final table state.
+
+        Unlike MERGE mode, ADD mode doesn't require merge keys and simply appends all data.
+        The test verifies that no data is lost, but the order of data is not preserved.
+
+        Note: This test requires fork-based multiprocessing for reliable process isolation.
+        """
+        table_name = "test_concurrent_stress_add"
+        rounds = 10
+        records_per_writer = 3  # Each writer creates this many records
+        round_id_space = (
+            1000000  # ID space allocated per round to prevent cross-round collisions
+        )
+
+        # Calculate maximum writers we can support with current ID generation scheme
+        max_writers_per_round = round_id_space // (records_per_writer * 10)
+
+        concurrent_writers = min(
+            multiprocessing.cpu_count() - 1,  # reserve 1 CPU for system processes
+            max_writers_per_round,
+        )
+
+        # Create table WITHOUT merge keys for ADD mode
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64())),  # No merge key needed for ADD
+                Field.of(pa.field("round_num", pa.int32())),
+                Field.of(pa.field("writer_id", pa.string())),
+                Field.of(pa.field("data", pa.string())),
+            ]
+        )
+
+        # Aggressive compaction to stress the conflict detection system
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1,
+        }
+
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=DEFAULT_CONTENT_TYPES,
+            table_properties=table_properties,
+            catalog=self.catalog_name,
+        )
+
+        # Track successful writes across all rounds
+        successful_writes = []
+
+        for round_num in range(rounds):
+            # Per-round tracking with clean isolation
+            round_results = {}
+            round_exceptions = {}
+
+            def create_writer_task(round_num, writer_idx):
+                def writer_task():
+                    try:
+                        current_thread = threading.current_thread()
+                        current_thread.name = (
+                            f"round_{round_num}_writer_{writer_idx}_thread"
+                        )
+
+                        # Generate unique IDs with sufficient space to prevent collisions
+                        # Each writer gets (records_per_writer * 10) ID space for safety
+                        writer_id_space = records_per_writer * 10
+                        base_id = (
+                            round_num * round_id_space + writer_idx * writer_id_space
+                        )
+                        writer_data = pd.DataFrame(
+                            {
+                                "id": [base_id + i for i in range(records_per_writer)],
+                                "round_num": [round_num] * records_per_writer,
+                                "writer_id": [
+                                    f"round_{round_num:02d}_writer_{writer_idx:02d}"
+                                ]
+                                * records_per_writer,
+                                "data": [
+                                    f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
+                                    for i in range(records_per_writer)
+                                ],
+                            }
+                        )
+
+                        dc.write_to_table(
+                            data=writer_data,
+                            table=table_name,
+                            namespace=self.test_namespace,
+                            mode=TableWriteMode.ADD,  # Use ADD mode instead of MERGE
+                            content_type=ContentType.PARQUET,
+                            catalog=self.catalog_name,
+                        )
+                        round_results[writer_idx] = "success"
+
+                    except Exception as e:
+                        # Capture full traceback for detailed analysis
+                        import traceback
+                        full_traceback = traceback.format_exc()
+                        round_exceptions[writer_idx] = {
+                            'exception': e,
+                            'traceback': full_traceback
+                        }
+                        round_results[writer_idx] = "failed"
+
+                return writer_task
+
+            # Create and start all writers for this round
+            threads = []
+            for writer_idx in range(concurrent_writers):
+                task = create_writer_task(round_num, writer_idx)
+                thread = threading.Thread(
+                    target=task, name=f"round_{round_num}_writer_{writer_idx}_thread"
+                )
+                threads.append(thread)
+
+            # Start all threads simultaneously
+            for thread in threads:
+                thread.start()
+
+            # Wait for all threads to complete with reasonable timeout
+            for thread in threads:
+                thread.join(timeout=30)
+
+            # Record successful writes for this round
+            round_successful_count = 0
+            for writer_idx, result in round_results.items():
+                if result == "success":
+                    round_successful_count += 1
+                    # Recreate the data that this successful writer wrote
+                    writer_id_space = records_per_writer * 10
+                    base_id = round_num * round_id_space + writer_idx * writer_id_space
+                    writer_data = pd.DataFrame(
+                        {
+                            "id": [base_id + i for i in range(records_per_writer)],
+                            "round_num": [round_num] * records_per_writer,
+                            "writer_id": [
+                                f"round_{round_num:02d}_writer_{writer_idx:02d}"
+                            ]
+                            * records_per_writer,
+                            "data": [
+                                f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
+                                for i in range(records_per_writer)
+                            ],
+                        }
+                    )
+                    successful_writes.append((round_num, writer_idx, writer_data))
+
+            # Verify at least one write succeeded in this round
+            assert (
+                round_successful_count > 0
+            ), f"No writers succeeded in round {round_num}"
+
+        # Read final table state
+        final_result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        final_df = final_result.collect().to_pandas()
+
+        # Create a set of all records that should be present (ALL successful writes)
+        # In ADD mode, ALL successful writes should be preserved
+        expected_records = set()
+        for round_num, writer_idx, expected_data in successful_writes:
+            for _, expected_row in expected_data.iterrows():
+                record_tuple = (
+                    int(expected_row["id"]),
+                    int(expected_row["round_num"]),
+                    expected_row["writer_id"],
+                    expected_row["data"],
+                )
+                expected_records.add(record_tuple)
+
+        # Create a set of actual records from the final table
+        actual_records = set()
+        for _, row in final_df.iterrows():
+            record_tuple = (
+                int(row["id"]),
+                int(row["round_num"]),
+                row["writer_id"],
+                row["data"],
+            )
+            actual_records.add(record_tuple)
+
+        # Validate data integrity: ALL successful writes' data must be present
+        missing_records = expected_records - actual_records
+        phantom_records = actual_records - expected_records
+
+        # Assert data integrity - in ADD mode, no data should be lost
+        assert (
+            len(missing_records) == 0
+        ), f"Missing records from successful writes: {list(missing_records)[:5]}..."
+
+        # In ADD mode, we shouldn't have phantom records if IDs are unique
+        assert (
+            len(phantom_records) == 0
+        ), f"Phantom records not from successful writes: {list(phantom_records)[:5]}..."
+
+        # Verify total record count matches expected
+        total_successful_writes = len(successful_writes)
+        total_expected_records = (
+            total_successful_writes * records_per_writer + 1
+        )  # Each write has this many records + 1 setup record
+        total_actual_records = get_table_length(final_df)
+
+        # With unique IDs per writer, we should have exactly the expected number of records
+        assert (
+            total_actual_records == total_expected_records
+        ), f"Expected {total_expected_records} records, got {total_actual_records}"
+        assert total_actual_records > 0, "No records found in final table"
+
+        # Verify we had some conflicts across all rounds (not every writer succeeded)
+        total_possible_writes = rounds * concurrent_writers
+        conflict_rate = (
+            total_possible_writes - total_successful_writes
+        ) / total_possible_writes
+
+        # Print conflict statistics for analysis
+        print(f"\n=== ADD MODE CONFLICT STATISTICS ===")
+        print(f"Concurrent writers: {concurrent_writers}")
+        print(f"Total rounds: {rounds}")
+        print(f"Total possible writes: {total_possible_writes}")
+        print(f"Total successful writes: {total_successful_writes}")
+        print(f"Conflict rate: {conflict_rate:.1%}")
+
+        # More lenient conflict rate validation - adjust based on observed behavior
+        assert (
+            conflict_rate > 0.01
+        ), f"Too few conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
+        assert (
+            conflict_rate < 0.99
+        ), f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
+
+    @pytest.mark.parametrize(
+        "compaction_frequency",
+        [
+            "every_write",      # Compaction after every write (100% frequency)
+            "half_writes",      # Compaction after 50% of total writes
+            "never_compact",    # Compaction after 100% of total writes (effectively never during test)
+        ],
+        ids=["every_write", "half_writes", "never_compact"],
+    )
+    def test_concurrent_write_stress_add_mode_parametrized(self, compaction_frequency):
+        """
+        Parametrized stress test for concurrent write conflicts using ADD write mode.
+        Tests different compaction frequencies dynamically calculated based on CPU count
+        and total expected writes to demonstrate the relationship between compaction
+        frequency and conflict rates.
+
+        Parameters:
+        - "every_write": Triggers compaction after every write (100% frequency, high conflicts)
+        - "half_writes": Triggers compaction after 50% of total writes (medium conflicts)
+        - "never_compact": Compaction trigger > total writes (0% frequency, low conflicts)
+
+        Compaction triggers are dynamically calculated based on:
+        total_writes = concurrent_writers * rounds * records_per_writer
+        Where concurrent_writers is based on CPU count.
+        """
+        rounds = 10
+        records_per_writer = 3  # Each writer creates this many records
+        round_id_space = (
+            1000000  # ID space allocated per round to prevent cross-round collisions
+        )
+
+        # Calculate maximum writers we can support with current ID generation scheme
+        max_writers_per_round = round_id_space // (records_per_writer * 10)
+
+        concurrent_writers = min(
+            multiprocessing.cpu_count() - 1,  # reserve 1 CPU for system processes
+            max_writers_per_round,
+        )
+
+        # Calculate total expected writes
+        total_writes = concurrent_writers * rounds * records_per_writer
+
+        # Calculate dynamic compaction trigger based on frequency parameter
+        if compaction_frequency == "every_write":
+            # Trigger compaction after every write (maximum conflicts)
+            compaction_trigger = 1
+        elif compaction_frequency == "half_writes":
+            # Trigger compaction after 50% of total writes
+            compaction_trigger = max(1, total_writes // 2)
+        else:  # "never_compact"
+            # Set trigger higher than total writes (no compaction during test)
+            compaction_trigger = total_writes + 1
+
+        table_name = f"test_concurrent_stress_add_param_{compaction_frequency}"
+
+        # Create table WITHOUT merge keys for ADD mode
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64())),  # No merge key needed for ADD
+                Field.of(pa.field("round_num", pa.int32())),
+                Field.of(pa.field("writer_id", pa.string())),
+                Field.of(pa.field("data", pa.string())),
+            ]
+        )
+
+        # Configure compaction based on calculated trigger
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: compaction_trigger,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: compaction_trigger,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: compaction_trigger,
+        }
+
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=DEFAULT_CONTENT_TYPES,
+            table_properties=table_properties,
+            catalog=self.catalog_name,
+        )
+
+        # Pre-create a stream and partition so all writers append deltas to the same existing partition
+        # This should eliminate metadata-level conflicts that occur when each writer creates new partitions
+        print(f"\nPre-creating stream and partition for {table_name} to eliminate metadata conflicts...")
+
+        # Write a minimal initial record to establish the stream and partition structure
+        initial_data = pd.DataFrame({
+            "id": [0],  # Use ID 0 as the initial placeholder record
+            "round_num": [-1],  # Use -1 to distinguish from test rounds
+            "writer_id": ["initial_setup"],
+            "data": ["setup_record"],
+        })
+
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+        print(f"Initial stream and partition created for {table_name}")
+
+        # Track successful writes across all rounds
+        successful_writes = []
+
+        for round_num in range(rounds):
+            # Per-round tracking with clean isolation
+            round_results = {}
+            round_exceptions = {}
+
+            def create_writer_task(round_num, writer_idx):
+                def writer_task():
+                    try:
+                        current_thread = threading.current_thread()
+                        current_thread.name = (
+                            f"round_{round_num}_writer_{writer_idx}_thread"
+                        )
+
+                        # Generate unique IDs with sufficient space to prevent collisions
+                        # Each writer gets (records_per_writer * 10) ID space for safety
+                        writer_id_space = records_per_writer * 10
+                        base_id = (
+                            round_num * round_id_space + writer_idx * writer_id_space
+                        )
+                        writer_data = pd.DataFrame(
+                            {
+                                "id": [base_id + i for i in range(records_per_writer)],
+                                "round_num": [round_num] * records_per_writer,
+                                "writer_id": [
+                                    f"round_{round_num:02d}_writer_{writer_idx:02d}"
+                                ]
+                                * records_per_writer,
+                                "data": [
+                                    f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
+                                    for i in range(records_per_writer)
+                                ],
+                            }
+                        )
+
+                        dc.write_to_table(
+                            data=writer_data,
+                            table=table_name,
+                            namespace=self.test_namespace,
+                            mode=TableWriteMode.ADD,  # Use ADD mode instead of MERGE
+                            content_type=ContentType.PARQUET,
+                            catalog=self.catalog_name,
+                        )
+                        round_results[writer_idx] = "success"
+
+                    except Exception as e:
+                        # Capture full traceback for detailed analysis
+                        import traceback
+                        full_traceback = traceback.format_exc()
+                        round_exceptions[writer_idx] = {
+                            'exception': e,
+                            'traceback': full_traceback
+                        }
+                        round_results[writer_idx] = "failed"
+
+                return writer_task
+
+            # Create and start all writers for this round
+            threads = []
+            for writer_idx in range(concurrent_writers):
+                task = create_writer_task(round_num, writer_idx)
+                thread = threading.Thread(
+                    target=task, name=f"round_{round_num}_writer_{writer_idx}_thread"
+                )
+                threads.append(thread)
+
+            # Start all threads simultaneously
+            for thread in threads:
+                thread.start()
+
+            # Wait for all threads to complete with reasonable timeout
+            for thread in threads:
+                thread.join(timeout=30)
+
+            # Record successful writes for this round
+            round_successful_count = 0
+            for writer_idx, result in round_results.items():
+                if result == "success":
+                    round_successful_count += 1
+                    # Recreate the data that this successful writer wrote
+                    writer_id_space = records_per_writer * 10
+                    base_id = round_num * round_id_space + writer_idx * writer_id_space
+                    writer_data = pd.DataFrame(
+                        {
+                            "id": [base_id + i for i in range(records_per_writer)],
+                            "round_num": [round_num] * records_per_writer,
+                            "writer_id": [
+                                f"round_{round_num:02d}_writer_{writer_idx:02d}"
+                            ]
+                            * records_per_writer,
+                            "data": [
+                                f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
+                                for i in range(records_per_writer)
+                            ],
+                        }
+                    )
+                    successful_writes.append((round_num, writer_idx, writer_data))
+
+            # Log exceptions for failed writers in this round
+            failed_count = len(round_exceptions)
+            if failed_count > 0:
+                print(f"\nRound {round_num}: {failed_count} failures, {round_successful_count} successes")
+                for writer_idx, exception_data in round_exceptions.items():
+                    if isinstance(exception_data, dict):
+                        exception = exception_data['exception']
+                        full_traceback = exception_data['traceback']
+                        exception_type = type(exception).__name__
+                        exception_message = str(exception)
+                        print(f"  Writer {writer_idx}: {exception_type}: {exception_message}")
+                        print(f"  Full Traceback:\n{full_traceback}")
+                    else:
+                        # Handle old format for backward compatibility
+                        exception = exception_data
+                        exception_type = type(exception).__name__
+                        exception_message = str(exception)
+                        print(f"  Writer {writer_idx}: {exception_type}: {exception_message}")
+
+                        # Also collect the traceback to understand where it's thrown from
+                        import traceback
+                        tb_lines = traceback.format_exception(type(exception), exception, exception.__traceback__)
+                        print(f"  Traceback: {''.join(tb_lines[-3:])}")  # Show last 3 lines of traceback
+
+            # Verify at least one write succeeded in this round
+            assert (
+                round_successful_count > 0
+            ), f"No writers succeeded in round {round_num}"
+
+        # Read final table state
+        final_result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        final_df = final_result.collect().to_pandas()
+
+        # Create a set of all records that should be present (ALL successful writes)
+        # In ADD mode, ALL successful writes should be preserved
+        expected_records = set()
+        for round_num, writer_idx, expected_data in successful_writes:
+            for _, expected_row in expected_data.iterrows():
+                record_tuple = (
+                    int(expected_row["id"]),
+                    int(expected_row["round_num"]),
+                    expected_row["writer_id"],
+                    expected_row["data"],
+                )
+                expected_records.add(record_tuple)
+
+        # Create a set of actual records from the final table
+        actual_records = set()
+        for _, row in final_df.iterrows():
+            record_tuple = (
+                int(row["id"]),
+                int(row["round_num"]),
+                row["writer_id"],
+                row["data"],
+            )
+            actual_records.add(record_tuple)
+
+        # Add the initial setup record to expected records for validation
+        setup_record = (0, -1, "initial_setup", "setup_record")
+        expected_records.add(setup_record)
+        # Validate data integrity: ALL successful writes' data must be present
+        missing_records = expected_records - actual_records
+        phantom_records = actual_records - expected_records
+
+        # Assert data integrity - in ADD mode, no data should be lost
+        assert (
+            len(missing_records) == 0
+        ), f"Missing records from successful writes: {list(missing_records)[:5]}..."
+
+        # In ADD mode, we shouldn't have phantom records if IDs are unique
+        assert (
+            len(phantom_records) == 0
+        ), f"Phantom records not from successful writes: {list(phantom_records)[:5]}..."
+
+        # Verify total record count matches expected
+        total_successful_writes = len(successful_writes)
+        total_expected_records = (
+            total_successful_writes * records_per_writer + 1
+        )  # Each write has this many records + 1 setup record
+        total_actual_records = get_table_length(final_df)
+
+        # With unique IDs per writer, we should have exactly the expected number of records
+        assert (
+            total_actual_records == total_expected_records
+        ), f"Expected {total_expected_records} records, got {total_actual_records}"
+        assert total_actual_records > 0, "No records found in final table"
+
+        # Verify we had some conflicts across all rounds (not every writer succeeded)
+        total_possible_writes = rounds * concurrent_writers
+        conflict_rate = (
+            total_possible_writes - total_successful_writes
+        ) / total_possible_writes
+
+        # Print conflict statistics for analysis
+        print(f"\n=== ADD MODE PARAMETRIZED CONFLICT STATISTICS ===")
+        print(f"Compaction frequency: {compaction_frequency}")
+        print(f"Compaction trigger: {compaction_trigger} (total writes: {total_writes})")
+        print(f"Concurrent writers: {concurrent_writers}")
+        print(f"Total rounds: {rounds}")
+        print(f"Total possible writes: {total_possible_writes}")
+        print(f"Total successful writes: {total_successful_writes}")
+        print(f"Conflict rate: {conflict_rate:.1%}")
+
+        # Different conflict rate expectations based on compaction frequency
+        if compaction_frequency == "every_write":
+            # Compaction after every write: expect higher conflict rate
+            assert (
+                conflict_rate > 0.01
+            ), f"Too few conflicts ({conflict_rate:.1%}) with every_write compaction"
+            assert (
+                conflict_rate < 0.99
+            ), f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
+            print(f"Every-write compaction: {conflict_rate:.1%} conflict rate as expected")
+        elif compaction_frequency == "half_writes":
+            # Compaction after 50% of writes: expect medium conflict rate
+            # Note: Even with reduced compaction, we may still see conflicts due to:
+            # 1. Multiple writers hitting the compaction trigger simultaneously
+            # 2. Other transaction-level conflicts beyond compaction
+            # 3. The fact that we're still doing many concurrent writes
+            assert (
+                conflict_rate < 0.95
+            ), f"Too many conflicts ({conflict_rate:.1%}) - expected some improvement with half_writes compaction"
+            # We should expect at least some successful writes
+            assert (
+                total_successful_writes > 0
+            ), "Expected at least some successful writes with half_writes compaction"
+            print(f"Half-writes compaction (trigger={compaction_trigger}): {conflict_rate:.1%} conflict rate")
+        else:  # "never_compact"
+            # No compaction during test: expect significant improvement
+            # Note: Even without compaction, we may still see conflicts due to:
+            # 1. Transaction-level conflicts (concurrent access to same metadata files)
+            # 2. Table version updates and other metadata operations
+            # 3. File system-level conflicts beyond compaction
+            # The key is that we should see substantial improvement compared to frequent compaction
+            assert (
+                conflict_rate < 0.75
+            ), f"Too many conflicts ({conflict_rate:.1%}) with never_compact - expected significant improvement"
+            # Verify that we achieved better success rate than compacting scenarios
+            assert (
+                total_successful_writes >= total_possible_writes * 0.4
+            ), f"Expected at least 40% successful writes with never_compact, got {total_successful_writes}/{total_possible_writes} ({total_successful_writes/total_possible_writes:.1%})"
+            # Print additional context about the improvement
+            print(
+                f"Never-compact (trigger={compaction_trigger}): {conflict_rate:.1%} conflict rate - significant improvement over frequent compaction"
+            )
+            print(
+                f"Success rate: {total_successful_writes/total_possible_writes:.1%} vs expected lower rates with compaction"
+            )
 
     def test_replace_mode_with_duplicates_existing_table(self):
         """

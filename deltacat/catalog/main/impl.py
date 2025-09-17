@@ -705,7 +705,7 @@ def _handle_partition_creation(
 
         return partition, commit_staged_partition
     else:
-        # APPEND mode on existing table: Get existing partition
+        # APPEND/ADD mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
             stream_locator=stream.locator,
             partition_values=None,

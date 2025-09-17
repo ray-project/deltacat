@@ -86,7 +86,7 @@ DeltaCAT can do much more than just add data to tables and read it back again. E
 
 <summary><span style="font-size: 1.25em; font-weight: bold;">Idempotent Writes</span></summary>
 
-If you run the quick start example repeatedly from the same working directory, you'll notice that the table it writes to just keeps growing larger. This is because DeltaCAT always **appends** table data by default. One way to prevent this perpetual table growth and make the example idempotent is to use the **REPLACE** write mode if the table already exists:
+If you run the quick start example repeatedly from the same working directory, you'll notice that the table it writes to just keeps growing larger. This is because DeltaCAT always **adds** table data by default. One way to prevent this perpetual table growth and make the example idempotent is to use the **REPLACE** write mode if the table already exists:
 
 ```python
 import deltacat as dc
@@ -120,7 +120,7 @@ dc.write(data, "users", mode=write_mode)
 daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
-# Explicitly append more data and add a new column.
+# Explicitly add more data and add a new column.
 # Compaction and schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
