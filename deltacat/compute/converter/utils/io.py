@@ -20,7 +20,7 @@ from deltacat.types.tables import (
     write_sliced_table as types_write_sliced_table,
 )
 from deltacat.storage import LocalTable, DistributedDataset
-from deltacat.utils.filesystem import append_protocol_prefix
+from deltacat.utils.filesystem import append_protocol_prefix_by_type, FilesystemType
 from typing import Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -204,7 +204,10 @@ def write_sliced_table(
             # Result is manifest entries, extract URIs
             paths = [entry.uri for entry in result]
 
-        paths = [append_protocol_prefix(path, filesystem) for path in paths]
+        filesystem_type = FilesystemType.from_filesystem(filesystem)
+        paths = [
+            append_protocol_prefix_by_type(path, filesystem_type) for path in paths
+        ]
 
         return paths
     else:

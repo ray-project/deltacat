@@ -1091,28 +1091,21 @@ def write_sliced_table(
     or file paths depending on skip_manifest_write parameter.
 
     Args:
-        skip_manifest_write: If True, calls table_writer_fn directly and returns file paths as strings.
-                           If False (default), creates manifest entries and returns ManifestEntryList.
-    """
-
-    # Determine if we should write the whole table or slice it
-    should_write_whole_table = max_records_per_entry is None or not get_table_length(
-        table
-    )
-
-    Args:
         table: The local table or distributed dataset to write
         base_path: The base path to write the table to
         filesystem: The filesystem to write the table to
+        max_records_per_entry: Maximum records per file (None = write whole table)
         table_writer_fn: The function to write the table to
         table_slicer_fn: The function to slice the table into multiple files
         table_writer_kwargs: Additional arguments to pass to the table writer
         content_type: The content type to write the table to
         entry_params: Manifest entry parameters
         entry_type: The manifest entry types to write
+        skip_manifest_write: If True, calls table_writer_fn directly and returns file paths as strings.
+                           If False (default), creates manifest entries and returns ManifestEntryList.
 
     Returns:
-        Manifest entries describing the uploaded files
+        Manifest entries describing the uploaded files or list of file paths
     """
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
@@ -1121,122 +1114,50 @@ def write_sliced_table(
         retry=retry_if_exception_type(RetryableError),
     )
 
+    # Determine if we should write the whole table or slice it
+    should_write_whole_table = max_records_per_entry is None or not get_table_length(
+        table
+    )
+
     if should_write_whole_table:
         # Write the whole table to a single file
-        if skip_manifest_write:
-            return retrying(
-                _write_table_direct,
-                table,
-                f"{base_path}",
-                filesystem,
-                table_writer_fn,
-                table_writer_kwargs,
-                content_type,
-            )
-        else:
-            manifest_entries = retrying(
+        return retrying(
+            write_table,
+            table,
+            f"{base_path}",
+            filesystem,
+            table_writer_fn,
+            table_writer_kwargs,
+            content_type,
+            entry_params,
+            entry_type,
+            skip_manifest_write,
+        )
+    else:
+        # Iteratively write table slices
+        results = ManifestEntryList() if not skip_manifest_write else []
+        table_slices = table_slicer_fn(table, max_records_per_entry)
+
+        for table_slice in table_slices:
+            slice_result = retrying(
                 write_table,
-                table,
-                f"{base_path}",  # cast any non-string arg to string
+                table_slice,
+                f"{base_path}",
                 filesystem,
                 table_writer_fn,
                 table_writer_kwargs,
                 content_type,
                 entry_params,
                 entry_type,
+                skip_manifest_write,
             )
-            return manifest_entries
-    else:
-        # Iteratively write table slices
-        if skip_manifest_write:
-            # Direct write mode - iteratively write table slices
-            file_paths = []
-            table_slices = table_slicer_fn(table, max_records_per_entry)
-            for table_slice in table_slices:
-                slice_paths = retrying(
-                    _write_table_direct,
-                    table_slice,
-                    f"{base_path}",
-                    filesystem,
-                    table_writer_fn,
-                    table_writer_kwargs,
-                    content_type,
-                )
-                file_paths.extend(slice_paths)
-            return file_paths
-        else:
-            # Manifest entry mode - iteratively write table slices
-            manifest_entries = ManifestEntryList()
-            table_slices = table_slicer_fn(table, max_records_per_entry)
-            for table_slice in table_slices:
-                slice_entries = retrying(
-                    write_table,
-                    table_slice,
-                    f"{base_path}",  # cast any non-string arg to string
-                    filesystem,
-                    table_writer_fn,
-                    table_writer_kwargs,
-                    content_type,
-                    entry_params,
-                    entry_type,
-                )
-                manifest_entries.extend(slice_entries)
-            return manifest_entries
 
+            if skip_manifest_write:
+                results.extend(slice_result)  # slice_result is List[str]
+            else:
+                results.extend(slice_result)  # slice_result is ManifestEntryList
 
-def _write_table_direct(
-    table: Union[LocalTable, DistributedDataset],
-    base_path: str,
-    filesystem: Optional[pa.fs.FileSystem],
-    table_writer_fn: Callable,
-    table_writer_kwargs: Optional[Dict[str, Any]],
-    content_type: ContentType = ContentType.PARQUET,
-) -> List[str]:
-    """
-    Writes the given table directly using table_writer_fn and returns file paths as strings.
-    This is used when skip_manifest_write=True to bypass manifest entry creation.
-    """
-    if table_writer_kwargs is None:
-        table_writer_kwargs = {}
-
-    wrapped_obj = (
-        CapturedBlockWritePathsActor.remote()
-        if isinstance(table, RayDataset)
-        else CapturedBlockWritePathsBase()
-    )
-    capture_object = CapturedBlockWritePaths(wrapped_obj)
-    block_write_path_provider = UuidBlockWritePathProvider(
-        capture_object,
-        base_path=base_path,
-    )
-
-    # Call table_writer_fn directly
-    table_writer_fn(
-        table,
-        base_path,
-        filesystem,
-        block_write_path_provider,
-        content_type.value,
-        **table_writer_kwargs,
-    )
-
-    # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
-    del block_write_path_provider
-    write_paths = capture_object.write_paths()
-
-    # Determine filesystem type and append protocol prefixes
-    if filesystem is not None:
-        filesystem_type = FilesystemType.from_filesystem(filesystem)
-        return [
-            append_protocol_prefix_by_type(path, filesystem_type)
-            for path in write_paths
-        ]
-    else:
-        # If no filesystem provided, assume S3 (common case)
-        return [
-            append_protocol_prefix_by_type(path, FilesystemType.S3)
-            for path in write_paths
-        ]
+        return results
 
 
 def write_table(
@@ -1248,10 +1169,11 @@ def write_table(
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
-) -> ManifestEntryList:
+    skip_manifest_write: bool = False,
+) -> Union[ManifestEntryList, List[str]]:
     """
-    Writes the given table to 1 or more files and return
-    manifest entries describing the uploaded files.
+    Writes the given table to 1 or more files and return either manifest entries
+    or file paths depending on skip_manifest_write parameter.
 
     Args:
         table: The local table or distributed dataset to write
@@ -1262,16 +1184,18 @@ def write_table(
         content_type: The content type to write the table to
         entry_params: Manifest entry parameters
         entry_type: The manifest entry types to write
+        skip_manifest_write: If True, returns file paths as strings.
+                           If False (default), creates manifest entries and returns ManifestEntryList.
 
     Returns:
-        Manifest entries describing the uploaded files
+        Manifest entries describing the uploaded files or list of file paths
     """
     if table_writer_kwargs is None:
         table_writer_kwargs = {}
 
     # Determine content_encoding before writing files so we can include it in filenames
     content_encoding = None
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES and not skip_manifest_write:
         # TODO(pdames): Support other user-specified encodings at write time.
         content_encoding = ContentEncoding.GZIP
 
@@ -1281,16 +1205,26 @@ def write_table(
         else CapturedBlockWritePathsBase()
     )
     capture_object = CapturedBlockWritePaths(wrapped_obj)
-    block_write_path_provider = UuidBlockWritePathProvider(
-        capture_object,
-        base_path=base_path,
-        content_type=content_type,
-        content_encoding=content_encoding,
-    )
+
+    # Create block write path provider with appropriate parameters
+    if skip_manifest_write:
+        block_write_path_provider = UuidBlockWritePathProvider(
+            capture_object,
+            base_path=base_path,
+        )
+    else:
+        block_write_path_provider = UuidBlockWritePathProvider(
+            capture_object,
+            base_path=base_path,
+            content_type=content_type,
+            content_encoding=content_encoding,
+        )
+
     # Extract schema, schema_id, and sort_scheme_id from table_writer_kwargs
     schema = table_writer_kwargs.pop("schema", None)
     schema_id = table_writer_kwargs.pop("schema_id", None)
     sort_scheme_id = table_writer_kwargs.pop("sort_scheme_id", None)
+
     table_writer_fn(
         table,
         base_path,
@@ -1300,10 +1234,21 @@ def write_table(
         schema=schema,
         **table_writer_kwargs,
     )
+
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
     blocks = capture_object.blocks()
     write_paths = capture_object.write_paths()
+
+    # If skip_manifest_write is True, return file paths with protocol prefixes
+    if skip_manifest_write:
+        filesystem_type = FilesystemType.from_filesystem(filesystem)
+        return [
+            append_protocol_prefix_by_type(path, filesystem_type)
+            for path in write_paths
+        ]
+
+    # Create manifest entries
     metadata = get_block_metadata_list(table, write_paths, blocks)
     manifest_entries = ManifestEntryList()
     for block_idx, path in enumerate(write_paths):

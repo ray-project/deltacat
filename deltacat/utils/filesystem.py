@@ -450,60 +450,6 @@ def _resolve_custom_scheme(path: str) -> str:
     return path
 
 
-def append_protocol_prefix(path: str, filesystem: FileSystem) -> str:
-    """
-    Appends the appropriate protocol prefix to a path based on the filesystem type.
-
-    Args:
-        path: The file path (can be with or without existing protocol)
-        filesystem: The filesystem to determine the protocol prefix
-
-    Returns:
-        The path with the appropriate protocol prefix
-
-    Examples:
-        >>> append_protocol_prefix("/path/to/file", LocalFileSystem())
-        "file:///path/to/file"
-        >>> append_protocol_prefix("bucket/file", S3FileSystem())
-        "s3://bucket/file"
-        >>> append_protocol_prefix("s3://bucket/file", S3FileSystem())
-        "s3://bucket/file"  # Already has protocol, unchanged
-    """
-    # If path already has a protocol, return as is
-    parsed_uri = urllib.parse.urlparse(path)
-    if parsed_uri.scheme:
-        return path
-
-    # Determine filesystem type and append appropriate prefix
-    filesystem_type = FilesystemType.from_filesystem(filesystem)
-
-    if filesystem_type == FilesystemType.LOCAL:
-        # For local filesystem, use file:// protocol
-        # Handle Windows paths properly
-        if sys.platform == "win32" and _is_local_windows_path(path):
-            # Convert Windows path to posix format for URI
-            posix_path = pathlib.Path(path).as_posix()
-            return f"file:///{posix_path.lstrip('/')}"
-        else:
-            return f"file://{path}"
-
-    elif filesystem_type == FilesystemType.S3:
-        return f"s3://{path}"
-
-    elif filesystem_type == FilesystemType.GCS:
-        return f"gs://{path}"
-
-    elif filesystem_type == FilesystemType.AZURE:
-        return f"az://{path}"
-
-    elif filesystem_type == FilesystemType.HADOOP:
-        return f"hdfs://{path}"
-
-    else:
-        # For unknown filesystem types, return path as is
-        return path
-
-
 def append_protocol_prefix_by_type(path: str, filesystem_type: FilesystemType) -> str:
     """
     Appends the appropriate protocol prefix to a path based on the filesystem type enum.
