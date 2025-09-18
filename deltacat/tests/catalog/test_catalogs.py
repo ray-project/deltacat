@@ -4,6 +4,7 @@ import shutil
 import uuid
 from unittest import mock
 import os
+import yaml
 
 from deltacat.catalog import (
     CatalogProperties,
@@ -14,7 +15,9 @@ from deltacat.catalog import (
     init_local,
     is_initialized,
     put_catalog,
+    pop_catalog,
 )
+import deltacat.catalog as catalogs
 from deltacat.experimental.catalog.iceberg import impl as IcebergCatalog
 from pyiceberg.catalog import Catalog as PyIcebergCatalog
 
@@ -28,17 +31,13 @@ class MockCatalogImpl:
     @staticmethod
     def initialize(config, *args, **kwargs):
         # Return some state that the catalog would normally maintain
-        return {
-            "initialized": True,
-            "config": config,
-            "args": args,
-            "kwargs": kwargs,
-        }
+        return CatalogProperties(root=kwargs.get("root", "/tmp/test"))
 
 
 @pytest.fixture(scope="function")
 def reset_catalogs():
     clear_catalogs()
+    catalogs.all_catalogs = None  # reset the global actor reference
 
 
 class TestCatalog:
@@ -46,16 +45,15 @@ class TestCatalog:
 
     def test_catalog_constructor(self):
         """Test that the Catalog constructor correctly initializes with the given implementation."""
-        catalog = Catalog(impl=MockCatalogImpl)
+        # Construct a catalog with our MockCatalogImpl
+        catalog = Catalog(impl=MockCatalogImpl, root="/tmp/test")
 
-        assert catalog.impl == MockCatalogImpl
+        # The catalog should store the impl we passed
+        assert catalog.impl is MockCatalogImpl
 
-        # Check that inner state was correctly initialized
-        # This just asserts that kwargs were plumbed through from Catalog constructor
-        assert catalog.inner["initialized"]
-        assert catalog.inner["config"] is None
-        assert catalog.inner["args"] == ()
-        assert catalog.inner["kwargs"] == {}
+        # The inner state should be a CatalogProperties instance
+        assert isinstance(catalog.inner, CatalogProperties)
+        assert catalog.inner.root == "/tmp/test"
 
     def test_iceberg_factory_method(self):
         """Test the iceberg factory method correctly creates an Iceberg catalog."""
@@ -84,13 +82,9 @@ class TestCatalogsIntegration:
     @classmethod
     def setup_class(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        # Other tests are going to have initialized ray catalog. Initialize here to ensure
-        # that when this test class is run individuall it mimicks running with other tests
-        catalog = Catalog(impl=MockCatalogImpl)
-        init(
-            catalog,
-            force=True,
-        )
+        # Initialize a catalog so tests start with Ray running
+        catalog = Catalog(impl=MockCatalogImpl, root=cls.temp_dir)
+        init(catalog, force=True)
 
     @classmethod
     def teardown_class(cls):
@@ -98,123 +92,105 @@ class TestCatalogsIntegration:
             shutil.rmtree(cls.temp_dir)
 
     def test_init_single_catalog(self, reset_catalogs):
-        """Test initializing a single catalog."""
-
-        catalog = Catalog(impl=MockCatalogImpl)
-
-        # Initialize with a single catalog and Ray init args including the namespace
+        catalog = Catalog(impl=MockCatalogImpl, root="/tmp/catalog1")
         init(catalog, force=True)
-
         assert is_initialized()
-
-        # Get the default catalog and check it's the same one we initialized with
-        retrieved_catalog = get_catalog()
-        assert retrieved_catalog.impl == MockCatalogImpl
-        assert retrieved_catalog.inner["initialized"]
+        retrieved = get_catalog()
+        assert isinstance(retrieved.inner, CatalogProperties)
+        assert retrieved.inner.root == "/tmp/catalog1"
 
     def test_init_multiple_catalogs(self, reset_catalogs):
-        """Test initializing multiple catalogs."""
-        # Create catalogs
-        catalog1 = Catalog(impl=MockCatalogImpl, id=1)
-        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
-
-        # Initialize with multiple catalogs and Ray init args including the namespace
-        catalogs_dict = {"catalog1": catalog1, "catalog2": catalog2}
-        init(catalogs_dict, force=True)
-
+        catalog1 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog1")
+        catalog2 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog2")
+        init({"c1": catalog1, "c2": catalog2}, force=True)
         assert is_initialized()
-
-        # Get catalogs by name and check they're the same ones we initialized with
-        retrieved_catalog1 = get_catalog("catalog1")
-        assert retrieved_catalog1.impl == MockCatalogImpl
-        assert retrieved_catalog1.inner["kwargs"]["id"] == 1
-
-        retrieved_catalog2 = get_catalog("catalog2")
-        assert retrieved_catalog2.impl == MockCatalogImpl
-        assert retrieved_catalog2.inner["kwargs"]["id"] == 2
+        r1 = get_catalog("c1")
+        r2 = get_catalog("c2")
+        assert r1.inner.root == "/tmp/catalog1"
+        assert r2.inner.root == "/tmp/catalog2"
 
     def test_init_with_default_catalog_name(self, reset_catalogs):
-        """Test initializing with a specified default catalog name."""
-        # Create catalogs
-        catalog1 = Catalog(impl=MockCatalogImpl, id=1)
-        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
+        catalog1 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog1")
+        catalog2 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog2")
+        init({"c1": catalog1, "c2": catalog2}, default="c2", force=True)
+        default_cat = get_catalog()
+        assert default_cat.inner.root == "/tmp/catalog2"
 
-        # Initialize with multiple catalogs and specify a default
-        catalogs_dict = {"catalog1": catalog1, "catalog2": catalog2}
-        init(
-            catalogs_dict,
-            default="catalog2",
-            force=True,
-        )
+    def test_init_with_config_yaml(self, tmp_path, reset_catalogs):
+        config_data = {
+            "test-catalog": {
+                "root": str(tmp_path),
+                "filesystem": None,
+                "storage": None,
+            }
+        }
+        config_path = tmp_path / "config.yaml"
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config_data, f)
+        init(config_path=str(config_path), force=True)
+        catalog_props = get_catalog()
+        assert isinstance(catalog_props, CatalogProperties)
+        assert catalog_props.root == str(tmp_path)
+        import pyarrow.fs
 
-        # Get the default catalog and check it's catalog2
-        default_catalog = get_catalog()
-        assert default_catalog.impl == MockCatalogImpl
-        assert default_catalog.inner["kwargs"]["id"] == 2
+        assert isinstance(catalog_props.filesystem, pyarrow.fs.FileSystem)
+
+    def test_init_with_catalogs_and_config_path_raises(self, reset_catalogs):
+        cat = Catalog(impl=MockCatalogImpl, root="/tmp/test")
+        with pytest.raises(ValueError):
+            init({"c": cat}, config_path="dummy.yml", force=True)
 
     def test_put_catalog(self, reset_catalogs):
-        """Test adding a catalog after initialization."""
-        # Initialize with a single catalog
-        catalog1 = Catalog(impl=MockCatalogImpl, id=1)
-        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
-        init({"catalog1": catalog1}, force=True)
-
-        # Add a second catalog
-        put_catalog("catalog2", catalog2)
-
-        # Check both catalogs are available
-        retrieved_catalog1 = get_catalog("catalog1")
-        assert retrieved_catalog1.inner["kwargs"]["id"] == 1
-
-        retrieved_catalog2 = get_catalog("catalog2")
-        assert retrieved_catalog2.inner["kwargs"]["id"] == 2
+        c1 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog1")
+        c2 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog2")
+        init({"c1": c1}, force=True)
+        put_catalog("c2", c2)
+        r1 = get_catalog("c1")
+        r2 = get_catalog("c2")
+        assert r1.inner.root == "/tmp/catalog1"
+        assert r2.inner.root == "/tmp/catalog2"
 
     def test_put_catalog_that_already_exists(self, reset_catalogs):
-        catalog = Catalog(impl=MockCatalogImpl, id=1)
-        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
-        put_catalog(
-            "test_catalog",
-            catalog,
-            id=1,
-        )
-
-        # Try to add another catalog with the same name. Should not error
-        put_catalog(
-            "test_catalog",
-            catalog2,
-        )
-
-        retrieved_catalog = get_catalog("test_catalog")
-        assert retrieved_catalog.inner["kwargs"]["id"] == 2
-
-        # If fail_if_exists, put call should fail
+        c1 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog1")
+        c2 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog2")
+        put_catalog("test_catalog", c1)
+        put_catalog("test_catalog", c2)  # overwrite allowed
+        retrieved = get_catalog("test_catalog")
+        assert retrieved.inner.root == "/tmp/catalog2"
         with pytest.raises(ValueError):
-            put_catalog(
-                "test_catalog",
-                catalog,
-                fail_if_exists=True,
-            )
+            put_catalog("test_catalog", c1, fail_if_exists=True)
+
+    def test_put_catalog_persists_merge_to_yaml(self, reset_catalogs, mocker, tmp_path):
+        fake_cat = Catalog(impl=MockCatalogImpl, root="/tmp/fake")
+        cfg_path = tmp_path / "deltacat.yml"
+        mocker.patch("deltacat.constants.DELTACAT_CONFIG_PATH", str(cfg_path))
+        mocker.patch("deltacat.catalog.is_initialized", return_value=True)
+        mocker.patch(
+            "deltacat.catalog.get_catalog", side_effect=ValueError("not found")
+        )
+        dump_mock = mocker.patch(
+            "deltacat.catalog.model.catalog._dump_catalogs_to_yaml"
+        )
+        catalogs.all_catalogs = mocker.MagicMock()
+        put_catalog("foo", fake_cat)
+        dump_mock.assert_called()
 
     def test_get_catalog_nonexistent(self, reset_catalogs):
-        """Test that trying to get a nonexistent catalog raises an error."""
-        # Initialize with a catalog
-        catalog = Catalog(impl=MockCatalogImpl)
-        init({"test_catalog": catalog}, force=True)
-
-        # Try to get a nonexistent catalog
+        cat = Catalog(impl=MockCatalogImpl, root="/tmp/catalog")
+        init({"test_catalog": cat}, force=True)
         with pytest.raises(ValueError):
-            get_catalog("nonexistent")
+            get_catalog("nope")
 
     def test_get_catalog_no_default(self, reset_catalogs):
-        """Test that trying to get the default catalog when none is set raises an error."""
-        # Initialize with multiple catalogs but no default
-        catalog1 = Catalog(impl=MockCatalogImpl, id=1)
-        catalog2 = Catalog(impl=MockCatalogImpl, id=2)
-        init({"catalog1": catalog1, "catalog2": catalog2}, force=True)
-
-        # Try to get the default catalog
+        c1 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog1")
+        c2 = Catalog(impl=MockCatalogImpl, root="/tmp/catalog2")
+        init({"c1": c1, "c2": c2}, force=True)
         with pytest.raises(ValueError):
             get_catalog()
+
+    def test_pop_catalog_returns_none_if_not_initialized(self, reset_catalogs):
+        catalogs.all_catalogs = None
+        assert pop_catalog("whatever") is None
 
     def test_init_local(self, reset_catalogs):
         """Test that init_local() creates a default local catalog."""

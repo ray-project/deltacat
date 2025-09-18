@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from types import ModuleType
 
 from typing import Any, Dict, List, Optional, Union
 from functools import partial
 import ray
+import yaml
 
 from deltacat import logs
 from deltacat.catalog.main import impl as dcat
 from deltacat.catalog.model.properties import CatalogProperties
-from deltacat.constants import DEFAULT_CATALOG
+from deltacat.constants import DEFAULT_CATALOG, DELTACAT_CONFIG_PATH
+from deltacat.utils.config_loader import load_catalog_configs_from_yaml
 
 all_catalogs: Optional[ray.actor.ActorHandle] = None
 
@@ -182,6 +185,7 @@ def init(
     ray_init_args: Dict[str, Any] = {},
     *,
     force=False,
+    config_path: Optional[str] = None,
 ) -> Optional[ray.runtime.BaseContext]:
     """
     Initialize DeltaCAT catalogs.
@@ -201,6 +205,59 @@ def init(
     if is_initialized() and not force:
         logger.warning("DeltaCAT already initialized.")
         return None
+
+    # If catalogs are provided and a config_path is also provided, raise ValueError
+    if catalogs and config_path is not None:
+        raise ValueError(
+            "Cannot provide both `catalogs` and `config_path`. Please provide "
+            "only one of these parameters."
+        )
+    # If no catalogs provided but a config_path exists, load configs from file
+    if not catalogs and config_path is not None:
+        catalogs = load_catalog_configs_from_yaml(config_path=config_path)
+
+    # If neither catalogs nor config_path provided → try default location
+    if not catalogs and config_path is None:
+        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
+        if cfg_path.exists():
+            logger.info(f"Loading catalog configs from default path: {cfg_path}")
+            catalogs = load_catalog_configs_from_yaml(str(cfg_path))
+        else:
+            logger.info(
+                "No catalogs specified and no config file found at default path."
+            )
+
+    # If catalogs provided but no config_path exists, create a config file
+    if catalogs and config_path is None:
+        # Only dump if the catalogs are config-backed
+        try:
+            _dump_catalogs_to_yaml(catalogs)
+        except TypeError:
+            logger.debug(
+                "Skipping dumping catalogs to YAML: non-CatalogProperties inner"
+            )
+
+        # Normalize everything to Dict[str, Catalog] ---
+        if isinstance(catalogs, Catalog):
+            # single Catalog object
+            catalogs = {DEFAULT_CATALOG: catalogs}
+        elif isinstance(catalogs, dict):
+            normalized = {}
+            for name, obj in catalogs.items():
+                if isinstance(obj, Catalog):
+                    normalized[name] = obj
+                elif isinstance(obj, CatalogProperties):
+                    # Wrap in a Catalog
+                    normalized[name] = Catalog(config=obj)
+                else:
+                    raise TypeError(
+                        f"Unsupported object type in catalogs dict: {type(obj)}"
+                    )
+            catalogs = normalized
+        else:
+            raise TypeError(
+                f"Expected a Catalog or dict[str, Catalog|CatalogProperties], but got {type(catalogs)}"
+            )
 
     # initialize ray (and ignore reinitialization errors)
     ray_init_args["ignore_reinit_error"] = True
@@ -306,10 +363,33 @@ def pop_catalog(name: str) -> Optional[Catalog]:
         The removed catalog, or None if not found.
     """
     global all_catalogs
-
     if not all_catalogs:
         return None
+
+    # Remove from in-memory actor
     catalog = ray.get(all_catalogs.pop.remote(name))
+
+    # --- Persist removal to disk ---
+    try:
+        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
+        if cfg_path.exists() and cfg_path.stat().st_size > 0:  # empty file check
+            try:
+                # Load existing config
+                loaded = load_catalog_configs_from_yaml(str(cfg_path))
+                # Wrap into Catalog so _dump_catalogs_to_yaml works uniformly
+                existing_catalogs = {
+                    n: Catalog(config=props) for n, props in loaded.items()
+                }
+                if name in existing_catalogs:
+                    del existing_catalogs[name]
+
+                    # Now write full merged dictionary back to disk
+                    _dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
+            except Exception as e:
+                logger.warning(f"Failed to update catalog config file after pop: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to persist catalog removal {name} to config file: {e}")
+
     return catalog
 
 
@@ -324,7 +404,8 @@ def put_catalog(
 ) -> Catalog:
     """
     Add a named catalog to the global map of named catalogs. Initializes
-    DeltaCAT if not already initialized.
+    DeltaCAT if not already initialized, and persists the catalog
+    set to DELTACAT_CONFIG_PATH (merge if exists).
 
     Args:
         name: Name of the catalog.
@@ -351,35 +432,114 @@ def put_catalog(
         catalog = Catalog(**kwargs)
     if name is None:
         raise ValueError("Catalog name cannot be None")
-
-    # Initialize, if necessary
+    # Initialize if necessary
     if not is_initialized():
-        # We are initializing a single catalog - make it the default
         if not default:
             logger.info(
                 f"Calling put_catalog with set_as_default=False, "
-                f"but still setting Catalog {catalog} as default since it is "
+                f"but still setting Catalog {catalog} as default since it's "
                 f"the only catalog."
             )
         init({name: catalog}, ray_init_args=ray_init_args)
-        return catalog
+    else:
+        # Fail if requested
+        if fail_if_exists:
+            try:
+                get_catalog(name)
+                raise ValueError(
+                    f"Failed to put catalog {name} because it already exists "
+                    f"and fail_if_exists={fail_if_exists}"
+                )
+            except ValueError as e:
+                if "not found" not in str(e):
+                    raise
+                # Doesn't exist → safe to add
 
-    # Fail if fail_if_exists and catalog already exists
-    if fail_if_exists:
-        try:
-            get_catalog(name)
-            # If we get here, catalog exists - raise error
-            raise ValueError(
-                f"Failed to put catalog {name} because it already exists and "
-                f"fail_if_exists={fail_if_exists}"
-            )
-        except ValueError as e:
-            if "not found" not in str(e):
-                # Re-raise if it's not a "catalog not found" error
-                raise
-            # If catalog doesn't exist, continue normally
-            pass
+        # Register in memory
+        ray.get(all_catalogs.put.remote(name, catalog, default))
 
-    # Add the catalog (which may overwrite existing if fail_if_exists=False)
-    ray.get(all_catalogs.put.remote(name, catalog, default))
+    # --- Persist to disk (merge behavior) ---
+    try:
+        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
+        existing_catalogs = {}
+
+        if cfg_path.exists() and cfg_path.stat().st_size > 0:  # empty file check
+            try:
+                loaded = load_catalog_configs_from_yaml(str(cfg_path))
+                # Wrap into Catalog so dump_catalogs_to_yaml can handle uniformly
+                existing_catalogs = {
+                    n: Catalog(config=props) for n, props in loaded.items()
+                }
+            except Exception as e:
+                logger.warning(f"Failed to load existing catalog config file: {e}")
+
+        # Merge / overwrite with the new catalog
+        existing_catalogs[name] = catalog
+
+        # Now write back full merged dictionary
+        _dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
+
+    except Exception as e:
+        logger.warning(f"Failed to persist catalog {name} to config file: {e}")
+
     return catalog
+
+
+def _dump_catalogs_to_yaml(
+    catalogs: Union[
+        Dict[str, Union["Catalog", CatalogProperties]],
+        "Catalog",
+        CatalogProperties,
+    ],
+    *,
+    single_if_default: bool = True,
+) -> None:
+    """
+    Write Catalog configs (Catalogs or CatalogProperties) to YAML.
+
+    Supports:
+        - Dict[str, Catalog]
+        - Dict[str, CatalogProperties]
+        - single Catalog
+        - single CatalogProperties
+
+    Always normalizes to {name: dict-of-primitive-keys}
+    """
+
+    # Normalize inputs into { str: CatalogProperties }
+    if isinstance(catalogs, Catalog):
+        catalogs = {"default": catalogs.inner}
+    elif isinstance(catalogs, CatalogProperties):
+        catalogs = {"default": catalogs}
+    elif isinstance(catalogs, dict):
+        normalized: Dict[str, CatalogProperties] = {}
+        for name, obj in catalogs.items():
+            if isinstance(obj, Catalog):
+                if not isinstance(obj.inner, CatalogProperties):
+                    raise TypeError(
+                        f"Catalog.inner must be CatalogProperties for dumping, "
+                        f"got {type(obj.inner)}"
+                    )
+                normalized[name] = obj.inner
+            elif isinstance(obj, CatalogProperties):
+                normalized[name] = obj
+            else:
+                raise TypeError(f"Unsupported catalog type: {type(obj)}")
+        catalogs = normalized
+    else:
+        raise TypeError(f"Unsupported catalogs type: {type(catalogs)}")
+
+    # Serialize all values to primitive dicts
+    if single_if_default and set(catalogs.keys()) == {"default"}:
+        data = CatalogProperties.ensure_serializable(catalogs["default"])
+    else:
+        data = {
+            name: CatalogProperties.ensure_serializable(props)
+            for name, props in catalogs.items()
+        }
+
+    # Write out to YAML
+    config_path = Path(DELTACAT_CONFIG_PATH).expanduser()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with config_path.open("w") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
