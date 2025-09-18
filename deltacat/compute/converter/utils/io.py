@@ -20,6 +20,7 @@ from deltacat.types.tables import (
     write_sliced_table as types_write_sliced_table,
 )
 from deltacat.storage import LocalTable, DistributedDataset
+from deltacat.utils.filesystem import append_protocol_prefix_by_type, FilesystemType
 from typing import Union
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -139,11 +140,16 @@ def write_sliced_table(
     content_type: ContentType = ContentType.PARQUET,
     max_records_per_file: Optional[int] = 4000000,
     filesystem: Optional[Union[AbstractFileSystem, pa.fs.FileSystem]] = None,
+    skip_manifest_write: bool = False,
     **kwargs,
 ) -> List[str]:
     """
     Writes the given table to 1 or more files and return the paths
     of the files written.
+
+    Args:
+        skip_manifest_write: If True, calls table_writer_fn directly and returns file paths as strings.
+                           If False (default), creates manifest entries and extracts URIs.
     """
     if isinstance(filesystem, pa.fs.FileSystem):
         table_writer_fn = get_table_writer(table)
@@ -179,7 +185,7 @@ def write_sliced_table(
 
         # TODO(pdames): Disable redundant file info fetch currently
         #   used to construct unused manifest entry metadata.
-        manifest_entry_list = types_write_sliced_table(
+        result = types_write_sliced_table(
             table=table,
             base_path=base_path,
             filesystem=filesystem,
@@ -188,8 +194,21 @@ def write_sliced_table(
             table_slicer_fn=table_slicer_fn,
             table_writer_kwargs=table_writer_kwargs,
             content_type=content_type,
+            skip_manifest_write=skip_manifest_write,
         )
-        paths = [entry.uri for entry in manifest_entry_list]
+
+        if skip_manifest_write:
+            # Result is already a list of file paths
+            paths = result
+        else:
+            # Result is manifest entries, extract URIs
+            paths = [entry.uri for entry in result]
+
+        filesystem_type = FilesystemType.from_filesystem(filesystem)
+        paths = [
+            append_protocol_prefix_by_type(path, filesystem_type) for path in paths
+        ]
+
         return paths
     else:
         return upload_table_with_retry(
@@ -198,6 +217,6 @@ def write_sliced_table(
             s3_table_writer_kwargs=table_writer_kwargs,
             content_type=content_type,
             max_records_per_file=max_records_per_file,
-            s3_file_system=filesystem,
+            filesystem=filesystem,
             **kwargs,
         )

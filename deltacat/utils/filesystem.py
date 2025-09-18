@@ -448,3 +448,52 @@ def _resolve_custom_scheme(path: str) -> str:
     if parsed_uri.scheme == _LOCAL_SCHEME:
         path = parsed_uri.netloc + parsed_uri.path
     return path
+
+
+def append_protocol_prefix_by_type(path: str, filesystem_type: FilesystemType) -> str:
+    """
+    Appends the appropriate protocol prefix to a path based on the filesystem type enum.
+
+    Args:
+        path: The file path (can be with or without existing protocol)
+        filesystem_type: The filesystem type enum
+
+    Returns:
+        The path with the appropriate protocol prefix
+
+    Examples:
+        >>> append_protocol_prefix_by_type("/path/to/file", FilesystemType.LOCAL)
+        "file:///path/to/file"
+        >>> append_protocol_prefix_by_type("bucket/file", FilesystemType.S3)
+        "s3://bucket/file"
+    """
+    # If path already has a protocol, return as is
+    parsed_uri = urllib.parse.urlparse(path)
+    if parsed_uri.scheme:
+        return path
+
+    if filesystem_type == FilesystemType.LOCAL:
+        # For local filesystem, use file:// protocol
+        # Handle Windows paths properly
+        if sys.platform == "win32" and _is_local_windows_path(path):
+            # Convert Windows path to posix format for URI
+            posix_path = pathlib.Path(path).as_posix()
+            return f"file:///{posix_path.lstrip('/')}"
+        else:
+            return f"file://{path}"
+
+    elif filesystem_type == FilesystemType.S3:
+        return f"s3://{path}"
+
+    elif filesystem_type == FilesystemType.GCS:
+        return f"gs://{path}"
+
+    elif filesystem_type == FilesystemType.AZURE:
+        return f"az://{path}"
+
+    elif filesystem_type == FilesystemType.HADOOP:
+        return f"hdfs://{path}"
+
+    else:
+        # For unknown filesystem types, return path as is
+        return path

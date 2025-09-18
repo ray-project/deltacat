@@ -92,6 +92,7 @@ from deltacat.exceptions import (
 from deltacat.utils.common import ReadKwargsProvider
 from deltacat.types.partial_download import PartialFileDownloadParams
 from deltacat.utils.ray_utils.concurrency import invoke_parallel
+from deltacat.utils.filesystem import append_protocol_prefix_by_type, FilesystemType
 
 if TYPE_CHECKING:
     from deltacat.storage.model.schema import Schema
@@ -1083,24 +1084,28 @@ def write_sliced_table(
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
-) -> ManifestEntryList:
+    skip_manifest_write: bool = False,
+) -> Union[ManifestEntryList, List[str]]:
     """
-    Writes table slices to 1 or more files and returns
-    manifest entries describing the uploaded files.
+    Writes the given table to 1 or more files and return either manifest entries
+    or file paths depending on skip_manifest_write parameter.
 
     Args:
         table: The local table or distributed dataset to write
         base_path: The base path to write the table to
         filesystem: The filesystem to write the table to
+        max_records_per_entry: Maximum records per file (None = write whole table)
         table_writer_fn: The function to write the table to
         table_slicer_fn: The function to slice the table into multiple files
         table_writer_kwargs: Additional arguments to pass to the table writer
         content_type: The content type to write the table to
         entry_params: Manifest entry parameters
         entry_type: The manifest entry types to write
+        skip_manifest_write: If True, calls table_writer_fn directly and returns file paths as strings.
+                           If False (default), creates manifest entries and returns ManifestEntryList.
 
     Returns:
-        Manifest entries describing the uploaded files
+        Manifest entries describing the uploaded files or list of file paths
     """
     # @retry decorator can't be pickled by Ray, so wrap upload in Retrying
     retrying = Retrying(
@@ -1109,39 +1114,50 @@ def write_sliced_table(
         retry=retry_if_exception_type(RetryableError),
     )
 
-    manifest_entries = ManifestEntryList()
-    table_record_count = get_table_length(table)
+    # Determine if we should write the whole table or slice it
+    should_write_whole_table = max_records_per_entry is None or not get_table_length(
+        table
+    )
 
-    if max_records_per_entry is None or not table_record_count:
-        # write the whole table to a single file
-        manifest_entries = retrying(
+    if should_write_whole_table:
+        # Write the whole table to a single file
+        return retrying(
             write_table,
             table,
-            f"{base_path}",  # cast any non-string arg to string
+            f"{base_path}",
             filesystem,
             table_writer_fn,
             table_writer_kwargs,
             content_type,
             entry_params,
             entry_type,
+            skip_manifest_write,
         )
     else:
-        # iteratively write table slices
+        # Iteratively write table slices
+        results = ManifestEntryList() if not skip_manifest_write else []
         table_slices = table_slicer_fn(table, max_records_per_entry)
+
         for table_slice in table_slices:
-            slice_entries = retrying(
+            slice_result = retrying(
                 write_table,
                 table_slice,
-                f"{base_path}",  # cast any non-string arg to string
+                f"{base_path}",
                 filesystem,
                 table_writer_fn,
                 table_writer_kwargs,
                 content_type,
                 entry_params,
                 entry_type,
+                skip_manifest_write,
             )
-            manifest_entries.extend(slice_entries)
-    return manifest_entries
+
+            if skip_manifest_write:
+                results.extend(slice_result)  # slice_result is List[str]
+            else:
+                results.extend(slice_result)  # slice_result is ManifestEntryList
+
+        return results
 
 
 def write_table(
@@ -1153,10 +1169,11 @@ def write_table(
     content_type: ContentType = ContentType.PARQUET,
     entry_params: Optional[EntryParams] = None,
     entry_type: Optional[EntryType] = EntryType.DATA,
-) -> ManifestEntryList:
+    skip_manifest_write: bool = False,
+) -> Union[ManifestEntryList, List[str]]:
     """
-    Writes the given table to 1 or more files and return
-    manifest entries describing the uploaded files.
+    Writes the given table to 1 or more files and return either manifest entries
+    or file paths depending on skip_manifest_write parameter.
 
     Args:
         table: The local table or distributed dataset to write
@@ -1167,16 +1184,18 @@ def write_table(
         content_type: The content type to write the table to
         entry_params: Manifest entry parameters
         entry_type: The manifest entry types to write
+        skip_manifest_write: If True, returns file paths as strings.
+                           If False (default), creates manifest entries and returns ManifestEntryList.
 
     Returns:
-        Manifest entries describing the uploaded files
+        Manifest entries describing the uploaded files or list of file paths
     """
     if table_writer_kwargs is None:
         table_writer_kwargs = {}
 
     # Determine content_encoding before writing files so we can include it in filenames
     content_encoding = None
-    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES:
+    if content_type in EXPLICIT_COMPRESSION_CONTENT_TYPES and not skip_manifest_write:
         # TODO(pdames): Support other user-specified encodings at write time.
         content_encoding = ContentEncoding.GZIP
 
@@ -1186,16 +1205,26 @@ def write_table(
         else CapturedBlockWritePathsBase()
     )
     capture_object = CapturedBlockWritePaths(wrapped_obj)
-    block_write_path_provider = UuidBlockWritePathProvider(
-        capture_object,
-        base_path=base_path,
-        content_type=content_type,
-        content_encoding=content_encoding,
-    )
+
+    # Create block write path provider with appropriate parameters
+    if skip_manifest_write:
+        block_write_path_provider = UuidBlockWritePathProvider(
+            capture_object,
+            base_path=base_path,
+        )
+    else:
+        block_write_path_provider = UuidBlockWritePathProvider(
+            capture_object,
+            base_path=base_path,
+            content_type=content_type,
+            content_encoding=content_encoding,
+        )
+
     # Extract schema, schema_id, and sort_scheme_id from table_writer_kwargs
     schema = table_writer_kwargs.pop("schema", None)
     schema_id = table_writer_kwargs.pop("schema_id", None)
     sort_scheme_id = table_writer_kwargs.pop("sort_scheme_id", None)
+
     table_writer_fn(
         table,
         base_path,
@@ -1205,10 +1234,21 @@ def write_table(
         schema=schema,
         **table_writer_kwargs,
     )
+
     # TODO: Add a proper fix for block_refs and write_paths not persisting in Ray actors
     del block_write_path_provider
     blocks = capture_object.blocks()
     write_paths = capture_object.write_paths()
+
+    # If skip_manifest_write is True, return file paths with protocol prefixes
+    if skip_manifest_write:
+        filesystem_type = FilesystemType.from_filesystem(filesystem)
+        return [
+            append_protocol_prefix_by_type(path, filesystem_type)
+            for path in write_paths
+        ]
+
+    # Create manifest entries
     metadata = get_block_metadata_list(table, write_paths, blocks)
     manifest_entries = ManifestEntryList()
     for block_idx, path in enumerate(write_paths):

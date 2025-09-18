@@ -132,9 +132,9 @@ def monitor_table(
                     logger.debug(f"Converter Session Parameters: {converter_params}")
 
                     logger.info(f"Starting converter session...")
-                    updated_metadata = converter_session(params=converter_params)
+                    metadata, snapshot_id = converter_session(params=converter_params)
                     logger.info(f"Converter session completed successfully")
-                    current_snapshot_id = updated_metadata.current_snapshot_id
+                    current_snapshot_id = snapshot_id
                     logger.info(
                         f"Current snapshot ID updated to: {current_snapshot_id}"
                     )

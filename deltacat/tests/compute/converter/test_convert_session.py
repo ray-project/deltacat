@@ -496,6 +496,7 @@ def test_converter(
     )
 
     s3_file_system = get_s3_file_system()
+
     convert_inputs = create_convert_input(
         tbl, convert_input_files_for_all_buckets, test_case, s3_file_system
     )
@@ -727,7 +728,6 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
                 "task_max_parallelism": 1,  # Single task for local testing
                 "filesystem": local_filesystem,
                 "location_provider_prefix_override": None,  # Use local filesystem
-                "location_provider_prefix_override": None,  # Let the system auto-generate the prefix
             }
         )
 
@@ -737,7 +737,7 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
         print(f"Enforce uniqueness: True")
 
         # Run the converter
-        converter_session(params=converter_params)
+        metadata, snapshot_id = converter_session(params=converter_params)
 
         # Refresh table and scan again
         tbl.refresh()
