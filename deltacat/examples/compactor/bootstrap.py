@@ -152,6 +152,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         mode=table_mode,
         content_type=ContentType.PARQUET,
         catalog="default",
+        auto_create_namespace=True,
     )
     print(f"✅ {action.replace('ing', 'ed')} source table and wrote first delta")
 
@@ -164,6 +165,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         mode=TableWriteMode.APPEND,  # Use APPEND for second batch
         content_type=ContentType.PARQUET,
         catalog="default",
+        auto_create_namespace=True,
     )
     print(f"✅ Added second delta to source table")
 
@@ -199,6 +201,7 @@ def setup_test_namespace_and_table_simple(catalog_root: str) -> tuple:
         table_description="Compacted events table (destination)",
         fail_if_exists=False,  # Allow overwriting for idempotency
         catalog="default",
+        auto_create_namespace=True,
     )
     print(f"✅ Created/replaced destination table: {dest_table_def.table.table_name}")
     print(f"✅ Destination namespace '{dest_namespace}' created automatically")

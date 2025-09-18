@@ -119,6 +119,7 @@ class TestBackfillLocatorToIdMappings:
                 table=table1_name,
                 namespace=namespace_name,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
                 # This will create deltacat format stream by default
             )
@@ -147,6 +148,7 @@ class TestBackfillLocatorToIdMappings:
                 table=table2_name,
                 namespace=namespace_name,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -156,6 +158,7 @@ class TestBackfillLocatorToIdMappings:
                 table=table2_name,
                 namespace=namespace_name,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -176,6 +179,7 @@ class TestBackfillLocatorToIdMappings:
                 namespace=namespace_name,
                 mode=TableWriteMode.CREATE,
                 schema=create_test_schema(),
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
             tables_info.append(
@@ -342,13 +346,28 @@ class TestBackfillLocatorToIdMappings:
             os.listdir(self.dest_dir) if os.path.exists(self.dest_dir) else []
         )
         # Filter out expected catalog initialization files
-        expected_init_files = {"version"}
-        unexpected_contents = [
-            item for item in dest_contents if item not in expected_init_files
-        ]
+        # With CatalogProperties auto-creating default namespace, we expect:
+        # - version directory (catalog version)
+        # - txn directory (transaction files)
+        # - default namespace directory (UUID-based name)
+        # - default namespace mapping directory (SHA1-based name for "default")
+        expected_init_files = {"version", "txn"}
+        # Also filter out UUID and SHA1 directories created by default namespace
+        filtered_contents = []
+        for item in dest_contents:
+            if item in expected_init_files:
+                continue
+            # Skip UUID directories (36 chars with hyphens)
+            if len(item) == 36 and item.count("-") == 4:
+                continue
+            # Skip SHA1 directories (40 chars hex)
+            if len(item) == 40 and all(c in "0123456789abcdef" for c in item):
+                continue
+            filtered_contents.append(item)
+
         assert (
-            len(unexpected_contents) == 0
-        ), f"Destination should only contain catalog initialization files after dry run, but found: {unexpected_contents}"
+            len(filtered_contents) == 0
+        ), f"Destination should only contain catalog initialization files after dry run, but found unexpected: {filtered_contents}"
 
     def test_migrate_catalog_full_migration(self):
         """Test full migration from old to new canonical string format."""
@@ -509,7 +528,10 @@ class TestBackfillLocatorToIdMappings:
 
         with patched_canonical_string(use_old_format=True):
             # Just create a namespace, no tables
-            dc.create_namespace(namespace="empty_namespace", catalog=empty_catalog_name)
+            # Use a unique namespace name to avoid conflict with auto-created default namespace
+            dc.create_namespace(
+                namespace="test_empty_namespace", catalog=empty_catalog_name
+            )
 
         # Create destination catalog for migration
         dest_catalog_name = f"dest_{uuid.uuid4()}"
@@ -526,7 +548,7 @@ class TestBackfillLocatorToIdMappings:
 
         # Verify namespace exists in destination
         assert dc.namespace_exists(
-            namespace="empty_namespace", catalog=dest_catalog_name
+            namespace="test_empty_namespace", catalog=dest_catalog_name
         ), "Namespace should exist in migrated catalog"
 
     def test_migration_error_handling(self):

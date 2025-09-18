@@ -584,23 +584,41 @@ with tempfile.TemporaryDirectory() as temp_dir_a, \
 
     # Transaction targeting catalog_a
     with dc.transaction("catalog_a"):
-        dc.write(prod_data, "app_data", namespace="production",
-                mode=dc.TableWriteMode.CREATE)
+        dc.write(
+            prod_data,
+            "app_data",
+            namespace="production",
+            mode=dc.TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
 
     # Separate transaction targeting catalog_b
     with dc.transaction("catalog_b"):
-        dc.write(staging_data, "app_data", namespace="staging",
-                mode=dc.TableWriteMode.CREATE)
+        dc.write(
+            staging_data,
+            "app_data",
+            namespace="staging",
+            mode=dc.TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
 
     # Verify catalog isolation
     assert dc.table_exists("app_data", namespace="production", catalog="catalog_a")
     assert dc.table_exists("app_data", namespace="staging", catalog="catalog_b")
 
-    # Tables with same name exist independently in each catalog
-    prod_result = dc.read("app_data", namespace="production", catalog="catalog_a",
-                         read_as=dc.DatasetType.PANDAS)
-    staging_result = dc.read("app_data", namespace="staging", catalog="catalog_b",
-                           read_as=dc.DatasetType.PANDAS)
+    # Tables with the same name exist independently in each catalog
+    prod_result = dc.read(
+        "app_data",
+        namespace="production",
+        read_as=dc.DatasetType.PANDAS,
+        catalog="catalog_a",
+    )
+    staging_result = dc.read(
+        "app_data",
+        namespace="staging",
+        read_as=dc.DatasetType.PANDAS,
+        catalog="catalog_b",
+    )
 
     print(f"Production records: {prod_result['env'].tolist()}")  # ["prod", "prod"]
     print(f"Staging records: {staging_result['env'].tolist()}")  # ["staging", "staging"]
@@ -620,22 +638,38 @@ inner_data = pd.DataFrame({"id": [3, 4], "location": ["inner", "inner"]})
 # Nested transactions with different catalogs
 with dc.transaction("catalog_a"):
     # Outer transaction in catalog_a
-    dc.write(outer_data, "nested_table", namespace="production",
-            mode=dc.TableWriteMode.CREATE)
+    dc.write(
+        outer_data,
+        "nested_table",
+        namespace="production",
+        mode=dc.TableWriteMode.CREATE,
+        auto_create_namespace=True,
+    )
 
     # Inner transaction in catalog_b
     with dc.transaction("catalog_b"):
-        dc.write(inner_data, "nested_table", namespace="staging",
-                mode=dc.TableWriteMode.CREATE)
+        dc.write(
+            inner_data,
+            "nested_table",
+            namespace="staging",
+            mode=dc.TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
 
         # Verify inner transaction context
-        inner_check = dc.read("nested_table", namespace="staging",
-                            read_as=dc.DatasetType.PANDAS)
+        inner_check = dc.read(
+            "nested_table",
+            namespace="staging",
+            read_as=dc.DatasetType.PANDAS,
+        )
         print(f"Inner catalog records: {len(inner_check)}")
 
     # Back to outer transaction context (catalog_a)
-    outer_check = dc.read("nested_table", namespace="production",
-                         read_as=dc.DatasetType.PANDAS)
+    outer_check = dc.read(
+        "nested_table",
+        namespace="production",
+        read_as=dc.DatasetType.PANDAS,
+    )
     print(f"Outer catalog records: {len(outer_check)}")
 
 # Verify catalog isolation was maintained

@@ -2,23 +2,19 @@
   <img src="https://github.com/ray-project/deltacat/raw/2.0/media/deltacat-logo-alpha-750.png" alt="deltacat logo" style="width:55%; height:auto; text-align: center;">
 </p>
 
-DeltaCAT is a portable Pythonic Data Lakehouse powered by [Ray](https://github.com/ray-project/ray). It lets you define and manage
-fast, scalable, ACID-compliant multimodal data lakes, and has been used to [successfully manage exabyte-scale enterprise
-data lakes](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
+DeltaCAT is a portable Multimodal Lakehouse powered by [Ray](https://github.com/ray-project/ray), [Apache Arrow](https://github.com/apache/arrow), and [Daft](https://github.com/Eventual-Inc/Daft). It lets you create ACID-compliant multimodal data lakes [that efficiently scale to manage exabytes of production data](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
 
-It provides data lake level transactions & time travel, fast schema evolution for feature enrichment, zero-copy multimodal file processing, schemaless dataset management, and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads.
+It provides data lake level transactions & time travel, zero-copy schema evolution for feature enrichment, zero-copy multimodal (image, audio, video, text, etc.) file processing, and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads. It runs on any filesystem for easy setup and sharing - no external catalog services, lock managers, or key value stores required.
 
-It uses the Ray distributed compute framework together with [Apache Arrow](https://github.com/apache/arrow) and
-[Daft](https://github.com/Eventual-Inc/Daft) to efficiently scale common table management tasks, like petabyte-scale
-merge-on-read and copy-on-write operations.
-
-DeltaCAT provides the following high-level components:
-1. [**Catalog**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/catalog/interface.py): High-level APIs to create, discover, organize, share, and manage datasets.
-2. [**Compute**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/compute/): Distributed data management procedures to read, write, and optimize datasets.
-3. [**Storage**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/storage/): In-memory and on-disk multimodal dataset formats.
-4. **Sync** (in development): Synchronize DeltaCAT datasets to data warehouses and other table formats.
 
 ## Overview
+
+DeltaCAT provides the following high-level components:
+1. [**Catalog**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/catalog/interface.py): Pythonic APIs to discover, read, write, and manage datasets.
+2. [**Compute**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/compute/): Distributed data management procedures that automatically optimize your datasets.
+3. [**Storage**](https://github.com/ray-project/deltacat/tree/2.0/deltacat/storage/): A portable multimodal data lake format useable with any filesystem.
+4. **Sync** (in development): Synchronize DeltaCAT datasets to data warehouses and other table formats.
+
 DeltaCAT's **Catalog**, **Compute**, and **Storage** layers work together to bring ACID-compliant data management to any Ray application. These components automate data indexing, change management, dataset read/write optimization, schema evolution, and other common data management tasks across any set of data files readable by [Pandas](https://github.com/pandas-dev/pandas), [NumPy](https://github.com/numpy/numpy), [Polars](https://github.com/pola-rs/polars), [PyArrow](https://arrow.apache.org/docs/python/index.html), [Ray Data](https://docs.ray.io/en/latest/data/data.html), and [Daft](https://docs.daft.ai/en/stable/api/dataframe/).
 
 <p align="center">
@@ -31,6 +27,7 @@ Data consumers that prefer to stay within the ecosystem of Pythonic data managem
 DeltaCAT applications run anywhere that Ray runs, including your local laptop, cloud computing cluster, or on-premise cluster.
 
 DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of data files. A **Catalog** can be thought of as a named data lake containing a set of **Tables**. It provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
+
 
 ### Quick Start
 
@@ -188,6 +185,57 @@ daft_df = dc.read("users")
 daft_df.select("name", "age", "city").show()
 # Ensure that the table length is always 6.
 assert dc.dataset_length(daft_df) == 6
+```
+
+</details>
+
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Ordered Writes</span></summary>
+DeltaCAT writes are unordered by default, which means that the order of data written to the table isn't guaranteed to match the order that it is read back. While this is useful for preventing conflicts between concurrent writers, you can also use the **APPEND** write mode to preserve write order and raise explicit concurrency conflicts between parallel writers:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+# Initialize DeltaCAT with a default local catalog.
+# Ray will be initialized automatically.
+# Catalog files will be stored in .deltacat/ in the current working directory.
+dc.init_local()
+
+# Create data to write.
+data = pd.DataFrame({
+    "id": [1, 2],
+    "name": ["Cheshire", "Dinah"],
+    "age": [3, 7]
+})
+
+# Write the first ordered delta to the table.
+dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+
+# Write the second ordered delta to the table.
+data = pd.DataFrame({
+    "id": [3, 4],
+    "name": ["Felix", "Tom"],
+    "age": [2, 12],
+    "city": ["Hollywood", "Gloucester"]
+})
+dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+
+# Write the third ordered delta to the table.
+data = pd.DataFrame({
+    "id": [5, 6],
+    "name": ["Simpkin", "Delta"],
+    "age": [12, 4],
+    "city": ["San Francisco", "San Francisco"]
+})
+dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+
+# Read the data back as a Pandas DataFrame, and ensure that the
+# order of the records returned matches the order they were written.
+pandas_df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+print(pandas_df)
 ```
 
 </details>
@@ -549,6 +597,10 @@ order_data = pd.DataFrame({
     "product_id": [101, 102, 103],
     "quantity": [2, 1, 2]
 })
+# Create identity, inventory, and sales namespaces
+dc.create_namespace("identity")
+dc.create_namespace("inventory")
+dc.create_namespace("sales")
 
 # Write tables to different namespaces to organize them by domain
 dc.write(user_data, "users", namespace="identity")
@@ -574,7 +626,10 @@ finance_users = pd.DataFrame({
     "preferred_payment_method": ["credit", "cash", "paypal"]
 })
 
+dc.create_namespace("marketing")
 dc.write(marketing_users, "users", namespace="marketing")
+
+dc.create_namespace("finance")
 dc.write(finance_users, "users", namespace="finance")
 
 # Each namespace maintains its own "users" table with different schemas
@@ -620,6 +675,7 @@ product_data = pd.DataFrame({
 })
 
 # The product catalog can be created independently.
+dc.create_namespace("inventory")
 dc.write(product_data, "catalog", namespace="inventory")
 
 print(f"\n=== Initial Product Data ===")
@@ -646,7 +702,9 @@ finance_schema = dc.Schema.of([
 # Create user identities and user finance data within a single transaction.
 # Since transactions are atomic, this prevents accounting discrepancies.
 with dc.transaction():
+    dc.create_namespace("identity")
     dc.write(user_data, "users", namespace="identity")
+    dc.create_namespace("finance")
     dc.write(initial_finance, "users", namespace="finance", schema=finance_schema)
 
 print(f"\n=== Initial User Data ===")
@@ -665,6 +723,7 @@ new_orders = pd.DataFrame({
 # Process new orders and update lifetime payment totals within a single transaction.
 with dc.transaction():
     # Step 1: Write the new orders
+    dc.create_namespace("sales")
     dc.write(new_orders, "transactions", namespace="sales")
 
     # Step 2: Read back transactions and products to compute actual totals
@@ -680,6 +739,7 @@ with dc.transaction():
     finance_updates.columns = ["user_id", "lifetime_payments"]
 
     # Step 4: Write the computed totals
+    dc.create_namespace("finance")
     dc.write(finance_updates, "users", namespace="finance", mode=dc.TableWriteMode.MERGE)
 
 # Verify that orders and and lifetime payments are kept in sync.
@@ -768,6 +828,67 @@ print(dc.read("financial_data", catalog="prod", read_as=dc.DatasetType.PANDAS))
 
 <details>
 
+<summary><span style="font-size: 1.25em; font-weight: bold;">Data Lake Sharing</span></summary>
+
+Since DeltaCAT catalogs are simply self-contained directories on a filesystem, you can easily share your data lake with others. Local catalogs on your laptop can be compressed and sent anywhere. A cloud catalog in S3 can be shared via URL. The read/write permissions of your filesystem are the read/write permissions of your catalog.
+
+For example, you can zip up your local catalog and upload it to S3 via:
+```bash
+# zip a local catalog
+zip -r catalog.zip .deltacat/
+
+# copy the catalog to a cloud bucket
+aws s3 cp catalog.zip s3://my-bucket/catalog.zip
+```
+
+The person you shared it with can retrieve and decompress it via:
+```bash
+# copy the cloud catalog to local disk
+aws s3 cp s3://my-bucket/catalog.zip .
+
+# unzip the catalog to a local directory
+unzip catalog.zip .deltacat_copy/
+```
+
+And then initialize it together with any other catalogs they're working with:
+```python
+import deltacat as dc
+import tempfile
+
+# Initialize catalogs with separate names and catalog roots.
+dc.init(catalogs={
+    "shared": dc.Catalog(config=dc.CatalogProperties(
+        root=".deltacat_copy",
+        filesystem=pa.fs.S3FileSystem()
+    )),
+    "prod_aws": dc.Catalog(config=dc.CatalogProperties(
+        root="s3://prod/deltacat",
+        filesystem=pa.fs.S3FileSystem()
+    )),
+    "prod_gcp": dc.Catalog(config=dc.CatalogProperties(
+        root="gs://prod/deltacat",
+        filesystem=pa.fs.GcsFileSystem()
+    )),
+    "prod_azure": dc.Catalog(config=dc.CatalogProperties(
+        root="az://prod/deltacat",
+        filesystem=pa.fs.AzureFileSystem()
+    )),
+})
+
+# List and print all namespaces in the shared catalog
+namespaces = dc.list(dc.CatalogUrl("dc://shared"))
+print(namespaces)
+
+# List and print all tables in "sales" namespace of the prod_aws catalog
+tables = dc.list(dc.CatalogUrl("dc://prod_aws/sales"))
+print(tables)
+```
+
+</details>
+
+
+<details>
+
 <summary><span style="font-size: 1.25em; font-weight: bold;">Data Lake Level Time Travel</span></summary>
 
 DeltaCAT supports time travel queries that let you read all tables in a catalog as they existed at any point in the past. Combined with catalog-level transactions, this enables consistent point-in-time views across your entire data lake.
@@ -807,10 +928,10 @@ initial_finance = pd.DataFrame({
 
 # Write initial state atomically with a commit message
 with dc.transaction(commit_message="Initial data load: users, products, orders, and finance"):
-    dc.write(initial_users, "users", namespace="identity")
-    dc.write(initial_products, "catalog", namespace="inventory")
-    dc.write(initial_orders, "transactions", namespace="sales")
-    dc.write(initial_finance, "users", namespace="finance")
+    dc.write(initial_users, "users", namespace="identity", auto_create_namespace=True)
+    dc.write(initial_products, "catalog", namespace="inventory", auto_create_namespace=True)
+    dc.write(initial_orders, "transactions", namespace="sales", auto_create_namespace=True)
+    dc.write(initial_finance, "users", namespace="finance", auto_create_namespace=True)
 
 # Sleep briefly to ensure transaction timestamp separation
 time.sleep(0.1)
@@ -1026,7 +1147,7 @@ daft_docs = daft_docs.with_column("content", daft_docs["path"].url.download().de
 # Capture basic feedback sentiment analysis in a parallel multi-table transaction
 with dc.transaction():
     # Write the full customer feedback to a new "documents" table.
-    dc.write(daft_docs, "documents", namespace="analysis")
+    dc.write(daft_docs, "documents")
 
     # Define a UDF to analyze customer feedback sentiment.
     @daft.udf(return_dtype=daft.DataType.struct({
@@ -1063,14 +1184,14 @@ with dc.transaction():
         dc.Field.of(pa.field("confidence", pa.float64())),
         dc.Field.of(pa.field("model_version", pa.large_string())),
     ])
-    dc.write(daft_results, "insights", namespace="analysis", schema=initial_schema)
+    dc.write(daft_results, "insights", schema=initial_schema)
 
     # Write to a new audit trail table.
     audit_df = pd.DataFrame([{
         "version": "v1.0",
         "docs_processed": dc.dataset_length(daft_docs),
     }])
-    dc.write(audit_df, "audit", namespace="analysis")
+    dc.write(audit_df, "audit")
 
 print("=== V1.0: Customer feedback sentiment analysis processing complete! ===")
 
@@ -1111,9 +1232,9 @@ with dc.transaction():
     )
 
     # Merge new V2.0 insights into the existing V1.0 insights table.
-    dc.write(daft_emotions, "insights", namespace="analysis")
+    dc.write(daft_emotions, "insights")
     audit_df = pd.DataFrame([{"version": "v2.0", "docs_processed": dc.dataset_length(daft_docs)}])
-    dc.write(audit_df, "audit", namespace="analysis")
+    dc.write(audit_df, "audit")
 
 print("=== V2.0: Customer feedback emotion analysis processing complete! ===")
 
@@ -1125,7 +1246,7 @@ time.sleep(0.1)
 # Generate customer service responses based on emotion analysis results.
 with dc.transaction():
     # First, read the current insights table with emotion analysis
-    current_insights = dc.read("insights", namespace="analysis")
+    current_insights = dc.read("insights")
 
     # Define a UDF to generate customer service responses based on analysis results.
     @daft.udf(return_dtype=daft.DataType.struct({
@@ -1172,39 +1293,39 @@ with dc.transaction():
     )
     # Merge new V3.0 responses into the existing V2.0 insights table.
     # The new response columns are automatically joined by document ID.
-    dc.write(daft_responses, "insights", namespace="analysis")
+    dc.write(daft_responses, "insights")
     audit_df = pd.DataFrame([{"version": "v3.0", "docs_processed": dc.dataset_length(current_insights)}])
-    dc.write(audit_df, "audit", namespace="analysis")
+    dc.write(audit_df, "audit")
 
 print("=== V3.0: Customer service response generation processing complete! ===")
 
 print("\n=== Time Travel Comparison of all Versions ===")
 with dc.transaction(as_of=checkpoint_v1):
     print(f"== V1.0 Insights (sentiment) ==")
-    print(dc.read("insights", namespace="analysis").show())
+    print(dc.read("insights").show())
     print(f"== V1.0 Audit ==")
-    print(dc.read("audit", namespace="analysis").show())
+    print(dc.read("audit").show())
 
 with dc.transaction(as_of=checkpoint_v2):
     print(f"== V2.0 Insights (emotion) ==")
-    print(dc.read("insights", namespace="analysis").show())
+    print(dc.read("insights").show())
     print(f"== V2.0 Audit ==")
-    print(dc.read("audit", namespace="analysis").show())
+    print(dc.read("audit").show())
 
-v3_results = dc.read("insights", namespace="analysis")
+v3_results = dc.read("insights")
 print(f"== V3.0 Insights (customer service response) ==")
-print(dc.read("insights", namespace="analysis").show())
+print(dc.read("insights").show())
 print(f"== V3.0 Audit ==")
-print(dc.read("audit", namespace="analysis").show())
+print(dc.read("audit").show())
 ```
 
 </details>
 
 ## Runtime Environment Requirements
 
-DeltaCAT's transaction system assumes that the host machine provides strong system clock accuracy guarantees, and that the filesystem hosting the catalog root directory offers strong consistency.
+DeltaCAT's transaction system assumes that the host machine provides strong system clock accuracy guarantees, and that the filesystem hosting the catalog root directory offers strong read-after-write consistency.
 
-Taken together, these requirements make DeltaCAT suitable for production use on most major cloud computing hosts (e.g., EC2, GCE, Azure VMs) and storage systems (e.g., S3, GCS, Azure Blob Storage), but local laptops should typically be limited to testing/experimental purposes.
+Taken together, these requirements make DeltaCAT suitable for production use on most major cloud computing hosts (e.g., EC2, GCE, Azure VMs) and storage systems (e.g., S3, GCS, Azure Blob Storage), but local laptops should typically be limited to testing/experimental purposes (e.g., due to potential system clock drift).
 
 ## Additional Resources
 ### Table Documentation

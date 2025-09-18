@@ -94,12 +94,28 @@ class TestDeltaCAT:
             DeltaCatUrl("dc://test_catalog_1"),
             dataset_type=DatasetType.RAY_DATASET,
         )
+        # Take all namespaces and find the one we created
+        all_rows = dataset.take_all()
+        test_namespace_row = None
+        for row in all_rows:
+            namespace_obj = Metafile.deserialize(
+                serialized=row[METAFILE_DATA_COLUMN_NAME],
+                meta_format=METAFILE_FORMAT_MSGPACK,
+            )
+            if (
+                hasattr(namespace_obj, "namespace")
+                and namespace_obj.namespace == "test_namespace"
+            ):
+                test_namespace_row = row
+                break
+
+        assert test_namespace_row is not None, "test_namespace should be in the listing"
         actual_namespace = Metafile.deserialize(
-            serialized=dataset.take(1)[0][METAFILE_DATA_COLUMN_NAME],
+            serialized=test_namespace_row[METAFILE_DATA_COLUMN_NAME],
             meta_format=METAFILE_FORMAT_MSGPACK,
         )
         assert actual_namespace.equivalent_to(namespace_src)
-        namespace_type = dataset.take(1)[0][METAFILE_TYPE_COLUMN_NAME]
+        namespace_type = test_namespace_row[METAFILE_TYPE_COLUMN_NAME]
         assert namespace_type == "Namespace"
 
     def test_recursive_listing_multiple_namespaces_with_tables(self):
@@ -122,6 +138,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -131,6 +148,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -140,6 +158,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Test recursive listing
@@ -153,11 +172,16 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             object_types_to_names[obj_type].append(obj.name)
 
-        # Assert we found all namespaces
-        expected_namespaces = {"namespace_alpha", "namespace_beta", "namespace_gamma"}
+        # Assert we found all namespaces (including auto-created default)
+        expected_namespaces = {
+            "namespace_alpha",
+            "namespace_beta",
+            "namespace_gamma",
+            "default",
+        }
         assert (
-            len(object_types_to_names[Namespace]) == 3
-        ), f"Expected 3 namespaces, found {len(object_types_to_names[Namespace])}"
+            len(object_types_to_names[Namespace]) == 4
+        ), f"Expected 4 namespaces (including default), found {len(object_types_to_names[Namespace])}"
         assert (
             set(object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {object_types_to_names[Namespace]}"
@@ -292,6 +316,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Test recursive listing
@@ -302,15 +327,16 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             object_types_to_names[obj_type].append(obj.name)
 
-        # Verify we found all namespaces
+        # Verify we found all namespaces (including auto-created default)
         expected_namespaces = {
             "empty_namespace_1",
             "empty_namespace_2",
             "populated_namespace",
+            "default",
         }
         assert (
-            len(object_types_to_names[Namespace]) == 3
-        ), f"Expected 3 namespaces, found {len(object_types_to_names[Namespace])}"
+            len(object_types_to_names[Namespace]) == 4
+        ), f"Expected 4 namespaces (including default), found {len(object_types_to_names[Namespace])}"
         assert (
             set(object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {object_types_to_names[Namespace]}"
@@ -341,6 +367,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Non-recursive listing (should only get namespaces)
@@ -358,11 +385,11 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             shallow_object_types_to_names[obj_type].append(obj.name)
 
-        # Assert we found all namespaces
-        expected_namespaces = {"namespace_one", "namespace_two"}
+        # Assert we found all namespaces (including auto-created default)
+        expected_namespaces = {"namespace_one", "namespace_two", "default"}
         assert (
-            len(shallow_object_types_to_names[Namespace]) == 2
-        ), f"Expected 2 namespaces, found {len(shallow_object_types_to_names[Namespace])}"
+            len(shallow_object_types_to_names[Namespace]) == 3
+        ), f"Expected 3 namespaces (including default), found {len(shallow_object_types_to_names[Namespace])}"
         assert (
             set(shallow_object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {shallow_object_types_to_names[Namespace]}"
@@ -378,10 +405,10 @@ class TestDeltaCAT:
         for obj in deep_objects:
             deep_object_types_to_names[Metafile.get_class(obj)].append(obj.name)
 
-        expected_namespaces = {"namespace_one", "namespace_two"}
+        expected_namespaces = {"namespace_one", "namespace_two", "default"}
         assert (
-            len(deep_object_types_to_names[Namespace]) == 2
-        ), f"Expected 2 namespaces, found {len(deep_object_types_to_names[Namespace])}"
+            len(deep_object_types_to_names[Namespace]) == 3
+        ), f"Expected 3 namespaces (including default), found {len(deep_object_types_to_names[Namespace])}"
         assert (
             set(deep_object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {deep_object_types_to_names[Namespace]}"
@@ -448,6 +475,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -457,6 +485,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -466,6 +495,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Perform recursive listing
@@ -477,11 +507,16 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             object_types_to_names[obj_type].append(obj.name)
 
-        # All namespaces should be found
-        expected_namespaces = {"alpha_namespace", "beta_namespace", "gamma_namespace"}
+        # All namespaces should be found (including auto-created default)
+        expected_namespaces = {
+            "alpha_namespace",
+            "beta_namespace",
+            "gamma_namespace",
+            "default",
+        }
         assert (
-            len(object_types_to_names[Namespace]) == 3
-        ), f"Expected 3 namespaces, found {len(object_types_to_names[Namespace])}"
+            len(object_types_to_names[Namespace]) == 4
+        ), f"Expected 4 namespaces (including default), found {len(object_types_to_names[Namespace])}"
         assert (
             set(object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {object_types_to_names[Namespace]}"
@@ -534,8 +569,8 @@ class TestDeltaCAT:
         # Ensure we found the expected objects across all levels of hierarchy
         total_objects = len(all_objects)
         assert (
-            total_objects == 18
-        ), f"Expected 18 objects from deep traversal, found only {total_objects}."
+            total_objects == 19
+        ), f"Expected 19 objects from deep traversal (including default namespace), found only {total_objects}."
 
     def test_recursive_cross_catalog_copy(self):
         """
@@ -574,6 +609,7 @@ class TestDeltaCAT:
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
             table_properties=table_properties,
+            auto_create_namespace=True,
         )
 
         # Add more data to create additional deltas
@@ -596,6 +632,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Create second table in analytics namespace
@@ -630,6 +667,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Create version 2 of the events table to test table version ordering in recursive copy
@@ -651,6 +689,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Namespace 2: Product data with different schema
@@ -678,6 +717,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Create product categories table
@@ -701,6 +741,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Namespace 3: Empty namespace (edge case testing)
@@ -729,6 +770,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Verify source catalog structure before copy
@@ -742,8 +784,8 @@ class TestDeltaCAT:
             source_by_type[obj_class].append(obj)
 
         assert (
-            len(source_urls_by_type[Namespace]) == 4
-        ), f"Expected 4 namespaces, got {len(source_urls_by_type[Namespace])}"
+            len(source_urls_by_type[Namespace]) == 5
+        ), f"Expected 5 namespaces (including default), got {len(source_urls_by_type[Namespace])}"
         assert (
             len(source_urls_by_type[Table]) == 5
         ), f"Expected 5 tables, got {len(source_urls_by_type[Table])}"
@@ -991,6 +1033,7 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_1",
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
 
             # Verify that the destination table's data hasn't changed
@@ -1020,6 +1063,7 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_2",
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
 
             # Verify that the source table's data hasn't changed

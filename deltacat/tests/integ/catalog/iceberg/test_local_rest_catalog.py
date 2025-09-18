@@ -163,6 +163,7 @@ def test_create_table(
         schema=SchemaMapper.map(schema),
         partition_scheme=PartitionSchemeMapper.map(partition_spec, schema),
         sort_keys=SortSchemeMapper.map(sort_order, schema),
+        auto_create_namespace=True,
     )
     assert table_definition
     assert table_definition.table.table_name == table_name

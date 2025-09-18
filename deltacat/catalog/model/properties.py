@@ -21,6 +21,8 @@ from deltacat.utils.filesystem import (
     write_file,
 )
 
+from deltacat.exceptions import NamespaceAlreadyExistsError
+
 from deltacat import logs
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -126,7 +128,9 @@ class CatalogProperties:
         storage=None,
     ):
         """
-        Initialize a CatalogProperties instance.
+        Initialize a CatalogProperties instance. For initializers that have write permissions,
+        also runs lightweight, one-time bootstrapping operations against the given catalog
+        root (e.g., default table namespace creation).
 
         Args:
             root: Catalog root directory path. Uses the "DELTACAT_ROOT"
@@ -187,7 +191,9 @@ class CatalogProperties:
         if self._version is None:
             # Try to write the current version file
             version_file_path = posixpath.join(
-                self._root, CATALOG_VERSION_DIR_NAME, current_version.to_filename()
+                self._root,
+                CATALOG_VERSION_DIR_NAME,
+                current_version.to_filename(),
             )
             try:
                 write_file(
@@ -216,6 +222,22 @@ class CatalogProperties:
                 f"Failed to migrate unpartitioned transaction files to partitioned structure: {e}. "
                 f"Catalog initialization aborted to prevent database corruption."
             ) from e
+
+        # Try to create the default namespace
+        try:
+            from deltacat.catalog.main.impl import (
+                create_namespace,
+                default_namespace,
+            )
+
+            default_namespace = default_namespace()
+            create_namespace(default_namespace, inner=self)
+        except NamespaceAlreadyExistsError:
+            logger.info(f"Default namespace {default_namespace} already exists.")
+        except Exception as e:
+            # Some other error occurred - log a warning and continue.
+            # (e.g., the default namespace may not exist, but we may not have write permissions to create it)
+            logger.warning(f"Failed to create default namespace: {e}")
 
     @property
     def root(self) -> str:

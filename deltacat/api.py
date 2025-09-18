@@ -28,6 +28,15 @@ from deltacat.storage import (
     LocalTable,
     Metafile,
 )
+from deltacat.exceptions import (
+    NamespaceAlreadyExistsError,
+    TableAlreadyExistsError,
+    TableVersionAlreadyExistsError,
+    StreamAlreadyExistsError,
+    PartitionAlreadyExistsError,
+    DeltaAlreadyExistsError,
+    ObjectAlreadyExistsError,
+)
 from deltacat.types.media import (
     DatasetType,
     DatastoreType,
@@ -194,12 +203,22 @@ def _copy_objects_in_order(
         Delta: [],
     }
 
+    already_exists_errors_by_type = {
+        Namespace: NamespaceAlreadyExistsError,
+        Table: TableAlreadyExistsError,
+        TableVersion: TableVersionAlreadyExistsError,
+        Stream: StreamAlreadyExistsError,
+        Partition: PartitionAlreadyExistsError,
+        Delta: DeltaAlreadyExistsError,
+    }
+
     for obj in src_objects:
         obj_class = Metafile.get_class(obj.to_serializable())
         ordered_objects_by_type[obj_class].append(obj)
 
     # TODO(pdames): Support copying uncommitted streams/partitions.
     # TODO(pdames): Support parallel/distributed copies.
+    # TODO(pdames): Provide option to overwrite or fail when objects already exist.
     for obj_class, objects in ordered_objects_by_type.items():
         if objects:
             logger.info(f"Copying {len(objects)} {obj_class} objects...")
@@ -213,9 +232,15 @@ def _copy_objects_in_order(
             logger.info(f"Copying object {i+1}/{len(objects)}: {obj.url}")
             dest_url = DeltaCatUrl(obj.url(catalog_name=catalog_name))
             logger.info(f"Destination URL for object {i+1}/{len(objects)}: {dest_url}")
-            result = put(dest_url, metafile=obj)
-            copied_results.append(result)
-            logger.info(f"Successfully copied object {i+1}/{len(objects)}")
+            try:
+                result = put(dest_url, metafile=obj)
+                copied_results.append(result)
+                logger.info(f"Successfully copied object {i+1}/{len(objects)}")
+            except (
+                already_exists_errors_by_type[obj_class],
+                ObjectAlreadyExistsError,
+            ) as e:
+                logger.warning(f"{obj_class.__name__} at {obj.url} already exists: {e}")
     return copied_results[0] if len(copied_results) == 1 else copied_results
 
 

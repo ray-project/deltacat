@@ -27,6 +27,9 @@ from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableVersionAlreadyExistsError,
     ObjectNotFoundError,
+    StreamAlreadyExistsError,
+    PartitionAlreadyExistsError,
+    DeltaAlreadyExistsError,
 )
 from deltacat.storage.model.manifest import (
     EntryParams,
@@ -1210,12 +1213,17 @@ def create_namespace(
     )
 
     # Add the operation to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=namespace,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=namespace,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise NamespaceAlreadyExistsError(
+            f"Namespace {namespace} already exists"
+        ) from e
 
     if commit_transaction:
         transaction.seal()
@@ -1397,26 +1405,41 @@ def create_table_version(
         watermark=None,
     )
     # Add operations to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=table_txn_op_type,
-            dest_metafile=new_table,
-            src_metafile=prev_table,
-        ),
-    )
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=table_version,
-        ),
-    )
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=stream,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=table_txn_op_type,
+                dest_metafile=new_table,
+                src_metafile=prev_table,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise TableAlreadyExistsError(
+            f"Table {namespace}.{table_name} already exists"
+        ) from e
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=table_version,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise TableVersionAlreadyExistsError(
+            f"Table version {namespace}.{table_name}.{table_version} already exists"
+        ) from e
 
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=stream,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise StreamAlreadyExistsError(
+            f"Stream {namespace}.{table_name}.{table_version}.{stream_locator.stream_id} already exists"
+        ) from e
     if commit_transaction:
         transaction.seal()
     return new_table, table_version, stream
@@ -1774,12 +1797,17 @@ def stage_stream(
             )
         stream.previous_stream_id = prev_stream.stream_id
     # Add the operation to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=stream,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=stream,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise StreamAlreadyExistsError(
+            f"Stream {namespace}.{table_name}.{table_version}.{stream.stream_id} already exists"
+        ) from e
 
     if commit_transaction:
         transaction.seal()
@@ -2233,12 +2261,17 @@ def stage_partition(
     partition.previous_partition_id = prev_partition_id
 
     # Add the operation to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=partition,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=partition,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise PartitionAlreadyExistsError(
+            f"Partition {stream.namespace}.{stream.table_name}.{stream.table_version}.{partition.partition_id} already exists"
+        ) from e
 
     if commit_transaction:
         transaction.seal()
@@ -2732,12 +2765,15 @@ def commit_delta(
 
     # Add operations to the transaction
     # the 1st operation creates the delta
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=delta,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=delta,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise DeltaAlreadyExistsError(f"Delta {delta.locator} already exists") from e
     if new_parent_partition:
         # For ordered APPEND deltas,,
         # the 2nd operation alters the latest ordered stream position of the partition

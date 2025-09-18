@@ -1867,12 +1867,13 @@ def create_table(
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
     transaction: Optional[Transaction] = None,
+    auto_create_namespace: bool = False,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table in the catalog.
 
     If a namespace isn't provided, the table will be created within the default deltacat namespace.
-    Additionally if the provided namespace does not exist, it will be created for you.
+    The provided namespace will be created if it doesn't exist and auto_create_namespace is True.
 
     Args:
         table: Name of the table to create.
@@ -1889,6 +1890,7 @@ def create_table(
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
+        auto_create_namespace: If True, creates the namespace if it doesn't exist. Defaults to False.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -1948,13 +1950,16 @@ def create_table(
             )
         else:
             # create the namespace if it doesn't exist
-            if not namespace_exists(namespace, **kwargs):
-                create_namespace(
-                    namespace=namespace,
-                    properties=namespace_properties,
-                    *args,
-                    **kwargs,
-                )
+            if auto_create_namespace:
+                try:
+                    create_namespace(
+                        namespace=namespace,
+                        properties=namespace_properties,
+                        *args,
+                        **kwargs,
+                    )
+                except NamespaceAlreadyExistsError:
+                    logger.info(f"Namespace {namespace} already exists.")
 
             # Set up table version properties for new table
             default_tv_properties = resolved_table_properties

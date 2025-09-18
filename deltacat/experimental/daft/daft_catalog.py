@@ -114,6 +114,7 @@ class DaftCatalog(Catalog):
             version=version,
             schema=deltacat_schema,
             inner=self.dc_catalog.inner,
+            auto_create_namespace=True,
             **kwargs,
         )
 

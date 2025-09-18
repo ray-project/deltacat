@@ -176,13 +176,14 @@ def create_table(
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
+    auto_create_namespace: bool = False,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table in the catalog.
 
     If a namespace isn't provided, the table will be created within the default deltacat namespace.
-    Additionally if the provided namespace does not exist, it will be created for you.
+    The provided namespace will be created if it doesn't exist and auto_create_namespace is True.
 
     Args:
         table: Name of the table to create.
@@ -199,6 +200,7 @@ def create_table(
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
+        auto_create_namespace: If True, creates the namespace if it doesn't exist. Defaults to False.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
