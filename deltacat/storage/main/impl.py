@@ -793,12 +793,11 @@ def get_latest_delta(
     **kwargs,
 ) -> Optional[Delta]:
     """
-    Gets the latest delta (i.e. the delta with the greatest stream position) for
-    the given table version and partition. Table version resolves to the latest
-    active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Partition scheme ID resolves to the
-    table version's current partition scheme by default. Raises an error if the
-    given table version or partition does not exist.
+    Gets the latest ordered delta for the given table version and partition. Table version 
+    resolves to the latest active table version if not specified. Partition values should not be
+    specified for unpartitioned tables. Partition scheme ID resolves to the table version's 
+    current partition scheme by default. Raises an error if the given table version or partition 
+    does not exist. Unordered deltas will not be returned.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
@@ -822,6 +821,15 @@ def get_latest_delta(
         *args,
         **kwargs,
     )
+    if not partition:
+        raise PartitionNotFoundError(
+            f"Failed to find partition for stream {stream.locator} "
+            f"with partition_values={partition_values} and "
+            f"partition_scheme_id={partition_scheme_id}"
+        )
+    if not partition.stream_position:
+        # no ordered deltas in the partition
+        return None
     locator = DeltaLocator.of(
         partition_locator=partition.locator,
         stream_position=partition.stream_position,

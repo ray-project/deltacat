@@ -13,8 +13,8 @@ import yaml
 from deltacat import logs
 from deltacat.catalog.main import impl as dcat
 from deltacat.catalog.model.properties import CatalogProperties
-from deltacat.constants import DEFAULT_CATALOG, DELTACAT_CONFIG_PATH
-from deltacat.utils.config_loader import load_catalog_configs_from_yaml
+from deltacat.constants import DEFAULT_CATALOG
+from deltacat import constants
 
 all_catalogs: Optional[ray.actor.ActorHandle] = None
 
@@ -26,14 +26,15 @@ class Catalog:
         self,
         config: Optional[Union[CatalogProperties, Any]] = None,
         impl: ModuleType = dcat,
+        inner: Optional[CatalogProperties] = None,
         *args,
         **kwargs,
     ):
         """
         Constructor for a Catalog.
 
-        Invokes `impl.initialize(config, *args, **kwargs)` and stores its
-        return value in the `inner` property. This captures all state required
+        If inner is not provided, invokes `impl.initialize(config, *args, **kwargs)` and 
+        stores its return value in the `inner` property. This captures all state required
         to deterministically reconstruct this Catalog instance on any node, and
         must be pickleable by Ray cloudpickle.
         """
@@ -48,7 +49,7 @@ class Catalog:
 
         self._config = config
         self._impl = impl
-        self._inner = self._impl.initialize(config=config, *args, **kwargs)
+        self._inner = inner or self._impl.initialize(config=config, *args, **kwargs)
         self._args = args
         self._kwargs = kwargs
 
@@ -66,11 +67,12 @@ class Catalog:
 
     # support pickle, copy, deepcopy, etc.
     def __reduce__(self):
-        # instantiated catalogs may fail to pickle, so exclude _inner
+        # non-native catalogs may fail to pickle, so exclude _inner
         # (e.g. Iceberg catalog w/ unserializable SSLContext from boto3 client)
         return partial(self.__class__, **self._kwargs), (
             self._config,
             self._impl,
+            self._inner if isinstance(self._inner, CatalogProperties) else None,
             *self._args,
         )
 
@@ -124,6 +126,7 @@ class Catalogs:
             self._default_catalog = list(self._catalogs.values())[0]
         else:
             self._default_catalog = None
+        self.try_dump()
 
     def names(self) -> List[str]:
         return list(self._catalogs.keys())
@@ -132,6 +135,7 @@ class Catalogs:
         self._catalogs[name] = catalog
         if set_default or len(self._catalogs) == 1:
             self._default_catalog = catalog
+        self.try_dump()
 
     def get(self, name) -> Optional[Catalog]:
         return self._catalogs.get(name)
@@ -143,11 +147,22 @@ class Catalogs:
                 self._default_catalog = list(self._catalogs.values())[0]
             else:
                 self._default_catalog = None
+        self.try_dump()
         return catalog
 
     def clear(self) -> None:
         self._catalogs.clear()
         self._default_catalog = None
+        self.try_dump()
+
+    def dump(self, config_path: Optional[str] = None) -> None:
+        dump_catalog_config(self._catalogs, config_path)
+
+    def try_dump(self):
+        try:
+            self.dump()
+        except Exception as e:
+            logger.warning(f"Failed to save catalog config for this session: {e}")
 
     def default(self) -> Optional[Catalog]:
         return self._default_catalog
@@ -186,6 +201,7 @@ def init(
     *,
     force=False,
     config_path: Optional[str] = None,
+    restore_last_session: bool = False,
 ) -> Optional[ray.runtime.BaseContext]:
     """
     Initialize DeltaCAT catalogs.
@@ -198,6 +214,16 @@ def init(
     :param force: Whether to force DeltaCAT reinitialization. If True, reruns
         ray.init(**ray_init_args) and overwrites all previously registered
         catalogs.
+    :param config_path: Catalog config file path. Mutually exclusive with `catalogs`.
+        If provided, catalogs will be loaded from this file. Any catalogs found at
+        this path will take precedence over loading the prior catalogs config
+        if `restore_last_session` is True.
+    :param restore_last_session: Whether to restore the last session's catalogs.
+        If True, catalogs will be loaded from the last session's catalog config file
+        given by the DELTACAT_CONFIG_PATH environment variable
+        (default: "~/.deltacat_config/config.yaml"). This argument is ignored if
+        `config_path` is also provided and at least one catalog is found at the given
+        path.
     :returns: The Ray context object if Ray was initialized, otherwise None.
     """
     global all_catalogs
@@ -212,52 +238,16 @@ def init(
             "Cannot provide both `catalogs` and `config_path`. Please provide "
             "only one of these parameters."
         )
-    # If no catalogs provided but a config_path exists, load configs from file
+    # If no catalogs provided but config_path exists, load catalogs from config
     if not catalogs and config_path is not None:
-        catalogs = load_catalog_configs_from_yaml(config_path=config_path)
+        catalogs = load_catalog_config(config_path=config_path)
 
-    # If neither catalogs nor config_path provided → try default location
-    if not catalogs and config_path is None:
-        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
-        if cfg_path.exists():
-            logger.info(f"Loading catalog configs from default path: {cfg_path}")
-            catalogs = load_catalog_configs_from_yaml(str(cfg_path))
-        else:
-            logger.info(
-                "No catalogs specified and no config file found at default path."
-            )
-
-    # If catalogs provided but no config_path exists, create a config file
-    if catalogs and config_path is None:
-        # Only dump if the catalogs are config-backed
-        try:
-            _dump_catalogs_to_yaml(catalogs)
-        except TypeError:
-            logger.debug(
-                "Skipping dumping catalogs to YAML: non-CatalogProperties inner"
-            )
-
-        # Normalize everything to Dict[str, Catalog] ---
-        if isinstance(catalogs, Catalog):
-            # single Catalog object
-            catalogs = {DEFAULT_CATALOG: catalogs}
-        elif isinstance(catalogs, dict):
-            normalized = {}
-            for name, obj in catalogs.items():
-                if isinstance(obj, Catalog):
-                    normalized[name] = obj
-                elif isinstance(obj, CatalogProperties):
-                    # Wrap in a Catalog
-                    normalized[name] = Catalog(config=obj)
-                else:
-                    raise TypeError(
-                        f"Unsupported object type in catalogs dict: {type(obj)}"
-                    )
-            catalogs = normalized
-        else:
-            raise TypeError(
-                f"Expected a Catalog or dict[str, Catalog|CatalogProperties], but got {type(catalogs)}"
-            )
+    # If no catalogs resolved and restore_last_session is True, load last session's catalogs
+    if not catalogs and restore_last_session:
+        logger.info(
+            f"Loading last session's catalog config from: {constants.DELTACAT_CONFIG_PATH}"
+        )
+        catalogs = load_catalog_config(constants.DELTACAT_CONFIG_PATH)
 
     # initialize ray (and ignore reinitialization errors)
     ray_init_args["ignore_reinit_error"] = True
@@ -268,9 +258,8 @@ def init(
     ray.util.register_serializer(
         Catalog, serializer=Catalog.__reduce__, deserializer=Catalog.__init__
     )
-    # TODO(pdames): If no catalogs are provided then re-initialize DeltaCAT
-    #  with all catalogs from the last session
     all_catalogs = Catalogs.remote(catalogs=catalogs, default=default)
+
     return context
 
 
@@ -284,7 +273,7 @@ def init_local(
     Initialize DeltaCAT with a default local catalog.
 
     This is a convenience function that creates a default catalog for local usage.
-    Equivalent to calling init(catalogs={"default": Catalog()}).
+    Equivalent to calling init(catalogs={DEFAULT_CATALOG: Catalog()}).
 
     :param path: Optional path for catalog root directory. If not provided, uses
         the default behavior of CatalogProperties (DELTACAT_ROOT env var or
@@ -299,8 +288,8 @@ def init_local(
 
     config = CatalogProperties(root=path) if path is not None else None
     return init(
-        catalogs={"default": Catalog(config=config)},
-        default="default",
+        catalogs={DEFAULT_CATALOG: Catalog(config=config)},
+        default=DEFAULT_CATALOG,
         ray_init_args=ray_init_args,
         force=force,
     )
@@ -348,6 +337,7 @@ def clear_catalogs() -> None:
     """
     Clear all catalogs from the global map of named catalogs.
     """
+    global all_catalogs
     if all_catalogs:
         ray.get(all_catalogs.clear.remote())
 
@@ -368,28 +358,6 @@ def pop_catalog(name: str) -> Optional[Catalog]:
 
     # Remove from in-memory actor
     catalog = ray.get(all_catalogs.pop.remote(name))
-
-    # --- Persist removal to disk ---
-    try:
-        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
-        if cfg_path.exists() and cfg_path.stat().st_size > 0:  # empty file check
-            try:
-                # Load existing config
-                loaded = load_catalog_configs_from_yaml(str(cfg_path))
-                # Wrap into Catalog so _dump_catalogs_to_yaml works uniformly
-                existing_catalogs = {
-                    n: Catalog(config=props) for n, props in loaded.items()
-                }
-                if name in existing_catalogs:
-                    del existing_catalogs[name]
-
-                    # Now write full merged dictionary back to disk
-                    _dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
-            except Exception as e:
-                logger.warning(f"Failed to update catalog config file after pop: {e}")
-    except Exception as e:
-        logger.warning(f"Failed to persist catalog removal {name} to config file: {e}")
-
     return catalog
 
 
@@ -458,88 +426,74 @@ def put_catalog(
         # Register in memory
         ray.get(all_catalogs.put.remote(name, catalog, default))
 
-    # --- Persist to disk (merge behavior) ---
-    try:
-        cfg_path = Path(DELTACAT_CONFIG_PATH).expanduser()
-        existing_catalogs = {}
-
-        if cfg_path.exists() and cfg_path.stat().st_size > 0:  # empty file check
-            try:
-                loaded = load_catalog_configs_from_yaml(str(cfg_path))
-                # Wrap into Catalog so dump_catalogs_to_yaml can handle uniformly
-                existing_catalogs = {
-                    n: Catalog(config=props) for n, props in loaded.items()
-                }
-            except Exception as e:
-                logger.warning(f"Failed to load existing catalog config file: {e}")
-
-        # Merge / overwrite with the new catalog
-        existing_catalogs[name] = catalog
-
-        # Now write back full merged dictionary
-        _dump_catalogs_to_yaml(existing_catalogs, single_if_default=False)
-
-    except Exception as e:
-        logger.warning(f"Failed to persist catalog {name} to config file: {e}")
-
     return catalog
 
 
-def _dump_catalogs_to_yaml(
-    catalogs: Union[
-        Dict[str, Union["Catalog", CatalogProperties]],
-        "Catalog",
-        CatalogProperties,
-    ],
-    *,
-    single_if_default: bool = True,
+def save_catalogs(config_path: Optional[str] = None) -> None:
+    """
+    Save the current catalogs to the file at the given config_path. If config_path
+    is not provided, uses the DELTACAT_CONFIG_PATH environment variable
+    (default: "~/.deltacat_config/config.yaml").
+    """
+    if all_catalogs:
+        ray.get(all_catalogs.dump.remote(config_path))
+
+
+def load_catalog_config(config_path: str) -> Dict[str, Catalog]:
+    """
+    Load one or more catalog configs from a catalog config YAML file.
+
+    Args:
+        config_path: Path to the catalog config YAML file.
+
+    Returns:
+        Dict[str, CatalogProperties]: Mapping of Catalog name -> CatalogProperties.
+    """
+    config_path = Path(config_path).expanduser()
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Failed to restore last session. No catalog config found at: {config_path}",
+        )
+    with open(config_path, "r") as f:
+        config_data = yaml.safe_load(f) or {}
+
+    if not isinstance(config_data, dict):
+        raise ValueError(
+            f"Invalid catalog config at '{config_path}'. "
+            f"Expected a YAML dictionary, but found: {type(config_data)}"
+        )
+    return {
+        name: Catalog(CatalogProperties.from_serializable(props))
+        for name, props in config_data.items()
+    }
+
+
+def dump_catalog_config(
+    catalogs: Dict[str, Catalog],
+    config_path: Optional[str] = None,
 ) -> None:
     """
-    Write Catalog configs (Catalogs or CatalogProperties) to YAML.
-
-    Supports:
-        - Dict[str, Catalog]
-        - Dict[str, CatalogProperties]
-        - single Catalog
-        - single CatalogProperties
-
-    Always normalizes to {name: dict-of-primitive-keys}
+    Write the given Catalog dictionary to a YAML file at the given config_path.
+    If config_path is not provided, uses DELTACAT_CONFIG_PATH.
     """
 
     # Normalize inputs into { str: CatalogProperties }
-    if isinstance(catalogs, Catalog):
-        catalogs = {"default": catalogs.inner}
-    elif isinstance(catalogs, CatalogProperties):
-        catalogs = {"default": catalogs}
-    elif isinstance(catalogs, dict):
-        normalized: Dict[str, CatalogProperties] = {}
-        for name, obj in catalogs.items():
-            if isinstance(obj, Catalog):
-                if not isinstance(obj.inner, CatalogProperties):
-                    raise TypeError(
-                        f"Catalog.inner must be CatalogProperties for dumping, "
-                        f"got {type(obj.inner)}"
-                    )
-                normalized[name] = obj.inner
-            elif isinstance(obj, CatalogProperties):
-                normalized[name] = obj
-            else:
-                raise TypeError(f"Unsupported catalog type: {type(obj)}")
-        catalogs = normalized
-    else:
-        raise TypeError(f"Unsupported catalogs type: {type(catalogs)}")
+    catalog_properties: Dict[str, CatalogProperties] = {}
+    for name, obj in catalogs.items():
+        if isinstance(obj, Catalog):
+            if not isinstance(obj.inner, CatalogProperties):
+                raise TypeError(
+                    f"Expected CatalogProperties but found: {type(obj.inner)} "
+                )
+            catalog_properties[name] = obj.inner
+        else:
+            raise TypeError(f"Expected Catalog but found: {type(obj)}")
 
-    # Serialize all values to primitive dicts
-    if single_if_default and set(catalogs.keys()) == {"default"}:
-        data = CatalogProperties.ensure_serializable(catalogs["default"])
-    else:
-        data = {
-            name: CatalogProperties.ensure_serializable(props)
-            for name, props in catalogs.items()
-        }
+    # Serialize all values to primitive dictionaries.
+    data = {name: props.to_serializable() for name, props in catalog_properties.items()}
 
     # Write out to YAML
-    config_path = Path(DELTACAT_CONFIG_PATH).expanduser()
+    config_path = Path(config_path or constants.DELTACAT_CONFIG_PATH).expanduser()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w") as f:
         yaml.safe_dump(data, f, sort_keys=False)

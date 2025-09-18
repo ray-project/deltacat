@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Any, Union, Dict
+from typing import Optional, Any, Dict
 import urllib.parse
 import time
 import posixpath
@@ -300,79 +300,22 @@ class CatalogProperties:
         suitable for dumping to YAML or JSON.
 
         Returns:
-            dict of primitive config values.
+            A dictionary of properties that can be used to reconstruct this
+            CatalogProperties instance via CatalogProperties.from_serializable().
         """
-        return {
-            "root": getattr(self, "root", None),
-            # Non-serializable fields -> we serialize as None for now.
-            "filesystem": None,
-            "storage": None,
-        }
+        return {"root": self.root}
 
     @staticmethod
-    def ensure_serializable(
-        obj: Union["CatalogProperties", Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def from_serializable(config: Dict[str, Any]) -> CatalogProperties:
         """
-        Helper: normalize a CatalogProperties or dict-like (e.g. mock configs)
-        into a serializable dictionary. This allows tests/mocks to supply dicts
-        instead of CatalogProperties.
-        """
-        if isinstance(obj, CatalogProperties):
-            return obj.to_serializable()
-        elif isinstance(obj, dict):
-            # Assume dict is already serializable
-            return obj
-        else:
-            raise TypeError(
-                f"Unsupported type for serialization: {type(obj)}. "
-                f"Expected CatalogProperties or dict."
-            )
-
-    @staticmethod
-    def from_serializable(config: Union[Dict[str, Any], None]) -> "CatalogProperties":
-        """
-        Deserialize a config (from YAML, dict, etc.) into a CatalogProperties.
-
-        This method can handle:
-          1. A full dict-of-properties (root, filesystem, storage)
-          2. A 'primitive-only' dict (Case 1 from YAML) — still allowed
+        Deserialize a config dictionary into CatalogProperties.
 
         Args:
-            config: A mapping of properties.
+            config: A dictionary of properties from CatalogProperties.to_serializable().
 
         Returns:
             A CatalogProperties instance.
-
-        Raises:
-            ValueError: For invalid input types or malformed configs.
         """
-        if config is None:
-            raise ValueError("Cannot construct CatalogProperties from None")
-
-        if not isinstance(config, dict):
-            raise ValueError(
-                f"Expected dict for CatalogProperties deserialization, "
-                f"got {type(config)}"
-            )
-
-        # Validation: all values must be serializable primitives or lists
-        if all(
-            isinstance(v, (str, int, float, bool, type(None), list))
-            for v in config.values()
-        ):
-            # Accept it directly
-            return CatalogProperties(**config)
-
-        # Otherwise, assume it’s a property mapping { key -> value }
-        expected_keys = {"root", "filesystem", "storage"}
-        for key in config:
-            if key not in expected_keys:
-                raise ValueError(
-                    f"Unrecognized CatalogProperties key '{key}'. "
-                    f"Expected one of {expected_keys}"
-                )
-
         return CatalogProperties(**config)
 
     def __str__(self):

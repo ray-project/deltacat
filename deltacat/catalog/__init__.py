@@ -28,10 +28,12 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     pop_catalog,
     put_catalog,
     raise_if_not_initialized,
+    save_catalogs,
     Catalog,
 )
 from deltacat.catalog.model.properties import (  # noqa: F401
     CatalogProperties,
+    CatalogVersion,
     get_catalog_properties,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -66,8 +68,10 @@ __all__ = [
     "pop_catalog",
     "put_catalog",
     "raise_if_not_initialized",
+    "save_catalogs",
     "dcat",
     "Catalog",
     "CatalogProperties",
+    "CatalogVersion",
     "TableDefinition",
 ]

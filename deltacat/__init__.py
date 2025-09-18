@@ -43,6 +43,7 @@ from deltacat.catalog import (  # noqa: F401
     raise_if_not_initialized,
     Catalog,
     CatalogProperties,
+    CatalogVersion,
     TableDefinition,
 )
 from deltacat.compute import (
@@ -164,6 +165,7 @@ __all__ = [
     "get_catalog_properties",
     "pop_catalog",
     "put_catalog",
+    "save_catalogs",
     "raise_if_not_initialized",
     "dataset_length",
     "dataset_size",
@@ -179,6 +181,7 @@ __all__ = [
     "BucketTransformParameters",
     "Catalog",
     "CatalogProperties",
+    "CatalogVersion",
     "ContentType",
     "ContentEncoding",
     "Dataset",
