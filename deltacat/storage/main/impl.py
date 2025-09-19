@@ -113,6 +113,7 @@ from deltacat.types.tables import (
     download_manifest_entries,
     download_manifest_entries_distributed,
     download_manifest_entry,
+    reconstruct_manifest_entry_url,
 )
 from deltacat import logs
 
@@ -555,6 +556,13 @@ def list_deltas(
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
 
+    if first_stream_position is not None and last_stream_position is not None:
+        if first_stream_position > last_stream_position:
+            raise ValueError(
+                f"first_stream_position must be less than or equal to last_stream_position. "
+                f"first_stream_position: {first_stream_position}, last_stream_position: {last_stream_position}"
+            )
+
     # First get the stream to resolve proper table version and stream locator
     stream = get_stream(
         namespace=namespace,
@@ -586,7 +594,6 @@ def list_deltas(
             f"with partition_values={partition_values} and "
             f"partition_scheme_id={partition_scheme_id}"
         )
-
     # Use the actual partition locator (with partition ID) for listing deltas
     locator = DeltaLocator.of(partition_locator=partition.locator)
     delta = Delta.of(
@@ -624,7 +631,40 @@ def list_deltas(
 
     if commit_transaction:
         transaction.seal()
-    return filtered_deltas
+
+    return ListResult.of(
+        items=filtered_deltas,
+        pagination_key=None,
+        next_page_provider=None,
+    )
+
+
+def _get_partition_delta(
+    partition_like: Union[Partition, PartitionLocator],
+    stream_position: int,
+    *args,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
+) -> Delta:
+    locator = DeltaLocator.of(
+        partition_locator=partition_like
+        if isinstance(partition_like, PartitionLocator)
+        else partition_like.locator,
+        stream_position=stream_position,
+    )
+    delta = Delta.of(
+        locator=locator,
+        delta_type=None,
+        meta=None,
+        properties=None,
+        manifest=None,
+    )
+    return _latest(
+        metafile=delta,
+        transaction=transaction,
+        *args,
+        **kwargs,
+    )
 
 
 def list_partition_deltas(
@@ -648,6 +688,12 @@ def list_partition_deltas(
     #  positions, or should traverse using Partition.stream_position (to
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
+    if first_stream_position is not None and last_stream_position is not None:
+        if first_stream_position > last_stream_position:
+            raise ValueError(
+                f"first_stream_position must be less than or equal to last_stream_position. "
+                f"first_stream_position: {first_stream_position}, last_stream_position: {last_stream_position}"
+            )
     locator = DeltaLocator.of(
         partition_locator=partition_like
         if isinstance(partition_like, PartitionLocator)
@@ -753,19 +799,9 @@ def get_delta(
         )
 
     # Use the actual partition locator (with partition ID) for getting the delta
-    locator = DeltaLocator.of(
-        partition_locator=partition.locator,
-        stream_position=stream_position,
-    )
-    delta = Delta.of(
-        locator=locator,
-        delta_type=None,
-        meta=None,
-        properties=None,
-        manifest=None,
-    )
-    result = _latest(
-        metafile=delta,
+    result = _get_partition_delta(
+        partition.locator,
+        stream_position,
         transaction=transaction,
         *args,
         **kwargs,
@@ -793,10 +829,10 @@ def get_latest_delta(
     **kwargs,
 ) -> Optional[Delta]:
     """
-    Gets the latest ordered delta for the given table version and partition. Table version 
+    Gets the latest ordered delta for the given table version and partition. Table version
     resolves to the latest active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Partition scheme ID resolves to the table version's 
-    current partition scheme by default. Raises an error if the given table version or partition 
+    specified for unpartitioned tables. Partition scheme ID resolves to the table version's
+    current partition scheme by default. Raises an error if the given table version or partition
     does not exist. Unordered deltas will not be returned.
 
     To conserve memory, the delta returned does not include a manifest by
@@ -813,6 +849,12 @@ def get_latest_delta(
         *args,
         **kwargs,
     )
+    if not stream:
+        raise StreamNotFoundError(
+            f"Failed to find stream for "
+            f"`{namespace}.{table_name}` at table version "
+            f"`{table_version or 'latest'}`."
+        )
     partition = get_partition(
         stream_locator=stream.locator,
         partition_values=partition_values,
@@ -827,31 +869,21 @@ def get_latest_delta(
             f"with partition_values={partition_values} and "
             f"partition_scheme_id={partition_scheme_id}"
         )
-    if not partition.stream_position:
+    if partition.stream_position:
+        result = _get_partition_delta(
+            partition.locator,
+            partition.stream_position,
+            transaction=transaction,
+            *args,
+            **kwargs,
+        )
+        # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
+        #   the point is to also avoid even downloading the manifest if it's not needed.
+        if result and not include_manifest:
+            result.manifest = None
+    else:
         # no ordered deltas in the partition
-        return None
-    locator = DeltaLocator.of(
-        partition_locator=partition.locator,
-        stream_position=partition.stream_position,
-    )
-    delta = Delta.of(
-        locator=locator,
-        delta_type=None,
-        meta=None,
-        properties=None,
-        manifest=None,
-    )
-    result = _latest(
-        metafile=delta,
-        transaction=transaction,
-        *args,
-        **kwargs,
-    )
-
-    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
-    #   the point is to avoid loading the manifest into memory if it's not needed.
-    if result and not include_manifest:
-        result.manifest = None
+        result = None
 
     if commit_transaction:
         transaction.seal()
@@ -1152,7 +1184,7 @@ def download_delta_manifest_entry(
     )
     catalog_properties = get_catalog_properties(**kwargs)
     manifest_entry = _download_manifest_entry(
-        manifest.entries[entry_index],
+        reconstruct_manifest_entry_url(manifest.entries[entry_index], **kwargs),
         table_type,
         all_column_names,
         columns,
@@ -2566,6 +2598,8 @@ def _write_table_slices(
         partition_id,
     )
     filesystem.create_dir(data_dir_path, recursive=True)
+    # Add catalog properties to table writer kwargs for manifest path relativization
+    table_writer_kwargs["catalog_properties"] = catalog_properties
     for t in tables:
         manifest_entries.extend(
             write_sliced_table(
@@ -2658,7 +2692,9 @@ def stage_delta(
         raise TableValidationError(
             f"Cannot stage delta to {partition.state} partition: {partition}",
         )
-    previous_stream_position: Optional[int] = partition.stream_position
+    previous_stream_position: Optional[int] = (
+        partition.stream_position if delta_type != DeltaType.ADD else None
+    )
 
     # Handle schema parameter and add to table_writer_kwargs if available
     table_writer_kwargs = table_writer_kwargs or {}

@@ -1222,10 +1222,11 @@ def write_table(
             content_encoding=content_encoding,
         )
 
-    # Extract schema, schema_id, and sort_scheme_id from table_writer_kwargs
+    # Extract schema, schema_id, sort_scheme_id, and catalog_properties from table_writer_kwargs
     schema = table_writer_kwargs.pop("schema", None)
     schema_id = table_writer_kwargs.pop("schema_id", None)
     sort_scheme_id = table_writer_kwargs.pop("sort_scheme_id", None)
+    catalog_properties = table_writer_kwargs.pop("catalog_properties", None)
 
     table_writer_fn(
         table,
@@ -1266,6 +1267,7 @@ def write_table(
                 entry_params=entry_params,
                 schema_id=schema_id,
                 sort_scheme_id=sort_scheme_id,
+                catalog_root=catalog_properties.root,
             )
             manifest_entries.append(manifest_entry)
         except RETRYABLE_TRANSIENT_ERRORS as e:
@@ -1498,7 +1500,7 @@ def get_block_metadata(
     )
 
 
-def _reconstruct_manifest_entry_uri(
+def reconstruct_manifest_entry_url(
     manifest_entry: ManifestEntry,
     **kwargs,
 ) -> ManifestEntry:
@@ -1519,12 +1521,13 @@ def _reconstruct_manifest_entry_uri(
     catalog_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
     catalog_properties = get_catalog_properties(**catalog_kwargs)
 
-    original_uri = manifest_entry.uri
-    reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
-    if original_uri != reconstructed_uri:
+    original_url = manifest_entry.url
+    reconstructed_url = catalog_properties.reconstruct_full_path(original_url)
+    if original_url != reconstructed_url:
         # Create a copy of the manifest entry with the reconstructed URI
         reconstructed_entry = ManifestEntry(
-            uri=reconstructed_uri, url=manifest_entry.url, meta=manifest_entry.meta
+            url=reconstructed_url,
+            meta=manifest_entry.meta,
         )
         return reconstructed_entry
     return manifest_entry
@@ -1755,7 +1758,7 @@ def _handle_non_retryable_error(
 
 def from_manifest_table(
     manifest_table: Union[LocalDataset, DistributedDataset],
-    dataset_type: DatasetType = DatasetType.DAFT,
+    read_as: DatasetType = DatasetType.DAFT,
     schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> Dataset:
@@ -1767,7 +1770,7 @@ def from_manifest_table(
 
     Args:
         manifest_table: Dataset containing manifest entries with file paths and metadata
-        dataset_type: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
         schema: Optional PyArrow schema to enforce consistent column names across formats
         **kwargs: Additional arguments forwarded to download functions
 
@@ -1806,16 +1809,16 @@ def from_manifest_table(
         kwargs["table_version_schema"] = schema
 
     # Choose the appropriate download function based on dataset type
-    if dataset_type in DatasetType.distributed():
+    if read_as in DatasetType.distributed():
         # Use distributed download function
         # Map DatasetType to DistributedDatasetType
         distributed_type_map = {
             DatasetType.DAFT: DistributedDatasetType.DAFT,
             DatasetType.RAY_DATASET: DistributedDatasetType.RAY_DATASET,
         }
-        distributed_dataset_type = distributed_type_map.get(dataset_type)
+        distributed_dataset_type = distributed_type_map.get(read_as)
         if distributed_dataset_type is None:
-            raise ValueError(f"Unsupported distributed dataset type: {dataset_type}")
+            raise ValueError(f"Unsupported distributed dataset type: {read_as}")
 
         return download_manifest_entries_distributed(
             manifest=reconstructed_manifest,
@@ -1826,7 +1829,7 @@ def from_manifest_table(
         # Use local download function
         return download_manifest_entries(
             manifest=reconstructed_manifest,
-            table_type=dataset_type,
+            table_type=read_as,
             **kwargs,
         )
 
@@ -1914,7 +1917,7 @@ def _download_manifest_entries(
     )
     result = []
     for e in manifest.entries:
-        manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
+        manifest_entry = reconstruct_manifest_entry_url(e, **kwargs)
         result.append(
             download_manifest_entry(manifest_entry=manifest_entry, **download_args)
         )
@@ -2318,7 +2321,7 @@ def _download_manifest_entries_parallel(
 
     entries_to_process = []
     for e in manifest.entries:
-        manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
+        manifest_entry = reconstruct_manifest_entry_url(e, **kwargs)
         entries_to_process.append(manifest_entry)
 
     tables = []

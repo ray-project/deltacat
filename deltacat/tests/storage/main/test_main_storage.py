@@ -5738,7 +5738,7 @@ class TestDelta:
             table_name="test_table",
             # table_version=None,  # Not specified - should infer latest active
             catalog=self.catalog,
-        )
+        ).all_items()
 
         # Verify deltas were listed correctly
         assert len(deltas) == 2, f"Expected 2 deltas, got {len(deltas)}"

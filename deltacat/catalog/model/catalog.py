@@ -33,8 +33,8 @@ class Catalog:
         """
         Constructor for a Catalog.
 
-        If inner is not provided, invokes `impl.initialize(config, *args, **kwargs)` and 
-        stores its return value in the `inner` property. This captures all state required
+        If inner is not provided, invokes `impl.initialize(config, *args, **kwargs)` and
+        stores its return value in the `inner` property. This captures all state requirem
         to deterministically reconstruct this Catalog instance on any node, and
         must be pickleable by Ray cloudpickle.
         """

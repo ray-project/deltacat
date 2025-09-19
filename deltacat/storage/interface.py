@@ -191,10 +191,10 @@ def get_latest_delta(
     **kwargs,
 ) -> Optional[Delta]:
     """
-    Gets the latest ordered delta for the given table version and partition. Table version 
+    Gets the latest ordered delta for the given table version and partition. Table version
     resolves to the latest active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Partition scheme ID resolves to the table version's 
-    current partition scheme by default. Raises an error if the given table version or partition 
+    specified for unpartitioned tables. Partition scheme ID resolves to the table version's
+    current partition scheme by default. Raises an error if the given table version or partition
     does not exist. Unordered deltas will not be returned.
 
     To conserve memory, the delta returned does not include a manifest by

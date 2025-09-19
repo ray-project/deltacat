@@ -211,8 +211,15 @@ data = pd.DataFrame({
     "age": [3, 7]
 })
 
+# Derive a DeltaCAT schema for the data.
+schema = dc.Schema.of(dc.dataset_schema(data))
+
+# Create an empty table to hold ordered user data.
+if not dc.table_exists("users_ordered"):
+    dc.create_table("users_ordered", schema=schema)
+
 # Write the first ordered delta to the table.
-dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+dc.write(data, "users_ordered", mode=dc.TableWriteMode.APPEND)
 
 # Write the second ordered delta to the table.
 data = pd.DataFrame({
@@ -221,7 +228,7 @@ data = pd.DataFrame({
     "age": [2, 12],
     "city": ["Hollywood", "Gloucester"]
 })
-dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+dc.write(data, "users_ordered", mode=dc.TableWriteMode.APPEND)
 
 # Write the third ordered delta to the table.
 data = pd.DataFrame({
@@ -230,15 +237,65 @@ data = pd.DataFrame({
     "age": [12, 4],
     "city": ["San Francisco", "San Francisco"]
 })
-dc.write(data, "users", mode=dc.TableWriteMode.APPEND)
+dc.write(data, "users_ordered", mode=dc.TableWriteMode.APPEND)
 
 # Read the data back as a Pandas DataFrame, and ensure that the
 # order of the records returned matches the order they were written.
-pandas_df = dc.read("users", read_as=dc.DatasetType.PANDAS)
+pandas_df = dc.read("users_ordered", read_as=dc.DatasetType.PANDAS)
 print(pandas_df)
 ```
 
 </details>
+
+<details>
+
+<summary><span style="font-size: 1.25em; font-weight: bold;">Schemaless Tables</span></summary>
+Tables created automatically via `dc.write` have a schema inferred from the data written by default. However, if you create an empty table without providing a schema, it defaults to schemaless. Writes to schemaless tables are more efficient and flexible, since they simply track the location and basic metadata associated with the data files written to the table. However, if you know that a unified schema can be derived for your schemaless data, then you can you can still read it back as a structured dataset:
+
+```python
+import deltacat as dc
+import pandas as pd
+
+# Initialize DeltaCAT with a default local catalog.
+# Ray will be initialized automatically.
+# Catalog files will be stored in .deltacat/ in the current working directory.
+dc.init_local()
+
+# Create data to write.
+data = pd.DataFrame({
+    "id": [1, 2],
+    "name": ["Cheshire", "Dinah"],
+    "age": [3, 7]
+})
+
+# Create an empty schemaless table to hold ordered user data.
+if not dc.table_exists("users_schemaless"):
+    dc.create_table("users_schemaless")
+
+# Write the first ordered delta to the table.
+dc.write(data, "users_schemaless", mode=dc.TableWriteMode.APPEND)
+
+# Write the second ordered delta to the table.
+data = pd.DataFrame({
+    "id": [3, 4],
+    "name": ["Felix", "Tom"],
+    "age": [2, 12],
+    "city": ["Hollywood", "Gloucester"]
+})
+dc.write(data, "users_schemaless", mode=dc.TableWriteMode.APPEND)
+
+# Read back the file manifest of the schemaless table.
+# Notice that file paths, sizes, etc. are returned instead of the dataframes written.
+manifest_df = dc.read("users_schemaless", read_as=dc.DatasetType.PANDAS)
+print(manifest_df)
+
+# Use from_manifest_table to convert the manifest table to a structured dataset.
+structured_daft_df = dc.from_manifest_table(manifest_df)
+structured_daft_df.show()
+```
+
+</details>
+
 
 <details>
 

@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
+from deltacat.storage.model.delta import Delta
 from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
@@ -53,7 +54,7 @@ def write_to_table(
     content_type: ContentType = ContentType.PARQUET,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
 
@@ -75,6 +76,9 @@ def write_to_table(
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
+
+    Returns:
+        List of deltas written to the table (typically one delta per touched partition).
     """
     raise NotImplementedError("write_to_table not implemented")
 

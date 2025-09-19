@@ -6,7 +6,6 @@ import time
 import uuid
 import logging
 import posixpath
-from pathlib import PosixPath
 import threading
 import contextvars
 from collections import defaultdict
@@ -60,6 +59,7 @@ from deltacat.utils.filesystem import (
     write_file_partitioned,
     epoch_timestamp_partition_transform,
     parse_epoch_timestamp_partitions,
+    absolute_path_to_relative,
 )
 from deltacat import logs
 
@@ -1196,28 +1196,7 @@ class Transaction(dict):
 
     @staticmethod
     def _abs_txn_meta_path_to_relative(root: str, target: str) -> str:
-        """
-        Takes an absolute root directory path and target absolute path to
-        relativize with respect to the root directory. Returns the target
-        path relative to the root directory path. Raises an error if the
-        target path is not contained in the given root directory path, if
-        either path is not an absolute path, or if the target path is equal
-        to the root directory path.
-        """
-        root_path = PosixPath(root)
-        target_path = PosixPath(target)
-        # TODO (martinezdavid): Check why is_absolute() fails for certain Delta paths
-        # if not root_path.is_absolute() or not target_path.is_absolute():
-        #     raise ValueError("Both root and target must be absolute paths.")
-        if root_path == target_path:
-            raise ValueError(
-                "Target and root are identical, but expected target to be a child of root."
-            )
-        try:
-            relative_path = target_path.relative_to(root_path)
-        except ValueError:
-            raise ValueError("Expected target to be a child of root.")
-        return str(relative_path)
+        return absolute_path_to_relative(root, target)
 
     def relativize_operation_paths(
         self, operation: TransactionOperation, catalog_root: str

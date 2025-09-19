@@ -23,7 +23,10 @@ import json
 import pyarrow as pa
 import posixpath
 
-from deltacat.utils.filesystem import get_file_info
+from deltacat.utils.filesystem import (
+    get_file_info,
+    absolute_path_to_relative,
+)
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
@@ -413,9 +416,9 @@ class ManifestEntry(dict):
         if (uri and url) and (uri != url):
             raise ValueError(f"Manifest entry URI ({uri}) != URL ({url})")
         if url:
-            manifest_entry["url"] = manifest_entry["uri"] = url
+            manifest_entry["url"] = url
         elif uri:
-            manifest_entry["url"] = manifest_entry["uri"] = uri
+            manifest_entry["uri"] = uri
         if meta is not None:
             manifest_entry["meta"] = meta
         if mandatory is not None:
@@ -477,6 +480,7 @@ class ManifestEntry(dict):
         entry_params: Optional[EntryParams] = None,
         schema_id: Optional[int] = None,
         sort_scheme_id: Optional[str] = None,
+        catalog_root: Optional[str] = None,
     ) -> ManifestEntry:
         """
         Creates a manifest entry from a path using a pyarrow filesystem.
@@ -495,15 +499,20 @@ class ManifestEntry(dict):
             content_type_parameters: Optional content type parameters.
             entry_type: Optional entry type of this manifest entry. Defaults to DATA.
             entry_params: Optional entry type parameters.
-            schema_id: Schema ID used to write this manifest entry.
-            sort_scheme_id: Sort scheme ID used to write this manifest entry.
-
+            schema_id: Optional schema ID used to write this manifest entry.
+            sort_scheme_id: Optional sort scheme ID used to write this manifest entry.
+            catalog_root: Optional catalog root used to write this manifest entry. If
+                provided, the path will be relativized to the catalog root.
         Returns:
             A ManifestEntry instance
         """
         file_info = get_file_info(path, filesystem)
         if file_info.type != pa.fs.FileType.File:
             raise FileNotFoundError(f"Path does not point to a file: {path}")
+
+        # Relativize path to catalog root
+        if catalog_root:
+            path = absolute_path_to_relative(catalog_root, path)
 
         # Extract extensions from right to left
         # First split will get potential encoding extension
@@ -575,11 +584,11 @@ class ManifestEntry(dict):
 
     @property
     def uri(self) -> Optional[str]:
-        return self.get("uri")
+        return self.get("uri") or self.get("url")
 
     @property
     def url(self) -> Optional[str]:
-        return self.get("url")
+        return self.get("url") or self.get("uri")
 
     @property
     def meta(self) -> Optional[ManifestMeta]:

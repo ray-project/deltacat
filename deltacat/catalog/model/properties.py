@@ -281,18 +281,24 @@ class CatalogProperties:
         if urllib.parse.urlparse(path).scheme:
             return path
 
-        # If we don't have an original scheme (local filesystem), return as-is
-        if not self._original_scheme:
+        # If we don't have an original root, return as-is
+        if not self._original_root:
+            logger.warning(
+                f"No original catalog root found, returning path '{path}' as-is"
+            )
             return path
 
         # Reconstruct the full path with the original scheme
         # Handle both absolute and relative paths
-        if path.startswith("/"):
+        if posixpath.isabs(path):
             # Absolute path - this shouldn't happen normally but handle it
-            return f"{self._original_scheme}:/{path}"
+            if self._original_scheme:
+                return f"{self._original_scheme}:/{path}"
+            else:
+                return path
         else:
-            # Relative path - prepend the s3:// scheme
-            return f"{self._original_scheme}://{path}"
+            # Relative path - prepend the original root (e.g., s3://deltacat/root)
+            return posixpath.join(self._original_root, path)
 
     def to_serializable(self) -> Dict[str, Any]:
         """

@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from deltacat.catalog.model.catalog import get_catalog
 from deltacat.catalog.model.table_definition import TableDefinition
+from deltacat.storage.model.delta import Delta
 from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
@@ -44,7 +45,7 @@ def write_to_table(
     transaction: Optional[Transaction] = None,
     catalog: Optional[str] = None,
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
 
@@ -66,13 +67,16 @@ def write_to_table(
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
+
+    Returns:
+        List of deltas written to the table (typically one delta per touched partition).
     """
     if (transaction or get_current_transaction()) and catalog:
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
     catalog_obj = get_catalog(catalog)
-    catalog_obj.impl.write_to_table(
+    return catalog_obj.impl.write_to_table(
         data,
         table,
         *args,

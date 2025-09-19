@@ -583,7 +583,7 @@ class TestReadTableMain:
             {"pk": [1, 2, 3, 4, 5, 6], "value": ["a", "b", "c", "d", "e", "f"]}
         )
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=test_data,
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
@@ -591,6 +591,8 @@ class TestReadTableMain:
             mode=TableWriteMode.CREATE,
             auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 1
 
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
@@ -619,7 +621,7 @@ class TestReadTableMain:
             {"pk": [1, 2, 3, 4, 5, 6], "value": ["a", "b", "c", "d", "e", "f"]}
         )
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=test_data,
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
@@ -627,13 +629,15 @@ class TestReadTableMain:
             mode=TableWriteMode.CREATE,
             auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 1
 
         # Add more data to test multiple deltas functionality
         additional_data = pa.table(
             {"pk": [7, 8, 9, 10, 11, 12], "value": ["g", "h", "i", "j", "k", "l"]}
         )
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=additional_data,
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
@@ -641,6 +645,8 @@ class TestReadTableMain:
             mode=TableWriteMode.APPEND,
             auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 2
 
         # action
         df = dc.read_table(
@@ -814,7 +820,7 @@ class TestCopyOnWrite:
         # Step 2: Write initial data using MERGE mode (creates UPSERT delta)
         initial_data = self._create_initial_data()
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=initial_data,
             table=table_name,
             namespace=self.test_namespace,
@@ -823,11 +829,13 @@ class TestCopyOnWrite:
             catalog=self.catalog_name,
             auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 1
 
         # Step 3: Write overlapping upsert data (should trigger compaction)
         upsert_data = self._create_overlapping_upsert_data()
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=upsert_data,
             table=table_name,
             namespace=self.test_namespace,
@@ -836,6 +844,8 @@ class TestCopyOnWrite:
             catalog=self.catalog_name,
             auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 2
 
         # Step 4: Read table back and verify compaction results
         result = dc.read_table(
@@ -5628,6 +5638,13 @@ class TestDatasetTypes:
             "path" in manifest_df.columns
         ), f"Expected 'path' column in manifest, got columns: {manifest_df.columns}"
 
+        # Ensure all paths are relativized to catalog root
+        assert all(
+            manifest_df["path"].apply(
+                lambda path: not path.startswith(temp_catalog_properties.root)
+            )
+        ), f"Expected all paths to be relativized to catalog root, got {manifest_df['path']}"
+
         # Read the actual data
         result_table = from_manifest_table(
             manifest_table=manifest_table,
@@ -5751,7 +5768,7 @@ class TestDatasetTypes:
         # Read the actual data
         result_table = from_manifest_table(
             manifest_table=manifest_table,
-            dataset_type=DatasetType.DAFT,
+            read_as=DatasetType.DAFT,
             schema=test_schema,
             max_parallelism=1,
         )
@@ -6417,7 +6434,7 @@ class TestContentTypeDatasetCompatibility:
         # Use from_manifest_table to get the actual data
         result = from_manifest_table(
             manifest_table=manifest_table,
-            dataset_type=DatasetType.PYARROW,
+            read_as=DatasetType.PYARROW,
             schema=base_data.schema,  # Use original schema for consistency
         )
         result_df = to_pandas(result)

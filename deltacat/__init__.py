@@ -8,6 +8,9 @@ from deltacat.api import (
     list,
     put,
 )
+from deltacat.storage.model.delta import (
+    Delta,
+)
 from deltacat.storage.model.transaction import (
     transaction,
     transactions,
@@ -188,6 +191,7 @@ __all__ = [
     "DatasetType",
     "DatastoreType",
     "DayTransform",
+    "Delta",
     "DeltaCatUrl",
     "DistributedDataset",
     "Field",

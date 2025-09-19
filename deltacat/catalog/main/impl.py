@@ -232,7 +232,7 @@ def write_to_table(
     content_type: ContentType = ContentType.PARQUET,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
 
@@ -254,6 +254,9 @@ def write_to_table(
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
+
+    Returns:
+        List of deltas written to the table (typically one delta per touched partition).
     """
     namespace = namespace or default_namespace()
 
@@ -434,7 +437,7 @@ def write_to_table(
         # Remove schema from kwargs to avoid duplicate parameter conflict
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != "schema"}
         # Use updated schema if schema evolution occurred, otherwise use original schema
-        _stage_commit_and_compact(
+        deltas = _stage_commit_and_compact(
             converted_data,
             partition,
             delta_type,
@@ -447,6 +450,7 @@ def write_to_table(
             original_fields=original_fields,
             **filtered_kwargs,
         )
+        return deltas
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         commit_transaction = False
@@ -915,7 +919,7 @@ def _stage_commit_and_compact(
     table: str,
     original_fields: Set[str],
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Stage and commit delta, then handle compaction if needed."""
     # Remove schema from kwargs to avoid duplicate parameter conflict
     # We explicitly pass the correct schema parameter
@@ -969,6 +973,7 @@ def _stage_commit_and_compact(
             original_table_version_column_names=original_table_version_column_names,
             **kwargs,
         )
+    return [delta]
 
 
 def _trigger_compaction(
@@ -996,13 +1001,17 @@ def _trigger_compaction(
             return True
         elif delta_type in (DeltaType.APPEND, DeltaType.ADD):
             # Get all deltas appended since last compaction
-            deltas = _get_storage(**kwargs).list_deltas(
-                namespace=table_version_obj.locator.namespace,
-                table_name=table_version_obj.locator.table_name,
-                table_version=table_version_obj.locator.table_version,
-                partition_values=partition_values,
-                start_stream_position=1,  # the last compacted delta will always have stream position 1
-                **kwargs,
+            deltas = (
+                _get_storage(**kwargs)
+                .list_deltas(
+                    namespace=table_version_obj.locator.namespace,
+                    table_name=table_version_obj.locator.table_name,
+                    table_version=table_version_obj.locator.table_version,
+                    partition_values=partition_values,
+                    start_stream_position=2,  # the last compacted delta will always have stream position 1
+                    **kwargs,
+                )
+                .all_items()
             )
 
             if not deltas:
