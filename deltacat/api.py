@@ -10,6 +10,7 @@ import pyarrow.fs as pafs
 from pyarrow.fs import FileType
 from ray.exceptions import OutOfMemoryError
 
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.constants import BYTES_PER_GIBIBYTE
 from deltacat.io import (
     read_deltacat,
@@ -167,7 +168,7 @@ def copy(
     """
     src = _resolve_url(src)
     dst = _resolve_url(dst)
-    if src.is_deltacat_catalog_url() or dst.is_deltacat_catalog_url():
+    if src.is_deltacat_catalog_url() and dst.is_deltacat_catalog_url():
         return _copy_dc(src, dst, recursive=src.url.endswith("/**"))
     else:
         return _copy_external_ray(
@@ -185,6 +186,7 @@ def copy(
 def _copy_objects_in_order(
     src_objects: List[Metafile],
     destination: DeltaCatUrl,
+    source_catalog: Optional[CatalogProperties] = None,
 ) -> Union[Metafile, List[Metafile]]:
     dc_dest_url = DeltaCatUrl(destination.url)
     catalog_name = dc_dest_url.catalog_name
@@ -230,6 +232,11 @@ def _copy_objects_in_order(
             objects.sort(key=lambda x: x.stream_position)
         for i, obj in enumerate(objects):
             logger.info(f"Copying object {i+1}/{len(objects)}: {obj.url}")
+
+            # Set ephemeral source catalog for Delta objects to enable cross-catalog path resolution
+            if obj_class == Delta and source_catalog:
+                obj.catalog = source_catalog
+
             dest_url = DeltaCatUrl(obj.url(catalog_name=catalog_name))
             logger.info(f"Destination URL for object {i+1}/{len(objects)}: {dest_url}")
             try:
@@ -262,7 +269,14 @@ def _copy_dc(
         src_objects = list(DeltaCatUrl(source.url.rstrip("/*")))
     else:
         src_objects = [get(source)]
-    return _copy_objects_in_order(src_objects, destination)
+    # Get source catalog root for cross-catalog path resolution
+    source_catalog = None
+
+    # Save the source catalog for destination path resolution.
+    source.resolve_catalog()
+    source_catalog = source.catalog
+
+    return _copy_objects_in_order(src_objects, destination, source_catalog)
 
 
 def concat(source, destination):

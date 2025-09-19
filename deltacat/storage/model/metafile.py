@@ -16,6 +16,7 @@ import pyarrow.fs
 
 import deltacat
 
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.constants import (
     METAFILE_FORMAT,
     REVISION_DIR_NAME,
@@ -889,6 +890,16 @@ class Metafile(dict):
         human-readable metafile names.
         """
         return None
+
+    @property
+    def catalog(self) -> Optional[CatalogProperties]:
+        """Ephemeral property to store the parent catalog of this metafile. Not persisted to disk."""
+        return getattr(self, "_catalog", None)
+
+    @catalog.setter
+    def catalog(self, catalog: Optional[CatalogProperties]) -> None:
+        """Ephemeral property to store the parent catalog of this metafile. Not persisted to disk."""
+        self._catalog = catalog
 
     def children(
         self,

@@ -286,21 +286,21 @@ class TestCatalogsIntegration:
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
         assert retrieved_catalog.inner.root == self.temp_dir
 
-    def test_default_catalog_initialization_from_kwargs(self, reset_catalogs):
+    def test_default_catalog_initialization_via_put_catalog(self, reset_catalogs):
 
         catalog_name = str(uuid.uuid4())
 
         # Initialize DeltaCAT with this catalog
         put_catalog(
             catalog_name,
-            Catalog(root="test_root"),
+            Catalog(root=self.temp_dir),
         )
 
         # Retrieve the catalog and verify it's the same one
         retrieved_catalog = get_catalog(catalog_name)
         assert retrieved_catalog.impl.__name__ == "deltacat.catalog.main.impl"
         assert isinstance(retrieved_catalog.inner, CatalogProperties)
-        assert retrieved_catalog.inner.root == "test_root"
+        assert retrieved_catalog.inner.root == self.temp_dir
 
     def test_iceberg_catalog_initialization(self, reset_catalogs):
         """Test that an Iceberg catalog can be initialized and accessed."""

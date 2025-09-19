@@ -812,7 +812,6 @@ class TestDeltaCAT:
         dest_objects = dc.list(DeltaCatUrl("dc://test_catalog_2"), recursive=True)
         dest_urls_by_type = defaultdict(list)
         dest_by_type = defaultdict(list)
-
         assert len(dest_objects) == len(
             source_objects
         ), f"Expected {len(source_objects)} objects, got {len(dest_objects)}"

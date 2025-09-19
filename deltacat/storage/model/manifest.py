@@ -4,8 +4,10 @@ import logging
 import itertools
 
 from enum import Enum
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
 from uuid import uuid4
+
+from deltacat.catalog.model.properties import get_catalog_properties
 
 if TYPE_CHECKING:
     from deltacat.storage.model.schema import FieldLocator
@@ -650,3 +652,64 @@ class ManifestEntryList(List[ManifestEntry]):
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]  # This triggers __getitem__ conversion
+
+
+def group_manifest_urls_by_content_type(
+    manifest: Manifest, **kwargs
+) -> Dict[Tuple[str, str], List[str]]:
+    """
+    Group manifest URLs by content type and content encoding.
+
+    Args:
+        manifest: The manifest containing the entries to group by content type
+        **kwargs: Additional arguments to pass to the catalog properties
+
+    Returns:
+        Dictionary mapping (content_type, content_encoding) tuples to lists of URLs
+    """
+    catalog_properties = get_catalog_properties(**kwargs)
+
+    urls_by_type = {}
+
+    for entry in manifest.entries or []:
+        content_type = entry.meta.content_type
+        content_encoding = entry.meta.content_encoding
+        key = (content_type, content_encoding)
+
+        if key not in urls_by_type:
+            urls_by_type[key] = []
+
+        full_url = catalog_properties.reconstruct_full_path(entry.url)
+        urls_by_type[key].append(full_url)
+
+    return urls_by_type
+
+
+def reconstruct_manifest_entry_url(
+    manifest_entry: ManifestEntry,
+    **kwargs,
+) -> ManifestEntry:
+    """
+    Reconstruct the full URI for a manifest entry.
+
+    Args:
+        manifest_entry: The manifest entry to reconstruct the URI for
+        **kwargs: Additional arguments to pass to the catalog properties
+
+    Returns:
+        Manifest entry with the reconstructed URI
+    """
+    # Reconstruct full URI with scheme for external readers (see GitHub issue #567)
+    # Only pass kwargs that CatalogProperties actually accepts
+    catalog_properties = get_catalog_properties(**kwargs)
+
+    original_url = manifest_entry.url
+    reconstructed_url = catalog_properties.reconstruct_full_path(original_url)
+    if original_url != reconstructed_url:
+        # Create a copy of the manifest entry with the reconstructed URI
+        reconstructed_entry = ManifestEntry(
+            url=reconstructed_url,
+            meta=manifest_entry.meta,
+        )
+        return reconstructed_entry
+    return manifest_entry

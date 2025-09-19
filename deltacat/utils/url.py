@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import functools
 import json
+import posixpath
+import logging
+
 from typing import Callable, List, Tuple, Any, Union, Optional
 from urllib.parse import urlparse, urlunparse, parse_qs
 
@@ -20,12 +23,7 @@ import pyarrow.json as pajson
 
 from deltacat.catalog import CatalogProperties
 from deltacat.constants import DEFAULT_NAMESPACE
-from deltacat.types.media import (
-    DatasetType,
-    DatastoreType,
-)
-from deltacat.utils import pyarrow as pa_utils
-
+from deltacat.storage.model.manifest import reconstruct_manifest_entry_url
 from deltacat.storage import (
     metastore,
     Dataset,
@@ -45,6 +43,14 @@ from deltacat.storage import (
     TableVersion,
     TableVersionLocator,
 )
+from deltacat.types.media import (
+    DatasetType,
+    DatastoreType,
+)
+from deltacat.utils import pyarrow as pa_utils
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def _normalize_partition_values_from_json(partition_values):
@@ -1172,6 +1178,67 @@ def _stage_and_commit_partition(
     )
 
 
+def _copy_source_manifest_entries_to_destination(
+    delta: Delta,
+    dest_catalog: CatalogProperties,
+    source_catalog: Optional[CatalogProperties],
+) -> Delta:
+    """
+    Copy source catalog delta manifest entries to the same path in the destination catalog.
+    """
+    # This is part of a cross-catalog copy.
+    # Copy source manifest entries to the same path in the destination catalog.
+    dest_filesystem = dest_catalog.filesystem
+    source_filesystem = source_catalog.filesystem
+
+    # Copy each file to the same relative path in destination catalog
+    # TODO(pdames): Parallelize copy.
+    logger.info(
+        f"Copying {len(delta.manifest.entries)} manifest entries from source catalog {source_catalog.root} to destination catalog {dest_catalog.root}."
+    )
+    for entry in delta.manifest.entries:
+        # Copy source to same relative path in destination
+        source_url = reconstruct_manifest_entry_url(entry, catalog=source_catalog).url
+        dest_url = reconstruct_manifest_entry_url(entry, catalog=dest_catalog).url
+
+        # Ensure destination directory exists
+        dest_dir = posixpath.dirname(dest_url)
+        dest_filesystem.create_dir(dest_dir, recursive=True)
+        if type(source_filesystem) is type(dest_filesystem):
+            # source/dest of same filesystem type can be copied directly
+            dest_filesystem.copy_file(source_url, dest_url)
+        else:
+            # different source/dest filesystem types need separate reader/writer
+            with source_filesystem.open_input_stream(source_url) as src:
+                with dest_filesystem.open_output_stream(dest_url) as dst:
+                    dst.write(src.read())
+
+
+def _stage_and_commit_delta(
+    delta: Delta,
+    dest_catalog: CatalogProperties,
+    source_catalog: Optional[CatalogProperties],
+    *args,
+    **kwargs,
+) -> Delta:
+    """
+    Helper method to stage and commit a delta (e.g., as part of a copy operation from another catalog).
+    """
+    if source_catalog and source_catalog.root != dest_catalog.root and delta.manifest:
+        # Stage the delta in the dest catalog by copying its manifest entries to the destination.
+        _copy_source_manifest_entries_to_destination(
+            delta=delta,
+            dest_catalog=dest_catalog,
+            source_catalog=source_catalog,
+        )
+    return metastore.commit_delta(
+        delta=delta,
+        catalog=dest_catalog,
+        *args,
+        **kwargs,
+    )
+
+
 class DeltaCatUrlWriter:
     def __init__(
         self,
@@ -1230,16 +1297,15 @@ class DeltaCatUrlWriter:
                 partition_id=None,
                 stream_position=int(url.delta),
             )
-            # TODO(pdames): Honor deep vs. shallow copies. Deep copies require
-            #  first ensuring that all files in the source delta manifest are
-            #  staged to the target catalog before commit. For deltas whose
+            # TODO(pdames): Also allow shallow copies? For deltas whose
             #  manifests reference local files, shallow delta copies may be
             #  invalid in the target catalog, and should be blocked or
             #  converted to a deep copy automatically.
             return functools.partial(
-                metastore.commit_delta,
+                _stage_and_commit_delta,
                 delta=delta,
-                catalog=url.catalog,
+                dest_catalog=url.catalog,
+                source_catalog=metafile.catalog,
             )
         if url.partition:
             partition: Partition = Partition(metafile)
