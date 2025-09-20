@@ -296,11 +296,18 @@ class Delta(Metafile):
             return delta_locator.stream_position
         return None
 
-    def url(self, catalog_name: Optional[str] = None) -> str:
+    def url(
+        self,
+        catalog_name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        table_name: Optional[str] = None,
+    ) -> str:
+        namespace = namespace or self.namespace
+        table_name = table_name or self.table_name
         return (
-            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+            f"dc://{catalog_name}/{namespace}/{table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
             if catalog_name
-            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+            else f"table://{namespace}/{table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
         )
 
     def to_serializable(self) -> Delta:

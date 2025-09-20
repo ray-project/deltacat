@@ -328,7 +328,8 @@ def get_catalog(name: Optional[str] = None) -> Catalog:
             raise ValueError(
                 f"Call to get_catalog without name set failed because there "
                 f"is no default Catalog set. Available catalogs: "
-                f"{available_catalogs}."
+                f"{available_catalogs}. Use `dc.init(default='my_catalog_name')` to "
+                f"set the default catalog."
             )
     return catalog
 

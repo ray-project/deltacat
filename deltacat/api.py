@@ -4,14 +4,13 @@ from typing import Any, Union, List, Optional, Dict, Callable, Tuple
 import logging
 
 import ray
-import deltacat as dc
 import pyarrow.fs as pafs
 
 from pyarrow.fs import FileType
 from ray.exceptions import OutOfMemoryError
 
 from deltacat.catalog.model.properties import CatalogProperties
-from deltacat.constants import BYTES_PER_GIBIBYTE
+from deltacat.constants import BYTES_PER_GIBIBYTE, DEFAULT_NAMESPACE
 from deltacat.io import (
     read_deltacat,
     DeltacatReadType,
@@ -99,6 +98,7 @@ def copy(
     src: Union[DeltaCatUrl, str],
     dst: Union[DeltaCatUrl, str],
     *,
+    shallow: bool = False,
     transforms: List[Callable[[Dataset, DeltaCatUrl], Dataset]] = [],
     extension_to_memory_multiplier: Dict[str, float] = {
         "pq": 5,
@@ -135,6 +135,8 @@ def copy(
     Args:
         src: DeltaCAT URL of the source datastore to read.
         dst: DeltaCAT URL of the destination datastore to write.
+        shallow: For deltacat catalog source/dest URLs, only copies top-level
+            metadata and no underlying data. Defaults to False.
         transforms: List of transforms to apply to the source dataset prior
             to write it to the destination datastore. Transforms take the in-memory
             dataset type read (e.g., Polars DataFrame) and source DeltaCAT URL as
@@ -169,7 +171,12 @@ def copy(
     src = _resolve_url(src)
     dst = _resolve_url(dst)
     if src.is_deltacat_catalog_url() and dst.is_deltacat_catalog_url():
-        return _copy_dc(src, dst, recursive=src.url.endswith("/**"))
+        # anything at or beneath the table level is copied recursively by default
+        is_table_copy = src.table is not None or (
+            src.url.endswith("/*") and src.namespace is not None
+        )
+        recursive = not shallow and (src.url.endswith("/**") or is_table_copy)
+        return _copy_dc(src, dst, recursive=recursive)
     else:
         return _copy_external_ray(
             src,
@@ -190,6 +197,8 @@ def _copy_objects_in_order(
 ) -> Union[Metafile, List[Metafile]]:
     dc_dest_url = DeltaCatUrl(destination.url)
     catalog_name = dc_dest_url.catalog_name
+    dest_namespace = dc_dest_url.namespace
+    dest_table_name = dc_dest_url.table
 
     copied_results = []
 
@@ -215,11 +224,14 @@ def _copy_objects_in_order(
     }
 
     for obj in src_objects:
-        obj_class = Metafile.get_class(obj.to_serializable())
-        ordered_objects_by_type[obj_class].append(obj)
+        if obj is not None:
+            obj_class = Metafile.get_class(obj.to_serializable())
+            ordered_objects_by_type[obj_class].append(obj)
 
     # TODO(pdames): Support copying uncommitted streams/partitions.
     # TODO(pdames): Support parallel/distributed copies.
+    # TODO(pdames): More graceful error when objects already exist (right now just getting lower-level storage errors)
+    # TODO(pdames): Support renamed ancestor creation in the dest tree (e.g., copying a table to a new namespace & table)
     # TODO(pdames): Provide option to overwrite or fail when objects already exist.
     for obj_class, objects in ordered_objects_by_type.items():
         if objects:
@@ -232,12 +244,17 @@ def _copy_objects_in_order(
             objects.sort(key=lambda x: x.stream_position)
         for i, obj in enumerate(objects):
             logger.info(f"Copying object {i+1}/{len(objects)}: {obj.url}")
-
             # Set ephemeral source catalog for Delta objects to enable cross-catalog path resolution
             if obj_class == Delta and source_catalog:
                 obj.catalog = source_catalog
-
-            dest_url = DeltaCatUrl(obj.url(catalog_name=catalog_name))
+            # Create the destination URL (accounting for different target catalog/namespace/table names)
+            dest_url = DeltaCatUrl(
+                obj.url(
+                    catalog_name=catalog_name,
+                    namespace=dest_namespace,
+                    table_name=dest_table_name,
+                )
+            )
             logger.info(f"Destination URL for object {i+1}/{len(objects)}: {dest_url}")
             try:
                 result = put(dest_url, metafile=obj)
@@ -247,7 +264,13 @@ def _copy_objects_in_order(
                 already_exists_errors_by_type[obj_class],
                 ObjectAlreadyExistsError,
             ) as e:
-                logger.warning(f"{obj_class.__name__} at {obj.url} already exists: {e}")
+                target_namespace = dest_namespace or obj.namespace
+                if obj_class == Namespace and target_namespace == DEFAULT_NAMESPACE:
+                    logger.info(
+                        f"Skipping already exists error for default namespace {obj_class.__name__} at {obj.url}: {e}"
+                    )
+                else:
+                    raise e
     return copied_results[0] if len(copied_results) == 1 else copied_results
 
 
@@ -256,17 +279,23 @@ def _copy_dc(
     destination: DeltaCatUrl,
     recursive: bool = False,
 ) -> Union[Metafile, List[Metafile]]:
-    dc.raise_if_not_initialized()
-    if len(source.url.split("/")) != len(destination.url.split("/")):
+    # Normalize source and destination URLs
+    source_url = source.url.rstrip("/")
+    source_url = source_url.rstrip("/**")
+    source_url = source_url.rstrip("/*")
+    source_url = source_url.rstrip("/")
+    destination_url = destination.url.rstrip("/")
+
+    if len(source_url.split("/")) != len(destination_url.split("/")):
         # TODO(pdames): Better error message.
         raise ValueError(
             f"Cannot copy {source} to {destination}. "
             f"Source and destination must share the same type."
         )
     if recursive:
-        src_objects = list(DeltaCatUrl(source.url.rstrip("/**")), recursive=True)
+        src_objects = list(DeltaCatUrl(source_url), recursive=True)
     elif source.url.endswith("/*"):
-        src_objects = list(DeltaCatUrl(source.url.rstrip("/*")))
+        src_objects = list(DeltaCatUrl(source_url))
     else:
         src_objects = [get(source)]
     # Get source catalog root for cross-catalog path resolution

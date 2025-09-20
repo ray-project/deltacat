@@ -299,7 +299,7 @@ structured_daft_df.show()
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Multi-Format Data Processing</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Working Across Dataset and File Types</span></summary>
 
 DeltaCAT natively supports a variety of open dataset and file formats already integrated with Ray and Arrow. You can use `dc.read` to read tables back as a Daft DataFrame, Ray Dataset, Pandas DataFrame, PyArrow Table, Polars DataFrame, NumPy Array, or list of PyArrow ParquetFile objects:
 
@@ -826,16 +826,14 @@ import tempfile
 from decimal import Decimal
 
 # Initialize catalogs with separate names and catalog roots.
-dc.init(catalogs={
-    "staging": dc.Catalog(config=dc.CatalogProperties(
-        root=tempfile.mkdtemp(),  # Use temporary directory for staging
-        filesystem=pa.fs.LocalFileSystem()
-    )),
-    "prod": dc.Catalog(config=dc.CatalogProperties(
-        root="s3://example/deltacat",  # Use S3 for prod
-        filesystem=pa.fs.S3FileSystem()
-    ))
-})
+dc.init(
+    catalogs={
+        # Use temporary directory for staging
+        "staging": dc.Catalog(dc.CatalogProperties(tempfile.mkdtemp())),
+        # Use S3 for prod
+        "prod": dc.Catalog(dc.CatalogProperties("s3://example/deltacat"))
+    }
+)
 
 # Create a PyArrow table with decimal256 data
 decimal_table = pa.table({
@@ -885,9 +883,9 @@ print(dc.read("financial_data", catalog="prod", read_as=dc.DatasetType.PANDAS))
 
 <details>
 
-<summary><span style="font-size: 1.25em; font-weight: bold;">Data Lake Sharing</span></summary>
+<summary><span style="font-size: 1.25em; font-weight: bold;">Data Lake Sharing & Portability</span></summary>
 
-Since DeltaCAT catalogs are simply self-contained directories on a filesystem, you can easily share your data lake with others. Local catalogs on your laptop can be compressed and sent anywhere. A cloud catalog in S3 can be shared via URL. The read/write permissions of your filesystem are the read/write permissions of your catalog.
+DeltaCAT catalogs are self-contained directories on a filesystem, so you can easily share your data lake with others. A local catalog on your laptop can be compressed and sent anywhere. A cloud catalog in S3, GCS, or Azure Blog Storage can be shared via URL. The read/write permissions of your catalog are the read/write permissions of your filesystem.
 
 For example, you can zip up your local catalog and upload it to S3 via:
 ```bash
@@ -904,41 +902,66 @@ The person you shared it with can retrieve and decompress it via:
 aws s3 cp s3://my-bucket/catalog.zip .
 
 # unzip the catalog to a local directory
-unzip catalog.zip .deltacat_copy/
+unzip catalog.zip -d .deltacat_copy/
 ```
 
 And then initialize it together with any other catalogs they're working with:
 ```python
 import deltacat as dc
-import tempfile
 
 # Initialize catalogs with separate names and catalog roots.
-dc.init(catalogs={
-    "shared": dc.Catalog(config=dc.CatalogProperties(
-        root=".deltacat_copy",
-        filesystem=pa.fs.S3FileSystem()
-    )),
-    "prod_aws": dc.Catalog(config=dc.CatalogProperties(
-        root="s3://prod/deltacat",
-        filesystem=pa.fs.S3FileSystem()
-    )),
-    "prod_gcp": dc.Catalog(config=dc.CatalogProperties(
-        root="gs://prod/deltacat",
-        filesystem=pa.fs.GcsFileSystem()
-    )),
-    "prod_azure": dc.Catalog(config=dc.CatalogProperties(
-        root="az://prod/deltacat",
-        filesystem=pa.fs.AzureFileSystem()
-    )),
-})
+dc.init(
+    catalogs={
+        "original": dc.Catalog(dc.CatalogProperties(".deltacat")),
+        "copy": dc.Catalog(dc.CatalogProperties(".deltacat_copy")),
+        "prod_aws": dc.Catalog(dc.CatalogProperties("s3://prod/deltacat")),
+        "prod_gcp": dc.Catalog(dc.CatalogProperties("gs://prod/deltacat")),
+        "prod_azure": dc.Catalog(dc.CatalogProperties("az://prod/deltacat")),
+    }
+)
 
-# List and print all namespaces in the shared catalog
-namespaces = dc.list(dc.CatalogUrl("dc://shared"))
-print(namespaces)
+# List all namespaces in the original catalog
+namespaces = dc.list("dc://original")
+print([namespace.name for namespace in namespaces])
 
-# List and print all tables in "sales" namespace of the prod_aws catalog
-tables = dc.list(dc.CatalogUrl("dc://prod_aws/sales"))
-print(tables)
+# List all namespaces in the copy catalog
+namespaces = dc.list("dc://copy")
+print([namespace.name for namespace in namespaces])
+
+# List all tables in the default namespace of the original catalog
+tables = dc.list("dc://original/default")
+print([table.name for table in tables])
+
+# List all tables in the default namespace of the copy catalog
+tables = dc.list("dc://copy/default")
+print([table.name for table in tables])
+```
+
+`dc.copy` can also be used to copy namespaces and tables between catalogs:
+```python
+# Copy the "default" namespace from the original local catalog over to the "myspace" namespace in the copy catalog
+dc.copy("dc://original/default", "dc://copy/default/myspace")
+
+# By default, no tables are copied from the source namespace to the destination
+tables = dc.list("dc://copy/myspace")
+print(f"{len(tables)} tables in myspace.")
+
+# Copy the "users" table from the original local catalog over to "local_users" in the prod_aws catalog
+dc.copy("dc://original/default/users", "dc://prod_aws/default/local_users")
+
+# Read the copied table back
+df = dc.read("local_users", catalog="prod_aws")
+df.show()
+
+# We can also copy all tables in the default namespace using **
+dc.copy("dc://original/default/**", "dc://copy/default/myspace")
+tables = dc.list("dc://copy/myspace")
+print(f"{len(tables)} tables in myspace.")
+
+# Or we can copy all namespaces from the original catalog using *
+dc.copy("dc://original/*", "dc://copy")
+namespaces = dc.list("dc://copy")
+print([namespace.name for namespace in namespaces])
 ```
 
 </details>

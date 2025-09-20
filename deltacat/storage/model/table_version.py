@@ -252,11 +252,18 @@ class TableVersion(Metafile):
             return table_version_locator.table_version
         return None
 
-    def url(self, catalog_name: Optional[str] = None) -> str:
+    def url(
+        self,
+        catalog_name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        table_name: Optional[str] = None,
+    ) -> str:
+        namespace = namespace or self.namespace
+        table_name = table_name or self.table_name
         return (
-            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/"
+            f"dc://{catalog_name}/{namespace}/{table_name}/{self.table_version}/"
             if catalog_name
-            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/"
+            else f"table://{namespace}/{table_name}/{self.table_version}/"
         )
 
     def is_supported_content_type(self, content_type: ContentType):

@@ -547,7 +547,6 @@ class TestCatalogTableOperations:
 
         # Create initial schema
         schema = Schema.of(schema=sample_arrow_schema)
-        print("schema.max_field_id", schema.max_field_id)
 
         # Create the table
         table = catalog.create_table(
@@ -570,11 +569,6 @@ class TestCatalogTableOperations:
 
         schema_update = (
             original_schema.update().add_field(new_field1).add_field(new_field2)
-        )
-        print("original_schema.max_field_id", original_schema.max_field_id)
-        print(
-            "schema_update.base_schema.max_field_id",
-            schema_update.base_schema.max_field_id,
         )
 
         # Alter the table

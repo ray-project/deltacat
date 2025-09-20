@@ -196,6 +196,9 @@ def transaction(
         )
         # Initialize the lazy transaction ID
         logger.info(f"Created transaction with ID: {txn.id}")
+
+    # Store the catalog name in the transaction for later resolution in delegate functions
+    txn.catalog_name = catalog_name
     return txn
 
 
@@ -1154,6 +1157,20 @@ class Transaction(dict):
         Sets the historic timestamp for the transaction.
         """
         self["historic_timestamp"] = timestamp
+
+    @property
+    def catalog_name(self) -> Optional[str]:
+        """
+        Returns the catalog name for the transaction.
+        """
+        return self.get("catalog_name")
+
+    @catalog_name.setter
+    def catalog_name(self, name: str):
+        """
+        Sets the catalog name for the transaction.
+        """
+        self["catalog_name"] = name
 
     def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
         """

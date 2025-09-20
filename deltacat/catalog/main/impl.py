@@ -68,6 +68,7 @@ from deltacat.types.tables import (
     get_dataset_type,
     get_table_schema,
     get_table_column_names,
+    from_manifest_table as from_manifest_table_util,
     from_pyarrow,
     concat_tables,
     empty_table,
@@ -2800,3 +2801,34 @@ def _get_storage(**kwargs):
         return properties.storage
     else:
         return dc.storage.metastore
+
+
+def from_manifest_table(
+    manifest_table: Dataset,
+    *args,
+    read_as: DatasetType = DatasetType.DAFT,
+    schema: Optional[Schema] = None,
+    **kwargs,
+) -> Dataset:
+    """
+    Read a manifest table (containing file paths and metadata) and download the actual data.
+
+    This utility function takes the output from a schemaless table read (which returns
+    manifest entries instead of data) and downloads the actual file contents.
+
+    Args:
+        manifest_table: Dataset containing manifest entries with file paths and metadata
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        schema: Optional schema to attempt to coerce the data into.
+        **kwargs: Additional arguments forwarded to download functions
+
+    Returns:
+        Dataset containing the actual file contents
+    """
+    return from_manifest_table_util(
+        manifest_table,
+        read_as=read_as,
+        schema=schema.arrow if schema else None,
+        *args,
+        **kwargs,
+    )

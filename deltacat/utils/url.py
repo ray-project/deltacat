@@ -1040,12 +1040,17 @@ class DeltaCatUrlReader:
                 namespace=url.namespace,
                 catalog=url.catalog,
             )
-            stream_lister = functools.partial(
-                metastore.list_streams,
-                namespace=url.namespace,
-                table_name=url.table,
-                catalog=url.catalog,
-            )
+
+            def stream_lister_with_table_version(table_version, **kwargs):
+                return metastore.list_streams(
+                    namespace=url.namespace,
+                    table_name=table_version.table_name,
+                    table_version=table_version.table_version,
+                    catalog=url.catalog,
+                    **kwargs,
+                )
+
+            stream_lister = stream_lister_with_table_version
             partition_lister = functools.partial(
                 metastore.list_stream_partitions,
                 catalog=url.catalog,
@@ -1057,7 +1062,7 @@ class DeltaCatUrlReader:
             return [
                 (table_lister, None, None),
                 (table_version_lister, "table_name", lambda x: x.table_name),
-                (stream_lister, "table_version", lambda x: x.table_version),
+                (stream_lister, "table_version", lambda x: x),
                 (partition_lister, "stream", lambda x: x),
                 (delta_lister, "partition_like", lambda x: x),
             ]

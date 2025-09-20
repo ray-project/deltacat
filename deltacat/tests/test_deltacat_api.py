@@ -1091,6 +1091,272 @@ class TestDeltaCAT:
             catalog="test_catalog_2",
         ), "Empty namespace should exist in destination catalog"
 
+    def test_cross_catalog_table_copy_without_rename(self):
+        """Test copying a table between catalogs without renaming."""
+        # Create test data in source catalog
+        test_df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "value": [1.1, 2.2, 3.3],
+            }
+        )
+
+        dc.write_to_table(
+            data=test_df,
+            table="users",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        # Copy table without renaming: dc://src/ns/table/ -> dc://dest/ns/table/
+        dc.copy(
+            "dc://test_catalog_1/default/users/", "dc://test_catalog_2/default/users/"
+        )
+
+        # Verify table was copied correctly
+        dest_df = dc.read_table(
+            table="users",
+            namespace="default",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(test_df, dest_df)
+
+    def test_cross_catalog_table_copy_with_table_rename(self):
+        """Test copying a table between catalogs with table renaming."""
+        # Create test data in source catalog
+        test_df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "value": [1.1, 2.2, 3.3],
+            }
+        )
+
+        dc.write_to_table(
+            data=test_df,
+            table="users",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        # Copy table with table rename: dc://src/ns/table/ -> dc://dest/ns/new_table/
+        dc.copy(
+            "dc://test_catalog_1/default/users/",
+            "dc://test_catalog_2/default/employees/",
+        )
+
+        # Verify table was copied with new name
+        dest_df = dc.read_table(
+            table="employees",
+            namespace="default",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(test_df, dest_df)
+
+        # Verify original table still exists in source
+        source_df = dc.read_table(
+            table="users",
+            namespace="default",
+            catalog="test_catalog_1",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(test_df, source_df)
+
+    def test_cross_catalog_namespace_recursive_copy_with_tables(self):
+        """Test copying a namespace with all its tables using the /** recursive pattern."""
+        # Create test data for multiple tables in the same namespace
+        users_df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "role": ["admin", "user", "user"],
+            }
+        )
+
+        products_df = pd.DataFrame(
+            {
+                "product_id": [101, 102, 103],
+                "name": ["laptop", "mouse", "keyboard"],
+                "price": [999.99, 29.99, 79.99],
+            }
+        )
+
+        # Write tables to the same namespace
+        dc.write_to_table(
+            data=users_df,
+            table="users",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        dc.write_to_table(
+            data=products_df,
+            table="products",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Copy the namespace from source to dest first
+        dc.copy("dc://test_catalog_1/analytics/", "dc://test_catalog_2/analytics/")
+
+        # Copy all namespace tables from source to dest using /**
+        dc.copy("dc://test_catalog_1/analytics/**", "dc://test_catalog_2/analytics/")
+
+        # Verify namespace exists in destination
+        assert dc.namespace_exists(
+            namespace="analytics", catalog="test_catalog_2"
+        ), "Analytics namespace should exist in destination catalog"
+
+        # Verify both tables were copied and data matches
+        dest_users_df = dc.read_table(
+            table="users",
+            namespace="analytics",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        dest_products_df = dc.read_table(
+            table="products",
+            namespace="analytics",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        # Verify data integrity
+        _assert_data_equivalence(users_df, dest_users_df)
+        _assert_data_equivalence(products_df, dest_products_df)
+
+        # Verify original tables still exist in source
+        source_users_df = dc.read_table(
+            table="users",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            read_as=DatasetType.PANDAS,
+        )
+
+        source_products_df = dc.read_table(
+            table="products",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(users_df, source_users_df)
+        _assert_data_equivalence(products_df, source_products_df)
+
+    def test_cross_catalog_namespace_copy_without_rename(self):
+        """Test copying a namespace metafile between catalogs without renaming."""
+        # Create namespace in source catalog (lightweight)
+        dc.create_namespace(namespace="production", catalog="test_catalog_1")
+
+        # Copy namespace metafile without rename: dc://src/ns/ -> dc://dest/ns/
+        dc.copy("dc://test_catalog_1/production/", "dc://test_catalog_2/production/")
+
+        # Verify namespace exists in destination catalog
+        assert dc.namespace_exists(
+            namespace="production", catalog="test_catalog_2"
+        ), "Namespace should exist in destination catalog"
+
+        # Verify namespace can be listed in destination
+        dest_namespaces = dc.list("dc://test_catalog_2/")
+        dest_namespace_names = [ns.name for ns in dest_namespaces]
+        assert (
+            "production" in dest_namespace_names
+        ), f"production namespace should be in {dest_namespace_names}"
+
+        # Verify original namespace still exists in source
+        assert dc.namespace_exists(
+            namespace="production", catalog="test_catalog_1"
+        ), "Original namespace should still exist in source catalog"
+
+    def test_cross_catalog_namespace_copy_with_rename(self):
+        """Test copying a namespace metafile between catalogs with renaming."""
+        # Create namespace in source catalog (lightweight)
+        dc.create_namespace(namespace="staging", catalog="test_catalog_1")
+
+        # Copy namespace metafile with rename: dc://src/ns/ -> dc://dest/new_ns/
+        dc.copy("dc://test_catalog_1/staging/", "dc://test_catalog_2/development/")
+
+        # Verify namespace was copied with new name
+        assert dc.namespace_exists(
+            namespace="development", catalog="test_catalog_2"
+        ), "Renamed namespace should exist in destination catalog"
+
+        # Verify namespace can be listed in destination with new name
+        dest_namespaces = dc.list("dc://test_catalog_2/")
+        dest_namespace_names = [ns.name for ns in dest_namespaces]
+        assert (
+            "development" in dest_namespace_names
+        ), f"development namespace should be in {dest_namespace_names}"
+        assert (
+            "staging" not in dest_namespace_names
+        ), f"staging namespace should NOT be in {dest_namespace_names}"
+
+        # Verify original namespace still exists in source with original name
+        assert dc.namespace_exists(
+            namespace="staging", catalog="test_catalog_1"
+        ), "Original namespace should still exist in source catalog"
+
+    def test_cross_catalog_table_copy_multiple_deltas(self):
+        """Test copying a table with multiple deltas between catalogs."""
+        # Create initial table with first delta
+        initial_df = pd.DataFrame(
+            {"id": [1, 2], "name": ["alice", "bob"], "value": [1.1, 2.2]}
+        )
+
+        dc.write_to_table(
+            data=initial_df,
+            table="multi_delta_table",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        # Add second delta via APPEND
+        additional_df = pd.DataFrame(
+            {"id": [3, 4], "name": ["charlie", "david"], "value": [3.3, 4.4]}
+        )
+
+        dc.write_to_table(
+            data=additional_df,
+            table="multi_delta_table",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.APPEND,
+        )
+
+        # Copy table with multiple deltas
+        dc.copy(
+            "dc://test_catalog_1/default/multi_delta_table/",
+            "dc://test_catalog_2/default/multi_delta_table_copy/",
+        )
+
+        # Verify both deltas were copied and combined data is accessible
+        dest_df = dc.read_table(
+            table="multi_delta_table_copy",
+            namespace="default",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        # Combined expected data from both deltas
+        expected_df = pd.concat([initial_df, additional_df], ignore_index=True)
+        _assert_data_equivalence(expected_df, dest_df)
+
 
 def _assert_data_equivalence(source_df: pd.DataFrame, dest_df: pd.DataFrame):
     # Sort both dataframes by first column for comparison (to handle potential row ordering differences)

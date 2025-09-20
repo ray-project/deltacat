@@ -68,7 +68,6 @@ from deltacat.utils.pyarrow import (
     get_supported_test_types,
     get_base_arrow_type_name,
 )
-from deltacat.types.tables import from_manifest_table
 
 COPY_ON_WRITE_TABLE_PROPERTIES = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
@@ -5646,10 +5645,11 @@ class TestDatasetTypes:
         ), f"Expected all paths to be relativized to catalog root, got {manifest_df['path']}"
 
         # Read the actual data
-        result_table = from_manifest_table(
+        result_table = dc.from_manifest_table(
             manifest_table=manifest_table,
-            dataset_type=DatasetType.DAFT,
-            schema=test_data.schema,
+            read_as=DatasetType.DAFT,
+            schema=Schema.of(test_data.schema),
+            catalog=catalog_name,
             max_parallelism=1,
         )
 
@@ -5766,10 +5766,11 @@ class TestDatasetTypes:
         test_schema = test_data_batches[0].schema
 
         # Read the actual data
-        result_table = from_manifest_table(
+        result_table = dc.from_manifest_table(
             manifest_table=manifest_table,
             read_as=DatasetType.DAFT,
-            schema=test_schema,
+            schema=Schema.of(test_schema),
+            catalog=catalog_name,
             max_parallelism=1,
         )
 
@@ -6432,10 +6433,11 @@ class TestContentTypeDatasetCompatibility:
 
         # For schemaless tables, read_table returns manifest entries
         # Use from_manifest_table to get the actual data
-        result = from_manifest_table(
+        result = dc.from_manifest_table(
             manifest_table=manifest_table,
             read_as=DatasetType.PYARROW,
-            schema=base_data.schema,  # Use original schema for consistency
+            schema=Schema.of(base_data.schema),  # Use original schema for consistency
+            catalog=catalog_name,
         )
         result_df = to_pandas(result)
         assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"

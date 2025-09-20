@@ -1399,9 +1399,8 @@ def create_table_version(
                 expected_table_version,
             )
             if version_number != expected_version_number:
-                raise TableValidationError(
-                    f"Expected to create table version "
-                    f"{expected_version_number} but found {version_number}.",
+                raise TableVersionAlreadyExistsError(
+                    f"Table {namespace}.{table_name} version {table_version} already exists."
                 )
     if table_description is not None:
         new_table.description = table_description

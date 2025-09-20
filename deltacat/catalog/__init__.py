@@ -17,6 +17,7 @@ from deltacat.catalog.delegate import (
     table_exists,
     truncate_table,
     write_to_table,
+    from_manifest_table,
 )
 from deltacat.catalog.model.catalog import (  # noqa: F401
     all_catalogs,
@@ -47,6 +48,7 @@ __all__ = [
     "default_namespace",
     "drop_namespace",
     "drop_table",
+    "from_manifest_table",
     "get_namespace",
     "get_table",
     "list_namespaces",

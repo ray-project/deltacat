@@ -1936,8 +1936,11 @@ def download_manifest_entry_ray(
         effective_table_type = DatasetType.PYARROW
 
     # Call the regular download function
+    reconstructed_manifest_entry = reconstruct_manifest_entry_url(
+        manifest_entry, **kwargs
+    )
     result = download_manifest_entry(
-        manifest_entry=manifest_entry,
+        manifest_entry=reconstructed_manifest_entry,
         table_type=effective_table_type,
         column_names=column_names,
         include_columns=include_columns,

@@ -511,3 +511,30 @@ def default_namespace(*args, **kwargs) -> str:
         Name of the default namespace.
     """
     raise NotImplementedError("default_namespace not implemented")
+
+
+def from_manifest_table(
+    manifest_table: Dataset,
+    *args,
+    read_as: DatasetType = DatasetType.DAFT,
+    schema: Optional[Schema] = None,
+    transaction: Optional[Transaction] = None,
+    catalog: Optional[str] = None,
+    **kwargs,
+) -> Dataset:
+    """
+    Read a manifest table (containing file paths and metadata) and download the actual data.
+
+    This utility function takes the output from a schemaless table read (which returns
+    manifest entries instead of data) and downloads the actual file contents.
+
+    Args:
+        manifest_table: Dataset containing manifest entries with file paths and metadata
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        schema: Optional schema to attempt to coerce the data into.
+        **kwargs: Additional arguments forwarded to download functions
+
+    Returns:
+        Dataset containing the actual file contents
+    """
+    raise NotImplementedError("from_manifest_table not implemented")

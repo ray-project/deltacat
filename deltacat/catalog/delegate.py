@@ -33,6 +33,20 @@ from deltacat.types.tables import (
 )
 
 
+def resolve_catalog_from_transaction() -> Optional[str]:
+    """
+    Resolve the catalog name from the current transaction context.
+
+    Returns:
+        The catalog name if a transaction is active and has a catalog_name set,
+        None otherwise.
+    """
+    current_transaction = get_current_transaction()
+    if current_transaction and hasattr(current_transaction, "catalog_name"):
+        return current_transaction.catalog_name
+    return None
+
+
 # table functions
 def write_to_table(
     data: Dataset,
@@ -75,6 +89,12 @@ def write_to_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.write_to_table(
         data,
@@ -128,6 +148,12 @@ def read_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.read_table(
         table,
@@ -192,6 +218,12 @@ def alter_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.alter_table(
         table,
@@ -267,6 +299,12 @@ def create_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.create_table(
         table,
@@ -321,6 +359,12 @@ def drop_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.drop_table(
         table,
@@ -358,6 +402,12 @@ def refresh_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.refresh_table(
         table,
@@ -392,6 +442,12 @@ def list_tables(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.list_tables(
         *args,
@@ -431,6 +487,12 @@ def get_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.get_table(
         table,
@@ -468,6 +530,12 @@ def truncate_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.truncate_table(
         table,
@@ -507,6 +575,12 @@ def rename_table(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.rename_table(
         table,
@@ -545,6 +619,12 @@ def table_exists(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.table_exists(
         table,
@@ -577,6 +657,12 @@ def list_namespaces(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.list_namespaces(
         *args,
@@ -606,6 +692,12 @@ def get_namespace(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.get_namespace(
         namespace,
@@ -636,6 +728,12 @@ def namespace_exists(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.namespace_exists(
         namespace,
@@ -671,6 +769,12 @@ def create_namespace(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.create_namespace(
         namespace,
@@ -706,6 +810,12 @@ def alter_namespace(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.alter_namespace(
         namespace,
@@ -741,6 +851,12 @@ def drop_namespace(
         raise ValueError(
             "Transaction and catalog parameters are mutually exclusive. Please specify either transaction or catalog, not both."
         )
+
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None and (transaction or get_current_transaction()):
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     catalog_obj.impl.drop_namespace(
         namespace,
@@ -762,5 +878,49 @@ def default_namespace(
     Returns:
         Name of the default namespace.
     """
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None:
+        catalog = resolve_catalog_from_transaction()
+
     catalog_obj = get_catalog(catalog)
     return catalog_obj.impl.default_namespace(*args, inner=catalog_obj.inner, **kwargs)
+
+
+def from_manifest_table(
+    manifest_table: Dataset,
+    *args,
+    read_as: DatasetType = DatasetType.DAFT,
+    schema: Optional[Schema] = None,
+    catalog: Optional[str] = None,
+    **kwargs,
+) -> Dataset:
+    """
+    Read a manifest table (containing file paths and metadata) and download the actual data.
+
+    This utility function takes the output from a schemaless table read (which returns
+    manifest entries instead of data) and downloads the actual file contents.
+
+    Args:
+        manifest_table: Dataset containing manifest entries with file paths and metadata
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        schema: Optional schema to attempt to coerce the data into.
+        **kwargs: Additional arguments forwarded to download functions
+
+    Returns:
+        Dataset containing the actual file contents
+    """
+    # If no explicit catalog is provided and we're in a transaction context,
+    # try to resolve the catalog from the transaction
+    if catalog is None:
+        catalog = resolve_catalog_from_transaction()
+
+    catalog_obj = get_catalog(catalog)
+    return catalog_obj.impl.from_manifest_table(
+        manifest_table,
+        *args,
+        read_as=read_as,
+        schema=schema,
+        inner=catalog_obj.inner,
+        **kwargs,
+    )

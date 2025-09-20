@@ -20,6 +20,7 @@ from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     TableAlreadyExistsError,
     TableVersionNotFoundError,
+    TableVersionAlreadyExistsError,
     TableValidationError,
     StreamNotFoundError,
     PartitionNotFoundError,
@@ -664,7 +665,7 @@ class TestTableVersion:
         table_version = create_test_table_version()
         # when we try to create ordinal table version 1 again
         # expect an error to be raised (ordinal version 3 expected)
-        with pytest.raises(TableValidationError):
+        with pytest.raises(TableVersionAlreadyExistsError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1574,7 +1575,7 @@ class TestTableVersion:
         # given an existing table version
         # when we try to create a table version with the same ID
         # expect an error to be raised
-        with pytest.raises(TableValidationError):
+        with pytest.raises(TableVersionAlreadyExistsError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,

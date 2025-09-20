@@ -212,13 +212,6 @@ class TestCompactionSessionMain:
             catalog=catalog,
         )
 
-        print(
-            f"Original destination partition stream position: {dest_partition.stream_position}"
-        )
-        print(
-            f"Updated destination partition stream position: {updated_dest_partition.stream_position}"
-        )
-
         # Verify that the destination partition now has some deltas
         dest_partition_deltas = metastore.list_partition_deltas(
             partition_like=updated_dest_partition,
@@ -227,22 +220,11 @@ class TestCompactionSessionMain:
         )
 
         delta_count = len(dest_partition_deltas.all_items())
-        print(f"Found {delta_count} delta(s) in destination partition")
 
         # Verify that at least one compacted delta was written to the destination partition
         assert (
             delta_count > 0
         ), f"Expected at least one delta in destination partition, but found {delta_count}"
-
-        # Print some info about the delta(s) found
-        for i, delta in enumerate(dest_partition_deltas.all_items()):
-            print(
-                f"Delta {i+1}: stream_position={delta.stream_position}, type={delta.type}, record_count={delta.meta.record_count if delta.meta else 'N/A'}"
-            )
-
-        print(
-            f"✅ Basic sanity test PASSED! compact_partition works with main deltacat metastore and wrote {delta_count} delta(s) to destination partition."
-        )
 
     def test_compact_partition_when_no_input_deltas_to_compact(self, catalog):
         """Test compaction when there are no input deltas to compact."""
