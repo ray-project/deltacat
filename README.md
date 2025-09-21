@@ -4,7 +4,7 @@
 
 DeltaCAT is a portable Multimodal Lakehouse powered by [Ray](https://github.com/ray-project/ray), [Apache Arrow](https://github.com/apache/arrow), and [Daft](https://github.com/Eventual-Inc/Daft). It lets you create ACID-compliant multimodal data lakes [that efficiently scale to manage exabytes of production data](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
 
-It provides data lake level transactions & time travel, zero-copy schema evolution for feature enrichment, zero-copy multimodal (image, audio, video, text, etc.) file processing, and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads. It runs on any filesystem for easy setup and sharing - no external catalog services, lock managers, or key value stores required.
+It provides data lake level transactions & time travel, zero-copy schema evolution, zero-copy multimodal file processing (image, audio, video, text, etc.), and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads. It runs on any filesystem for easy setup and sharing - no external catalog services, lock managers, or key value stores required.
 
 
 ## Overview
@@ -26,7 +26,7 @@ Data consumers that prefer to stay within the ecosystem of Pythonic data managem
 ## Getting Started
 DeltaCAT applications run anywhere that Ray runs, including your local laptop, cloud computing cluster, or on-premise cluster.
 
-DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of data files. A **Catalog** can be thought of as a named data lake containing a set of **Tables**. It provides a root location (e.g., a local file path or S3 Bucket) to store table information, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
+DeltaCAT lets you manage **Tables** across one or more **Catalogs**. A **Table** can be thought of as a named collection of data files. A **Catalog** can be thought of as a named data lake that contains a set of **Tables**. A **Catalog** provides a root location (e.g., a local file path or S3 Bucket) to store information about all your **Tables**, and can be rooted in any [PyArrow-compatible Filesystem](https://arrow.apache.org/docs/python/filesystems.html). **Tables** can be created, read, and written using the `dc.write` and `dc.read` APIs.
 
 
 ### Quick Start

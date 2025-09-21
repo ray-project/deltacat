@@ -18,6 +18,7 @@ from deltacat.experimental.compatibility.backfill_transaction_partitions import 
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.storage.model.transaction import Transaction
 from deltacat.utils.filesystem import write_file, resolve_path_and_filesystem
+from deltacat.tests.test_utils.utils import can_chmod_to_readonly
 from deltacat.constants import (
     TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
@@ -287,6 +288,12 @@ class TestBackfillTransactionPartitions:
 
         This test creates a read-only destination to simulate move failures.
         """
+        # Skip test if chmod doesn't work effectively on this platform
+        if not can_chmod_to_readonly():
+            pytest.skip(
+                "chmod cannot create effective read-only directories on this platform"
+            )
+
         with tempfile.TemporaryDirectory() as temp_dir:
             _, filesystem = resolve_path_and_filesystem(temp_dir)
 

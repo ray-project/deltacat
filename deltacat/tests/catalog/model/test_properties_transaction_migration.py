@@ -13,6 +13,7 @@ import pyarrow.fs
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.utils.filesystem import write_file, resolve_path_and_filesystem
 from deltacat.storage.model.transaction import Transaction
+from deltacat.tests.test_utils.utils import can_chmod_to_readonly
 from deltacat.constants import (
     TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
@@ -107,6 +108,12 @@ class TestCatalogPropertiesTransactionMigration:
 
     def test_catalog_initialization_migration_failure_causes_init_failure(self):
         """Test that migration failure causes catalog initialization to fail."""
+        # Skip test if chmod doesn't work effectively on this platform
+        if not can_chmod_to_readonly():
+            pytest.skip(
+                "chmod cannot create effective read-only directories on this platform"
+            )
+
         with tempfile.TemporaryDirectory() as temp_dir:
             _, filesystem = resolve_path_and_filesystem(temp_dir)
 
