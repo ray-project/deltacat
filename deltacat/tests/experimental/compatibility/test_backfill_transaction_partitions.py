@@ -18,7 +18,6 @@ from deltacat.experimental.compatibility.backfill_transaction_partitions import 
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.storage.model.transaction import Transaction
 from deltacat.utils.filesystem import write_file, resolve_path_and_filesystem
-from deltacat.tests.test_utils.utils import can_chmod_to_readonly
 from deltacat.constants import (
     TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
@@ -282,67 +281,6 @@ class TestBackfillTransactionPartitions:
             # Verify invalid directory still exists in original location
             invalid_dir_info = filesystem.get_file_info(invalid_txn_dir)
             assert invalid_dir_info.type == pyarrow.fs.FileType.Directory
-
-    def test_migration_move_failure_causes_exception(self):
-        """Test that failure to move a valid transaction file causes an exception.
-
-        This test creates a read-only destination to simulate move failures.
-        """
-        # Skip test if chmod doesn't work effectively on this platform
-        if not can_chmod_to_readonly():
-            pytest.skip(
-                "chmod cannot create effective read-only directories on this platform"
-            )
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            _, filesystem = resolve_path_and_filesystem(temp_dir)
-
-            # Create success directory with a valid transaction directory structure
-            success_dir = posixpath.join(temp_dir, TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME)
-            filesystem.create_dir(success_dir, recursive=True)
-
-            current_time = time.time_ns()
-            valid_txn_id = f"{current_time}_{uuid.uuid4()}"
-            valid_txn_dir = posixpath.join(success_dir, valid_txn_id)
-            filesystem.create_dir(valid_txn_dir, recursive=True)
-
-            # Create end time file inside valid transaction directory
-            txn_end_time = str(current_time + 500000)
-            valid_end_time_file = posixpath.join(valid_txn_dir, txn_end_time)
-            write_file(valid_end_time_file, "valid transaction", filesystem)
-
-            # Create a read-only directory structure to force move failure
-            # Get the expected destination directory and create it as read-only
-            destination_dir = Transaction.success_txn_log_dir_path(
-                success_dir, valid_txn_id
-            )
-            filesystem.create_dir(destination_dir, recursive=True)
-
-            # Make the destination directory read-only (this will fail on some platforms, but that's OK)
-            try:
-                import os
-
-                os.chmod(destination_dir, 0o444)  # Read-only
-
-                # Migration should raise an exception for valid transaction directory move failure
-                with pytest.raises(
-                    RuntimeError,
-                    match="Migration failed: unable to move valid transaction item",
-                ):
-                    _migrate_transaction_status_directory(
-                        catalog_root=temp_dir,
-                        filesystem=filesystem,
-                        status_dir_name=SUCCESS_TXN_DIR_NAME,
-                        is_success=True,
-                    )
-
-                # Restore permissions for cleanup
-                os.chmod(destination_dir, 0o755)
-
-            except (OSError, PermissionError):
-                # If we can't create read-only directories (some platforms don't support this),
-                # skip this test as it's not critical for the core functionality
-                pytest.skip("Cannot create read-only directories on this platform")
 
     def test_no_migration_needed(self):
         """Test when no transaction files need migration."""

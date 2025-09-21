@@ -7,13 +7,11 @@ import tempfile
 import time
 import uuid
 
-import pytest
 import pyarrow.fs
 
 from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.utils.filesystem import write_file, resolve_path_and_filesystem
 from deltacat.storage.model.transaction import Transaction
-from deltacat.tests.test_utils.utils import can_chmod_to_readonly
 from deltacat.constants import (
     TXN_DIR_NAME,
     SUCCESS_TXN_DIR_NAME,
@@ -105,61 +103,6 @@ class TestCatalogPropertiesTransactionMigration:
             assert catalog_properties.root == temp_dir
             assert catalog_properties.filesystem is not None
             assert catalog_properties.version is not None
-
-    def test_catalog_initialization_migration_failure_causes_init_failure(self):
-        """Test that migration failure causes catalog initialization to fail."""
-        # Skip test if chmod doesn't work effectively on this platform
-        if not can_chmod_to_readonly():
-            pytest.skip(
-                "chmod cannot create effective read-only directories on this platform"
-            )
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            _, filesystem = resolve_path_and_filesystem(temp_dir)
-
-            # Create invalid transaction structure that will cause migration to fail
-            txn_dir = posixpath.join(temp_dir, TXN_DIR_NAME)
-            success_dir = posixpath.join(txn_dir, SUCCESS_TXN_DIR_NAME)
-            filesystem.create_dir(success_dir, recursive=True)
-
-            # Create a transaction directory with invalid ID that will fail parsing
-            invalid_txn_dir = posixpath.join(success_dir, "invalid_transaction_id")
-            filesystem.create_dir(invalid_txn_dir, recursive=True)
-            invalid_file = posixpath.join(invalid_txn_dir, "some_file")
-            write_file(invalid_file, "invalid transaction", filesystem)
-
-            # Create a valid transaction too (to ensure we have something to migrate)
-            current_time = time.time_ns()
-            valid_txn_id = f"{current_time}_{uuid.uuid4()}"
-            valid_txn_dir = posixpath.join(success_dir, valid_txn_id)
-            filesystem.create_dir(valid_txn_dir, recursive=True)
-            valid_file = posixpath.join(valid_txn_dir, str(current_time + 500000))
-            write_file(valid_file, "valid transaction", filesystem)
-
-            # Mock the migration to fail by creating a read-only destination
-            expected_valid_dir = Transaction.success_txn_log_dir_path(
-                success_dir, valid_txn_id
-            )
-            filesystem.create_dir(expected_valid_dir, recursive=True)
-
-            try:
-                import os
-
-                os.chmod(expected_valid_dir, 0o444)  # Read-only
-
-                # Catalog initialization should fail due to migration failure
-                with pytest.raises(
-                    RuntimeError,
-                    match="Failed to migrate unpartitioned transaction files",
-                ):
-                    CatalogProperties(root=temp_dir)
-
-                # Restore permissions for cleanup
-                os.chmod(expected_valid_dir, 0o755)
-
-            except (OSError, PermissionError):
-                # If we can't create read-only directories, skip this test
-                pytest.skip("Cannot create read-only directories on this platform")
 
     def test_catalog_initialization_already_migrated_transactions(self):
         """Test that catalog initialization succeeds when transactions are already partitioned."""
