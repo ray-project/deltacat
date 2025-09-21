@@ -251,6 +251,7 @@ print(pandas_df)
 <details>
 
 <summary><span style="font-size: 1.25em; font-weight: bold;">Schemaless Tables</span></summary>
+
 Tables created automatically via `dc.write` have a schema inferred from the data written by default. However, if you create an empty table without providing a schema, it defaults to schemaless. Writes to schemaless tables are more efficient and flexible, since they simply track the location and basic metadata associated with the data files written to the table. However, if you know that a unified schema can be derived for your schemaless data, then you can you can still read it back as a structured dataset:
 
 ```python
