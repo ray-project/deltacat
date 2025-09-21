@@ -1,5 +1,4 @@
 import os
-import time
 import uuid
 import posixpath
 
@@ -29,6 +28,8 @@ from deltacat.compute.janitor import (
     janitor_remove_files_in_failed,
 )
 
+JAN_1ST_2025_EPOCH_NS = 1_735_689_600_000_000_000
+
 
 class TestJanitorJob:
     def test_janitor_delete_timed_out_transaction(self, temp_dir):
@@ -42,13 +43,13 @@ class TestJanitorJob:
         os.makedirs(failed_txn_dir, exist_ok=True)
 
         # Create a test transaction log that is already timed out.
-        start_time = time.time_ns() - 1_000_000_000  # 1 second in the past
+        start_time = JAN_1ST_2025_EPOCH_NS
 
         txn_uuid = str(uuid.uuid4())
         # Create transaction ID in format {start_time}_{uuid}
         txn_id = f"{start_time}{TXN_PART_SEPARATOR}{txn_uuid}"
         # The filename includes end_time to indicate when transaction should be considered timed out
-        end_time = time.time_ns() - 500_000_000  # Already timed out (500ms ago)
+        end_time = start_time + 1000 + 500_000_000  # Already timed out (500ms ago)
         txn_filename = f"{txn_id}{TXN_PART_SEPARATOR}{end_time}"
         txn_path = posixpath.join(running_txn_dir, txn_filename)
 
@@ -137,7 +138,7 @@ class TestJanitorJob:
         os.makedirs(failed_txn_dir, exist_ok=True)
 
         # Create multiple timed-out transaction logs
-        start_time = time.time_ns() - 1_000_000_000  # 1 second in the past
+        start_time = JAN_1ST_2025_EPOCH_NS
 
         txn_filenames = []
         txn_data = []  # Store transaction IDs and UUIDs
@@ -146,7 +147,9 @@ class TestJanitorJob:
             # Create transaction ID in format {start_time}_{uuid}
             txn_id = f"{start_time + i * 1000}{TXN_PART_SEPARATOR}{txn_uuid}"  # Slightly different start times
             # The filename includes end_time to indicate when transaction should be considered timed out
-            end_time = time.time_ns() - 500_000_000  # Already timed out (500ms ago)
+            end_time = (
+                start_time + i * 1000 + 500_000_000
+            )  # Already timed out (500ms ago)
             txn_filename = f"{txn_id}{TXN_PART_SEPARATOR}{end_time}"
             txn_data.append((txn_id, txn_uuid))
             txn_path = posixpath.join(running_txn_dir, txn_filename)

@@ -60,7 +60,7 @@ dc.write(data, "users")
 daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
-# Insert more data and add a new column.
+# Add more data and add a new column.
 # Compaction and zero-copy schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],
@@ -169,7 +169,7 @@ dc.write(data, "users", mode=dc.TableWriteMode.CREATE)
 daft_df = dc.read("users")  # Returns Daft DataFrame (default)
 daft_df.show()  # Materialize and print the DataFrame
 
-# Explicitly insert more data and add a new column.
+# Explicitly add more data and add a new column.
 # Compaction and schema evolution are handled automatically.
 data = pd.DataFrame({
     "id": [4, 5, 6],

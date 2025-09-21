@@ -356,8 +356,8 @@ def list_directory_partitioned(
     List files in a partitioned filesystem directory structure, returning files from partitions
     that are within the specified partition range.
 
-    This function implements complex partition traversal logic where files are returned from
-    partitions whose parsed values are within the range [partition_start_value, partition_value]
+    This function implements partition traversal logic where files are returned from partitions
+    whose parsed values are within the range [partition_start_value, partition_value]
     (inclusive). If partition_start_value is not provided, it defaults to returning files from
     partitions <= partition_value.
 

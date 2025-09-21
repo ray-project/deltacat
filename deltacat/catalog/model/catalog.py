@@ -453,7 +453,7 @@ def load_catalog_config(config_path: str) -> Dict[str, Catalog]:
     config_path = Path(config_path).expanduser()
     if not config_path.exists():
         raise FileNotFoundError(
-            f"Failed to restore last session. No catalog config found at: {config_path}",
+            f"Failed to restore catalog config. No file found at: {config_path}",
         )
     with open(config_path, "r") as f:
         config_data = yaml.safe_load(f) or {}

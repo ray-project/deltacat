@@ -28,6 +28,7 @@ from ray.data.dataset import MaterializedDataset
 
 import deltacat as dc
 from deltacat import Catalog, CatalogProperties
+from deltacat.constants import UNSIGNED_INT32_MAX_VALUE
 from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableVersionAlreadyExistsError,
@@ -1717,11 +1718,9 @@ class TestCopyOnWrite:
         compacted_delta = final_deltas[0]
 
         # Verify the compacted delta properties
-        # Note: stream position may vary based on compaction implementation,
-        # the key is that compaction occurred and data is preserved
         assert (
-            compacted_delta.stream_position > 0
-        ), f"Expected compacted delta with positive stream position, but found {compacted_delta.stream_position}"
+            compacted_delta.stream_position == 1
+        ), f"Expected compacted delta with stream position 1, but found {compacted_delta.stream_position}"
         assert (
             "append" in str(compacted_delta.type).lower()
         ), f"Expected APPEND delta type, but found {compacted_delta.type}"
@@ -2416,18 +2415,20 @@ class TestCopyOnWrite:
 
         # Verify ADD uses random stream position (large number)
         assert (
-            add_stream_position > 10000
-        ), f"Expected large random stream position for ADD delta, but found {add_stream_position}"
+            add_stream_position > UNSIGNED_INT32_MAX_VALUE
+        ), f"Expected stream position greater than {UNSIGNED_INT32_MAX_VALUE} for ADD delta, but found {add_stream_position}"
 
         # Verify APPEND uses sequential stream position (small number)
         assert (
-            append_stream_position <= 10
+            append_stream_position == 1
         ), f"Expected small sequential stream position for APPEND delta, but found {append_stream_position}"
 
         # Verify the difference is significant
         position_diff = abs(add_stream_position - append_stream_position)
         assert (
-            position_diff > 10000
+            # the minimum possible add stream position is UNSIGNED_INT32_MAX_VALUE + 1
+            position_diff
+            > (UNSIGNED_INT32_MAX_VALUE + 1) - append_stream_position
         ), f"Expected large difference between ADD and APPEND stream positions, but found {position_diff}"
 
         # Verify delta types
