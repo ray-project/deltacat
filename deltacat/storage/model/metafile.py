@@ -8,11 +8,15 @@ from typing import Optional, Tuple, List, Union, Set
 import base64
 import json
 import msgpack
-import pyarrow.fs
 import posixpath
 import uuid
+import functools
+
+import pyarrow.fs
+
 import deltacat
 
+from deltacat.catalog.model.properties import CatalogProperties
 from deltacat.constants import (
     METAFILE_FORMAT,
     REVISION_DIR_NAME,
@@ -21,6 +25,8 @@ from deltacat.constants import (
     TXN_DIR_NAME,
     TXN_PART_SEPARATOR,
     SUCCESS_TXN_DIR_NAME,
+    MAX_REVISION_NUMBER,
+    DEFAULT_PAGE_SIZE,
 )
 from deltacat.exceptions import (
     ObjectNotFoundError,
@@ -34,7 +40,12 @@ from deltacat.storage.model.types import TransactionOperationType
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
+    list_directory_partitioned,
     get_file_info,
+    write_file_partitioned,
+    exponential_partition_transform,
+    parse_exponential_partitions,
+    remove_exponential_partitions,
 )
 
 
@@ -70,6 +81,22 @@ class MetafileRevisionInfo(dict):
         return mri
 
     @staticmethod
+    def parse_revision(file_path: str) -> Optional[int]:
+        """Extract revision number from metafile path for partition filtering.
+
+        Args:
+            file_path: Path to a metafile revision file.
+
+        Returns:
+            The revision number if successfully parsed, None otherwise.
+        """
+        try:
+            mri = MetafileRevisionInfo.parse(file_path)
+            return mri.revision
+        except (ValueError, IndexError, AttributeError):
+            return None
+
+    @staticmethod
     def list_revisions(
         revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
@@ -82,14 +109,17 @@ class MetafileRevisionInfo(dict):
             err_msg = f"No transaction log found for: {revision_dir_path}."
             raise ObjectNotFoundError(err_msg)
         # find the latest committed revision of the target metafile
-        sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
+        next_page_provider = functools.partial(
+            MetafileRevisionInfo._sorted_file_paths,
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
+            limit=max(limit, DEFAULT_PAGE_SIZE),
             ignore_missing_revision=True,
         )
+        sorted_metafile_paths = next_page_provider(partition_value=MAX_REVISION_NUMBER)
         revisions = []
         while sorted_metafile_paths:
-            latest_metafile_path = sorted_metafile_paths.pop()
+            latest_metafile_path = sorted_metafile_paths.pop(0)
             mri = MetafileRevisionInfo.parse(latest_metafile_path)
             if not current_txn_id or mri.txn_id == current_txn_id:
                 # consider the current transaction (if any) to be committed
@@ -97,9 +127,13 @@ class MetafileRevisionInfo(dict):
             elif current_txn_start_time is not None:
                 # the current transaction can only build on top of the snapshot
                 # of commits from transactions that completed before it started
+                txn_log_dir_path = deltacat.storage.model.transaction.Transaction.success_txn_log_dir_path(
+                    success_txn_log_dir,
+                    mri.txn_id,
+                )
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=posixpath.join(success_txn_log_dir, mri.txn_id),
+                        path=txn_log_dir_path,
                         filesystem=filesystem,
                     )
                 )
@@ -110,8 +144,12 @@ class MetafileRevisionInfo(dict):
                     f"Current transaction ID `{current_txn_id} provided "
                     f"without a transaction start time."
                 )
-            if limit <= len(revisions):
+            limit -= len(revisions)
+            # Break if we've reached the result limit or first revision
+            if limit <= 0 or mri.revision <= 1:
                 break
+            # Continue searching for earlier revisions
+            sorted_metafile_paths = next_page_provider(partition_value=mri.revision - 1)
         return revisions
 
     @staticmethod
@@ -251,10 +289,20 @@ class MetafileRevisionInfo(dict):
         sorted_metafile_paths = MetafileRevisionInfo._sorted_file_paths(
             revision_dir_path=revision_dir_path,
             filesystem=filesystem,
+            partition_value=cur_txn_mri.revision,
+            limit=DEFAULT_PAGE_SIZE,
         )
+
+        # If we hit the limit, there are too many concurrent conflicts - fail early
+        if len(sorted_metafile_paths) >= DEFAULT_PAGE_SIZE:
+            raise ConcurrentModificationError(
+                f"Aborting transaction {cur_txn_mri.txn_id} due to excessive "
+                f"concurrent conflicts (>={DEFAULT_PAGE_SIZE} files) at {revision_dir_path}. "
+            )
+
         conflict_mris = []
         while sorted_metafile_paths:
-            next_metafile_path = sorted_metafile_paths.pop()
+            next_metafile_path = sorted_metafile_paths.pop(0)
             mri = MetafileRevisionInfo.parse(next_metafile_path)
             if mri.revision < cur_txn_mri.revision:
                 # no conflict was found
@@ -283,9 +331,13 @@ class MetafileRevisionInfo(dict):
             # but we still need to ensure that no conflicting transactions
             # completed before seeing the conflict with this transaction
             for mri in conflict_mris:
+                txn_log_dir_path = deltacat.storage.model.transaction.Transaction.success_txn_log_dir_path(
+                    success_txn_log_dir, mri.txn_id
+                )
+
                 txn_end_time = (
                     deltacat.storage.model.transaction.Transaction.read_end_time(
-                        path=posixpath.join(success_txn_log_dir, mri.txn_id),
+                        path=txn_log_dir_path,
                         filesystem=filesystem,
                     )
                 )
@@ -301,19 +353,29 @@ class MetafileRevisionInfo(dict):
                         f"Aborting transaction {cur_txn_mri.txn_id} due to "
                         f"concurrent conflict at {revision_dir_path} with "
                         f"previously completed transaction {mri.txn_id} at "
-                        f"{next_metafile_path}."
+                        f"{txn_log_dir_path}/{txn_end_time}."
                     )
 
     @staticmethod
     def _sorted_file_paths(
         revision_dir_path: str,
         filesystem: pyarrow.fs.FileSystem,
+        partition_value: int,
+        limit: Optional[int] = None,
         ignore_missing_revision: bool = False,
     ) -> List[str]:
-        file_paths_and_sizes = list_directory(
-            path=revision_dir_path,
+        file_paths_and_sizes = list_directory_partitioned(
+            path=remove_exponential_partitions(
+                revision_dir_path, is_directory_path=True
+            ),
             filesystem=filesystem,
+            partition_value=partition_value,
+            partition_transform=exponential_partition_transform,
+            partition_file_parser=MetafileRevisionInfo.parse_revision,
+            limit=limit,
+            partition_dir_parser=parse_exponential_partitions,
             ignore_missing_path=True,
+            return_unpartitioned=True,
         )
         if not file_paths_and_sizes and not ignore_missing_revision:
             err_msg = (
@@ -675,24 +737,28 @@ class Metafile(dict):
     def write(
         self,
         path: str,
+        revision: int,
         filesystem: Optional[pyarrow.fs.FileSystem] = None,
         meta_format: Optional[str] = METAFILE_FORMAT,
-    ) -> None:
+    ) -> str:
         """
-        Serialize and write this object to a metadata file.
+        Serialize and write this object to a metadata file using partitioned storage.
         :param path: Metadata file path to write to.
+        :param revision: Revision number to use for partitioning.
         :param filesystem: File system to use for writing the metadata file. If
         not given, a default filesystem will be automatically selected based on
         the catalog root path.
         :param meta_format: Format to use for serializing the metadata file.
+        :return: The actual path where the file was written (may differ due to partitioning).
         """
         serialized = self.serialize(meta_format)
-        if not filesystem:
-            path, filesystem = resolve_path_and_filesystem(path, filesystem)
-        revision_dir_path = posixpath.dirname(path)
-        filesystem.create_dir(revision_dir_path, recursive=True)
-        with filesystem.open_output_stream(path) as file:
-            file.write(serialized)
+        return write_file_partitioned(
+            path=remove_exponential_partitions(path),
+            data=serialized,
+            partition_value=revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
 
     @staticmethod
     def _equivalent_minus_exclusions(d1: dict, d2: dict, exclusions: Set[str]) -> bool:
@@ -825,6 +891,16 @@ class Metafile(dict):
         """
         return None
 
+    @property
+    def catalog(self) -> Optional[CatalogProperties]:
+        """Ephemeral property to store the parent catalog of this metafile. Not persisted to disk."""
+        return getattr(self, "_catalog", None)
+
+    @catalog.setter
+    def catalog(self, catalog: Optional[CatalogProperties]) -> None:
+        """Ephemeral property to store the parent catalog of this metafile. Not persisted to disk."""
+        self._catalog = catalog
+
     def children(
         self,
         catalog_root: str,
@@ -904,10 +980,11 @@ class Metafile(dict):
         Retrieve all revisions of this object.
         :return: ListResult containing all revisions of this object.
         """
-        catalog_root, filesystem = resolve_path_and_filesystem(
-            catalog_root,
-            filesystem,
-        )
+        if not filesystem:
+            catalog_root, filesystem = resolve_path_and_filesystem(
+                catalog_root,
+                filesystem,
+            )
         try:
             parent_root = self.parent_root_path(
                 catalog_root=catalog_root,
@@ -1062,9 +1139,11 @@ class Metafile(dict):
         parent_number,
     ):
         # TODO(pdames): Stop parent traversal at catalog root.
+        # Remove exponential partitions from the base path first to get the correct directory structure
+        unpartitioned_base_path = remove_exponential_partitions(base_metafile_path)
         current_dir = posixpath.dirname(  # base metafile root dir
             posixpath.dirname(  # base metafile revision dir
-                base_metafile_path,
+                unpartitioned_base_path,
             )
         )
         while parent_number and current_dir != posixpath.sep:
@@ -1192,10 +1271,13 @@ class Metafile(dict):
             extension=f".{self.id}",
             success_txn_log_dir=success_txn_log_dir,
         )
-        revision_file_path = mri.path
-        filesystem.create_dir(posixpath.dirname(revision_file_path), recursive=True)
-        with filesystem.open_output_stream(revision_file_path):
-            pass  # Just create an empty ID file to map to the locator
+        revision_file_path = write_file_partitioned(
+            path=remove_exponential_partitions(mri.path),
+            data=b"",  # Just create an empty ID file to map to the locator
+            partition_value=mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
         current_txn_op.append_locator_write_path(revision_file_path)
         return revision_file_path
 
@@ -1217,12 +1299,13 @@ class Metafile(dict):
             filesystem=filesystem,
             success_txn_log_dir=success_txn_log_dir,
         )
-        self.write(
+        written_path = self.write(
             path=mri.path,
+            revision=mri.revision,
             filesystem=filesystem,
         )
-        current_txn_op.append_metafile_write_path(mri.path)
-        return mri.path
+        current_txn_op.append_metafile_write_path(written_path)
+        return written_path
 
     def _write_metafile_revisions(
         self,

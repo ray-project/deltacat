@@ -20,6 +20,7 @@ from deltacat.exceptions import (
     NamespaceAlreadyExistsError,
     TableAlreadyExistsError,
     TableVersionNotFoundError,
+    TableVersionAlreadyExistsError,
     TableValidationError,
     StreamNotFoundError,
     PartitionNotFoundError,
@@ -123,9 +124,14 @@ class TestNamespace:
         # expect the namespace to also be returned when listing namespaces
         list_result = metastore.list_namespaces(catalog=self.catalog)
         namespaces_by_name = {n.locator.namespace: n for n in list_result.all_items()}
-        assert len(namespaces_by_name.items()) == 2
+        assert (
+            len(namespaces_by_name.items()) == 3
+        )  # namespace1, namespace2, and auto-created default
         assert namespaces_by_name["namespace1"].equivalent_to(self.namespace1)
         assert namespaces_by_name["namespace2"].equivalent_to(self.namespace2)
+        assert (
+            "default" in namespaces_by_name
+        )  # auto-created default namespace should exist
 
     def test_get_namespace(self):
         # expect the namespace to also be returned when explicitly retrieved
@@ -169,8 +175,11 @@ class TestNamespace:
         # And it should not be listed in namespaces
         list_result = metastore.list_namespaces(catalog=self.catalog)
         namespaces = list_result.all_items()
-        assert len(namespaces) == 1  # Only namespace2 should remain
-        assert namespaces[0].equivalent_to(self.namespace2)
+        assert len(namespaces) == 2  # namespace2 and auto-created default should remain
+        namespaces_by_name = {n.locator.namespace: n for n in namespaces}
+        assert "namespace2" in namespaces_by_name
+        assert "default" in namespaces_by_name
+        assert namespaces_by_name["namespace2"].equivalent_to(self.namespace2)
 
     def test_delete_namespace_not_exists(self):
         # When we try to delete a non-existent namespace
@@ -247,8 +256,8 @@ class TestNamespace:
         list_result = metastore.list_namespaces(catalog=self.catalog)
         namespaces = list_result.all_items()
         assert (
-            len(namespaces) == 2
-        )  # Both namespace2 and recreated namespace1 should exist
+            len(namespaces) == 3
+        )  # namespace2, recreated namespace1, and auto-created default should exist
         namespaces_by_name = {n.locator.namespace: n for n in namespaces}
         assert namespace in namespaces_by_name
         assert namespaces_by_name[namespace].equivalent_to(recreated_namespace)
@@ -656,7 +665,7 @@ class TestTableVersion:
         table_version = create_test_table_version()
         # when we try to create ordinal table version 1 again
         # expect an error to be raised (ordinal version 3 expected)
-        with pytest.raises(TableValidationError):
+        with pytest.raises(TableVersionAlreadyExistsError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -1566,7 +1575,7 @@ class TestTableVersion:
         # given an existing table version
         # when we try to create a table version with the same ID
         # expect an error to be raised
-        with pytest.raises(TableValidationError):
+        with pytest.raises(TableVersionAlreadyExistsError):
             metastore.create_table_version(
                 namespace=self.table.namespace,
                 table_name=self.table.table_name,
@@ -5730,7 +5739,7 @@ class TestDelta:
             table_name="test_table",
             # table_version=None,  # Not specified - should infer latest active
             catalog=self.catalog,
-        )
+        ).all_items()
 
         # Verify deltas were listed correctly
         assert len(deltas) == 2, f"Expected 2 deltas, got {len(deltas)}"

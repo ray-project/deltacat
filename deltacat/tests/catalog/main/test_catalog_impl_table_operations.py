@@ -121,6 +121,7 @@ class TestCatalogTableOperations:
             table_description="Test table for unit tests",
             table_properties=table_properties,
             namespace_properties=namespace_properties,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -155,6 +156,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             table_description="First creation",
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -174,6 +176,7 @@ class TestCatalogTableOperations:
                 table=table_name,
                 namespace=namespace_name,
                 table_description="Second creation attempt",
+                auto_create_namespace=True,
                 inner=catalog_properties,
             )
 
@@ -187,6 +190,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             table_description="Original description",
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -202,6 +206,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             table_description="Updated description",
             fail_if_exists=False,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -220,6 +225,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=table_name,
             namespace=namespace_name,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -273,6 +279,7 @@ class TestCatalogTableOperations:
             table=original_name,
             namespace=namespace_name,
             table_description="Table to in namespace to be renamed",
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -311,6 +318,7 @@ class TestCatalogTableOperations:
             table=original_name,
             namespace=namespace_name,
             table_description="Table to be renamed",
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -371,6 +379,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=existing_table,
             namespace=namespace_name,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -419,6 +428,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=table_name,
             namespace=new_namespace,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -445,6 +455,7 @@ class TestCatalogTableOperations:
             sort_keys=sample_sort_keys,
             table_description="Initial description",
             table_properties=initial_properties,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
         old_schema = table.table_version.schema
@@ -536,7 +547,6 @@ class TestCatalogTableOperations:
 
         # Create initial schema
         schema = Schema.of(schema=sample_arrow_schema)
-        print("schema.max_field_id", schema.max_field_id)
 
         # Create the table
         table = catalog.create_table(
@@ -544,6 +554,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             schema=schema,
             table_description="Initial description",
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -558,11 +569,6 @@ class TestCatalogTableOperations:
 
         schema_update = (
             original_schema.update().add_field(new_field1).add_field(new_field2)
-        )
-        print("original_schema.max_field_id", original_schema.max_field_id)
-        print(
-            "schema_update.base_schema.max_field_id",
-            schema_update.base_schema.max_field_id,
         )
 
         # Alter the table
@@ -622,6 +628,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             schema=schema,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
         original_schema = table.table_version.schema
@@ -678,6 +685,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=namespace_name,
             schema=schema,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -736,6 +744,7 @@ class TestCatalogTableOperations:
             namespace=namespace_name,
             schema=schema,
             table_properties=table_properties,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -802,6 +811,7 @@ class TestCatalogTableOperations:
         catalog.create_table(
             table=table_name,
             namespace=namespace_name,
+            auto_create_namespace=True,
             inner=catalog_properties,
         )
 
@@ -832,6 +842,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=self.test_namespace,
             schema=schema,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -855,6 +866,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=self.test_namespace,
             schema=schema,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -865,6 +877,7 @@ class TestCatalogTableOperations:
                 namespace=self.test_namespace,
                 schema=schema,
                 fail_if_exists=True,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -878,6 +891,7 @@ class TestCatalogTableOperations:
             table=table_name,
             namespace=self.test_namespace,
             schema=schema,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -887,6 +901,7 @@ class TestCatalogTableOperations:
             namespace=self.test_namespace,
             schema=schema,
             fail_if_exists=False,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1010,6 +1025,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             schema=schema,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1024,6 +1040,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1039,6 +1056,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.AUTO,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1067,6 +1085,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.AUTO,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1116,6 +1135,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.AUTO,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1157,6 +1177,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1169,6 +1190,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -1185,6 +1207,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1194,6 +1217,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1211,6 +1235,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -1241,6 +1266,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -1260,6 +1286,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1304,6 +1331,7 @@ class TestWriteToTable:
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
             schema=explicit_schema,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1326,6 +1354,7 @@ class TestWriteToTable:
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
             schema=None,  # Explicitly set schema=None
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1353,6 +1382,7 @@ class TestWriteToTable:
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
             # No schema argument provided - should infer from data
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1364,6 +1394,7 @@ class TestWriteToTable:
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
             schema=None,  # Explicitly set schema=None
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1409,6 +1440,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1440,6 +1472,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1470,6 +1503,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1494,6 +1528,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1519,6 +1554,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1544,6 +1580,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1569,6 +1606,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1598,6 +1636,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -1621,6 +1660,7 @@ class TestWriteToTable:
                 namespace=self.test_namespace,
                 mode=TableWriteMode.CREATE,
                 content_type=content_type,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
                 schema=None,
             )
@@ -1644,6 +1684,7 @@ class TestWriteToTable:
             mode=TableWriteMode.CREATE,
             table_description="Test table with properties",
             lifecycle_state=LifecycleState.ACTIVE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1677,6 +1718,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -1692,6 +1734,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1708,6 +1751,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.REPLACE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1741,6 +1785,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.MERGE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1770,6 +1815,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.MERGE,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 
@@ -1784,6 +1830,7 @@ class TestWriteToTable:
             data=data,
             table=table_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1807,6 +1854,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1851,6 +1899,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1953,6 +2002,7 @@ class TestWriteToTable:
             table=table_name,
             namespace=self.test_namespace,
             sort_keys=sort_scheme,
+            auto_create_namespace=True,
             inner=self.catalog_properties,
         )
 
@@ -1963,6 +2013,7 @@ class TestWriteToTable:
                 table=table_name,
                 namespace=self.test_namespace,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
                 inner=self.catalog_properties,
             )
 

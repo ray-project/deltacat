@@ -75,13 +75,16 @@ Each `ParquetFile` can be materialized by calling `read` on the `ParquetFile` re
 Data from any supported dataset type is written to a table using `dc.write` with one of the following write modes:
 
 **AUTO (default)**
-CREATE the table if it doesn't exist, APPEND to the table if it exists without schema merge keys, and MERGE if the table exists with merge keys.
+CREATE the table if it doesn't exist, ADD to the table if it exists without schema merge keys, and MERGE if the table exists with merge keys.
 
 **CREATE**
 Create the table if it doesn't exist, throw an error if it does.
 
+**ADD**
+Add unordered data to the table if it exists without merge keys, throw an error if it doesn't.
+
 **APPEND**
-Append to the table if it exists without schema merge keys, throw an error otherwise.
+Append ordered data to the table if it exists without merge keys, throw an error if it doesn't.
 
 **REPLACE**
 Replace existing table contents with the data to write.
@@ -91,6 +94,14 @@ Insert or update records matching table merge keys, or throw an error if the tab
 
 **DELETE**
 Delete records matching table merge keys, or throw an error if the table has no merge keys.
+
+## Ordered vs. Unordered Writes
+Note that the only difference between **APPEND** and **ADD** writes is whether the data write order is
+preserved on read. To ensure that the data order is preserved, concurrent **APPEND** writes to the same
+table partition always fail with a concurrent modification exception. On the other hand, concurrent
+**ADD** writes will always succeed unless concurrent writers ALSO trigger concurrent copy-on-write
+table compaction (whose frequency is controlled by the READ_OPTIMIZATION_LEVEL and COMPACTION_TRIGGER
+table properties listed below).
 
 ## Merge Keys
 Table schemas may be defined with one more more merge keys. Merge keys are used to identify records that
@@ -573,23 +584,41 @@ with tempfile.TemporaryDirectory() as temp_dir_a, \
 
     # Transaction targeting catalog_a
     with dc.transaction("catalog_a"):
-        dc.write(prod_data, "app_data", namespace="production",
-                mode=dc.TableWriteMode.CREATE)
+        dc.write(
+            prod_data,
+            "app_data",
+            namespace="production",
+            mode=dc.TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
 
     # Separate transaction targeting catalog_b
     with dc.transaction("catalog_b"):
-        dc.write(staging_data, "app_data", namespace="staging",
-                mode=dc.TableWriteMode.CREATE)
+        dc.write(
+            staging_data,
+            "app_data",
+            namespace="staging",
+            mode=dc.TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
 
     # Verify catalog isolation
     assert dc.table_exists("app_data", namespace="production", catalog="catalog_a")
     assert dc.table_exists("app_data", namespace="staging", catalog="catalog_b")
 
-    # Tables with same name exist independently in each catalog
-    prod_result = dc.read("app_data", namespace="production", catalog="catalog_a",
-                         read_as=dc.DatasetType.PANDAS)
-    staging_result = dc.read("app_data", namespace="staging", catalog="catalog_b",
-                           read_as=dc.DatasetType.PANDAS)
+    # Tables with the same name exist independently in each catalog
+    prod_result = dc.read(
+        "app_data",
+        namespace="production",
+        read_as=dc.DatasetType.PANDAS,
+        catalog="catalog_a",
+    )
+    staging_result = dc.read(
+        "app_data",
+        namespace="staging",
+        read_as=dc.DatasetType.PANDAS,
+        catalog="catalog_b",
+    )
 
     print(f"Production records: {prod_result['env'].tolist()}")  # ["prod", "prod"]
     print(f"Staging records: {staging_result['env'].tolist()}")  # ["staging", "staging"]
@@ -609,22 +638,38 @@ inner_data = pd.DataFrame({"id": [3, 4], "location": ["inner", "inner"]})
 # Nested transactions with different catalogs
 with dc.transaction("catalog_a"):
     # Outer transaction in catalog_a
-    dc.write(outer_data, "nested_table", namespace="production",
-            mode=dc.TableWriteMode.CREATE)
+    dc.write(
+        outer_data,
+        "nested_table",
+        namespace="production",
+        mode=dc.TableWriteMode.CREATE,
+        auto_create_namespace=True,
+    )
 
     # Inner transaction in catalog_b
     with dc.transaction("catalog_b"):
-        dc.write(inner_data, "nested_table", namespace="staging",
-                mode=dc.TableWriteMode.CREATE)
+        dc.write(
+            inner_data,
+            "nested_table",
+            namespace="staging",
+            mode=dc.TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
 
         # Verify inner transaction context
-        inner_check = dc.read("nested_table", namespace="staging",
-                            read_as=dc.DatasetType.PANDAS)
+        inner_check = dc.read(
+            "nested_table",
+            namespace="staging",
+            read_as=dc.DatasetType.PANDAS,
+        )
         print(f"Inner catalog records: {len(inner_check)}")
 
     # Back to outer transaction context (catalog_a)
-    outer_check = dc.read("nested_table", namespace="production",
-                         read_as=dc.DatasetType.PANDAS)
+    outer_check = dc.read(
+        "nested_table",
+        namespace="production",
+        read_as=dc.DatasetType.PANDAS,
+    )
     print(f"Outer catalog records: {len(outer_check)}")
 
 # Verify catalog isolation was maintained

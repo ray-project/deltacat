@@ -94,12 +94,28 @@ class TestDeltaCAT:
             DeltaCatUrl("dc://test_catalog_1"),
             dataset_type=DatasetType.RAY_DATASET,
         )
+        # Take all namespaces and find the one we created
+        all_rows = dataset.take_all()
+        test_namespace_row = None
+        for row in all_rows:
+            namespace_obj = Metafile.deserialize(
+                serialized=row[METAFILE_DATA_COLUMN_NAME],
+                meta_format=METAFILE_FORMAT_MSGPACK,
+            )
+            if (
+                hasattr(namespace_obj, "namespace")
+                and namespace_obj.namespace == "test_namespace"
+            ):
+                test_namespace_row = row
+                break
+
+        assert test_namespace_row is not None, "test_namespace should be in the listing"
         actual_namespace = Metafile.deserialize(
-            serialized=dataset.take(1)[0][METAFILE_DATA_COLUMN_NAME],
+            serialized=test_namespace_row[METAFILE_DATA_COLUMN_NAME],
             meta_format=METAFILE_FORMAT_MSGPACK,
         )
         assert actual_namespace.equivalent_to(namespace_src)
-        namespace_type = dataset.take(1)[0][METAFILE_TYPE_COLUMN_NAME]
+        namespace_type = test_namespace_row[METAFILE_TYPE_COLUMN_NAME]
         assert namespace_type == "Namespace"
 
     def test_recursive_listing_multiple_namespaces_with_tables(self):
@@ -122,6 +138,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -131,6 +148,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -140,6 +158,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Test recursive listing
@@ -153,11 +172,16 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             object_types_to_names[obj_type].append(obj.name)
 
-        # Assert we found all namespaces
-        expected_namespaces = {"namespace_alpha", "namespace_beta", "namespace_gamma"}
+        # Assert we found all namespaces (including auto-created default)
+        expected_namespaces = {
+            "namespace_alpha",
+            "namespace_beta",
+            "namespace_gamma",
+            "default",
+        }
         assert (
-            len(object_types_to_names[Namespace]) == 3
-        ), f"Expected 3 namespaces, found {len(object_types_to_names[Namespace])}"
+            len(object_types_to_names[Namespace]) == 4
+        ), f"Expected 4 namespaces (including default), found {len(object_types_to_names[Namespace])}"
         assert (
             set(object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {object_types_to_names[Namespace]}"
@@ -292,6 +316,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Test recursive listing
@@ -302,15 +327,16 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             object_types_to_names[obj_type].append(obj.name)
 
-        # Verify we found all namespaces
+        # Verify we found all namespaces (including auto-created default)
         expected_namespaces = {
             "empty_namespace_1",
             "empty_namespace_2",
             "populated_namespace",
+            "default",
         }
         assert (
-            len(object_types_to_names[Namespace]) == 3
-        ), f"Expected 3 namespaces, found {len(object_types_to_names[Namespace])}"
+            len(object_types_to_names[Namespace]) == 4
+        ), f"Expected 4 namespaces (including default), found {len(object_types_to_names[Namespace])}"
         assert (
             set(object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {object_types_to_names[Namespace]}"
@@ -341,6 +367,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Non-recursive listing (should only get namespaces)
@@ -358,11 +385,11 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             shallow_object_types_to_names[obj_type].append(obj.name)
 
-        # Assert we found all namespaces
-        expected_namespaces = {"namespace_one", "namespace_two"}
+        # Assert we found all namespaces (including auto-created default)
+        expected_namespaces = {"namespace_one", "namespace_two", "default"}
         assert (
-            len(shallow_object_types_to_names[Namespace]) == 2
-        ), f"Expected 2 namespaces, found {len(shallow_object_types_to_names[Namespace])}"
+            len(shallow_object_types_to_names[Namespace]) == 3
+        ), f"Expected 3 namespaces (including default), found {len(shallow_object_types_to_names[Namespace])}"
         assert (
             set(shallow_object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {shallow_object_types_to_names[Namespace]}"
@@ -378,10 +405,10 @@ class TestDeltaCAT:
         for obj in deep_objects:
             deep_object_types_to_names[Metafile.get_class(obj)].append(obj.name)
 
-        expected_namespaces = {"namespace_one", "namespace_two"}
+        expected_namespaces = {"namespace_one", "namespace_two", "default"}
         assert (
-            len(deep_object_types_to_names[Namespace]) == 2
-        ), f"Expected 2 namespaces, found {len(deep_object_types_to_names[Namespace])}"
+            len(deep_object_types_to_names[Namespace]) == 3
+        ), f"Expected 3 namespaces (including default), found {len(deep_object_types_to_names[Namespace])}"
         assert (
             set(deep_object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {deep_object_types_to_names[Namespace]}"
@@ -448,6 +475,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -457,6 +485,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         write_to_table(
@@ -466,6 +495,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Perform recursive listing
@@ -477,11 +507,16 @@ class TestDeltaCAT:
             obj_type = Metafile.get_class(obj)
             object_types_to_names[obj_type].append(obj.name)
 
-        # All namespaces should be found
-        expected_namespaces = {"alpha_namespace", "beta_namespace", "gamma_namespace"}
+        # All namespaces should be found (including auto-created default)
+        expected_namespaces = {
+            "alpha_namespace",
+            "beta_namespace",
+            "gamma_namespace",
+            "default",
+        }
         assert (
-            len(object_types_to_names[Namespace]) == 3
-        ), f"Expected 3 namespaces, found {len(object_types_to_names[Namespace])}"
+            len(object_types_to_names[Namespace]) == 4
+        ), f"Expected 4 namespaces (including default), found {len(object_types_to_names[Namespace])}"
         assert (
             set(object_types_to_names[Namespace]) == expected_namespaces
         ), f"Expected namespaces: {expected_namespaces}, found: {object_types_to_names[Namespace]}"
@@ -534,8 +569,8 @@ class TestDeltaCAT:
         # Ensure we found the expected objects across all levels of hierarchy
         total_objects = len(all_objects)
         assert (
-            total_objects == 18
-        ), f"Expected 18 objects from deep traversal, found only {total_objects}."
+            total_objects == 19
+        ), f"Expected 19 objects from deep traversal (including default namespace), found only {total_objects}."
 
     def test_recursive_cross_catalog_copy(self):
         """
@@ -574,6 +609,7 @@ class TestDeltaCAT:
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
             table_properties=table_properties,
+            auto_create_namespace=True,
         )
 
         # Add more data to create additional deltas
@@ -596,6 +632,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Create second table in analytics namespace
@@ -630,6 +667,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Create version 2 of the events table to test table version ordering in recursive copy
@@ -651,6 +689,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Namespace 2: Product data with different schema
@@ -678,6 +717,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Create product categories table
@@ -701,6 +741,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Namespace 3: Empty namespace (edge case testing)
@@ -729,6 +770,7 @@ class TestDeltaCAT:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog="test_catalog_1",
+            auto_create_namespace=True,
         )
 
         # Verify source catalog structure before copy
@@ -742,8 +784,8 @@ class TestDeltaCAT:
             source_by_type[obj_class].append(obj)
 
         assert (
-            len(source_urls_by_type[Namespace]) == 4
-        ), f"Expected 4 namespaces, got {len(source_urls_by_type[Namespace])}"
+            len(source_urls_by_type[Namespace]) == 5
+        ), f"Expected 5 namespaces (including default), got {len(source_urls_by_type[Namespace])}"
         assert (
             len(source_urls_by_type[Table]) == 5
         ), f"Expected 5 tables, got {len(source_urls_by_type[Table])}"
@@ -770,7 +812,6 @@ class TestDeltaCAT:
         dest_objects = dc.list(DeltaCatUrl("dc://test_catalog_2"), recursive=True)
         dest_urls_by_type = defaultdict(list)
         dest_by_type = defaultdict(list)
-
         assert len(dest_objects) == len(
             source_objects
         ), f"Expected {len(source_objects)} objects, got {len(dest_objects)}"
@@ -991,6 +1032,7 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_1",
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
 
             # Verify that the destination table's data hasn't changed
@@ -1020,6 +1062,7 @@ class TestDeltaCAT:
                 namespace=namespace,
                 catalog="test_catalog_2",
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
 
             # Verify that the source table's data hasn't changed
@@ -1047,6 +1090,272 @@ class TestDeltaCAT:
             namespace="empty_data",
             catalog="test_catalog_2",
         ), "Empty namespace should exist in destination catalog"
+
+    def test_cross_catalog_table_copy_without_rename(self):
+        """Test copying a table between catalogs without renaming."""
+        # Create test data in source catalog
+        test_df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "value": [1.1, 2.2, 3.3],
+            }
+        )
+
+        dc.write_to_table(
+            data=test_df,
+            table="users",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        # Copy table without renaming: dc://src/ns/table/ -> dc://dest/ns/table/
+        dc.copy(
+            "dc://test_catalog_1/default/users/", "dc://test_catalog_2/default/users/"
+        )
+
+        # Verify table was copied correctly
+        dest_df = dc.read_table(
+            table="users",
+            namespace="default",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(test_df, dest_df)
+
+    def test_cross_catalog_table_copy_with_table_rename(self):
+        """Test copying a table between catalogs with table renaming."""
+        # Create test data in source catalog
+        test_df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "value": [1.1, 2.2, 3.3],
+            }
+        )
+
+        dc.write_to_table(
+            data=test_df,
+            table="users",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        # Copy table with table rename: dc://src/ns/table/ -> dc://dest/ns/new_table/
+        dc.copy(
+            "dc://test_catalog_1/default/users/",
+            "dc://test_catalog_2/default/employees/",
+        )
+
+        # Verify table was copied with new name
+        dest_df = dc.read_table(
+            table="employees",
+            namespace="default",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(test_df, dest_df)
+
+        # Verify original table still exists in source
+        source_df = dc.read_table(
+            table="users",
+            namespace="default",
+            catalog="test_catalog_1",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(test_df, source_df)
+
+    def test_cross_catalog_namespace_recursive_copy_with_tables(self):
+        """Test copying a namespace with all its tables using the /** recursive pattern."""
+        # Create test data for multiple tables in the same namespace
+        users_df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "name": ["alice", "bob", "charlie"],
+                "role": ["admin", "user", "user"],
+            }
+        )
+
+        products_df = pd.DataFrame(
+            {
+                "product_id": [101, 102, 103],
+                "name": ["laptop", "mouse", "keyboard"],
+                "price": [999.99, 29.99, 79.99],
+            }
+        )
+
+        # Write tables to the same namespace
+        dc.write_to_table(
+            data=users_df,
+            table="users",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        dc.write_to_table(
+            data=products_df,
+            table="products",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+        )
+
+        # Copy the namespace from source to dest first
+        dc.copy("dc://test_catalog_1/analytics/", "dc://test_catalog_2/analytics/")
+
+        # Copy all namespace tables from source to dest using /**
+        dc.copy("dc://test_catalog_1/analytics/**", "dc://test_catalog_2/analytics/")
+
+        # Verify namespace exists in destination
+        assert dc.namespace_exists(
+            namespace="analytics", catalog="test_catalog_2"
+        ), "Analytics namespace should exist in destination catalog"
+
+        # Verify both tables were copied and data matches
+        dest_users_df = dc.read_table(
+            table="users",
+            namespace="analytics",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        dest_products_df = dc.read_table(
+            table="products",
+            namespace="analytics",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        # Verify data integrity
+        _assert_data_equivalence(users_df, dest_users_df)
+        _assert_data_equivalence(products_df, dest_products_df)
+
+        # Verify original tables still exist in source
+        source_users_df = dc.read_table(
+            table="users",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            read_as=DatasetType.PANDAS,
+        )
+
+        source_products_df = dc.read_table(
+            table="products",
+            namespace="analytics",
+            catalog="test_catalog_1",
+            read_as=DatasetType.PANDAS,
+        )
+
+        _assert_data_equivalence(users_df, source_users_df)
+        _assert_data_equivalence(products_df, source_products_df)
+
+    def test_cross_catalog_namespace_copy_without_rename(self):
+        """Test copying a namespace metafile between catalogs without renaming."""
+        # Create namespace in source catalog (lightweight)
+        dc.create_namespace(namespace="production", catalog="test_catalog_1")
+
+        # Copy namespace metafile without rename: dc://src/ns/ -> dc://dest/ns/
+        dc.copy("dc://test_catalog_1/production/", "dc://test_catalog_2/production/")
+
+        # Verify namespace exists in destination catalog
+        assert dc.namespace_exists(
+            namespace="production", catalog="test_catalog_2"
+        ), "Namespace should exist in destination catalog"
+
+        # Verify namespace can be listed in destination
+        dest_namespaces = dc.list("dc://test_catalog_2/")
+        dest_namespace_names = [ns.name for ns in dest_namespaces]
+        assert (
+            "production" in dest_namespace_names
+        ), f"production namespace should be in {dest_namespace_names}"
+
+        # Verify original namespace still exists in source
+        assert dc.namespace_exists(
+            namespace="production", catalog="test_catalog_1"
+        ), "Original namespace should still exist in source catalog"
+
+    def test_cross_catalog_namespace_copy_with_rename(self):
+        """Test copying a namespace metafile between catalogs with renaming."""
+        # Create namespace in source catalog (lightweight)
+        dc.create_namespace(namespace="staging", catalog="test_catalog_1")
+
+        # Copy namespace metafile with rename: dc://src/ns/ -> dc://dest/new_ns/
+        dc.copy("dc://test_catalog_1/staging/", "dc://test_catalog_2/development/")
+
+        # Verify namespace was copied with new name
+        assert dc.namespace_exists(
+            namespace="development", catalog="test_catalog_2"
+        ), "Renamed namespace should exist in destination catalog"
+
+        # Verify namespace can be listed in destination with new name
+        dest_namespaces = dc.list("dc://test_catalog_2/")
+        dest_namespace_names = [ns.name for ns in dest_namespaces]
+        assert (
+            "development" in dest_namespace_names
+        ), f"development namespace should be in {dest_namespace_names}"
+        assert (
+            "staging" not in dest_namespace_names
+        ), f"staging namespace should NOT be in {dest_namespace_names}"
+
+        # Verify original namespace still exists in source with original name
+        assert dc.namespace_exists(
+            namespace="staging", catalog="test_catalog_1"
+        ), "Original namespace should still exist in source catalog"
+
+    def test_cross_catalog_table_copy_multiple_deltas(self):
+        """Test copying a table with multiple deltas between catalogs."""
+        # Create initial table with first delta
+        initial_df = pd.DataFrame(
+            {"id": [1, 2], "name": ["alice", "bob"], "value": [1.1, 2.2]}
+        )
+
+        dc.write_to_table(
+            data=initial_df,
+            table="multi_delta_table",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
+        )
+
+        # Add second delta via APPEND
+        additional_df = pd.DataFrame(
+            {"id": [3, 4], "name": ["charlie", "david"], "value": [3.3, 4.4]}
+        )
+
+        dc.write_to_table(
+            data=additional_df,
+            table="multi_delta_table",
+            namespace="default",
+            catalog="test_catalog_1",
+            mode=TableWriteMode.APPEND,
+        )
+
+        # Copy table with multiple deltas
+        dc.copy(
+            "dc://test_catalog_1/default/multi_delta_table/",
+            "dc://test_catalog_2/default/multi_delta_table_copy/",
+        )
+
+        # Verify both deltas were copied and combined data is accessible
+        dest_df = dc.read_table(
+            table="multi_delta_table_copy",
+            namespace="default",
+            catalog="test_catalog_2",
+            read_as=DatasetType.PANDAS,
+        )
+
+        # Combined expected data from both deltas
+        expected_df = pd.concat([initial_df, additional_df], ignore_index=True)
+        _assert_data_equivalence(expected_df, dest_df)
 
 
 def _assert_data_equivalence(source_df: pd.DataFrame, dest_df: pd.DataFrame):

@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
+from deltacat.storage.model.delta import Delta
 from deltacat.storage.model.partition import (
     Partition,
     PartitionLocator,
@@ -53,7 +54,7 @@ def write_to_table(
     content_type: ContentType = ContentType.PARQUET,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
 
@@ -75,6 +76,9 @@ def write_to_table(
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
+
+    Returns:
+        List of deltas written to the table (typically one delta per touched partition).
     """
     raise NotImplementedError("write_to_table not implemented")
 
@@ -176,13 +180,14 @@ def create_table(
     namespace_properties: Optional[NamespaceProperties] = None,
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
+    auto_create_namespace: bool = False,
     transaction: Optional[Transaction] = None,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table in the catalog.
 
     If a namespace isn't provided, the table will be created within the default deltacat namespace.
-    Additionally if the provided namespace does not exist, it will be created for you.
+    The provided namespace will be created if it doesn't exist and auto_create_namespace is True.
 
     Args:
         table: Name of the table to create.
@@ -199,6 +204,7 @@ def create_table(
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
+        auto_create_namespace: If True, creates the namespace if it doesn't exist. Defaults to False.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -505,3 +511,30 @@ def default_namespace(*args, **kwargs) -> str:
         Name of the default namespace.
     """
     raise NotImplementedError("default_namespace not implemented")
+
+
+def from_manifest_table(
+    manifest_table: Dataset,
+    *args,
+    read_as: DatasetType = DatasetType.DAFT,
+    schema: Optional[Schema] = None,
+    transaction: Optional[Transaction] = None,
+    catalog: Optional[str] = None,
+    **kwargs,
+) -> Dataset:
+    """
+    Read a manifest table (containing file paths and metadata) and download the actual data.
+
+    This utility function takes the output from a schemaless table read (which returns
+    manifest entries instead of data) and downloads the actual file contents.
+
+    Args:
+        manifest_table: Dataset containing manifest entries with file paths and metadata
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        schema: Optional schema to attempt to coerce the data into.
+        **kwargs: Additional arguments forwarded to download functions
+
+    Returns:
+        Dataset containing the actual file contents
+    """
+    raise NotImplementedError("from_manifest_table not implemented")

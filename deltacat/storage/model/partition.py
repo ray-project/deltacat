@@ -134,6 +134,15 @@ class Partition(Metafile):
 
     @property
     def stream_position(self) -> Optional[int]:
+        """
+        Returns the latest (most recently created) ordered delta stream position for the partition.
+        In a partition with ordered and unordered deltas, this returns the stream position of the latest
+        ordered delta.
+
+        Returns:
+            Positive Int: The stream position of the latest ordered delta in the partition.
+            `None`: The stream position is not yet known (e.g., due to no ordered deltas in the partition).
+        """
         return self.get("streamPosition")
 
     @stream_position.setter
@@ -253,11 +262,18 @@ class Partition(Metafile):
             return partition_locator.table_version
         return None
 
-    def url(self, catalog_name: Optional[str] = None) -> str:
+    def url(
+        self,
+        catalog_name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        table_name: Optional[str] = None,
+    ) -> str:
+        namespace = namespace or self.namespace
+        table_name = table_name or self.table_name
         return (
-            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
+            f"dc://{catalog_name}/{namespace}/{table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
             if catalog_name
-            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
+            else f"table://{namespace}/{table_name}/{self.table_version}/{self.stream_format}/{json.dumps(self.partition_values)}/"
         )
 
     def is_supported_content_type(self, content_type: ContentType) -> bool:

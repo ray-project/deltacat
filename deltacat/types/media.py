@@ -475,7 +475,6 @@ class DatastoreType(str, Enum):
         # DeltaCAT URLs
         if url.startswith("dc://"):
             return DatastoreType.DELTACAT
-
         # External Datastore Types
         if url.startswith("hudi+") or url.startswith("hudi://"):
             return DatastoreType.HUDI
@@ -493,7 +492,6 @@ class DatastoreType(str, Enum):
             return DatastoreType.DATABRICKS_TABLES
         if url.startswith("mongodb+") or url.startswith("mongodb://"):
             return DatastoreType.MONGO
-
         # File Format Types
         if url.startswith("binary+") or url.startswith("binary://"):
             return DatastoreType.BINARY
@@ -519,7 +517,6 @@ class DatastoreType(str, Enum):
             return DatastoreType.TFRECORDS
         if url.startswith("webdataset+") or url.startswith("webdataset://"):
             return DatastoreType.WEBDATASET
-
         # Text and Web Types
         if url.startswith("text+") or url.startswith("text://"):
             return DatastoreType.TEXT
@@ -529,7 +526,6 @@ class DatastoreType(str, Enum):
             return DatastoreType.WARC
         if url.startswith("xml+") or url.startswith("xml://"):
             return DatastoreType.XML
-
         # Media Types
         if url.startswith("audio+") or url.startswith("audio://"):
             return DatastoreType.AUDIO

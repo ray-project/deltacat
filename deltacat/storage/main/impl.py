@@ -1,7 +1,6 @@
 import logging
 import uuid
 import posixpath
-import pyarrow
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
@@ -9,6 +8,7 @@ from deltacat.catalog.model.properties import get_catalog_properties
 from deltacat.constants import (
     DEFAULT_TABLE_VERSION,
     DATA_FILE_DIR_NAME,
+    UNSIGNED_INT32_MAX_VALUE,
 )
 from deltacat.exceptions import (
     TableNotFoundError,
@@ -27,6 +27,9 @@ from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableVersionAlreadyExistsError,
     ObjectNotFoundError,
+    StreamAlreadyExistsError,
+    PartitionAlreadyExistsError,
+    DeltaAlreadyExistsError,
 )
 from deltacat.storage.model.manifest import (
     EntryParams,
@@ -110,6 +113,7 @@ from deltacat.types.tables import (
     download_manifest_entries,
     download_manifest_entries_distributed,
     download_manifest_entry,
+    reconstruct_manifest_entry_url,
 )
 from deltacat import logs
 
@@ -552,6 +556,13 @@ def list_deltas(
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
 
+    if first_stream_position is not None and last_stream_position is not None:
+        if first_stream_position > last_stream_position:
+            raise ValueError(
+                f"first_stream_position must be less than or equal to last_stream_position. "
+                f"first_stream_position: {first_stream_position}, last_stream_position: {last_stream_position}"
+            )
+
     # First get the stream to resolve proper table version and stream locator
     stream = get_stream(
         namespace=namespace,
@@ -583,7 +594,6 @@ def list_deltas(
             f"with partition_values={partition_values} and "
             f"partition_scheme_id={partition_scheme_id}"
         )
-
     # Use the actual partition locator (with partition ID) for listing deltas
     locator = DeltaLocator.of(partition_locator=partition.locator)
     delta = Delta.of(
@@ -621,7 +631,40 @@ def list_deltas(
 
     if commit_transaction:
         transaction.seal()
-    return filtered_deltas
+
+    return ListResult.of(
+        items=filtered_deltas,
+        pagination_key=None,
+        next_page_provider=None,
+    )
+
+
+def _get_partition_delta(
+    partition_like: Union[Partition, PartitionLocator],
+    stream_position: int,
+    *args,
+    transaction: Optional[Transaction] = None,
+    **kwargs,
+) -> Delta:
+    locator = DeltaLocator.of(
+        partition_locator=partition_like
+        if isinstance(partition_like, PartitionLocator)
+        else partition_like.locator,
+        stream_position=stream_position,
+    )
+    delta = Delta.of(
+        locator=locator,
+        delta_type=None,
+        meta=None,
+        properties=None,
+        manifest=None,
+    )
+    return _latest(
+        metafile=delta,
+        transaction=transaction,
+        *args,
+        **kwargs,
+    )
 
 
 def list_partition_deltas(
@@ -645,6 +688,12 @@ def list_partition_deltas(
     #  positions, or should traverse using Partition.stream_position (to
     #  resolve last stream position) and Delta.previous_stream_position
     #  (down to first stream position).
+    if first_stream_position is not None and last_stream_position is not None:
+        if first_stream_position > last_stream_position:
+            raise ValueError(
+                f"first_stream_position must be less than or equal to last_stream_position. "
+                f"first_stream_position: {first_stream_position}, last_stream_position: {last_stream_position}"
+            )
     locator = DeltaLocator.of(
         partition_locator=partition_like
         if isinstance(partition_like, PartitionLocator)
@@ -666,9 +715,7 @@ def list_partition_deltas(
             **kwargs,
         )
     except ObjectNotFoundError as e:
-        raise PartitionNotFoundError(
-            f"Partition {partition_like.locator} not found"
-        ) from e
+        raise PartitionNotFoundError(f"Partition {partition_like} not found") from e
     all_deltas = all_deltas_list_result.all_items()
     filtered_deltas = [
         delta
@@ -752,19 +799,9 @@ def get_delta(
         )
 
     # Use the actual partition locator (with partition ID) for getting the delta
-    locator = DeltaLocator.of(
-        partition_locator=partition.locator,
-        stream_position=stream_position,
-    )
-    delta = Delta.of(
-        locator=locator,
-        delta_type=None,
-        meta=None,
-        properties=None,
-        manifest=None,
-    )
-    result = _latest(
-        metafile=delta,
+    result = _get_partition_delta(
+        partition.locator,
+        stream_position,
         transaction=transaction,
         *args,
         **kwargs,
@@ -792,12 +829,11 @@ def get_latest_delta(
     **kwargs,
 ) -> Optional[Delta]:
     """
-    Gets the latest delta (i.e. the delta with the greatest stream position) for
-    the given table version and partition. Table version resolves to the latest
-    active table version if not specified. Partition values should not be
-    specified for unpartitioned tables. Partition scheme ID resolves to the
-    table version's current partition scheme by default. Raises an error if the
-    given table version or partition does not exist.
+    Gets the latest ordered delta for the given table version and partition. Table version
+    resolves to the latest active table version if not specified. Partition values should not be
+    specified for unpartitioned tables. Partition scheme ID resolves to the table version's
+    current partition scheme by default. Raises an error if the given table version or partition
+    does not exist. Unordered deltas will not be returned.
 
     To conserve memory, the delta returned does not include a manifest by
     default. The manifest can either be optionally retrieved as part of this
@@ -813,6 +849,12 @@ def get_latest_delta(
         *args,
         **kwargs,
     )
+    if not stream:
+        raise StreamNotFoundError(
+            f"Failed to find stream for "
+            f"`{namespace}.{table_name}` at table version "
+            f"`{table_version or 'latest'}`."
+        )
     partition = get_partition(
         stream_locator=stream.locator,
         partition_values=partition_values,
@@ -821,28 +863,27 @@ def get_latest_delta(
         *args,
         **kwargs,
     )
-    locator = DeltaLocator.of(
-        partition_locator=partition.locator,
-        stream_position=partition.stream_position,
-    )
-    delta = Delta.of(
-        locator=locator,
-        delta_type=None,
-        meta=None,
-        properties=None,
-        manifest=None,
-    )
-    result = _latest(
-        metafile=delta,
-        transaction=transaction,
-        *args,
-        **kwargs,
-    )
-
-    # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
-    #   the point is to avoid loading the manifest into memory if it's not needed.
-    if result and not include_manifest:
-        result.manifest = None
+    if not partition:
+        raise PartitionNotFoundError(
+            f"Failed to find partition for stream {stream.locator} "
+            f"with partition_values={partition_values} and "
+            f"partition_scheme_id={partition_scheme_id}"
+        )
+    if partition.stream_position:
+        result = _get_partition_delta(
+            partition.locator,
+            partition.stream_position,
+            transaction=transaction,
+            *args,
+            **kwargs,
+        )
+        # TODO(pdames): Honor the include_manifest parameter during retrieval from _latest, since
+        #   the point is to also avoid even downloading the manifest if it's not needed.
+        if result and not include_manifest:
+            result.manifest = None
+    else:
+        # no ordered deltas in the partition
+        result = None
 
     if commit_transaction:
         transaction.seal()
@@ -1051,7 +1092,7 @@ def _download_manifest_entry(
     file_reader_kwargs_provider: Optional[ReadKwargsProvider] = None,
     content_type: Optional[ContentType] = None,
     content_encoding: Optional[ContentEncoding] = None,
-    filesystem: Optional[pyarrow.fs.FileSystem] = None,
+    filesystem: Optional[pa.fs.FileSystem] = None,
 ) -> LocalTable:
 
     return download_manifest_entry(
@@ -1143,7 +1184,7 @@ def download_delta_manifest_entry(
     )
     catalog_properties = get_catalog_properties(**kwargs)
     manifest_entry = _download_manifest_entry(
-        manifest.entries[entry_index],
+        reconstruct_manifest_entry_url(manifest.entries[entry_index], **kwargs),
         table_type,
         all_column_names,
         columns,
@@ -1212,12 +1253,17 @@ def create_namespace(
     )
 
     # Add the operation to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=namespace,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=namespace,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise NamespaceAlreadyExistsError(
+            f"Namespace {namespace} already exists"
+        ) from e
 
     if commit_transaction:
         transaction.seal()
@@ -1353,9 +1399,8 @@ def create_table_version(
                 expected_table_version,
             )
             if version_number != expected_version_number:
-                raise TableValidationError(
-                    f"Expected to create table version "
-                    f"{expected_version_number} but found {version_number}.",
+                raise TableVersionAlreadyExistsError(
+                    f"Table {namespace}.{table_name} version {table_version} already exists."
                 )
     if table_description is not None:
         new_table.description = table_description
@@ -1399,26 +1444,41 @@ def create_table_version(
         watermark=None,
     )
     # Add operations to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=table_txn_op_type,
-            dest_metafile=new_table,
-            src_metafile=prev_table,
-        ),
-    )
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=table_version,
-        ),
-    )
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=stream,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=table_txn_op_type,
+                dest_metafile=new_table,
+                src_metafile=prev_table,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise TableAlreadyExistsError(
+            f"Table {namespace}.{table_name} already exists"
+        ) from e
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=table_version,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise TableVersionAlreadyExistsError(
+            f"Table version {namespace}.{table_name}.{table_version} already exists"
+        ) from e
 
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=stream,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise StreamAlreadyExistsError(
+            f"Stream {namespace}.{table_name}.{table_version}.{stream_locator.stream_id} already exists"
+        ) from e
     if commit_transaction:
         transaction.seal()
     return new_table, table_version, stream
@@ -1776,12 +1836,17 @@ def stage_stream(
             )
         stream.previous_stream_id = prev_stream.stream_id
     # Add the operation to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=stream,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=stream,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise StreamAlreadyExistsError(
+            f"Stream {namespace}.{table_name}.{table_version}.{stream.stream_id} already exists"
+        ) from e
 
     if commit_transaction:
         transaction.seal()
@@ -2235,12 +2300,17 @@ def stage_partition(
     partition.previous_partition_id = prev_partition_id
 
     # Add the operation to the transaction
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=partition,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=partition,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise PartitionAlreadyExistsError(
+            f"Partition {stream.namespace}.{stream.table_name}.{stream.table_version}.{partition.partition_id} already exists"
+        ) from e
 
     if commit_transaction:
         transaction.seal()
@@ -2527,6 +2597,8 @@ def _write_table_slices(
         partition_id,
     )
     filesystem.create_dir(data_dir_path, recursive=True)
+    # Add catalog properties to table writer kwargs for manifest path relativization
+    table_writer_kwargs["catalog_properties"] = catalog_properties
     for t in tables:
         manifest_entries.extend(
             write_sliced_table(
@@ -2587,7 +2659,7 @@ def _write_table(
 
 
 def stage_delta(
-    data: Union[LocalTable, LocalDataset, DistributedDataset, Manifest],
+    data: Union[LocalTable, LocalDataset, DistributedDataset],
     partition: Partition,
     delta_type: DeltaType = DeltaType.UPSERT,
     max_records_per_entry: Optional[int] = None,
@@ -2619,7 +2691,9 @@ def stage_delta(
         raise TableValidationError(
             f"Cannot stage delta to {partition.state} partition: {partition}",
         )
-    previous_stream_position: Optional[int] = partition.stream_position
+    previous_stream_position: Optional[int] = (
+        partition.stream_position if delta_type != DeltaType.ADD else None
+    )
 
     # Handle schema parameter and add to table_writer_kwargs if available
     table_writer_kwargs = table_writer_kwargs or {}
@@ -2684,7 +2758,8 @@ def commit_delta(
     resolved_delta_type = delta_type if delta_type is not None else DeltaType.UPSERT
     delta.type = resolved_delta_type
     delta.properties = kwargs.get("properties") or delta.properties
-
+    new_parent_partition: Optional[Partition] = None
+    # resolve the parent partition
     if delta.partition_id:
         parent_partition = get_partition_by_id(
             stream_locator=delta.stream_locator,
@@ -2705,40 +2780,53 @@ def commit_delta(
         raise PartitionNotFoundError(f"Partition not found: {delta.locator}")
     # ensure that we always use a fully qualified partition locator
     delta.locator.partition_locator = parent_partition.locator
-    # resolve the delta's stream position
-    delta.previous_stream_position = parent_partition.stream_position or 0
-    if delta.stream_position is not None:
-        if delta.stream_position <= delta.previous_stream_position:
-            # manually specified delta stream positions must be greater than the
-            # previous stream position
-            raise TableValidationError(
-                f"Delta stream position {delta.stream_position} must be "
-                f"greater than previous stream position "
-                f"{delta.previous_stream_position}"
-            )
-    else:
-        delta.locator.stream_position = delta.previous_stream_position + 1
 
-    # update the parent partition's stream position
-    new_parent_partition: Partition = Metafile.update_for(parent_partition)
-    new_parent_partition.stream_position = delta.locator.stream_position
+    # resolve the delta's stream position
+    if delta.type != DeltaType.ADD:
+        # this is an ordered delta
+        delta.previous_stream_position = parent_partition.stream_position or 0
+        if delta.stream_position is not None:
+            if delta.stream_position <= delta.previous_stream_position:
+                # manually specified delta stream positions must be greater than the
+                # previous stream position
+                raise TableValidationError(
+                    f"Delta stream position {delta.stream_position} must be "
+                    f"greater than previous stream position "
+                    f"{delta.previous_stream_position}"
+                )
+        else:
+            delta.locator.stream_position = delta.previous_stream_position + 1
+        # update the parent partition's stream position
+        new_parent_partition: Partition = Metafile.update_for(parent_partition)
+        new_parent_partition.stream_position = delta.locator.stream_position
+    else:
+        # this is an unordered delta - use a positive signed 64-bit UUID-based stream position
+        delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
+        # reserve stream positions <= UINT32_MAX for ordered deltas
+        while delta.locator.stream_position <= UNSIGNED_INT32_MAX_VALUE:
+            delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
 
     # Add operations to the transaction
     # the 1st operation creates the delta
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.CREATE,
-            dest_metafile=delta,
-        ),
-    )
-    # the 2nd operation alters the stream position of the partition
-    transaction.step(
-        TransactionOperation.of(
-            operation_type=TransactionOperationType.UPDATE,
-            dest_metafile=new_parent_partition,
-            src_metafile=parent_partition,
-        ),
-    )
+    try:
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.CREATE,
+                dest_metafile=delta,
+            ),
+        )
+    except ObjectAlreadyExistsError as e:
+        raise DeltaAlreadyExistsError(f"Delta {delta.locator} already exists") from e
+    if new_parent_partition:
+        # For ordered APPEND deltas,,
+        # the 2nd operation alters the latest ordered stream position of the partition
+        transaction.step(
+            TransactionOperation.of(
+                operation_type=TransactionOperationType.UPDATE,
+                dest_metafile=new_parent_partition,
+                src_metafile=parent_partition,
+            ),
+        )
 
     if commit_transaction:
         transaction.seal()

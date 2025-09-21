@@ -17,6 +17,7 @@ from deltacat.catalog.delegate import (
     table_exists,
     truncate_table,
     write_to_table,
+    from_manifest_table,
 )
 from deltacat.catalog.model.catalog import (  # noqa: F401
     all_catalogs,
@@ -28,10 +29,12 @@ from deltacat.catalog.model.catalog import (  # noqa: F401
     pop_catalog,
     put_catalog,
     raise_if_not_initialized,
+    save_catalogs,
     Catalog,
 )
 from deltacat.catalog.model.properties import (  # noqa: F401
     CatalogProperties,
+    CatalogVersion,
     get_catalog_properties,
 )
 from deltacat.catalog.model.table_definition import TableDefinition
@@ -45,6 +48,7 @@ __all__ = [
     "default_namespace",
     "drop_namespace",
     "drop_table",
+    "from_manifest_table",
     "get_namespace",
     "get_table",
     "list_namespaces",
@@ -66,8 +70,10 @@ __all__ = [
     "pop_catalog",
     "put_catalog",
     "raise_if_not_initialized",
+    "save_catalogs",
     "dcat",
     "Catalog",
     "CatalogProperties",
+    "CatalogVersion",
     "TableDefinition",
 ]

@@ -127,11 +127,18 @@ class Table(Metafile):
         if table_locator:
             table_locator.table_name = table_name
 
-    def url(self, catalog_name: Optional[str] = None) -> str:
+    def url(
+        self,
+        catalog_name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        table_name: Optional[str] = None,
+    ) -> str:
+        namespace = namespace or self.namespace
+        table_name = table_name or self.table_name
         return (
-            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/"
+            f"dc://{catalog_name}/{namespace}/{table_name}/"
             if catalog_name
-            else f"table://{self.namespace}/{self.table_name}/"
+            else f"table://{namespace}/{table_name}/"
         )
 
     def read_table_property(self, property: TableProperty) -> Any:

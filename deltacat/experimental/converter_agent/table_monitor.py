@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 DeltaCAT Table Monitor Job. Automatically runs data converter sessions in response to table updates.
 """

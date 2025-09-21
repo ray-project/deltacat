@@ -74,6 +74,8 @@ from deltacat.utils import polars as pl_utils
 from deltacat.utils import pyarrow as pa_utils
 from deltacat.utils.ray_utils import dataset as ds_utils
 from deltacat.storage.model.manifest import (
+    group_manifest_urls_by_content_type,
+    reconstruct_manifest_entry_url,
     ManifestEntryList,
     ManifestEntry,
     ManifestMeta,
@@ -549,7 +551,8 @@ class TableWriteMode(str, Enum):
     AUTO: CREATE if the table doesn't exist, APPEND if the table exists
     without merge keys, and MERGE if the table exists with merge keys.
     CREATE: Create the table if it doesn't exist, throw an error if it does.
-    APPEND: Append to the table if it exists, throw an error if it doesn't.
+    ADD: Add unordered data to the table if it exists, throw an error if it doesn't.
+    APPEND: Append ordered data to the table if it exists, throw an error if it doesn't.
     REPLACE: Replace existing table contents with the data to write.
     MERGE: Insert or update records matching table merge keys.
     Updates or inserts records based on the table's merge and sort keys by
@@ -559,6 +562,7 @@ class TableWriteMode(str, Enum):
 
     AUTO = "auto"
     CREATE = "create"
+    ADD = "add"
     APPEND = "append"
     REPLACE = "replace"
     MERGE = "merge"
@@ -647,7 +651,7 @@ TablePropertyDefaultValues: Dict[TableProperty, Any] = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
     TableProperty.RECORDS_PER_COMPACTED_FILE: MAX_RECORDS_PER_COMPACTED_FILE,
     TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: MAX_RECORDS_PER_COMPACTED_FILE
-    * 2,
+    * 16,  # DEFAULT_COMPACTION_HASH_BUCKET_COUNT * 2
     TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
     TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 100,
     TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 8,
@@ -1220,10 +1224,11 @@ def write_table(
             content_encoding=content_encoding,
         )
 
-    # Extract schema, schema_id, and sort_scheme_id from table_writer_kwargs
+    # Extract schema, schema_id, sort_scheme_id, and catalog_properties from table_writer_kwargs
     schema = table_writer_kwargs.pop("schema", None)
     schema_id = table_writer_kwargs.pop("schema_id", None)
     sort_scheme_id = table_writer_kwargs.pop("sort_scheme_id", None)
+    catalog_properties = table_writer_kwargs.pop("catalog_properties", None)
 
     table_writer_fn(
         table,
@@ -1258,12 +1263,15 @@ def write_table(
                 filesystem=filesystem,
                 record_count=metadata[block_idx].num_rows,
                 source_content_length=metadata[block_idx].size_bytes,
-                content_type=content_type.value,
+                content_type=content_type.value
+                if hasattr(content_type, "value")
+                else content_type,
                 content_encoding=content_encoding,
                 entry_type=entry_type,
                 entry_params=entry_params,
                 schema_id=schema_id,
                 sort_scheme_id=sort_scheme_id,
+                catalog_root=catalog_properties.root if catalog_properties else None,
             )
             manifest_entries.append(manifest_entry)
         except RETRYABLE_TRANSIENT_ERRORS as e:
@@ -1496,38 +1504,6 @@ def get_block_metadata(
     )
 
 
-def _reconstruct_manifest_entry_uri(
-    manifest_entry: ManifestEntry,
-    **kwargs,
-) -> ManifestEntry:
-    """
-    Reconstruct the full URI for a manifest entry.
-
-    Args:
-        manifest_entry: The manifest entry to reconstruct the URI for
-        **kwargs: Additional arguments to pass to the catalog properties
-
-    Returns:
-        Manifest entry with the reconstructed URI
-    """
-    # Reconstruct full URI with scheme for external readers (see GitHub issue #567)
-    from deltacat.catalog import get_catalog_properties
-
-    # Only pass kwargs that CatalogProperties actually accepts
-    catalog_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
-    catalog_properties = get_catalog_properties(**catalog_kwargs)
-
-    original_uri = manifest_entry.uri
-    reconstructed_uri = catalog_properties.reconstruct_full_path(original_uri)
-    if original_uri != reconstructed_uri:
-        # Create a copy of the manifest entry with the reconstructed URI
-        reconstructed_entry = ManifestEntry(
-            uri=reconstructed_uri, url=manifest_entry.url, meta=manifest_entry.meta
-        )
-        return reconstructed_entry
-    return manifest_entry
-
-
 def _filter_kwargs_for_external_readers(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """
     Filter out DeltaCAT system kwargs that external file readers don't expect.
@@ -1753,7 +1729,7 @@ def _handle_non_retryable_error(
 
 def from_manifest_table(
     manifest_table: Union[LocalDataset, DistributedDataset],
-    dataset_type: DatasetType = DatasetType.DAFT,
+    read_as: DatasetType = DatasetType.DAFT,
     schema: Optional[pa.Schema] = None,
     **kwargs,
 ) -> Dataset:
@@ -1765,7 +1741,7 @@ def from_manifest_table(
 
     Args:
         manifest_table: Dataset containing manifest entries with file paths and metadata
-        dataset_type: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
         schema: Optional PyArrow schema to enforce consistent column names across formats
         **kwargs: Additional arguments forwarded to download functions
 
@@ -1804,16 +1780,16 @@ def from_manifest_table(
         kwargs["table_version_schema"] = schema
 
     # Choose the appropriate download function based on dataset type
-    if dataset_type in DatasetType.distributed():
+    if read_as in DatasetType.distributed():
         # Use distributed download function
         # Map DatasetType to DistributedDatasetType
         distributed_type_map = {
             DatasetType.DAFT: DistributedDatasetType.DAFT,
             DatasetType.RAY_DATASET: DistributedDatasetType.RAY_DATASET,
         }
-        distributed_dataset_type = distributed_type_map.get(dataset_type)
+        distributed_dataset_type = distributed_type_map.get(read_as)
         if distributed_dataset_type is None:
-            raise ValueError(f"Unsupported distributed dataset type: {dataset_type}")
+            raise ValueError(f"Unsupported distributed dataset type: {read_as}")
 
         return download_manifest_entries_distributed(
             manifest=reconstructed_manifest,
@@ -1824,7 +1800,7 @@ def from_manifest_table(
         # Use local download function
         return download_manifest_entries(
             manifest=reconstructed_manifest,
-            table_type=dataset_type,
+            table_type=read_as,
             **kwargs,
         )
 
@@ -1912,7 +1888,8 @@ def _download_manifest_entries(
     )
     result = []
     for e in manifest.entries:
-        manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
+        catalog_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
+        manifest_entry = reconstruct_manifest_entry_url(e, **catalog_kwargs)
         result.append(
             download_manifest_entry(manifest_entry=manifest_entry, **download_args)
         )
@@ -1959,8 +1936,11 @@ def download_manifest_entry_ray(
         effective_table_type = DatasetType.PYARROW
 
     # Call the regular download function
+    reconstructed_manifest_entry = reconstruct_manifest_entry_url(
+        manifest_entry, **kwargs
+    )
     result = download_manifest_entry(
-        manifest_entry=manifest_entry,
+        manifest_entry=reconstructed_manifest_entry,
         table_type=effective_table_type,
         column_names=column_names,
         include_columns=include_columns,
@@ -2132,39 +2112,6 @@ def _download_manifest_entries_ray_data_distributed(
     return create_func(table_pending_ids)
 
 
-def _group_manifest_uris_by_content_type(
-    manifest: Manifest, **kwargs
-) -> Dict[Tuple[str, str], List[str]]:
-    """
-    Group manifest URIs by content type and content encoding.
-
-    Args:
-        manifest: The manifest containing the entries to group by content type
-        **kwargs: Additional arguments to pass to the catalog properties
-
-    Returns:
-        Dictionary mapping (content_type, content_encoding) tuples to lists of URIs
-    """
-    from deltacat.catalog import get_catalog_properties
-
-    catalog_properties = get_catalog_properties(**kwargs)
-
-    uris_by_type = {}
-
-    for entry in manifest.entries or []:
-        content_type = entry.meta.content_type
-        content_encoding = entry.meta.content_encoding
-        key = (content_type, content_encoding)
-
-        if key not in uris_by_type:
-            uris_by_type[key] = []
-
-        full_uri = catalog_properties.reconstruct_full_path(entry.uri)
-        uris_by_type[key].append(full_uri)
-
-    return uris_by_type
-
-
 def _download_manifest_entries_all_dataset_distributed(
     manifest: Manifest,
     table_type: DatasetType = DatasetType.PYARROW,
@@ -2198,14 +2145,15 @@ def _download_manifest_entries_all_dataset_distributed(
     # Group manifest entries by content type instead of validating consistency
     # Filter out table_version_schema from kwargs passed to catalog properties
     filtered_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
-    uris_by_content_type = _group_manifest_uris_by_content_type(
-        manifest, **filtered_kwargs
+    urls_by_content_type = group_manifest_urls_by_content_type(
+        manifest,
+        **filtered_kwargs,
     )
 
     # If only one content type, use the original single-reader logic
-    if len(uris_by_content_type) == 1:
-        content_type, content_encoding = next(iter(uris_by_content_type.keys()))
-        uris = next(iter(uris_by_content_type.values()))
+    if len(urls_by_content_type) == 1:
+        content_type, content_encoding = next(iter(urls_by_content_type.keys()))
+        urls = next(iter(urls_by_content_type.values()))
 
         # Keep table_version_schema for the reader, but filter other system kwargs
         reader_kwargs = _filter_kwargs_for_reader_functions(kwargs)
@@ -2221,7 +2169,7 @@ def _download_manifest_entries_all_dataset_distributed(
             )
 
         return reader_func(
-            uris=uris,
+            uris=urls,
             content_type=content_type,
             content_encoding=content_encoding,
             column_names=column_names,
@@ -2236,7 +2184,7 @@ def _download_manifest_entries_all_dataset_distributed(
     if distributed_dataset_type != DistributedDatasetType.DAFT:
         raise ValueError(
             f"Mixed content types are only supported for Daft datasets. "
-            f"Got {len(uris_by_content_type)} different content types with dataset type {distributed_dataset_type}"
+            f"Got {len(urls_by_content_type)} different content types with dataset type {distributed_dataset_type}"
         )
 
     # Keep table_version_schema for the reader, but filter other system kwargs
@@ -2254,9 +2202,9 @@ def _download_manifest_entries_all_dataset_distributed(
 
     # Read each content type group into a separate DataFrame
     dataframes = []
-    for (content_type, content_encoding), uris in uris_by_content_type.items():
+    for (content_type, content_encoding), urls in urls_by_content_type.items():
         df = reader_func(
-            uris=uris,
+            uris=urls,
             content_type=content_type,
             content_encoding=content_encoding,
             column_names=column_names,
@@ -2316,7 +2264,8 @@ def _download_manifest_entries_parallel(
 
     entries_to_process = []
     for e in manifest.entries:
-        manifest_entry = _reconstruct_manifest_entry_uri(e, **kwargs)
+        catalog_kwargs = _filter_kwargs_for_catalog_properties(kwargs)
+        manifest_entry = reconstruct_manifest_entry_url(e, **catalog_kwargs)
         entries_to_process.append(manifest_entry)
 
     tables = []
@@ -2451,6 +2400,15 @@ def read_file(
             **kwargs,
         )
         return table
+    except FileNotFoundError as e:
+        # FileNotFoundError is a not retryable like other OSError types - catch and handle first
+        _handle_non_retryable_error(
+            e,
+            path,
+            "read",
+            NonRetryableDownloadTableError,
+            f"and content_type={content_type} and encoding={content_encoding}",
+        )
     except RETRYABLE_TRANSIENT_ERRORS as e:
         _handle_retryable_error(e, path, "download", RetryableDownloadTableError)
     except BaseException as e:

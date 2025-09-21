@@ -6,7 +6,6 @@ import time
 import uuid
 import logging
 import posixpath
-from pathlib import PosixPath
 import threading
 import contextvars
 from collections import defaultdict
@@ -20,6 +19,7 @@ if TYPE_CHECKING:
 import msgpack
 import pyarrow as pa
 import pyarrow.fs
+from pyarrow.fs import FileType
 
 from deltacat.constants import (
     TXN_DIR_NAME,
@@ -53,7 +53,13 @@ from deltacat.types.tables import (
 from deltacat.utils.filesystem import (
     resolve_path_and_filesystem,
     list_directory,
+    list_directory_partitioned,
     get_file_info,
+    get_file_info_partitioned,
+    write_file_partitioned,
+    epoch_timestamp_partition_transform,
+    parse_epoch_timestamp_partitions,
+    absolute_path_to_relative,
 )
 from deltacat import logs
 
@@ -190,6 +196,9 @@ def transaction(
         )
         # Initialize the lazy transaction ID
         logger.info(f"Created transaction with ID: {txn.id}")
+
+    # Store the catalog name in the transaction for later resolution in delegate functions
+    txn.catalog_name = catalog_name
     return txn
 
 
@@ -211,46 +220,74 @@ def _read_txn(
     Returns:
         Transaction: The transaction.
     """
-    # Transaction directories contain the actual transaction file
-    txn_dir_path = posixpath.join(
-        txn_log_dir, txn_status.dir_name(), posixpath.basename(transaction_id)
-    )
+    status_dir = posixpath.join(txn_log_dir, txn_status.dir_name())
 
-    try:
-        file_info = get_file_info(txn_dir_path, filesystem)
-    except FileNotFoundError:
+    if txn_status in [TransactionStatus.SUCCESS, TransactionStatus.FAILED]:
+        # Parse transaction ID to get start time for partitioning
+        # FAILED transactions store metadata directly in partitioned files named with transaction ID
+        # SUCCESS transactions are stored in partitioned directories
+        start_time, _ = Transaction.parse_transaction_id(transaction_id)
+
+        # Use get_file_info_partitioned to find the transaction directory
+        try:
+            file_info = get_file_info_partitioned(
+                path=posixpath.join(status_dir, transaction_id),
+                filesystem=filesystem,
+                partition_value=start_time,
+                partition_transform=epoch_timestamp_partition_transform,
+            )
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Transaction with ID '{transaction_id}' and status '{txn_status}' not found."
+            )
+        if txn_status == TransactionStatus.SUCCESS:
+            # The file_info should point to a directory
+            if file_info.type != pyarrow.fs.FileType.Directory:
+                raise FileNotFoundError(
+                    f"Transaction directory for transaction ID '{transaction_id}' with status '{txn_status}' not found."
+                )
+
+            # List files in the transaction directory
+            txn_files = list_directory(
+                path=file_info.path,
+                filesystem=filesystem,
+                ignore_missing_path=True,
+            )
+
+            if not txn_files:
+                raise FileNotFoundError(
+                    f"No transaction file found for transaction ID '{transaction_id}' and status '{txn_status}'."
+                )
+
+            if len(txn_files) > 1:
+                raise RuntimeError(
+                    f"Expected 1 transaction file in '{file_info.path}', but found {len(txn_files)}"
+                )
+
+            # Get the transaction file path
+            txn_file_path, _ = txn_files[0]
+
+            # Read the transaction from the file
+            return Transaction.read(txn_file_path, filesystem)
+    else:
+        # Other transaction types store files directly in status directory
+        txn_file_path = posixpath.join(status_dir, transaction_id)
+
+        try:
+            file_info = get_file_info(txn_file_path, filesystem)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"Transaction with ID '{transaction_id}' and status '{txn_status}' not found."
+            )
+
+    # The file_info should point to a file
+    if file_info.type != pyarrow.fs.FileType.File:
         raise FileNotFoundError(
-            f"Transaction with ID '{transaction_id}' and status '{txn_status}' not found."
+            f"Transaction file for transaction ID '{transaction_id}' with status '{txn_status}' not found."
         )
-
-    # Only read transaction directories (skip any stray files)
-    if file_info.type != pyarrow.fs.FileType.Directory:
-        raise FileNotFoundError(
-            f"Transaction directory for transaction ID '{transaction_id}' with status '{txn_status}' not found."
-        )
-
-    # List files in the transaction directory
-    txn_files = list_directory(
-        path=txn_dir_path,
-        filesystem=filesystem,
-        ignore_missing_path=True,
-    )
-
-    if not txn_files:
-        raise FileNotFoundError(
-            f"No transaction file found for transaction ID '{transaction_id}' and status '{txn_status}'."
-        )
-
-    if len(txn_files) > 1:
-        raise RuntimeError(
-            f"Expected 1 transaction file in '{txn_dir_path}', but found {len(txn_files)}"
-        )
-
-    # Get the transaction file path
-    txn_file_path, _ = txn_files[0]
 
     # Read the transaction from the file
-    return Transaction.read(txn_file_path, filesystem)
+    return Transaction.read(file_info.path, filesystem)
 
 
 def read_transaction(
@@ -267,10 +304,10 @@ def read_transaction(
 
 def transactions(
     catalog_name: Optional[str] = None,
-    read_as: "DatasetType" = None,
+    read_as: DatasetType = DatasetType.PYARROW,
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
-    limit: Optional[int] = None,
+    limit: Optional[int] = 10,
     status_in: Iterable[TransactionStatus] = [TransactionStatus.SUCCESS],
 ) -> Dataset:
     """
@@ -278,10 +315,10 @@ def transactions(
 
     Args:
         catalog_name: Optional name of the catalog to query. If None, uses the default catalog.
-        read_as: Dataset type to return results as. If None, defaults to DatasetType.PYARROW.
-        start_time: Optional start timestamp in nanoseconds since epoch to filter transactions.
-        end_time: Optional end timestamp in nanoseconds since epoch to filter transactions.
-        limit: Optional maximum number of transactions to return (most recent first).
+        read_as: Dataset type to return results as. Defaults to DatasetType.PYARROW.
+        start_time: Optional start timestamp in nanoseconds since epoch to filter transactions. Transactions whose start time is greater than or equal to this value will be included.
+        end_time: Optional end timestamp in nanoseconds since epoch to filter transactions. Transactions whose start time is less than or equal to this value will be included.
+        limit: Optional maximum number of transactions to return (most recent first). Defaults to 10.
         status_in: Optional iterable of transaction status types to include. Defaults to [TransactionStatus.SUCCESS].
 
     Returns:
@@ -302,7 +339,7 @@ def transactions(
 
     Example:
         # Get recent successful transactions
-        recent = dc.transactions(limit=10)
+        recent = dc.transactions(limit=20)
 
         # Get transactions for a specific time range
         import time
@@ -345,38 +382,64 @@ def transactions(
 
     # Helper function to process transactions in a directory
     def process_transactions_in_directory(
-        directory: str, expected_status: TransactionStatus
+        directory: str,
+        expected_status: TransactionStatus,
     ):
-        # TODO(pdames): Do a recursive listing to get the transaction files returned directly.
-        file_info_and_sizes = list_directory(
-            path=directory,
-            filesystem=filesystem,
-            ignore_missing_path=True,
-        )
+        if expected_status in [TransactionStatus.SUCCESS, TransactionStatus.FAILED]:
+            # list all success/failed transactions between start_time and end_time
+            # Ensure partition_start_value <= partition_value constraint is maintained
+            transaction_dir_paths_and_sizes = list_directory_partitioned(
+                path=directory,
+                filesystem=filesystem,
+                partition_value=max(end_time or time.time_ns(), start_time or -1),
+                partition_start_value=start_time,
+                partition_transform=epoch_timestamp_partition_transform,
+                partition_file_parser=lambda path: Transaction.parse_transaction_id(
+                    posixpath.basename(path)
+                )[0],
+                partition_dir_parser=parse_epoch_timestamp_partitions,
+                limit=limit,
+                ignore_missing_path=True,
+            )
+            transaction_ids = {
+                posixpath.basename(transaction_file_path)
+                for transaction_file_path, _ in transaction_dir_paths_and_sizes
+            }
+        else:
+            # other transactions still use flat structure
+            file_info_and_sizes = list_directory(
+                path=directory,
+                filesystem=filesystem,
+                ignore_missing_path=True,
+            )
+            # Extract transaction IDs from file paths
+            transaction_ids = set()
+            for file_path, _ in file_info_and_sizes:
+                try:
+                    txn_id = posixpath.basename(file_path)
+                    transaction_id = Transaction.parse_transaction_id(txn_id)
+                    transaction_ids.add(txn_id)
+                except ValueError:
+                    logger.warning(f"Skipping invalid transaction ID: {file_path}")
+                    continue
 
-        for file_path, _ in file_info_and_sizes:
+        for transaction_id in transaction_ids:
             # Read the transaction from the file
-            # TODO(pdames): Do a recursive listing to get the transaction files returned directly.
+            # TODO(pdames): Read transactions in parallel.
             try:
                 txn = _read_txn(
                     txn_log_dir,
                     expected_status,
-                    posixpath.basename(file_path),
+                    transaction_id,
                     filesystem,
                 )
             except FileNotFoundError:
                 # this may be a stray file or the transaction is being created - skip it
+                logger.warning(f"Skipping missing transaction ID: {transaction_id}")
                 continue
-
-            # Apply time filters
-            # TODO(pdames): Parse start and end times from the transaction file path.
-            if (
-                start_time is not None
-                and txn.start_time
-                and txn.start_time < start_time
-            ):
-                continue
-            if end_time is not None and txn.end_time and txn.end_time > end_time:
+            except ValueError:
+                # Skip invalid transaction IDs (like partition directories)
+                logger.warning(f"Skipping invalid transaction ID: {transaction_id}")
                 continue
 
             # Count operations and affected metadata objects by type.
@@ -970,17 +1033,27 @@ class Transaction(dict):
         paused_txn_log_dir = posixpath.join(txn_log_dir, PAUSED_TXN_DIR_NAME)
         filesystem.create_dir(paused_txn_log_dir, recursive=False)
 
-        # Check if the transaction file exists in the failed directory
-        in_failed = os.path.exists(os.path.join(failed_txn_log_dir, txn_name))
+        # Check if the transaction file exists in the failed directory (including partitioned paths)
+        failed_txn_path = Transaction.failed_txn_log_path(failed_txn_log_dir, txn_name)
+        in_failed = filesystem.get_file_info(failed_txn_path).type != FileType.NotFound
 
-        # Check if the transaction file exists in the running directory
-        in_running = os.path.exists(os.path.join(running_txn_log_dir, txn_name))
+        # Check if the transaction file exists in the running directory (flat structure)
+        running_txn_path = posixpath.join(running_txn_log_dir, txn_name)
+        in_running = (
+            filesystem.get_file_info(running_txn_path).type != FileType.NotFound
+        )
 
-        # Check if the transaction file exists in the success directory
-        in_success = os.path.exists(os.path.join(success_txn_log_dir, txn_name))
+        # Check if the transaction file exists in the success directory (including partitioned paths)
+        success_txn_path = Transaction.success_txn_log_dir_path(
+            success_txn_log_dir, txn_name
+        )
+        in_success = (
+            filesystem.get_file_info(success_txn_path).type != FileType.NotFound
+        )
 
-        # Check if the transaction file exists in the paused directory
-        in_paused = os.path.exists(os.path.join(paused_txn_log_dir, txn_name))
+        # Check if the transaction file exists in the paused directory (flat structure)
+        paused_txn_path = posixpath.join(paused_txn_log_dir, txn_name)
+        in_paused = filesystem.get_file_info(paused_txn_path).type != FileType.NotFound
 
         if in_failed and in_running:
             return TransactionState.FAILED
@@ -1085,6 +1158,20 @@ class Transaction(dict):
         """
         self["historic_timestamp"] = timestamp
 
+    @property
+    def catalog_name(self) -> Optional[str]:
+        """
+        Returns the catalog name for the transaction.
+        """
+        return self.get("catalog_name")
+
+    @catalog_name.setter
+    def catalog_name(self, name: str):
+        """
+        Sets the catalog name for the transaction.
+        """
+        self["catalog_name"] = name
+
     def _mark_start_time(self, time_provider: TransactionTimeProvider) -> int:
         """
         Sets the start time of the transaction using the given
@@ -1126,28 +1213,7 @@ class Transaction(dict):
 
     @staticmethod
     def _abs_txn_meta_path_to_relative(root: str, target: str) -> str:
-        """
-        Takes an absolute root directory path and target absolute path to
-        relativize with respect to the root directory. Returns the target
-        path relative to the root directory path. Raises an error if the
-        target path is not contained in the given root directory path, if
-        either path is not an absolute path, or if the target path is equal
-        to the root directory path.
-        """
-        root_path = PosixPath(root)
-        target_path = PosixPath(target)
-        # TODO (martinezdavid): Check why is_absolute() fails for certain Delta paths
-        # if not root_path.is_absolute() or not target_path.is_absolute():
-        #     raise ValueError("Both root and target must be absolute paths.")
-        if root_path == target_path:
-            raise ValueError(
-                "Target and root are identical, but expected target to be a child of root."
-            )
-        try:
-            relative_path = target_path.relative_to(root_path)
-        except ValueError:
-            raise ValueError("Expected target to be a child of root.")
-        return str(relative_path)
+        return absolute_path_to_relative(root, target)
 
     def relativize_operation_paths(
         self, operation: TransactionOperation, catalog_root: str
@@ -1227,26 +1293,91 @@ class Transaction(dict):
         return serializable
 
     @staticmethod
-    def _validate_txn_log_file(success_txn_log_file: str) -> None:
-        txn_log_dir_name = posixpath.basename(posixpath.dirname(success_txn_log_file))
-        txn_log_parts = txn_log_dir_name.split(TXN_PART_SEPARATOR)
+    def parse_transaction_id(transaction_id: str) -> Tuple[int, str]:
+        """
+        Parse a transaction ID to extract the start time and transaction UUID.
+
+        Args:
+            transaction_id: The transaction ID in format "start_time_uuid"
+
+        Returns:
+            Tuple of (start_time: int, transaction_uuid: str)
+
+        Raises:
+            ValueError: If the transaction ID format is invalid
+        """
+        txn_log_parts = transaction_id.split(TXN_PART_SEPARATOR)
+        if len(txn_log_parts) != 2:
+            raise ValueError(
+                f"Transaction ID `{transaction_id}` does not have the expected format "
+                f"'start_time{TXN_PART_SEPARATOR}uuid'."
+            )
+
         # ensure that the transaction start time is valid
         try:
             start_time = int(txn_log_parts[0])
         except ValueError as e:
             raise ValueError(
-                f"Transaction log file `{success_txn_log_file}` does not "
-                f"contain a valid start time."
+                f"Transaction ID `{transaction_id}` does not contain a valid start time."
             ) from e
+
         # ensure that the txn uuid is valid
         txn_uuid_str = txn_log_parts[1]
         try:
             uuid.UUID(txn_uuid_str)
         except ValueError as e:
-            raise OSError(
-                f"Transaction log file `{success_txn_log_file}` does not "
-                f"contain a valid UUID string."
+            raise ValueError(
+                f"Transaction ID `{transaction_id}` does not contain a valid UUID string."
             ) from e
+
+        return start_time, txn_uuid_str
+
+    @staticmethod
+    def _partitioned_txn_log_path(txn_log_dir: str, txn_id: str) -> str:
+        """
+        Construct the partitioned path for a transaction log.
+        """
+        start_time, _ = Transaction.parse_transaction_id(txn_id)
+        partition_dirs = epoch_timestamp_partition_transform(start_time)
+        txn_log_path = txn_log_dir
+        for dir_name in partition_dirs:
+            txn_log_path = posixpath.join(txn_log_path, dir_name)
+        txn_log_path = posixpath.join(txn_log_path, txn_id)
+        return txn_log_path
+
+    @staticmethod
+    def success_txn_log_dir_path(success_txn_log_dir: str, txn_id: str) -> str:
+        """
+        Construct the partitioned path for a success transaction log's parent directory.
+
+        Args:
+            success_txn_log_dir: Base directory for success transaction logs
+            txn_id: Transaction ID in format "start_time_uuid"
+
+        Returns:
+            Full partitioned path to the transaction log's parent directory
+        """
+        return Transaction._partitioned_txn_log_path(success_txn_log_dir, txn_id)
+
+    @staticmethod
+    def failed_txn_log_path(failed_txn_log_dir: str, txn_id: str) -> str:
+        """
+        Construct the partitioned path for a failed transaction log.
+
+        Args:
+            failed_txn_log_dir: Base directory for failed transaction logs
+            txn_id: Transaction ID in format "start_time_uuid"
+
+        Returns:
+            Full partitioned path to the transaction log file
+        """
+        return Transaction._partitioned_txn_log_path(failed_txn_log_dir, txn_id)
+
+    @staticmethod
+    def _validate_txn_log_file(success_txn_log_file: str) -> None:
+        txn_log_dir_name = posixpath.basename(posixpath.dirname(success_txn_log_file))
+        # Use the new parse_transaction_id function
+        start_time, _ = Transaction.parse_transaction_id(txn_log_dir_name)
         # ensure that the transaction end time is valid
         try:
             end_time = Transaction._parse_end_time(success_txn_log_file)
@@ -1582,13 +1713,16 @@ class Transaction(dict):
             raise
         success_log_path = None
         try:
-            # write transaction log
-            success_txn_dir = posixpath.join(success_dir, self.id)
-            fs.create_dir(success_txn_dir, recursive=False)
-
-            success_log_path = posixpath.join(success_txn_dir, str(end_time))
-            with fs.open_output_stream(success_log_path) as f:
-                f.write(msgpack.dumps(self.to_serializable(root)))
+            # write transaction log to partitioned structure
+            success_log_path = posixpath.join(success_dir, self.id, str(end_time))
+            success_log_path = write_file_partitioned(
+                path=success_log_path,
+                data=msgpack.dumps(self.to_serializable(root)),
+                partition_value=self.start_time,
+                partition_transform=epoch_timestamp_partition_transform,
+                filesystem=fs,
+                partition_levels_above_file=1,
+            )
 
             Transaction._validate_txn_log_file(success_txn_log_file=success_log_path)
 
@@ -1630,30 +1764,47 @@ class Transaction(dict):
 
         # 1. write failed/ID
         failed_log_path = posixpath.join(failed_txn_log_dir, self.id)
-        with fs.open_output_stream(failed_log_path) as f:
-            f.write(msgpack.dumps(self.to_serializable(self.catalog_root_normalized)))
+        failed_log_path = write_file_partitioned(
+            path=failed_log_path,
+            data=msgpack.dumps(self.to_serializable(self.catalog_root_normalized)),
+            partition_value=self.start_time,
+            partition_transform=epoch_timestamp_partition_transform,
+            filesystem=fs,
+        )
 
         # 2. delete all provisional files
         for path in self.metafile_write_paths:
             try:
                 fs.delete_file(path)
             except Exception:
+                logger.warning(
+                    f"Failed to delete metafile from failed transaction: {path}"
+                )
                 pass  # best-effort; janitor job will catch leftovers
         for path in self.locator_write_paths:
             try:
                 fs.delete_file(path)
             except Exception:
+                logger.warning(
+                    f"Failed to delete locator from failed transaction: {path}"
+                )
                 pass  # best-effort; janitor job will catch leftovers
 
         # 3. tidy up bookkeeping logs
         try:
             fs.delete_file(running_log_path)
         except Exception:
+            logger.warning(
+                f"Failed to delete running transaction log for failed transaction: {running_log_path}"
+            )
             pass
         if success_log_path:
             try:
                 fs.delete_file(success_log_path)
             except Exception:
+                logger.warning(
+                    f"Failed to delete successful transaction log for invalid transaction: {success_log_path}"
+                )
                 pass
 
     def __enter__(self) -> "Transaction":

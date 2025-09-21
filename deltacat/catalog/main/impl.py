@@ -29,10 +29,16 @@ from deltacat.storage.model.schema import (
 )
 from deltacat.storage.model.table import TableProperties, Table
 from deltacat.storage.model.types import (
+    CommitState,
     Dataset,
+    DeltaType,
     LifecycleState,
     StreamFormat,
     SchemaConsistencyType,
+)
+from deltacat.storage.model.delta import (
+    Delta,
+    MAX_DELTA_STREAM_POSITION,
 )
 from deltacat.storage.model.partition import (
     Partition,
@@ -43,9 +49,6 @@ from deltacat.storage.model.table_version import (
     TableVersion,
     TableVersionProperties,
 )
-from deltacat.storage.model.types import DeltaType
-from deltacat.storage import Delta
-from deltacat.storage.model.types import CommitState
 from deltacat.storage.model.transaction import (
     Transaction,
     setup_transaction,
@@ -65,6 +68,7 @@ from deltacat.types.tables import (
     get_dataset_type,
     get_table_schema,
     get_table_column_names,
+    from_manifest_table as from_manifest_table_util,
     from_pyarrow,
     concat_tables,
     empty_table,
@@ -115,36 +119,6 @@ def initialize(
         return config
     else:
         return CatalogProperties(*args, **kwargs)
-
-
-# table functions
-def _validate_write_mode_and_table_existence(
-    table: str,
-    namespace: str,
-    mode: TableWriteMode,
-    **kwargs,
-) -> bool:
-    """Validate write mode against table existence and return whether table exists."""
-    table_exists_flag = table_exists(
-        table,
-        namespace=namespace,
-        **kwargs,
-    )
-    logger.info(f"Table to write to ({namespace}.{table}) exists: {table_exists_flag}")
-
-    if mode == TableWriteMode.CREATE and table_exists_flag:
-        raise ValueError(
-            f"Table {namespace}.{table} already exists and mode is CREATE."
-        )
-    elif (
-        mode not in (TableWriteMode.CREATE, TableWriteMode.AUTO)
-        and not table_exists_flag
-    ):
-        raise TableNotFoundError(
-            f"Table {namespace}.{table} does not exist and mode is {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}. Use CREATE or AUTO mode to create a new table."
-        )
-
-    return table_exists_flag
 
 
 def _get_table_and_validate_write_mode(
@@ -259,7 +233,7 @@ def write_to_table(
     content_type: ContentType = ContentType.PARQUET,
     transaction: Optional[Transaction] = None,
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Write local or distributed data to a table. Raises an error if the
     table does not exist and the table write mode is not CREATE or AUTO.
 
@@ -281,6 +255,9 @@ def write_to_table(
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
         **kwargs: Additional keyword arguments.
+
+    Returns:
+        List of deltas written to the table (typically one delta per touched partition).
     """
     namespace = namespace or default_namespace()
 
@@ -360,6 +337,7 @@ def write_to_table(
             table_version_obj,
             namespace,
             table,
+            table_exists_flag,
             **kwargs,
         )
 
@@ -460,7 +438,7 @@ def write_to_table(
         # Remove schema from kwargs to avoid duplicate parameter conflict
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != "schema"}
         # Use updated schema if schema evolution occurred, otherwise use original schema
-        _stage_commit_and_compact(
+        deltas = _stage_commit_and_compact(
             converted_data,
             partition,
             delta_type,
@@ -473,6 +451,7 @@ def write_to_table(
             original_fields=original_fields,
             **filtered_kwargs,
         )
+        return deltas
     except Exception as e:
         # If any error occurs, the transaction remains uncommitted
         commit_transaction = False
@@ -490,6 +469,7 @@ def _handle_write_mode(
     table_version_obj: TableVersion,
     namespace: str,
     table: str,
+    table_exists_flag: bool,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:  # Using Any for stream type to avoid complex imports
     """Handle different write modes and return appropriate stream and delta type."""
@@ -505,6 +485,14 @@ def _handle_write_mode(
         )
     elif mode == TableWriteMode.APPEND:
         return _handle_append_mode(
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
+            **kwargs,
+        )
+    elif mode == TableWriteMode.ADD:
+        return _handle_add_mode(
             table_schema,
             namespace,
             table,
@@ -527,6 +515,7 @@ def _handle_write_mode(
             namespace,
             table,
             table_version_obj,
+            table_exists_flag,
             **kwargs,
         )
 
@@ -579,6 +568,30 @@ def _handle_append_mode(
     return stream, DeltaType.APPEND
 
 
+def _handle_add_mode(
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
+    **kwargs,
+) -> Tuple[Any, DeltaType]:
+    """Handle ADD mode by validating no merge keys and getting existing stream."""
+    if table_schema and table_schema.merge_keys:
+        raise SchemaValidationError(
+            f"ADD mode cannot be used with tables that have merge keys. "
+            f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+            f"Use MERGE mode instead."
+        )
+
+    stream = _get_table_stream(
+        namespace,
+        table,
+        table_version_obj.table_version,
+        **kwargs,
+    )
+    return stream, DeltaType.ADD
+
+
 def _handle_merge_delete_mode(
     mode: TableWriteMode,
     table_schema,
@@ -610,6 +623,7 @@ def _handle_auto_create_mode(
     namespace: str,
     table: str,
     table_version_obj: TableVersion,
+    table_exists_flag: bool,
     **kwargs,
 ) -> Tuple[Any, DeltaType]:
     """Handle AUTO and CREATE modes by getting existing stream."""
@@ -622,6 +636,9 @@ def _handle_auto_create_mode(
     delta_type = (
         DeltaType.UPSERT
         if table_schema and table_schema.merge_keys
+        # Tables are always created with an ordered APPEND delta, then default to unordered ADD deltas
+        else DeltaType.ADD
+        if table_exists_flag
         else DeltaType.APPEND
     )
     return stream, delta_type
@@ -693,7 +710,7 @@ def _handle_partition_creation(
 
         return partition, commit_staged_partition
     else:
-        # APPEND mode on existing table: Get existing partition
+        # APPEND/ADD mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
             stream_locator=stream.locator,
             partition_values=None,
@@ -903,7 +920,7 @@ def _stage_commit_and_compact(
     table: str,
     original_fields: Set[str],
     **kwargs,
-) -> None:
+) -> List[Delta]:
     """Stage and commit delta, then handle compaction if needed."""
     # Remove schema from kwargs to avoid duplicate parameter conflict
     # We explicitly pass the correct schema parameter
@@ -916,7 +933,7 @@ def _stage_commit_and_compact(
     )
 
     # Stage a delta with the data
-    delta = _get_storage(**kwargs).stage_delta(
+    delta: Delta = _get_storage(**kwargs).stage_delta(
         data=converted_data,
         partition=partition,
         delta_type=delta_type,
@@ -928,7 +945,7 @@ def _stage_commit_and_compact(
         **kwargs,
     )
 
-    delta = _get_storage(**kwargs).commit_delta(delta=delta, **kwargs)
+    delta: Delta = _get_storage(**kwargs).commit_delta(delta=delta, **kwargs)
 
     if commit_staged_partition:
         _get_storage(**kwargs).commit_partition(partition=partition, **kwargs)
@@ -950,13 +967,14 @@ def _stage_commit_and_compact(
         _run_compaction_session(
             table_version_obj=resolved_table_version_obj,
             partition=partition,
-            latest_delta_stream_position=delta.stream_position,
+            latest_delta_stream_position=MAX_DELTA_STREAM_POSITION,
             namespace=namespace,
             table=table,
             original_fields=original_fields,
             original_table_version_column_names=original_table_version_column_names,
             **kwargs,
         )
+    return [delta]
 
 
 def _trigger_compaction(
@@ -965,9 +983,6 @@ def _trigger_compaction(
     target_read_optimization_level: TableReadOptimizationLevel,
     **kwargs,
 ) -> bool:
-    # Import inside function to avoid circular imports
-    from deltacat.compute.compactor.utils import round_completion_reader as rci
-
     # Extract delta type from latest_delta if available, otherwise default to no compaction
     if latest_delta is not None:
         delta_type = latest_delta.type
@@ -985,48 +1000,19 @@ def _trigger_compaction(
     ):
         if delta_type == DeltaType.DELETE or delta_type == DeltaType.UPSERT:
             return True
-        elif delta_type == DeltaType.APPEND:
-            # Get default stream to determine partition locator
-            stream = _get_table_stream(
-                table_version_obj.locator.namespace,
-                table_version_obj.locator.table_name,
-                table_version_obj.locator.table_version,
-                **kwargs,
-            )
-
-            if not stream:
-                return False
-
-            # Use provided partition_values or None for unpartitioned tables
-            partition_locator = PartitionLocator.of(
-                stream_locator=stream.locator,
-                partition_values=partition_values,
-                partition_id=None,
-            )
-
-            # Get round completion info to determine high watermark
-            round_completion_info = rci.read_round_completion_info(
-                source_partition_locator=partition_locator,
-                destination_partition_locator=partition_locator,
-                deltacat_storage=_get_storage(**kwargs),
-                deltacat_storage_kwargs=kwargs,
-            )
-
-            high_watermark = (
-                round_completion_info.high_watermark
-                if round_completion_info
-                and isinstance(round_completion_info.high_watermark, int)
-                else 0
-            )
-
+        elif delta_type in (DeltaType.APPEND, DeltaType.ADD):
             # Get all deltas appended since last compaction
-            deltas = _get_storage(**kwargs).list_deltas(
-                namespace=table_version_obj.locator.namespace,
-                table_name=table_version_obj.locator.table_name,
-                table_version=table_version_obj.locator.table_version,
-                partition_values=partition_values,
-                start_stream_position=high_watermark + 1,
-                **kwargs,
+            deltas = (
+                _get_storage(**kwargs)
+                .list_deltas(
+                    namespace=table_version_obj.locator.namespace,
+                    table_name=table_version_obj.locator.table_name,
+                    table_version=table_version_obj.locator.table_version,
+                    partition_values=partition_values,
+                    start_stream_position=2,  # the last compacted delta will always have stream position 1
+                    **kwargs,
+                )
+                .all_items()
             )
 
             if not deltas:
@@ -1066,6 +1052,10 @@ def _trigger_compaction(
                 and appended_records_since_last_compaction >= record_trigger
             ):
                 return True
+        else:
+            raise RuntimeError(
+                f"Unexpected delta type for compaction trigger: {delta_type}"
+            )
     return False
 
 
@@ -1887,12 +1877,13 @@ def create_table(
     content_types: Optional[List[ContentType]] = None,
     fail_if_exists: bool = True,
     transaction: Optional[Transaction] = None,
+    auto_create_namespace: bool = False,
     **kwargs,
 ) -> TableDefinition:
     """Create an empty table in the catalog.
 
     If a namespace isn't provided, the table will be created within the default deltacat namespace.
-    Additionally if the provided namespace does not exist, it will be created for you.
+    The provided namespace will be created if it doesn't exist and auto_create_namespace is True.
 
     Args:
         table: Name of the table to create.
@@ -1909,6 +1900,7 @@ def create_table(
         namespace_properties: Optional properties for the namespace if it needs to be created.
         content_types: Optional list of allowed content types for the table.
         fail_if_exists: If True, raises an error if table already exists. If False, returns existing table.
+        auto_create_namespace: If True, creates the namespace if it doesn't exist. Defaults to False.
         transaction: Optional transaction to use. If None, creates a new transaction.
 
     Returns:
@@ -1968,13 +1960,16 @@ def create_table(
             )
         else:
             # create the namespace if it doesn't exist
-            if not namespace_exists(namespace, **kwargs):
-                create_namespace(
-                    namespace=namespace,
-                    properties=namespace_properties,
-                    *args,
-                    **kwargs,
-                )
+            if auto_create_namespace:
+                try:
+                    create_namespace(
+                        namespace=namespace,
+                        properties=namespace_properties,
+                        *args,
+                        **kwargs,
+                    )
+                except NamespaceAlreadyExistsError:
+                    logger.info(f"Namespace {namespace} already exists.")
 
             # Set up table version properties for new table
             default_tv_properties = resolved_table_properties
@@ -2774,7 +2769,7 @@ def _get_deltas_from_partition_filter(
         if deltas:
             non_append_deltas = []
             for delta in deltas:
-                if delta.type != DeltaType.APPEND:
+                if delta.type not in (DeltaType.ADD, DeltaType.APPEND):
                     non_append_deltas.append(delta)
                 else:
                     result_deltas.append(delta)
@@ -2784,12 +2779,14 @@ def _get_deltas_from_partition_filter(
                     (str(delta.locator), delta.type) for delta in non_append_deltas[:5]
                 ]  # Show first 5
                 raise NotImplementedError(
-                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-append deltas "
-                    f"with types {delta_types}. All deltas must be APPEND type for read operations. "
-                    f"Examples: {delta_info}. Please run compaction first to merge non-append deltas."
+                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-ADD/APPEND deltas "
+                    f"with types {delta_types}. All deltas must be ADD or APPEND type for read operations. "
+                    f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND deltas."
                 )
 
-            logger.info(f"Validated {len(deltas)} qualified deltas are all APPEND type")
+            logger.info(
+                f"Validated {len(deltas)} qualified deltas are all ADD or APPEND type"
+            )
     return result_deltas
 
 
@@ -2804,3 +2801,34 @@ def _get_storage(**kwargs):
         return properties.storage
     else:
         return dc.storage.metastore
+
+
+def from_manifest_table(
+    manifest_table: Dataset,
+    *args,
+    read_as: DatasetType = DatasetType.DAFT,
+    schema: Optional[Schema] = None,
+    **kwargs,
+) -> Dataset:
+    """
+    Read a manifest table (containing file paths and metadata) and download the actual data.
+
+    This utility function takes the output from a schemaless table read (which returns
+    manifest entries instead of data) and downloads the actual file contents.
+
+    Args:
+        manifest_table: Dataset containing manifest entries with file paths and metadata
+        read_as: The type of dataset to return (DAFT, RAY_DATASET, PYARROW, etc.)
+        schema: Optional schema to attempt to coerce the data into.
+        **kwargs: Additional arguments forwarded to download functions
+
+    Returns:
+        Dataset containing the actual file contents
+    """
+    return from_manifest_table_util(
+        manifest_table,
+        read_as=read_as,
+        schema=schema.arrow if schema else None,
+        *args,
+        **kwargs,
+    )

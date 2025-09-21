@@ -62,7 +62,13 @@ from deltacat.storage.model.metafile import (
     MetafileRevisionInfo,
 )
 from deltacat.constants import TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME, NANOS_PER_SEC
-from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.utils.filesystem import (
+    resolve_path_and_filesystem,
+    write_file,
+    write_file_partitioned,
+    exponential_partition_transform,
+    remove_exponential_partitions,
+)
 from deltacat.tests.test_utils.storage import (
     create_test_namespace,
     create_test_table,
@@ -232,24 +238,25 @@ class TestMetafileIO:
         # a new delta metafile revision written by a transaction that completed
         # before seeing any concurrent conflicts
         mri = MetafileRevisionInfo.parse(orig_delta_write_path)
-        mri.txn_id = "0000000000000_test-txn-id"
+        mri.txn_id = "0000000001704067200_00000000-0000-0000-0000-000000000000"
         mri.txn_op_type = TransactionOperationType.UPDATE
         mri.revision = mri.revision + 1
         conflict_delta_write_path = mri.path
+
         _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
-        with filesystem.open_output_stream(conflict_delta_write_path):
-            pass  # Just create an empty conflicting metafile revision
-        txn_log_file_dir = os.path.join(
-            temp_dir,
-            TXN_DIR_NAME,
-            SUCCESS_TXN_DIR_NAME,
-            mri.txn_id,
+        write_file_partitioned(
+            path=remove_exponential_partitions(conflict_delta_write_path),
+            data=b"",  # Just create an empty conflicting metafile revision
+            partition_value=mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
         )
-        filesystem.create_dir(txn_log_file_dir, recursive=True)
-        txn_log_file_path = os.path.join(
-            txn_log_file_dir,
-            str(time.time_ns()),
+        success_txn_log_dir = os.path.join(temp_dir, TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME)
+        txn_log_dir_path = Transaction.success_txn_log_dir_path(
+            success_txn_log_dir, mri.txn_id
         )
+        filesystem.create_dir(txn_log_dir_path, recursive=True)
+        txn_log_file_path = os.path.join(txn_log_dir_path, str(time.time_ns()))
         with filesystem.open_output_stream(txn_log_file_path):
             pass  # Just create an empty log to mark the txn as complete
 
@@ -291,13 +298,19 @@ class TestMetafileIO:
 
         # and a new delta metafile revision written by an incomplete transaction
         mri = MetafileRevisionInfo.parse(orig_delta_write_path)
-        mri.txn_id = "9999999999999_test-txn-id"
+        mri.txn_id = "9999999999999999999_99999999-9999-9999-9999-999999999999"
         mri.txn_op_type = TransactionOperationType.DELETE
         mri.revision = mri.revision + 1
         conflict_delta_write_path = mri.path
+
         _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
-        with filesystem.open_output_stream(conflict_delta_write_path):
-            pass  # Just create an empty conflicting metafile revision
+        write_file_partitioned(
+            path=remove_exponential_partitions(conflict_delta_write_path),
+            data=b"",  # write an empty conflicting delta revision
+            partition_value=mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
 
         # when a concurrent transaction tries to update the same delta
         original_delta = Delta.read(orig_delta_write_path)
@@ -2434,6 +2447,117 @@ class TestMetafileIO:
         # expect the table created to otherwise match the table given
         table.properties = expected_properties
         assert table.equivalent_to(deserialized_table)
+
+    def test_sorted_file_paths_with_exponential_partitioning(self, temp_dir):
+        """Test MetafileRevisionInfo._sorted_file_paths with exponential partitioning and revision parsing."""
+
+        # Create metafile revision files to test exponential partitioning
+        # Use some larger values to create different partitions: 500, 1500, 2500, 1000500, 2000500
+        test_revisions = [
+            (
+                500,
+                "00000000000000000500_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            (
+                1500,
+                "00000000000000001500_update_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            (
+                2500,
+                "00000000000000002500_delete_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            (
+                1000500,
+                "00000000000001000500_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            (
+                2000500,
+                "00000000000002000500_update_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+        ]
+
+        # Create the partitioned metafile structure
+        for revision, filename in test_revisions:
+            write_file_partitioned(
+                path=os.path.join(temp_dir, filename),
+                data=f"Metafile content for revision {revision}",
+                partition_value=revision,
+                partition_transform=exponential_partition_transform,
+            )
+
+        # Create unpartitioned test revisions
+        test_revisions_unpartitioned = [
+            # one smaller than 1000
+            (
+                499,
+                "00000000000000000499_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+        ]
+
+        for revision, filename in test_revisions_unpartitioned:
+            write_file(
+                path=os.path.join(temp_dir, filename),
+                data=f"Metafile content for revision {revision}",
+            )
+
+        # Test _sorted_file_paths with different partition values
+        _, filesystem = resolve_path_and_filesystem(temp_dir)
+
+        # Test 1: Find revisions <= 1000 (should find 499, 500 but not 1001, 1500, 2500, etc.)
+        sorted_paths_1000 = MetafileRevisionInfo._sorted_file_paths(
+            revision_dir_path=temp_dir,
+            filesystem=filesystem,
+            partition_value=1000,
+            limit=None,
+            ignore_missing_revision=True,
+        )
+
+        # Should find only revision 499, 500 (but not 1001, 1500, 2500, 3001, 1000500, 2000500)
+        expected_paths_1000 = [
+            os.path.join(
+                temp_dir,
+                "1000000/1000/00000000000000000500_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            os.path.join(
+                temp_dir,
+                "00000000000000000499_create_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+        ]
+        assert (
+            sorted_paths_1000 == expected_paths_1000
+        ), f"Expected {expected_paths_1000}, got {sorted_paths_1000}"
+
+        # Test 2: Find revisions <= 3000 with limit (should find 2500, 1500 closest to 3000)
+        sorted_paths_3000_limited = MetafileRevisionInfo._sorted_file_paths(
+            revision_dir_path=temp_dir,
+            filesystem=filesystem,
+            partition_value=3000,
+            limit=2,
+            ignore_missing_revision=True,
+        )
+
+        # Should find first 3 revisions closest to 3000: revisions 2500, 1500, 3001
+        expected_paths_3000_limited = [
+            os.path.join(
+                temp_dir,
+                "1000000/3000/00000000000000002500_delete_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+            os.path.join(
+                temp_dir,
+                "1000000/2000/00000000000000001500_update_1756565041547264000_99e2789d-aa09-4026-8fd4-3a3eee992265.mpk",
+            ),
+        ]
+        assert (
+            sorted_paths_3000_limited == expected_paths_3000_limited
+        ), f"Expected {expected_paths_3000_limited}, got {sorted_paths_3000_limited}"
+
+        # Test 3: Verify that MetafileRevisionInfo.parse works on returned paths
+        for path in sorted_paths_1000:
+            mri = MetafileRevisionInfo.parse(path)
+            assert mri.revision is not None
+            assert mri.revision <= 1000
+            assert mri.txn_op_type in ["create", "update", "delete"]
+            assert len(mri.txn_id) > 0
 
     def test_metafile_read_bad_path(self, temp_dir):
         with pytest.raises(FileNotFoundError):

@@ -79,6 +79,9 @@ class DeltaCatErrorNames(str, Enum):
     STREAM_NOT_FOUND_ERROR = "StreamNotFoundError"
     PARTITION_NOT_FOUND_ERROR = "PartitionNotFoundError"
     DELTA_NOT_FOUND_ERROR = "DeltaNotFoundError"
+    DELTA_ALREADY_EXISTS_ERROR = "DeltaAlreadyExistsError"
+    PARTITION_ALREADY_EXISTS_ERROR = "PartitionAlreadyExistsError"
+    STREAM_ALREADY_EXISTS_ERROR = "StreamAlreadyExistsError"
     TABLE_ALREADY_EXISTS_ERROR = "TableAlreadyExistsError"
     TABLE_VERSION_ALREADY_EXISTS_ERROR = "TableVersionAlreadyExistsError"
     NAMESPACE_ALREADY_EXISTS_ERROR = "NamespaceAlreadyExistsError"
@@ -257,6 +260,18 @@ class StreamNotFoundError(NonRetryableError):
 
 class DeltaNotFoundError(NonRetryableError):
     error_name = DeltaCatErrorNames.DELTA_NOT_FOUND_ERROR.value
+
+
+class DeltaAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.DELTA_ALREADY_EXISTS_ERROR.value
+
+
+class PartitionAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.PARTITION_ALREADY_EXISTS_ERROR.value
+
+
+class StreamAlreadyExistsError(NonRetryableError):
+    error_name = DeltaCatErrorNames.STREAM_ALREADY_EXISTS_ERROR.value
 
 
 class TableAlreadyExistsError(NonRetryableError):

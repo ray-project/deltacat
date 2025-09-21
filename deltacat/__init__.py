@@ -8,6 +8,9 @@ from deltacat.api import (
     list,
     put,
 )
+from deltacat.storage.model.delta import (
+    Delta,
+)
 from deltacat.storage.model.transaction import (
     transaction,
     transactions,
@@ -21,6 +24,7 @@ from deltacat.catalog import (  # noqa: F401
     default_namespace,
     drop_namespace,
     drop_table,
+    from_manifest_table,
     get_namespace,
     get_table,
     list_namespaces,
@@ -43,6 +47,7 @@ from deltacat.catalog import (  # noqa: F401
     raise_if_not_initialized,
     Catalog,
     CatalogProperties,
+    CatalogVersion,
     TableDefinition,
 )
 from deltacat.compute import (
@@ -97,7 +102,6 @@ from deltacat.types.tables import (
     SchemaEvolutionMode,
     from_pandas,
     from_pyarrow,
-    from_manifest_table,
     to_pyarrow,
     to_pandas,
     dataset_length,
@@ -122,7 +126,7 @@ if importlib.util.find_spec("pyiceberg") is not None:
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0.0.post2"
+__version__ = "2.0.0.post3"
 
 
 __all__ = [
@@ -151,6 +155,7 @@ __all__ = [
     "create_namespace",
     "drop_namespace",
     "default_namespace",
+    "from_manifest_table",
     "write",
     "write_to_table",
     "read",
@@ -164,6 +169,7 @@ __all__ = [
     "get_catalog_properties",
     "pop_catalog",
     "put_catalog",
+    "save_catalogs",
     "raise_if_not_initialized",
     "dataset_length",
     "dataset_size",
@@ -171,7 +177,6 @@ __all__ = [
     "dataset_schema",
     "from_pandas",
     "from_pyarrow",
-    "from_manifest_table",
     "to_pandas",
     "to_pyarrow",
     "BucketingStrategy",
@@ -179,12 +184,14 @@ __all__ = [
     "BucketTransformParameters",
     "Catalog",
     "CatalogProperties",
+    "CatalogVersion",
     "ContentType",
     "ContentEncoding",
     "Dataset",
     "DatasetType",
     "DatastoreType",
     "DayTransform",
+    "Delta",
     "DeltaCatUrl",
     "DistributedDataset",
     "Field",

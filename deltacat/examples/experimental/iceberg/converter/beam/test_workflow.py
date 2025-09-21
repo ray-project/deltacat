@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Quick test script to demonstrate the REST catalog workflow.
 This script shows the complete write → read cycle with DeltaCAT monitoring and conversion.

@@ -46,11 +46,19 @@ class Namespace(Metafile):
     def properties(self, properties: Optional[NamespaceProperties]) -> None:
         self["properties"] = properties
 
-    def url(self, catalog_name: Optional[str] = None) -> str:
+    def url(
+        self,
+        catalog_name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        table_name: Optional[
+            str
+        ] = None,  # for compatibility with other metafile url APIs
+    ) -> str:
+        namespace = namespace or self.namespace
         return (
-            f"dc://{catalog_name}/{self.namespace}/"
+            f"dc://{catalog_name}/{namespace}/"
             if catalog_name
-            else f"namespace://{self.namespace}/"
+            else f"namespace://{namespace}/"
         )
 
 

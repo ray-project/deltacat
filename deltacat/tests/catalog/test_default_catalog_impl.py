@@ -28,6 +28,7 @@ from ray.data.dataset import MaterializedDataset
 
 import deltacat as dc
 from deltacat import Catalog, CatalogProperties
+from deltacat.constants import UNSIGNED_INT32_MAX_VALUE
 from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableVersionAlreadyExistsError,
@@ -68,7 +69,6 @@ from deltacat.utils.pyarrow import (
     get_supported_test_types,
     get_base_arrow_type_name,
 )
-from deltacat.types.tables import from_manifest_table
 
 COPY_ON_WRITE_TABLE_PROPERTIES = {
     TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
@@ -583,13 +583,16 @@ class TestReadTableMain:
             {"pk": [1, 2, 3, 4, 5, 6], "value": ["a", "b", "c", "d", "e", "f"]}
         )
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=test_data,
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 1
 
         df = dc.read_table(
             table=READ_TABLE_TABLE_NAME,
@@ -618,26 +621,32 @@ class TestReadTableMain:
             {"pk": [1, 2, 3, 4, 5, 6], "value": ["a", "b", "c", "d", "e", "f"]}
         )
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=test_data,
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 1
 
         # Add more data to test multiple deltas functionality
         additional_data = pa.table(
             {"pk": [7, 8, 9, 10, 11, 12], "value": ["g", "h", "i", "j", "k", "l"]}
         )
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=additional_data,
             table=READ_TABLE_TABLE_NAME,
             namespace=self.READ_TABLE_NAMESPACE,
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 2
 
         # action
         df = dc.read_table(
@@ -709,6 +718,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,  # Specify content types
             table_properties=table_properties,  # Enable automatic compaction
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         return schema
@@ -773,6 +783,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Read back and verify
@@ -809,26 +820,32 @@ class TestCopyOnWrite:
         # Step 2: Write initial data using MERGE mode (creates UPSERT delta)
         initial_data = self._create_initial_data()
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=initial_data,
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.MERGE,  # This creates UPSERT delta
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 1
 
         # Step 3: Write overlapping upsert data (should trigger compaction)
         upsert_data = self._create_overlapping_upsert_data()
 
-        dc.write_to_table(
+        deltas = dc.write_to_table(
             data=upsert_data,
             table=table_name,
             namespace=self.test_namespace,
             mode=TableWriteMode.MERGE,  # This creates another UPSERT delta
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
+        assert len(deltas) == 1
+        assert deltas[0].stream_position == 2
 
         # Step 4: Read table back and verify compaction results
         result = dc.read_table(
@@ -890,6 +907,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # First UPSERT write - missing email field to test past_default handling
@@ -910,6 +928,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,  # This creates UPSERT delta
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Second UPSERT write - includes new field to trigger schema evolution
@@ -942,6 +961,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,  # This creates another UPSERT delta
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify compaction was triggered and schema evolution worked
@@ -1083,6 +1103,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Partial UPSERT data - missing city field, explicit null for age on ID 2
@@ -1107,6 +1128,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Read back and verify partial UPSERT behavior
@@ -1208,6 +1230,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Partial UPSERT with schema evolution: adds new columns + updates some existing ones
@@ -1238,6 +1261,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Read back and verify partial UPSERT with schema evolution
@@ -1336,6 +1360,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 3: Write first upsert batch
@@ -1347,6 +1372,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 4: Write second upsert batch
@@ -1358,6 +1384,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 5: Read and verify final state
@@ -1447,6 +1474,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 3: Write MERGE data with NEW COLUMNS (triggers schema evolution)
@@ -1469,6 +1497,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Writing the same data again shouldn't trigger schema evolution
@@ -1614,6 +1643,7 @@ class TestCopyOnWrite:
             schema=create_basic_schema(),  # No merge keys
             catalog=self.catalog_name,
             table_properties=table_properties,
+            auto_create_namespace=True,
         )
 
         # First APPEND write - should not trigger compaction yet
@@ -1633,6 +1663,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify we have 1 delta after first write (no compaction yet)
@@ -1667,6 +1698,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Use dc.list() to verify compaction result
@@ -1687,8 +1719,8 @@ class TestCopyOnWrite:
 
         # Verify the compacted delta properties
         assert (
-            compacted_delta.stream_position == 2
-        ), f"Expected compacted delta at stream position 2, but found {compacted_delta.stream_position}"
+            compacted_delta.stream_position == 1
+        ), f"Expected compacted delta with stream position 1, but found {compacted_delta.stream_position}"
         assert (
             "append" in str(compacted_delta.type).lower()
         ), f"Expected APPEND delta type, but found {compacted_delta.type}"
@@ -1749,6 +1781,7 @@ class TestCopyOnWrite:
             schema=initial_schema,
             catalog=self.catalog_name,
             table_properties=table_properties,
+            auto_create_namespace=True,
         )
 
         # First APPEND write - missing email field to test past_default handling
@@ -1768,6 +1801,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Second APPEND write - includes new field to trigger schema evolution
@@ -1788,6 +1822,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify compaction was triggered and schema evolution worked
@@ -1866,6 +1901,561 @@ class TestCopyOnWrite:
             len(explicit_departments) == 2
         ), "Last two rows should have explicit department values"
 
+    def test_add_delta_count_compaction(self):
+        """Test that compaction is triggered by appended delta count for ADD mode writes."""
+        table_name = "test_add_delta_compaction"
+
+        # Create table with appended_delta_count_compaction_trigger=2
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count triggers compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for ADD mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),  # No merge keys
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # First ADD write - should not trigger compaction yet
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify we have 1 delta after first write (no compaction yet)
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        objects_after_first = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        first_deltas = [
+            obj for obj in objects_after_first if Metafile.get_class(obj) == Delta
+        ]
+        assert (
+            len(first_deltas) == 1
+        ), f"Expected 1 delta after first write, but found {len(first_deltas)}"
+
+        # Verify that the first delta is ADD type
+        first_delta = first_deltas[0]
+        assert (
+            "add" in str(first_delta.type).lower()
+        ), f"Expected ADD delta type, but found {first_delta.type}"
+
+        # Verify that ADD deltas have random stream positions (not sequential)
+        first_stream_position = first_delta.stream_position
+        assert (
+            first_stream_position > 10000
+        ), f"Expected large random stream position for ADD delta, but found {first_stream_position}"
+
+        # Second ADD write - should trigger compaction (delta count = 2)
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "city": ["Chicago", "Houston"],
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Use dc.list() to verify compaction result
+        # Note: Compaction runs synchronously during the second write, so by this point
+        # the 2 separate ADD deltas should have been compacted into 1 delta
+        all_objects = dc.list(table_url, recursive=True)
+
+        # Filter for Delta objects after compaction
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: After compaction, should have exactly 1 delta
+        # This proves that compaction was triggered and consolidated the 2 ADD deltas
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction, but found {len(final_deltas)}"
+
+        compacted_delta = final_deltas[0]
+
+        # Verify the compacted delta properties
+        # Note: Compacted delta from ADD operations becomes APPEND type (compaction produces ordered data)
+        assert (
+            "append" in str(compacted_delta.type).lower()
+        ), f"Expected APPEND delta type after compaction, but found {compacted_delta.type}"
+
+        # Verify data integrity - should have all 4 records from both writes
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Verify all records are present (ADD mode preserves all records)
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 3, 4}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+        # Verify records can be read in any order (ADD mode doesn't guarantee order)
+        expected_names = {"Alice", "Bob", "Charlie", "Dave"}
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, but found {actual_names}"
+
+    def test_add_compaction_with_schema_evolution(self):
+        """Test that ADD compaction handles schema evolution correctly with past_default values."""
+        table_name = "test_add_schema_evolution"
+
+        # Create table with appended_delta_count_compaction_trigger=2 for predictable compaction
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count triggers compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create initial schema with past_default value for schema evolution testing
+        initial_schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64())),
+                Field.of(pa.field("name", pa.string())),
+                Field.of(pa.field("age", pa.int64())),
+                Field.of(
+                    pa.field("email", pa.string()), past_default="no-email@example.com"
+                ),
+            ]
+        )
+
+        # Create table without merge keys (required for ADD mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=initial_schema,
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # First ADD write - missing email field to test past_default handling
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                # Note: no email field - should trigger past_default during compaction
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Second ADD write - includes new field to trigger schema evolution
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "email": ["charlie@example.com", "dave@example.com"],
+                "department": ["Engineering", "Sales"],  # New field - schema evolution
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify compaction was triggered and schema evolution worked
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        all_objects = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        # Filter for Delta objects after compaction
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: After compaction, should have exactly 1 delta
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction with schema evolution, but found {len(final_deltas)}"
+
+        # Verify the compacted delta is APPEND type (compaction produces ordered data)
+        compacted_delta = final_deltas[0]
+        assert (
+            "append" in str(compacted_delta.type).lower()
+        ), f"Expected APPEND delta type after compaction, but found {compacted_delta.type}"
+
+        # Verify we can read all data with evolved schema
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Convert to pandas for easier schema validation
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+
+        # Verify schema evolution: all expected columns present
+        expected_columns = {"id", "name", "age", "email", "department"}
+        actual_columns = set(result_df.columns)
+        assert expected_columns.issubset(actual_columns), (
+            f"Schema evolution failed. Expected columns {expected_columns}, "
+            f"but found {actual_columns}"
+        )
+
+        # Verify past_default values were applied correctly during compaction
+        first_two_rows = result_df[result_df["id"].isin([1, 2])]
+        assert len(first_two_rows) == 2, "Should have 2 rows with past_default values"
+
+        # Check that past_default email was applied
+        default_emails = first_two_rows[
+            first_two_rows["email"] == "no-email@example.com"
+        ]
+        assert len(default_emails) == 2, (
+            f"Expected 2 rows with past_default email 'no-email@example.com', "
+            f"but found {len(default_emails)}"
+        )
+
+        # Verify that new field (department) has None/null values for first two rows
+        # This is expected since department was added later and has no default
+        first_two_departments = first_two_rows["department"].dropna()
+        assert (
+            len(first_two_departments) == 0
+        ), "First two rows should have null department values (no default specified)"
+
+        # Verify that last two rows have proper values
+        last_two_rows = result_df[result_df["id"].isin([3, 4])]
+        assert len(last_two_rows) == 2, "Should have 2 rows with complete data"
+
+        # Check explicit email values for last two rows
+        explicit_emails = last_two_rows[
+            last_two_rows["email"].str.contains("@example.com")
+        ]
+        assert (
+            len(explicit_emails) == 2
+        ), "Last two rows should have explicit email values"
+
+        # Check explicit department values for last two rows
+        explicit_departments = last_two_rows["department"].dropna()
+        assert (
+            len(explicit_departments) == 2
+        ), "Last two rows should have explicit department values"
+
+        # Verify ADD mode preserves all records (no deduplication)
+        expected_ids = {1, 2, 3, 4}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"ADD mode should preserve all records. Expected IDs {expected_ids}, but found {actual_ids}"
+
+    def test_add_random_stream_positions_and_compaction(self):
+        """Test that ADD mode generates random stream positions and compaction works correctly."""
+        table_name = "test_add_random_positions"
+
+        # Create table with immediate compaction trigger for testing
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 3,  # Trigger after 3 writes
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for ADD mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # Collect stream positions to verify randomness
+        stream_positions = []
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+
+        # Write multiple ADD deltas and collect their stream positions
+        for i in range(3):
+            data = pd.DataFrame(
+                {
+                    "id": [i * 10 + 1, i * 10 + 2],
+                    "name": [f"Person{i * 10 + 1}", f"Person{i * 10 + 2}"],
+                    "age": [20 + i, 25 + i],
+                    "city": [f"City{i * 10 + 1}", f"City{i * 10 + 2}"],
+                }
+            )
+
+            dc.write_to_table(
+                data=data,
+                table=table_name,
+                namespace=self.test_namespace,
+                mode=TableWriteMode.ADD,
+                content_type=ContentType.PARQUET,
+                catalog=self.catalog_name,
+                auto_create_namespace=True,
+            )
+
+            # If this is the 2nd write (before compaction), collect stream positions
+            if i == 1:
+                objects = dc.list(table_url, recursive=True)
+                from deltacat.storage import Metafile, Delta
+
+                stream_positions = [
+                    obj.stream_position
+                    for obj in objects
+                    if Metafile.get_class(obj) == Delta
+                ]
+
+        # Verify that stream positions are random (large numbers, not sequential)
+        assert (
+            len(stream_positions) >= 2
+        ), "Should have collected stream positions from first 2 writes"
+
+        for pos in stream_positions:
+            assert (
+                pos > 10000
+            ), f"Expected large random stream position for ADD delta, but found {pos}"
+
+        # Verify stream positions are unique (cryptographic random generation should not produce duplicates)
+        assert len(set(stream_positions)) == len(
+            stream_positions
+        ), f"Expected unique random stream positions, but found duplicates: {stream_positions}"
+
+        # Verify stream positions are not sequential (should have large differences)
+        if len(stream_positions) >= 2:
+            pos_diff = abs(stream_positions[1] - stream_positions[0])
+            assert (
+                pos_diff > 1000
+            ), f"Expected large difference between random positions, but found {pos_diff}"
+
+        # Verify compaction was triggered (should have exactly 1 delta after 3rd write)
+        final_objects = dc.list(table_url, recursive=True)
+        final_deltas = [
+            obj for obj in final_objects if Metafile.get_class(obj) == Delta
+        ]
+
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction, but found {len(final_deltas)}"
+
+        # Verify data integrity - all records from all writes should be present
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        result_count = get_table_length(result)
+        assert (
+            result_count == 6
+        ), f"Expected 6 records (2 per write × 3 writes), but found {result_count}"
+
+        # Verify all records are present (ADD mode preserves all records)
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 11, 12, 21, 22}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+        # Verify records can be read back (order not guaranteed in ADD mode)
+        expected_names = {
+            "Person1",
+            "Person2",
+            "Person11",
+            "Person12",
+            "Person21",
+            "Person22",
+        }
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, but found {actual_names}"
+
+    def test_add_vs_append_stream_position_behavior(self):
+        """Test that ADD mode uses random stream positions while APPEND uses sequential ones."""
+        add_table = "test_add_positions"
+        append_table = "test_append_positions"
+
+        # Create two identical tables for comparison
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1000,  # Prevent compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+        }
+
+        for table_name in [add_table, append_table]:
+            dc.create_table(
+                table=table_name,
+                namespace=self.test_namespace,
+                schema=create_basic_schema(),
+                catalog=self.catalog_name,
+                table_properties=table_properties,
+                auto_create_namespace=True,
+            )
+
+        # Test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        # Write to ADD table
+        dc.write_to_table(
+            data=test_data,
+            table=add_table,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Write to APPEND table
+        dc.write_to_table(
+            data=test_data,
+            table=append_table,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Get stream positions from both tables
+        from deltacat.storage import Metafile, Delta
+
+        # ADD table stream position
+        add_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{add_table}"
+        )
+        add_objects = dc.list(add_url, recursive=True)
+        add_deltas = [obj for obj in add_objects if Metafile.get_class(obj) == Delta]
+        assert len(add_deltas) == 1, "Should have exactly 1 ADD delta"
+        add_stream_position = add_deltas[0].stream_position
+
+        # APPEND table stream position
+        append_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{append_table}"
+        )
+        append_objects = dc.list(append_url, recursive=True)
+        append_deltas = [
+            obj for obj in append_objects if Metafile.get_class(obj) == Delta
+        ]
+        assert len(append_deltas) == 1, "Should have exactly 1 APPEND delta"
+        append_stream_position = append_deltas[0].stream_position
+
+        # Verify ADD uses random stream position (large number)
+        assert (
+            add_stream_position > UNSIGNED_INT32_MAX_VALUE
+        ), f"Expected stream position greater than {UNSIGNED_INT32_MAX_VALUE} for ADD delta, but found {add_stream_position}"
+
+        # Verify APPEND uses sequential stream position (small number)
+        assert (
+            append_stream_position == 1
+        ), f"Expected small sequential stream position for APPEND delta, but found {append_stream_position}"
+
+        # Verify the difference is significant
+        position_diff = abs(add_stream_position - append_stream_position)
+        assert (
+            # the minimum possible add stream position is UNSIGNED_INT32_MAX_VALUE + 1
+            position_diff
+            > (UNSIGNED_INT32_MAX_VALUE + 1) - append_stream_position
+        ), f"Expected large difference between ADD and APPEND stream positions, but found {position_diff}"
+
+        # Verify delta types
+        assert (
+            "add" in str(add_deltas[0].type).lower()
+        ), f"Expected ADD delta type, but found {add_deltas[0].type}"
+        assert (
+            "append" in str(append_deltas[0].type).lower()
+        ), f"Expected APPEND delta type, but found {append_deltas[0].type}"
+
+        # Verify both tables have identical data content
+        add_result = dc.read_table(
+            table=add_table,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+        append_result = dc.read_table(
+            table=append_table,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        assert get_table_length(add_result) == get_table_length(
+            append_result
+        ), "Both tables should have same number of records"
+        assert get_table_length(add_result) == 2, "Both tables should have 2 records"
+
     def test_verify_delta_types_created(self):
         """
         Verify that MERGE operations create UPSERT deltas as expected.
@@ -1886,6 +2476,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Get the table to inspect what was created
@@ -1937,6 +2528,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 2: Write initial data to establish baseline (this ensures subsequent writes are UPSERTs)
@@ -1955,6 +2547,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.MERGE,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 3: Create test data for both writers (both will be UPSERT operations)
@@ -2022,6 +2615,7 @@ class TestCopyOnWrite:
                     mode=TableWriteMode.MERGE,
                     content_type=ContentType.PARQUET,
                     catalog=self.catalog_name,
+                    auto_create_namespace=True,
                 )
                 results["writer_a"] = "success"
 
@@ -2041,6 +2635,7 @@ class TestCopyOnWrite:
                     mode=TableWriteMode.MERGE,
                     content_type=ContentType.PARQUET,
                     catalog=self.catalog_name,
+                    auto_create_namespace=True,
                 )
                 results["writer_b"] = "success"
 
@@ -2166,6 +2761,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Track successful writes across all rounds
@@ -2212,11 +2808,19 @@ class TestCopyOnWrite:
                             mode=TableWriteMode.MERGE,
                             content_type=ContentType.PARQUET,
                             catalog=self.catalog_name,
+                            auto_create_namespace=True,
                         )
                         round_results[writer_idx] = "success"
 
                     except Exception as e:
-                        round_exceptions[writer_idx] = e
+                        # Capture full traceback for detailed analysis
+                        import traceback
+
+                        full_traceback = traceback.format_exc()
+                        round_exceptions[writer_idx] = {
+                            "exception": e,
+                            "traceback": full_traceback,
+                        }
                         round_results[writer_idx] = "failed"
 
                 return writer_task
@@ -2332,9 +2936,7 @@ class TestCopyOnWrite:
 
         # Summary statistics and validation
         total_successful_writes = len(successful_writes)
-        total_expected_records = (
-            total_successful_writes * records_per_writer
-        )  # Each write has this many records
+        total_expected_records = total_successful_writes * records_per_writer
         total_actual_records = get_table_length(final_df)
 
         # With unique IDs per writer, we should have exactly the expected number of records
@@ -2365,6 +2967,333 @@ class TestCopyOnWrite:
             conflict_rate < 0.99
         ), f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
 
+    @pytest.mark.parametrize(
+        "compaction_frequency",
+        [
+            "every_write",  # Compaction after every write (100% frequency)
+            "half_writes",  # Compaction after 50% of total writes
+            "never_compact",  # Compaction after 100% of total writes (effectively never during test)
+        ],
+    )
+    def test_concurrent_write_stress_add_mode_parametrized(self, compaction_frequency):
+        """
+        Parametrized stress test for concurrent write conflicts using ADD write mode.
+        Tests different compaction frequencies dynamically calculated based on CPU count
+        and total expected writes to demonstrate the relationship between compaction
+        frequency and conflict rates.
+
+        Parameters:
+        - "every_write": Triggers compaction after every write (100% frequency, high conflicts)
+        - "half_writes": Triggers compaction after 50% of total writes (medium conflicts)
+        - "never_compact": Compaction trigger > total writes (0% frequency, low conflicts)
+
+        Compaction triggers are dynamically calculated based on:
+        total_writes = concurrent_writers * rounds * records_per_writer
+        Where concurrent_writers is based on CPU count.
+        """
+        rounds = 10
+        records_per_writer = 3  # Each writer creates this many records
+        round_id_space = (
+            1000000  # ID space allocated per round to prevent cross-round collisions
+        )
+
+        # Calculate maximum writers we can support with current ID generation scheme
+        max_writers_per_round = round_id_space // (records_per_writer * 10)
+
+        concurrent_writers = min(
+            multiprocessing.cpu_count() - 1,  # reserve 1 CPU for system processes
+            max_writers_per_round,
+        )
+
+        # Calculate total expected writes
+        total_writes = concurrent_writers * rounds * records_per_writer
+
+        # Calculate dynamic compaction trigger based on frequency parameter
+        if compaction_frequency == "every_write":
+            # Trigger compaction after every write (maximum conflicts)
+            compaction_trigger = 1
+        elif compaction_frequency == "half_writes":
+            # Trigger compaction after 50% of total writes
+            compaction_trigger = max(1, total_writes // 2)
+        else:  # "never_compact"
+            # Set trigger higher than total writes (no compaction during test)
+            compaction_trigger = total_writes + 1
+
+        table_name = f"test_concurrent_stress_add_param_{compaction_frequency}"
+
+        # Create table WITHOUT merge keys for ADD mode
+        schema = Schema.of(
+            [
+                Field.of(pa.field("id", pa.int64())),  # No merge key needed for ADD
+                Field.of(pa.field("round_num", pa.int32())),
+                Field.of(pa.field("writer_id", pa.string())),
+                Field.of(pa.field("data", pa.string())),
+            ]
+        )
+
+        # Configure compaction based on calculated trigger
+        table_properties: TableProperties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: compaction_trigger,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: compaction_trigger,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: compaction_trigger,
+        }
+
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            content_types=DEFAULT_CONTENT_TYPES,
+            table_properties=table_properties,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Pre-create a stream and partition so all writers append deltas to the same existing partition
+        # This should eliminate metadata-level conflicts that occur when each writer creates new partitions
+        # Write a minimal initial record to establish the stream and partition structure
+        initial_data = pd.DataFrame(
+            {
+                "id": [0],  # Use ID 0 as the initial placeholder record
+                "round_num": [-1],  # Use -1 to distinguish from test rounds
+                "writer_id": ["initial_setup"],
+                "data": ["setup_record"],
+            }
+        )
+
+        dc.write_to_table(
+            data=initial_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+        )
+
+        # Track successful writes across all rounds
+        successful_writes = []
+
+        for round_num in range(rounds):
+            # Per-round tracking with clean isolation
+            round_results = {}
+            round_exceptions = {}
+
+            def create_writer_task(round_num, writer_idx):
+                def writer_task():
+                    try:
+                        current_thread = threading.current_thread()
+                        current_thread.name = (
+                            f"round_{round_num}_writer_{writer_idx}_thread"
+                        )
+
+                        # Generate unique IDs with sufficient space to prevent collisions
+                        # Each writer gets (records_per_writer * 10) ID space for safety
+                        writer_id_space = records_per_writer * 10
+                        base_id = (
+                            round_num * round_id_space + writer_idx * writer_id_space
+                        )
+                        writer_data = pd.DataFrame(
+                            {
+                                "id": [base_id + i for i in range(records_per_writer)],
+                                "round_num": [round_num] * records_per_writer,
+                                "writer_id": [
+                                    f"round_{round_num:02d}_writer_{writer_idx:02d}"
+                                ]
+                                * records_per_writer,
+                                "data": [
+                                    f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
+                                    for i in range(records_per_writer)
+                                ],
+                            }
+                        )
+
+                        dc.write_to_table(
+                            data=writer_data,
+                            table=table_name,
+                            namespace=self.test_namespace,
+                            mode=TableWriteMode.ADD,  # Use ADD mode instead of MERGE
+                            content_type=ContentType.PARQUET,
+                            catalog=self.catalog_name,
+                        )
+                        round_results[writer_idx] = "success"
+
+                    except Exception as e:
+                        # Capture full traceback for detailed analysis
+                        import traceback
+
+                        full_traceback = traceback.format_exc()
+                        round_exceptions[writer_idx] = {
+                            "exception": e,
+                            "traceback": full_traceback,
+                        }
+                        round_results[writer_idx] = "failed"
+
+                return writer_task
+
+            # Create and start all writers for this round
+            threads = []
+            for writer_idx in range(concurrent_writers):
+                task = create_writer_task(round_num, writer_idx)
+                thread = threading.Thread(
+                    target=task, name=f"round_{round_num}_writer_{writer_idx}_thread"
+                )
+                threads.append(thread)
+
+            # Start all threads simultaneously
+            for thread in threads:
+                thread.start()
+
+            # Wait for all threads to complete with reasonable timeout
+            for thread in threads:
+                thread.join(timeout=30)
+
+            # Record successful writes for this round
+            round_successful_count = 0
+            for writer_idx, result in round_results.items():
+                if result == "success":
+                    round_successful_count += 1
+                    # Recreate the data that this successful writer wrote
+                    writer_id_space = records_per_writer * 10
+                    base_id = round_num * round_id_space + writer_idx * writer_id_space
+                    writer_data = pd.DataFrame(
+                        {
+                            "id": [base_id + i for i in range(records_per_writer)],
+                            "round_num": [round_num] * records_per_writer,
+                            "writer_id": [
+                                f"round_{round_num:02d}_writer_{writer_idx:02d}"
+                            ]
+                            * records_per_writer,
+                            "data": [
+                                f"round_{round_num:02d}_writer_{writer_idx:02d}_record_{i}"
+                                for i in range(records_per_writer)
+                            ],
+                        }
+                    )
+                    successful_writes.append((round_num, writer_idx, writer_data))
+
+            # Verify at least one write succeeded in this round
+            assert (
+                round_successful_count > 0
+            ), f"No writers succeeded in round {round_num}"
+
+        # Read final table state
+        final_result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        final_df = final_result.collect().to_pandas()
+
+        # Create a set of all records that should be present (ALL successful writes)
+        # In ADD mode, ALL successful writes should be preserved
+        expected_records = set()
+        for round_num, writer_idx, expected_data in successful_writes:
+            for _, expected_row in expected_data.iterrows():
+                record_tuple = (
+                    int(expected_row["id"]),
+                    int(expected_row["round_num"]),
+                    expected_row["writer_id"],
+                    expected_row["data"],
+                )
+                expected_records.add(record_tuple)
+
+        # Create a set of actual records from the final table
+        actual_records = set()
+        for _, row in final_df.iterrows():
+            record_tuple = (
+                int(row["id"]),
+                int(row["round_num"]),
+                row["writer_id"],
+                row["data"],
+            )
+            actual_records.add(record_tuple)
+
+        # Add the initial setup record to expected records for validation
+        setup_record = (0, -1, "initial_setup", "setup_record")
+        expected_records.add(setup_record)
+        # Validate data integrity: ALL successful writes' data must be present
+        missing_records = expected_records - actual_records
+        phantom_records = actual_records - expected_records
+
+        # Assert data integrity - in ADD mode, no data should be lost
+        assert (
+            len(missing_records) == 0
+        ), f"Missing records from successful writes: {list(missing_records)[:5]}..."
+
+        # In ADD mode, we shouldn't have phantom records if IDs are unique
+        assert (
+            len(phantom_records) == 0
+        ), f"Phantom records not from successful writes: {list(phantom_records)[:5]}..."
+
+        # Verify total record count matches expected
+        total_successful_writes = len(successful_writes)
+        total_expected_records = (
+            total_successful_writes * records_per_writer + 1
+        )  # Each write has this many records + 1 setup record
+        total_actual_records = get_table_length(final_df)
+
+        # With unique IDs per writer, we should have exactly the expected number of records
+        assert (
+            total_actual_records == total_expected_records
+        ), f"Expected {total_expected_records} records, got {total_actual_records}"
+        assert total_actual_records > 0, "No records found in final table"
+
+        # Verify we had some conflicts across all rounds (not every writer succeeded)
+        total_possible_writes = rounds * concurrent_writers
+        conflict_rate = (
+            total_possible_writes - total_successful_writes
+        ) / total_possible_writes
+
+        # Print conflict statistics for analysis
+        print(f"\n=== ADD MODE PARAMETRIZED CONFLICT STATISTICS ===")
+        print(f"Compaction frequency: {compaction_frequency}")
+        print(
+            f"Compaction trigger: {compaction_trigger} (total writes: {total_writes})"
+        )
+        print(f"Concurrent writers: {concurrent_writers}")
+        print(f"Total rounds: {rounds}")
+        print(f"Total possible writes: {total_possible_writes}")
+        print(f"Total successful writes: {total_successful_writes}")
+        print(f"Conflict rate: {conflict_rate:.1%}")
+
+        # Different conflict rate expectations based on compaction frequency
+        if compaction_frequency == "every_write":
+            # Compaction after every write: expect higher conflict rate
+            assert (
+                conflict_rate > 0.01
+            ), f"Too few conflicts ({conflict_rate:.1%}) with every_write compaction"
+            assert (
+                conflict_rate < 0.99
+            ), f"Too many conflicts ({conflict_rate:.1%}) - conflict detection may not be working"
+        elif compaction_frequency == "half_writes":
+            # Compaction after 50% of writes: expect medium conflict rate
+            # Note: Even with reduced compaction, we may still see conflicts due to:
+            # 1. Multiple writers hitting the compaction trigger simultaneously
+            # 2. Other transaction-level conflicts beyond compaction
+            # 3. The fact that we're still doing many concurrent writes
+            assert (
+                conflict_rate < 0.95
+            ), f"Too many conflicts ({conflict_rate:.1%}) - expected some improvement with half_writes compaction"
+            # We should expect at least some successful writes
+            assert (
+                total_successful_writes > 0
+            ), "Expected at least some successful writes with half_writes compaction"
+        else:  # "never_compact"
+            # No compaction during test: expect significant improvement
+            # Note: Even without compaction, we may still see conflicts due to:
+            # 1. Transaction-level conflicts (concurrent access to same metadata files)
+            # 2. Table version updates and other metadata operations
+            # 3. File system-level conflicts beyond compaction
+            # The key is that we should see substantial improvement compared to frequent compaction
+            assert (
+                conflict_rate < 0.75
+            ), f"Too many conflicts ({conflict_rate:.1%}) with never_compact - expected significant improvement"
+            # Verify that we achieved better success rate than compacting scenarios
+            assert (
+                total_successful_writes >= total_possible_writes * 0.4
+            ), f"Expected at least 40% successful writes with never_compact, got {total_successful_writes}/{total_possible_writes} ({total_successful_writes/total_possible_writes:.1%})"
+
     def test_replace_mode_with_duplicates_existing_table(self):
         """
         Test REPLACE mode with merge keys and duplicate values on an existing table.
@@ -2390,6 +3319,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.AUTO,  # Use AUTO mode since table was already created
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 2: REPLACE with data containing duplicates
@@ -2409,6 +3339,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.REPLACE,  # This should create UPSERT delta and trigger compaction
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 3: Read and verify deduplication occurred
@@ -2470,6 +3401,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.AUTO,  # Write initial data
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 2: REPLACE with data containing duplicates (this should trigger compaction)
@@ -2489,6 +3421,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.REPLACE,  # This should create UPSERT delta and trigger compaction
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Step 3: Read and verify deduplication occurred (should only see the REPLACE data, deduplicated)
@@ -2559,6 +3492,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Test data with duplicate merge keys - different timestamps and values
@@ -2583,6 +3517,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
         result = dc.read_table(
             table=table_name,
@@ -2656,6 +3591,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Same test data as ascending test
@@ -2680,6 +3616,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
         result = dc.read_table(
             table=table_name,
@@ -2753,6 +3690,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Test data with duplicate merge keys - different event_times and values
@@ -2777,6 +3715,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
         result = dc.read_table(
             table=table_name,
@@ -2853,6 +3792,7 @@ class TestCopyOnWrite:
             content_types=DEFAULT_CONTENT_TYPES,
             table_properties=table_properties,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
 
         # Test data with duplicate merge keys - different timestamps and event_times
@@ -2883,6 +3823,7 @@ class TestCopyOnWrite:
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
             catalog=self.catalog_name,
+            auto_create_namespace=True,
         )
         result = dc.read_table(
             table=table_name,
@@ -2966,6 +3907,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Test all LOCAL storage types
@@ -3091,6 +4033,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Test the local storage type with custom kwargs
@@ -3387,6 +4330,7 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
             content_type=content_type,
+            auto_create_namespace=True,
             **write_kwargs,
         )
 
@@ -3548,6 +4492,7 @@ class TestDatasetTypes:
             mode=TableWriteMode.CREATE,
             content_type=content_type,
             table_properties={TableProperty.SUPPORTED_READER_TYPES: [dataset_type]},
+            auto_create_namespace=True,
         )
 
         # Test the distributed storage type with custom kwargs (parametrized above)
@@ -3696,6 +4641,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Read the table
@@ -3773,6 +4719,7 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Write evolved data with additional columns - add one column at a time to avoid field ID collisions
@@ -3794,6 +4741,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=dc.TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Add one more column
@@ -3816,6 +4764,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=dc.TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # This should not fail - the fix should handle missing columns gracefully
@@ -3982,6 +4931,7 @@ class TestDatasetTypes:
             table=table_name,
             namespace=namespace,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Write evolved data with additional column
@@ -4003,6 +4953,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=dc.TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Read the table
@@ -4115,6 +5066,7 @@ class TestDatasetTypes:
             schema=basic_schema,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Verify data was written correctly
@@ -4181,6 +5133,7 @@ class TestDatasetTypes:
             schema=coerce_schema,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Verify coercion worked
@@ -4264,6 +5217,7 @@ class TestDatasetTypes:
             schema=initial_schema,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Evolve with new field using AUTO mode
@@ -4282,6 +5236,7 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=TableWriteMode.AUTO,  # AUTO mode allows schema evolution
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Verify schema evolution worked
@@ -4389,6 +5344,7 @@ class TestDatasetTypes:
             schema=basic_schema,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Verify data was written correctly
@@ -4458,6 +5414,7 @@ class TestDatasetTypes:
             schema=coerce_schema,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Verify coercion worked
@@ -4541,6 +5498,7 @@ class TestDatasetTypes:
             schema=initial_schema,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Evolve with new field using AUTO mode
@@ -4558,6 +5516,7 @@ class TestDatasetTypes:
             catalog=catalog_name,
             mode=TableWriteMode.AUTO,  # AUTO mode allows schema evolution
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Verify schema evolution worked
@@ -4657,6 +5616,7 @@ class TestDatasetTypes:
             mode=TableWriteMode.CREATE,
             content_type=content_type,
             schema=None,  # Create schemaless table for CSV/JSON content types
+            auto_create_namespace=True,
         )
 
         # Test reading with Daft - for schemaless tables, we get file paths
@@ -4678,11 +5638,19 @@ class TestDatasetTypes:
             "path" in manifest_df.columns
         ), f"Expected 'path' column in manifest, got columns: {manifest_df.columns}"
 
+        # Ensure all paths are relativized to catalog root
+        assert all(
+            manifest_df["path"].apply(
+                lambda path: not path.startswith(temp_catalog_properties.root)
+            )
+        ), f"Expected all paths to be relativized to catalog root, got {manifest_df['path']}"
+
         # Read the actual data
-        result_table = from_manifest_table(
+        result_table = dc.from_manifest_table(
             manifest_table=manifest_table,
-            dataset_type=DatasetType.DAFT,
-            schema=test_data.schema,
+            read_as=DatasetType.DAFT,
+            schema=Schema.of(test_data.schema),
+            catalog=catalog_name,
             max_parallelism=1,
         )
 
@@ -4773,6 +5741,7 @@ class TestDatasetTypes:
                 content_type=content_type,
                 content_types=content_types,
                 schema=None,  # Create schemaless table for mixed content types
+                auto_create_namespace=True,
             )
 
         # Test reading with Daft - for schemaless tables, we get file paths
@@ -4798,10 +5767,11 @@ class TestDatasetTypes:
         test_schema = test_data_batches[0].schema
 
         # Read the actual data
-        result_table = from_manifest_table(
+        result_table = dc.from_manifest_table(
             manifest_table=manifest_table,
-            dataset_type=DatasetType.DAFT,
-            schema=test_schema,
+            read_as=DatasetType.DAFT,
+            schema=Schema.of(test_schema),
+            catalog=catalog_name,
             max_parallelism=1,
         )
 
@@ -4868,6 +5838,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Test 1: Read with PYARROW_PARQUET (no extra args) should return ParquetFile
@@ -4996,6 +5967,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Write second batch in APPEND mode
@@ -5005,6 +5977,7 @@ class TestDatasetTypes:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Test 1: Read with PYARROW_PARQUET should handle multiple files properly
@@ -5363,6 +6336,7 @@ class TestContentTypeDatasetCompatibility:
             catalog=catalog_name,
             content_type=content_type,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
             **write_kwargs,
         )
 
@@ -5440,6 +6414,7 @@ class TestContentTypeDatasetCompatibility:
             content_type=content_type,
             mode=TableWriteMode.CREATE,
             schema=None,  # Explicitly create schemaless table
+            auto_create_namespace=True,
         )
 
         # Verify the table was created
@@ -5459,10 +6434,11 @@ class TestContentTypeDatasetCompatibility:
 
         # For schemaless tables, read_table returns manifest entries
         # Use from_manifest_table to get the actual data
-        result = from_manifest_table(
+        result = dc.from_manifest_table(
             manifest_table=manifest_table,
-            dataset_type=DatasetType.PYARROW,
-            schema=base_data.schema,  # Use original schema for consistency
+            read_as=DatasetType.PYARROW,
+            schema=Schema.of(base_data.schema),  # Use original schema for consistency
+            catalog=catalog_name,
         )
         result_df = to_pandas(result)
         assert len(result_df) == 5, f"Expected 5 rows, got {len(result_df)}"
@@ -5511,6 +6487,7 @@ class TestContentTypeDatasetCompatibility:
             content_type=content_type,
             mode=TableWriteMode.CREATE,
             table_properties={TableProperty.SUPPORTED_READER_TYPES: None},
+            auto_create_namespace=True,
             **write_kwargs,
         )
 
@@ -5633,6 +6610,7 @@ class TestContentTypeDatasetCompatibility:
                 catalog=catalog_name,
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         # Cleanup
@@ -5667,6 +6645,7 @@ class TestContentTypeDatasetCompatibility:
                 catalog=catalog_name,
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
                 table_properties={
                     TableProperty.SUPPORTED_READER_TYPES: custom_supported_readers
                 },
@@ -5700,6 +6679,7 @@ class TestContentTypeDatasetCompatibility:
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
                 table_properties={TableProperty.SUPPORTED_READER_TYPES: None},
+                auto_create_namespace=True,
             )
 
             # Verify the table was created successfully by reading with PyArrow (which supports AVRO)
@@ -5744,6 +6724,7 @@ class TestContentTypeDatasetCompatibility:
                 content_type=ContentType.AVRO,
                 mode=TableWriteMode.CREATE,
                 table_properties={TableProperty.SUPPORTED_READER_TYPES: []},
+                auto_create_namespace=True,
             )
 
             # Verify the table was created successfully by reading with PyArrow (which supports AVRO)
@@ -5879,6 +6860,7 @@ class TestContentTypeDatasetCompatibility:
             table_properties={
                 TableProperty.SUPPORTED_READER_TYPES: None  # Disable reader compatibility validation
             },
+            auto_create_namespace=True,
         )
 
         # Attempt to write schemaless content type to schema table - should fail
@@ -5889,6 +6871,7 @@ class TestContentTypeDatasetCompatibility:
                 namespace=namespace,
                 catalog=catalog_name,
                 content_type=content_type,
+                auto_create_namespace=True,
             )
 
         # Verify error message mentions schema incompatibility
@@ -5930,6 +6913,7 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             schema=None,  # Explicitly schemaless
+            auto_create_namespace=True,
         )
 
         # This should succeed - schemaless content types can be written to schemaless tables
@@ -5939,6 +6923,7 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             content_type=content_type,
+            auto_create_namespace=True,
         )
 
         # If we got here without an exception, the test passed
@@ -6011,6 +6996,7 @@ class TestContentTypeDatasetCompatibility:
             catalog=catalog_name,
             schema=inferred_schema,  # Explicit schema
             table_properties={TableProperty.SUPPORTED_READER_TYPES: supported_readers},
+            auto_create_namespace=True,
         )
 
         # This should succeed - schema-supporting content types work with schema tables
@@ -6020,6 +7006,7 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             content_type=content_type,
+            auto_create_namespace=True,
         )
 
         # If we got here without an exception, the test passed
@@ -6057,6 +7044,7 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             schema=None,  # Explicitly schemaless
+            auto_create_namespace=True,
         )
 
         # This should succeed - schema content types can also be written to schemaless tables
@@ -6066,6 +7054,7 @@ class TestContentTypeDatasetCompatibility:
             namespace=namespace,
             catalog=catalog_name,
             content_type=content_type,
+            auto_create_namespace=True,
         )
 
         # If we got here without an exception, the test passed
@@ -6146,6 +7135,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=version,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         if expected_exception_type is None:
@@ -6157,6 +7147,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=test_version,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
             # Verify the table/version was created
@@ -6180,6 +7171,7 @@ class TestTableVersionWriteModes:
                     namespace=namespace,
                     table_version=test_version,
                     mode=TableWriteMode.CREATE,
+                    auto_create_namespace=True,
                 )
 
     @pytest.mark.parametrize(
@@ -6254,6 +7246,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=version,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         if expected_exception_type is None:
@@ -6265,6 +7258,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=test_version,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
         else:
             # Should fail
@@ -6276,6 +7270,7 @@ class TestTableVersionWriteModes:
                     namespace=namespace,
                     table_version=test_version,
                     mode=TableWriteMode.APPEND,
+                    auto_create_namespace=True,
                 )
 
     @pytest.mark.parametrize(
@@ -6313,6 +7308,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=version,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         # All auto mode tests should succeed
@@ -6323,6 +7319,7 @@ class TestTableVersionWriteModes:
             namespace=namespace,
             table_version=test_version,
             mode=TableWriteMode.AUTO,
+            auto_create_namespace=True,
         )
 
     @pytest.mark.parametrize(
@@ -6379,6 +7376,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=version,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         if expected_exception_type is None:
@@ -6390,6 +7388,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=test_version,
                 mode=TableWriteMode.REPLACE,
+                auto_create_namespace=True,
             )
         else:
             # Should fail
@@ -6401,6 +7400,7 @@ class TestTableVersionWriteModes:
                     namespace=namespace,
                     table_version=test_version,
                     mode=TableWriteMode.REPLACE,
+                    auto_create_namespace=True,
                 )
 
     @pytest.mark.parametrize(
@@ -6478,6 +7478,7 @@ class TestTableVersionWriteModes:
                 table_version=version,
                 mode=TableWriteMode.CREATE,
                 schema=schema,
+                auto_create_namespace=True,
             )
 
         if expected_exception_type is None:
@@ -6489,6 +7490,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=test_version,
                 mode=TableWriteMode.MERGE,
+                auto_create_namespace=True,
             )
         else:
             # Should fail
@@ -6500,6 +7502,7 @@ class TestTableVersionWriteModes:
                     namespace=namespace,
                     table_version=test_version,
                     mode=TableWriteMode.MERGE,
+                    auto_create_namespace=True,
                 )
 
     @pytest.mark.parametrize(
@@ -6577,6 +7580,7 @@ class TestTableVersionWriteModes:
                 table_version=version,
                 mode=TableWriteMode.CREATE,
                 schema=schema,
+                auto_create_namespace=True,
             )
 
         if expected_exception_type is None:
@@ -6588,6 +7592,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=test_version,
                 mode=TableWriteMode.DELETE,
+                auto_create_namespace=True,
             )
         else:
             # Should fail
@@ -6599,6 +7604,7 @@ class TestTableVersionWriteModes:
                     namespace=namespace,
                     table_version=test_version,
                     mode=TableWriteMode.DELETE,
+                    auto_create_namespace=True,
                 )
 
     def test_delete_mode_merge_key_only_validation(self):
@@ -6628,6 +7634,7 @@ class TestTableVersionWriteModes:
             namespace=namespace,
             mode=TableWriteMode.CREATE,
             schema=full_schema,
+            auto_create_namespace=True,
         )
 
         # Test 1: DELETE with only merge key values should succeed
@@ -6643,6 +7650,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.DELETE,
+            auto_create_namespace=True,
         )
 
         # Verify the deletion worked by reading the table
@@ -6675,6 +7683,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.DELETE,
+            auto_create_namespace=True,
         )
 
         # Verify only ID 3 remains
@@ -6742,6 +7751,7 @@ class TestTableVersionWriteModes:
             namespace=namespace,
             mode=TableWriteMode.CREATE,
             schema=coerce_schema,
+            auto_create_namespace=True,
         )
 
         # Test 2: Schema with VALIDATE consistency type
@@ -6770,6 +7780,7 @@ class TestTableVersionWriteModes:
             namespace=namespace,
             mode=TableWriteMode.CREATE,
             schema=validate_schema,
+            auto_create_namespace=True,
         )
 
         # Test 3: Schema with NONE consistency type (should always work)
@@ -6798,6 +7809,7 @@ class TestTableVersionWriteModes:
             namespace=namespace,
             mode=TableWriteMode.CREATE,
             schema=none_schema,
+            auto_create_namespace=True,
         )
 
         # Test 4: COERCE should fail when types cannot be coerced
@@ -6809,6 +7821,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 mode=TableWriteMode.CREATE,
                 schema=coerce_schema,
+                auto_create_namespace=True,
             )
             assert False, "Expected coercion to fail with incompatible data"
 
@@ -6838,6 +7851,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 mode=TableWriteMode.CREATE,
                 schema=mismatch_schema,
+                auto_create_namespace=True,
             )
             assert False, "Expected validation to fail with type mismatch"
 
@@ -6854,6 +7868,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # 2. AUTO mode without version - should use latest
@@ -6863,6 +7878,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.AUTO,
+            auto_create_namespace=True,
         )
 
         # 3. APPEND mode without version - should append to latest
@@ -6872,6 +7888,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # 4. REPLACE mode without version - should replace latest
@@ -6881,6 +7898,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.REPLACE,
+            auto_create_namespace=True,
         )
 
     @pytest.mark.parametrize(
@@ -6950,6 +7968,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version="1",
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         # Execute the operation that should fail
@@ -6961,6 +7980,7 @@ class TestTableVersionWriteModes:
                 namespace=namespace,
                 table_version=table_version,
                 mode=mode,
+                auto_create_namespace=True,
             )
 
         # Check that error message contains expected keywords
@@ -6999,6 +8019,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             schema=schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write data that's missing the 'status' and 'score' columns
@@ -7012,6 +8033,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Read back the data and verify past_default enforcement
@@ -7062,6 +8084,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             schema=schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write data that contains the 'status' column but with null values
@@ -7078,6 +8101,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Read back the data
@@ -7158,6 +8182,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             schema=schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write incomplete data (missing default_field)
@@ -7168,6 +8193,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Read the table into a Daft DataFrame
@@ -7230,6 +8256,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             schema=schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write incomplete data (missing default_field)
@@ -7240,6 +8267,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Test local dataset types
@@ -7290,6 +8318,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             schema=schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write incomplete data (missing default_field)
@@ -7301,6 +8330,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
     def test_past_default_enforcement_ray_dataset_pandas(self):
@@ -7433,6 +8463,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             schema=schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write incomplete data (missing created_at and is_active)
@@ -7444,6 +8475,7 @@ class TestTableVersionWriteModes:
             catalog=self.catalog_name,
             namespace=namespace,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Read back and verify complex defaults
@@ -7535,6 +8567,7 @@ class TestSchemaConsistency:
                 namespace=namespace,
                 catalog=catalog_name,
                 schema=schema,
+                auto_create_namespace=True,
             )
 
         # Test 2: Missing non-nullable field without default (COERCE) should fail
@@ -7558,6 +8591,7 @@ class TestSchemaConsistency:
                 namespace=namespace,
                 catalog=catalog_name,
                 schema=schema,
+                auto_create_namespace=True,
             )
 
         # Test 3: Success case - provide only some fields, let others backfill appropriately
@@ -7578,6 +8612,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=schema,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Read back and verify backfill behavior
@@ -7627,6 +8662,7 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             schema=schema,
+            auto_create_namespace=True,
         )
 
         df = dc.read_table(
@@ -7661,6 +8697,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Verify schemaless table returns flattened manifest metadata
@@ -7715,6 +8752,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify appended data creates additional manifest entries
@@ -7753,6 +8791,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify third append creates additional manifest entry
@@ -7815,6 +8854,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Verify initial data returns flattened manifest metadata
@@ -7861,6 +8901,7 @@ class TestSchemaConsistency:
                 catalog=catalog_name,
                 schema=None,  # Explicitly set to None
                 mode=TableWriteMode.MERGE,
+                auto_create_namespace=True,
             )
 
         # Test 3: DELETE operation should also fail for schemaless tables
@@ -7885,6 +8926,7 @@ class TestSchemaConsistency:
                 catalog=catalog_name,
                 schema=None,  # Explicitly set to None
                 mode=TableWriteMode.DELETE,
+                auto_create_namespace=True,
             )
 
         # Test 4: APPEND mode should still work for schemaless tables
@@ -7904,6 +8946,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify append results - should have 2 manifest entries
@@ -7953,6 +8996,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Test 2: Append data with additional columns
@@ -7973,6 +9017,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Test 3: Read back flattened manifest data for schemaless table
@@ -8039,6 +9084,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Append data with additional columns
@@ -8059,6 +9105,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=None,  # Explicitly set to None
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Test 1: DAFT should now work with schemaless tables (returns flattened manifest metadata)
@@ -8181,6 +9228,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=initial_schema,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Verify initial data
@@ -8219,6 +9267,7 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify type promotion occurred
@@ -8253,6 +9302,7 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify type promotion to float
@@ -8338,6 +9388,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=initial_schema,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Verify initial data
@@ -8375,6 +9426,7 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify promotion to binary occurred
@@ -8420,6 +9472,7 @@ class TestSchemaConsistency:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
+            auto_create_namespace=True,
         )
 
         # Verify binary type was preserved (no down-promotion)
@@ -8599,6 +9652,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=initial_schema,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Try to write data that would promote the merge key type - should fail
@@ -8623,6 +9677,7 @@ class TestSchemaConsistency:
                 namespace=namespace,
                 catalog=catalog_name,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
 
         # This should fail because merge key cannot be promoted
@@ -8633,6 +9688,7 @@ class TestSchemaConsistency:
                 namespace=namespace,
                 catalog=catalog_name,
                 mode=TableWriteMode.MERGE,
+                auto_create_namespace=True,
             )
 
     def test_automatic_schema_evolution_with_auto_write_mode(
@@ -8656,6 +9712,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Second write - add new field with AUTO mode (should work)
@@ -8671,6 +9728,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.AUTO,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify the schema was updated
@@ -8710,6 +9768,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Second write - add new field with APPEND mode (should work)
@@ -8725,6 +9784,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify the schema was updated
@@ -8761,6 +9821,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Second write - add new field with REPLACE mode (should work)
@@ -8776,6 +9837,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.REPLACE,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify the schema was updated
@@ -8814,6 +9876,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Second write - add new field with APPEND mode to test schema evolution
@@ -8829,6 +9892,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify the schema was updated
@@ -8867,6 +9931,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         # Verify the schema includes all fields
@@ -8931,6 +9996,7 @@ class TestSchemaConsistency:
                 mode=TableWriteMode.APPEND,
                 content_type=ContentType.PARQUET,
                 catalog=catalog_name,
+                auto_create_namespace=True,
             )
 
         # Verify the schema was NOT updated
@@ -8970,6 +10036,7 @@ class TestSchemaConsistency:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
+            auto_create_namespace=True,
         )
 
         table_info = dc.get_table(
@@ -8998,6 +10065,7 @@ class TestSchemaConsistency:
             content_type=ContentType.PARQUET,
             catalog=catalog_name,
             table_version_properties=table_version_properties_manual,
+            auto_create_namespace=True,
         )
 
         table_info_manual = dc.get_table(
@@ -9188,6 +10256,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Write second batch - adds 4 new columns
@@ -9201,6 +10270,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Write third batch - adds 3 more new columns
@@ -9214,6 +10284,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Get the table schema for strict schema compliance
@@ -9470,6 +10541,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             schema=full_schema,
             content_types=[ContentType.PARQUET],
+            auto_create_namespace=True,
         )
 
         # Write initial data (batch 1) - missing the status, score, and category columns
@@ -9491,6 +10563,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Write second batch with partial schema (missing category column)
@@ -9514,6 +10587,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Write third batch with the full schema (all columns present)
@@ -9538,6 +10612,7 @@ class TestSchemaConsistency:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Read back all data and verify past_default behavior
@@ -9688,6 +10763,7 @@ class TestAlterTable:
             catalog=catalog_name,
             schema=create_basic_schema(),
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Get original schema for comparison
@@ -9753,6 +10829,7 @@ class TestAlterTable:
             catalog=catalog_name,
             schema=create_basic_schema(),
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Get original schema
@@ -9826,6 +10903,7 @@ class TestAlterTable:
             catalog=catalog_name,
             schema=create_basic_schema(),
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Get original schema
@@ -9920,6 +10998,7 @@ class TestAlterTable:
             catalog=catalog_name,
             schema=create_basic_schema(),
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Get original schema for creating updates
@@ -10027,6 +11106,7 @@ class TestTablePropertyInheritance:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             table_properties=initial_table_properties,
+            auto_create_namespace=True,
             # Note: No table_version_properties specified - should inherit from table_properties
         )
 
@@ -10064,6 +11144,7 @@ class TestTablePropertyInheritance:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             table_version="2",
+            auto_create_namespace=True,
             # Note: No table_version_properties specified - should inherit from current table_properties
         )
 
@@ -10138,6 +11219,7 @@ class TestTablePropertyInheritance:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             table_properties=initial_table_properties,
+            auto_create_namespace=True,
         )
 
         # Get table version 1 - should have inherited initial properties (with potential defaults added)
@@ -10223,6 +11305,7 @@ class TestTablePropertyInheritance:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.PARQUET,
             table_version="2",
+            auto_create_namespace=True,
         )
 
         # Get table version 2 - should have inherited the updated table properties
@@ -10315,6 +11398,7 @@ class TestTablePropertyInheritance:
             content_type=ContentType.PARQUET,
             table_properties=table_properties,
             table_version_properties=explicit_table_version_properties,
+            auto_create_namespace=True,
         )
 
         # Get table and table version 1
@@ -10352,6 +11436,7 @@ class TestTablePropertyInheritance:
             content_type=ContentType.PARQUET,
             table_version="2",
             # No explicit table_version_properties - should inherit from table
+            auto_create_namespace=True,
         )
 
         # Get table version 2
@@ -10428,6 +11513,7 @@ class TestSchemalessContentTypeBehavior:
                 mode=TableWriteMode.CREATE,
                 content_type=ContentType.CSV,
                 # Note: No explicit schema=None
+                auto_create_namespace=True,
             )
 
         # Verify the specific error message about schemaless content types
@@ -10460,6 +11546,7 @@ class TestSchemalessContentTypeBehavior:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.CSV,
             schema=None,
+            auto_create_namespace=True,
         )
 
         # Verify table was created with no schema
@@ -10476,6 +11563,7 @@ class TestSchemalessContentTypeBehavior:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.CSV,
+            auto_create_namespace=True,
         )
 
         # Verify we can read back the data (returns manifest/file paths for schemaless tables)
@@ -10502,6 +11590,7 @@ class TestSchemalessContentTypeBehavior:
             mode=TableWriteMode.CREATE,
             content_type=ContentType.CSV,
             schema=None,
+            auto_create_namespace=True,
         )
 
         # Append Parquet data to the same schemaless table
@@ -10512,6 +11601,7 @@ class TestSchemalessContentTypeBehavior:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.PARQUET,
+            auto_create_namespace=True,
         )
 
         # Append JSON data to the same schemaless table
@@ -10522,6 +11612,7 @@ class TestSchemalessContentTypeBehavior:
             catalog=catalog_name,
             mode=TableWriteMode.APPEND,
             content_type=ContentType.JSON,
+            auto_create_namespace=True,
         )
 
         # Verify table still has no schema
@@ -10599,6 +11690,7 @@ class TestMultiTableTransactions:
                 table="customers",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
             # Create and write to orders table
@@ -10607,6 +11699,7 @@ class TestMultiTableTransactions:
                 table="orders",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         # Verify both tables exist and contain correct data
@@ -10642,6 +11735,7 @@ class TestMultiTableTransactions:
             table="rollback_test",
             namespace=self.namespace,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Attempt transaction that should fail
@@ -10653,6 +11747,7 @@ class TestMultiTableTransactions:
                     table="rollback_test",
                     namespace=self.namespace,
                     mode=TableWriteMode.APPEND,
+                    auto_create_namespace=True,
                 )
 
                 # Force an error to test rollback
@@ -10704,6 +11799,7 @@ class TestMultiTableTransactions:
                 table="products",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
             # Create sales table
@@ -10712,6 +11808,7 @@ class TestMultiTableTransactions:
                 table="sales",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
             # Read products data to create a derived table
@@ -10738,6 +11835,7 @@ class TestMultiTableTransactions:
                 table="category_summary",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         # Verify all tables were created successfully
@@ -10786,6 +11884,7 @@ class TestMultiTableTransactions:
                 table="nested_test_outer",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
             # Inner (nested) transaction - this is a separate independent transaction
@@ -10796,6 +11895,7 @@ class TestMultiTableTransactions:
                     table="nested_test_inner",
                     namespace=self.namespace,
                     mode=TableWriteMode.CREATE,
+                    auto_create_namespace=True,
                 )
 
                 # Verify inner transaction context is active by reading the table
@@ -10811,6 +11911,7 @@ class TestMultiTableTransactions:
                 table="nested_test_outer",
                 namespace=self.namespace,
                 mode=TableWriteMode.APPEND,
+                auto_create_namespace=True,
             )
 
         # Verify both outer and inner operations completed independently
@@ -10848,6 +11949,7 @@ class TestMultiTableTransactions:
                     table="outer_failure_test",
                     namespace=self.namespace,
                     mode=TableWriteMode.CREATE,
+                    auto_create_namespace=True,
                 )
 
                 # Inner transaction creates a separate table and commits
@@ -10857,6 +11959,7 @@ class TestMultiTableTransactions:
                         table="inner_success_test",
                         namespace=self.namespace,
                         mode=TableWriteMode.CREATE,
+                        auto_create_namespace=True,
                     )
 
                     # Verify inner transaction data is accessible within inner context
@@ -10899,6 +12002,7 @@ class TestMultiTableTransactions:
                 table="context_test_outer",
                 namespace=self.namespace,
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
             # Nested transaction should have its own context
@@ -10908,6 +12012,7 @@ class TestMultiTableTransactions:
                     table="context_test_inner",
                     namespace=self.namespace,
                     mode=TableWriteMode.CREATE,
+                    auto_create_namespace=True,
                 )
 
                 # Verify inner transaction operations work independently
@@ -10952,6 +12057,7 @@ class TestMultiTableTransactions:
                 table="default_catalog_test",
                 namespace="default",  # Use default namespace
                 mode=TableWriteMode.CREATE,
+                auto_create_namespace=True,
             )
 
         # Verify table exists in default catalog (no catalog parameter = default)
@@ -10990,6 +12096,7 @@ class TestMultiTableTransactions:
                         table="specific_catalog_test",
                         namespace="specific_ns",
                         mode=TableWriteMode.CREATE,
+                        auto_create_namespace=True,
                     )
 
                 # Verify table exists in the specific catalog
@@ -11053,6 +12160,7 @@ class TestMultiTableTransactions:
                         namespace="test_ns",
                         catalog=catalog_a,
                         mode=TableWriteMode.CREATE,
+                        auto_create_namespace=True,
                     )
 
                     # Test that transaction in catalog B cannot access catalog A's tables
@@ -11065,6 +12173,7 @@ class TestMultiTableTransactions:
                             table="catalog_b_table",
                             namespace="test_ns",
                             mode=TableWriteMode.CREATE,
+                            auto_create_namespace=True,
                         )
 
                         # Verify we can read from catalog B within the transaction
@@ -11151,6 +12260,7 @@ class TestMultiTableTransactions:
                             table="primary_table",
                             namespace="scoped_ns",
                             mode=TableWriteMode.CREATE,
+                            auto_create_namespace=True,
                         )
 
                         # Read from primary catalog within the transaction - should work
@@ -11169,6 +12279,7 @@ class TestMultiTableTransactions:
                             table="secondary_table",
                             namespace="scoped_ns",
                             mode=TableWriteMode.CREATE,
+                            auto_create_namespace=True,
                         )
 
                         # Read from secondary catalog within the transaction - should work
@@ -11258,6 +12369,7 @@ class TestMultiTableTransactions:
                             table="nested_outer_table",
                             namespace="nested_ns",
                             mode=TableWriteMode.CREATE,
+                            auto_create_namespace=True,
                         )
 
                         # Inner transaction with different catalog
@@ -11268,6 +12380,7 @@ class TestMultiTableTransactions:
                                 table="nested_inner_table",
                                 namespace="nested_ns",
                                 mode=TableWriteMode.CREATE,
+                                auto_create_namespace=True,
                             )
 
                             # Verify inner transaction can access its catalog
@@ -11351,6 +12464,7 @@ class TestMultiTableTransactions:
                         namespace="scoped_ns",
                         catalog=secondary_catalog,  # Different catalog - should fail with validation error
                         mode=TableWriteMode.CREATE,
+                        auto_create_namespace=True,
                     )
             # Ensure that the attempted write to the secondary catalog failed
             assert not dc.table_exists(
@@ -11434,6 +12548,7 @@ class TestMultiTableTransactions:
                         namespace="scoped_ns",
                         # No catalog parameter - uses transaction's catalog
                         mode=TableWriteMode.CREATE,
+                        auto_create_namespace=True,
                     )
                     # Try to write to secondary catalog with explicit catalog parameter (should fail validation)
                     dc.write_to_table(
@@ -11442,6 +12557,7 @@ class TestMultiTableTransactions:
                         namespace="scoped_ns",
                         catalog=secondary_catalog,  # Explicit catalog parameter triggers validation error
                         mode=TableWriteMode.CREATE,
+                        auto_create_namespace=True,
                     )
             # Ensure that the successful write to the primary catalog was rolled back
             assert not dc.table_exists(
@@ -11543,6 +12659,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -11551,6 +12668,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             # Update operations - these will trigger merge behavior
@@ -11560,6 +12678,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -11568,6 +12687,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
         # Verify both tables exist and contain merged data
@@ -11685,6 +12805,7 @@ class TestMultiTableTransactions:
                 schema=schema,
                 content_types=[ContentType.PARQUET],
                 table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+                auto_create_namespace=True,
             )
 
             # Create employees table with merge keys
@@ -11694,6 +12815,7 @@ class TestMultiTableTransactions:
                 schema=schema,
                 content_types=[ContentType.PARQUET],
                 table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+                auto_create_namespace=True,
             )
 
             # Initial writes to both tables using MERGE mode
@@ -11703,6 +12825,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -11711,6 +12834,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             # DELETE operations - specify only the keys to delete
@@ -11720,6 +12844,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.DELETE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -11728,6 +12853,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.DELETE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
         # Verify both tables exist and contain data after deletions
@@ -11844,6 +12970,7 @@ class TestMultiTableTransactions:
                 schema=products_schema,
                 content_types=[ContentType.PARQUET],
                 table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+                auto_create_namespace=True,
             )
 
             # Create orders table
@@ -11853,6 +12980,7 @@ class TestMultiTableTransactions:
                 schema=orders_schema,
                 content_types=[ContentType.PARQUET],
                 table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+                auto_create_namespace=True,
             )
 
             # Write initial data to both tables
@@ -11862,6 +12990,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -11870,6 +12999,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
         # Verify both tables exist and contain the expected data
@@ -11937,6 +13067,7 @@ class TestMultiTableTransactions:
                 schema=inventory_schema,
                 content_types=[ContentType.PARQUET],
                 table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+                auto_create_namespace=True,
             )
 
             # Create suppliers table
@@ -11946,6 +13077,7 @@ class TestMultiTableTransactions:
                 schema=suppliers_schema,
                 content_types=[ContentType.PARQUET],
                 table_properties=COPY_ON_WRITE_TABLE_PROPERTIES,
+                auto_create_namespace=True,
             )
 
             # Write initial data
@@ -11973,6 +13105,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -11981,6 +13114,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
         # Second transaction with different commit message
@@ -12014,6 +13148,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
             dc.write_to_table(
@@ -12022,6 +13157,7 @@ class TestMultiTableTransactions:
                 namespace=self.namespace,
                 mode=TableWriteMode.MERGE,
                 content_type=ContentType.PARQUET,
+                auto_create_namespace=True,
             )
 
         # Query transaction history
@@ -12135,6 +13271,7 @@ class TestTimeTravelTransactions:
             catalog=catalog_name,
             schema=schema,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Capture timestamp after initial write (nanoseconds since epoch)
@@ -12154,6 +13291,7 @@ class TestTimeTravelTransactions:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.MERGE,
+            auto_create_namespace=True,
         )
 
         # Test current state (should show Bob as premium and Diana)
@@ -12196,6 +13334,7 @@ class TestTimeTravelTransactions:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         checkpoint_time = time.time_ns()
@@ -12220,6 +13359,7 @@ class TestTimeTravelTransactions:
                     table=table,
                     namespace=namespace,
                     mode=TableWriteMode.APPEND,
+                    auto_create_namespace=True,
                 )
 
     def test_parameter_validation(self, setup_catalog_with_table):
@@ -12258,6 +13398,7 @@ class TestTimeTravelTransactions:
             catalog=catalog_name,
             schema=schema,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Capture timestamp T1
@@ -12273,6 +13414,7 @@ class TestTimeTravelTransactions:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.MERGE,
+            auto_create_namespace=True,
         )
 
         # Capture timestamp T3
@@ -12288,6 +13430,7 @@ class TestTimeTravelTransactions:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.MERGE,
+            auto_create_namespace=True,
         )
 
         # Test snapshot at T1 (should see original data)
@@ -12323,6 +13466,7 @@ class TestTimeTravelTransactions:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         timestamp = time.time_ns()
@@ -12355,6 +13499,7 @@ class TestTimeTravelTransactions:
             namespace=namespace,
             catalog=catalog_name,
             mode=TableWriteMode.CREATE,
+            auto_create_namespace=True,
         )
 
         # Test that future timestamps are rejected

@@ -1,14 +1,31 @@
 from __future__ import annotations
 
-from typing import Optional, Any, Union, Dict
+from typing import Optional, Any, Dict
 import urllib.parse
+import time
+import posixpath
+import logging
 
 import os
+import deltacat as dc
 
 import pyarrow
-from deltacat.constants import DELTACAT_ROOT
+from deltacat.constants import (
+    DELTACAT_ROOT,
+    CATALOG_VERSION_DIR_NAME,
+)
 
-from deltacat.utils.filesystem import resolve_path_and_filesystem
+from deltacat.utils.filesystem import (
+    resolve_path_and_filesystem,
+    list_directory,
+    write_file,
+)
+
+from deltacat.exceptions import NamespaceAlreadyExistsError
+
+from deltacat import logs
+
+logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
 def get_catalog_properties(
@@ -36,6 +53,47 @@ def get_catalog_properties(
         return CatalogProperties(**kwargs)
 
 
+class CatalogVersion(dict):
+    """
+    DeltaCAT catalog version.
+    """
+
+    @staticmethod
+    def of(
+        version: str,
+        starting_from: int,
+    ) -> CatalogVersion:
+        catalog_version = CatalogVersion()
+        catalog_version["version"] = version
+        catalog_version["starting_from"] = starting_from
+        return catalog_version
+
+    @staticmethod
+    def current() -> CatalogVersion:
+        return CatalogVersion.of(dc.__version__, time.time_ns())
+
+    @staticmethod
+    def from_filename(filename: str) -> CatalogVersion:
+        # filename is written as f"{version}.{starting_from}"
+        parts = filename.split(".")
+        if len(parts) < 2:
+            raise ValueError(f"{filename} is not a valid catalog version filename")
+        version = ".".join(parts[:-1])  # version is all but the last part
+        starting_from = int(parts[-1])  # starting_from is the last part
+        return CatalogVersion.of(version, starting_from)
+
+    def to_filename(self) -> str:
+        return f"{self.version}.{self.starting_from}"
+
+    @property
+    def version(self) -> str:
+        return self["version"]
+
+    @property
+    def starting_from(self) -> int:
+        return self["starting_from"]
+
+
 class CatalogProperties:
     """
     DeltaCAT catalog properties used to deterministically resolve a durable
@@ -56,6 +114,9 @@ class CatalogProperties:
             reading/writing files. If None, a filesystem will be inferred from
             the catalog root path.
 
+        version: The current catalog version resolved from the catalog root "version" directory.
+            Returns None if no catalog version file exists.
+
         storage: Storage class implementation (overrides default filesystem
             storage impl)
     """
@@ -67,7 +128,9 @@ class CatalogProperties:
         storage=None,
     ):
         """
-        Initialize a CatalogProperties instance.
+        Initialize a CatalogProperties instance. For initializers that have write permissions,
+        also runs lightweight, one-time bootstrapping operations against the given catalog
+        root (e.g., default table namespace creation).
 
         Args:
             root: Catalog root directory path. Uses the "DELTACAT_ROOT"
@@ -98,6 +161,83 @@ class CatalogProperties:
         self._root = resolved_root
         self._filesystem = resolved_filesystem
         self._storage = storage
+        self._version = None
+
+        # Try to read the catalog version file (if it exists)
+        version_dir_path = posixpath.join(self._root, CATALOG_VERSION_DIR_NAME)
+        version_files_and_sizes = list_directory(
+            version_dir_path, self._filesystem, ignore_missing_path=True
+        )
+        # Extract only the filenames from the version_files
+        version_files = [
+            posixpath.basename(version_file[0])
+            for version_file in version_files_and_sizes
+        ]
+        # Construct the current catalog version
+        current_version = CatalogVersion.current()
+        # Check if the catalog has already been initialized with this version
+        for version_file in version_files:
+            try:
+                catalog_version = CatalogVersion.from_filename(version_file)
+                if catalog_version.version == current_version.version:
+                    self._version = catalog_version
+                    break
+            except ValueError:
+                # Skip files that don't match the expected version filename format
+                logger.warning(
+                    f"Skipping version file '{version_file}' that doesn't match the expected version filename format"
+                )
+                continue
+        if self._version is None:
+            # Try to write the current version file
+            version_file_path = posixpath.join(
+                self._root,
+                CATALOG_VERSION_DIR_NAME,
+                current_version.to_filename(),
+            )
+            try:
+                write_file(
+                    version_file_path,
+                    b"",  # empty file
+                    self._filesystem,
+                )
+                self._version = current_version
+            except Exception as e:
+                # log a warning and continue (user may not have write permissions)
+                logger.warning(
+                    f"Failed to write current version file '{current_version.to_filename()}': {e}"
+                )
+
+        # Migrate any unpartitioned transaction files to partitioned
+        try:
+            from deltacat.experimental.compatibility.backfill_transaction_partitions import (
+                backfill_transaction_partitions,
+            )
+
+            backfill_transaction_partitions(self, show_progress=True)
+        except Exception as e:
+            # CRITICAL: Transaction migration failure must fail catalog initialization
+            # to prevent database corruption from mixed partitioned/unpartitioned transactions
+            raise RuntimeError(
+                f"Failed to migrate unpartitioned transaction files to partitioned structure: {e}. "
+                f"Catalog initialization aborted to prevent database corruption."
+            ) from e
+
+        # Try to create the default namespace
+        try:
+            from deltacat.catalog.main.impl import (
+                create_namespace,
+                default_namespace,
+            )
+
+            default_namespace = default_namespace()
+            create_namespace(default_namespace, inner=self)
+        except NamespaceAlreadyExistsError:
+            logger.info(f"Default namespace {default_namespace} already exists.")
+        except Exception as e:
+            # Some other error occurred - log a warning and continue.
+            # (e.g., the default namespace may not exist, but we may not have write permissions to create it)
+            logger.warning(f"Failed to create default namespace: {e}")
 
     @property
     def root(self) -> str:
@@ -113,6 +253,14 @@ class CatalogProperties:
         Return overridden storage impl, if any
         """
         return self._storage
+
+    @property
+    def version(self) -> Optional[CatalogVersion]:
+        """
+        Return the current catalog version resolved from the catalog root "version" directory.
+        Returns None if no catalog version file exists.
+        """
+        return self._version
 
     def reconstruct_full_path(self, path: str) -> str:
         """
@@ -133,18 +281,24 @@ class CatalogProperties:
         if urllib.parse.urlparse(path).scheme:
             return path
 
-        # If we don't have an original scheme (local filesystem), return as-is
-        if not self._original_scheme:
+        # If we don't have an original root, return as-is
+        if not self._original_root:
+            logger.warning(
+                f"No original catalog root found, returning path '{path}' as-is"
+            )
             return path
 
         # Reconstruct the full path with the original scheme
         # Handle both absolute and relative paths
-        if path.startswith("/"):
+        if posixpath.isabs(path):
             # Absolute path - this shouldn't happen normally but handle it
-            return f"{self._original_scheme}:/{path}"
+            if self._original_scheme:
+                return f"{self._original_scheme}:/{path}"
+            else:
+                return path
         else:
-            # Relative path - prepend the s3:// scheme
-            return f"{self._original_scheme}://{path}"
+            # Relative path - prepend the original root (e.g., s3://deltacat/root)
+            return posixpath.join(self._original_root, path)
 
     def to_serializable(self) -> Dict[str, Any]:
         """
@@ -152,79 +306,22 @@ class CatalogProperties:
         suitable for dumping to YAML or JSON.
 
         Returns:
-            dict of primitive config values.
+            A dictionary of properties that can be used to reconstruct this
+            CatalogProperties instance via CatalogProperties.from_serializable().
         """
-        return {
-            "root": getattr(self, "root", None),
-            # Non-serializable fields -> we serialize as None for now.
-            "filesystem": None,
-            "storage": None,
-        }
+        return {"root": self.root}
 
     @staticmethod
-    def ensure_serializable(
-        obj: Union["CatalogProperties", Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def from_serializable(config: Dict[str, Any]) -> CatalogProperties:
         """
-        Helper: normalize a CatalogProperties or dict-like (e.g. mock configs)
-        into a serializable dictionary. This allows tests/mocks to supply dicts
-        instead of CatalogProperties.
-        """
-        if isinstance(obj, CatalogProperties):
-            return obj.to_serializable()
-        elif isinstance(obj, dict):
-            # Assume dict is already serializable
-            return obj
-        else:
-            raise TypeError(
-                f"Unsupported type for serialization: {type(obj)}. "
-                f"Expected CatalogProperties or dict."
-            )
-
-    @staticmethod
-    def from_serializable(config: Union[Dict[str, Any], None]) -> "CatalogProperties":
-        """
-        Deserialize a config (from YAML, dict, etc.) into a CatalogProperties.
-
-        This method can handle:
-          1. A full dict-of-properties (root, filesystem, storage)
-          2. A 'primitive-only' dict (Case 1 from YAML) — still allowed
+        Deserialize a config dictionary into CatalogProperties.
 
         Args:
-            config: A mapping of properties.
+            config: A dictionary of properties from CatalogProperties.to_serializable().
 
         Returns:
             A CatalogProperties instance.
-
-        Raises:
-            ValueError: For invalid input types or malformed configs.
         """
-        if config is None:
-            raise ValueError("Cannot construct CatalogProperties from None")
-
-        if not isinstance(config, dict):
-            raise ValueError(
-                f"Expected dict for CatalogProperties deserialization, "
-                f"got {type(config)}"
-            )
-
-        # Validation: all values must be serializable primitives or lists
-        if all(
-            isinstance(v, (str, int, float, bool, type(None), list))
-            for v in config.values()
-        ):
-            # Accept it directly
-            return CatalogProperties(**config)
-
-        # Otherwise, assume it’s a property mapping { key -> value }
-        expected_keys = {"root", "filesystem", "storage"}
-        for key in config:
-            if key not in expected_keys:
-                raise ValueError(
-                    f"Unrecognized CatalogProperties key '{key}'. "
-                    f"Expected one of {expected_keys}"
-                )
-
         return CatalogProperties(**config)
 
     def __str__(self):

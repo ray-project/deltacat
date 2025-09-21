@@ -45,7 +45,9 @@ DELTACAT_ROOT = env_string(
     "",
 )
 
-DELTACAT_CONFIG_PATH = env_string("DELTACAT_CONFIG_PATH", "~/.deltacat/config.yaml")
+DELTACAT_CONFIG_PATH = env_string(
+    "DELTACAT_CONFIG_PATH", "~/.deltacat_config/config.yaml"
+)
 
 # CLI Args
 METAFILE_FORMAT_JSON = "json"
@@ -67,6 +69,10 @@ BYTES_PER_PEBIBYTE = 2**50
 
 SIGNED_INT64_MIN_VALUE = -(2**63)
 SIGNED_INT64_MAX_VALUE = 2**63 - 1
+SIGNED_INT32_MIN_VALUE = -(2**31)
+SIGNED_INT32_MAX_VALUE = 2**31 - 1
+UNSIGNED_INT64_MAX_VALUE = 2**64 - 1
+UNSIGNED_INT32_MAX_VALUE = 2**32 - 1
 
 # Time Units
 NANOS_PER_SEC = 1_000_000_000
@@ -92,6 +98,7 @@ MEMORY_TO_HASH_BUCKET_COUNT_RATIO = 0.0512 * BYTES_PER_TEBIBYTE
 NULL_SIZE_BYTES = 4
 
 # Metastore Constants
+CATALOG_VERSION_DIR_NAME: str = "version"
 REVISION_DIR_NAME: str = "rev"
 TXN_DIR_NAME: str = "txn"
 RUNNING_TXN_DIR_NAME: str = "running"
@@ -101,6 +108,8 @@ SUCCESS_TXN_DIR_NAME: str = "success"
 DATA_FILE_DIR_NAME: str = "data"
 REV_DIR_NAME: str = "rev"
 TXN_PART_SEPARATOR = "_"
+MAX_REVISION_NUMBER = 10_000_000_000_000_000_000
+DEFAULT_PAGE_SIZE = 1000
 
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations

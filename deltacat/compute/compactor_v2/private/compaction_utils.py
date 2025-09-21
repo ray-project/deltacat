@@ -55,6 +55,7 @@ from deltacat.storage import (
     Stream,
     StreamLocator,
 )
+from deltacat.storage.model.delta import MAX_DELTA_STREAM_POSITION
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
@@ -644,9 +645,14 @@ def _process_merge_results(
     deltas: List[Delta] = [m.delta for m in mat_results]
     # Note: An appropriate last stream position must be set
     # to avoid correctness issue.
+    stream_position = (
+        params.last_stream_position_to_compact
+        if params.last_stream_position_to_compact != MAX_DELTA_STREAM_POSITION
+        else 1
+    )
     merged_delta: Delta = Delta.merge_deltas(
         deltas,
-        stream_position=params.last_stream_position_to_compact,
+        stream_position=stream_position,
     )
 
     return merged_delta, mat_results, hb_id_to_entry_indices_range
@@ -751,7 +757,7 @@ def _create_round_completion_info(
         prev_source_partition_locator = rci_source_partition_locator
 
     new_round_completion_info = RoundCompletionInfo.of(
-        high_watermark=params.last_stream_position_to_compact,
+        high_watermark=new_compacted_delta_locator.stream_position,
         compacted_delta_locator=new_compacted_delta_locator,
         compacted_pyarrow_write_result=pyarrow_write_result,
         sort_keys_bit_width=params.bit_width_of_sort_keys,

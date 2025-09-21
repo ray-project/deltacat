@@ -36,6 +36,9 @@ from deltacat.storage.model.types import (
 
 DeltaProperties = Dict[str, Any]
 
+# Max 64-bit signed integer value supported jointly by msgpack, pyarrow, numpy, daft, etc.
+MAX_DELTA_STREAM_POSITION = 2**63 - 1
+
 
 class Delta(Metafile):
     @staticmethod
@@ -69,8 +72,9 @@ class Delta(Metafile):
     ) -> Delta:
         """
         Merges the input list of deltas into a single delta. All input deltas to
-        merge must belong to the same partition, share the same delta type, and
-        have non-empty manifests.
+        merge must belong to the same partition, share equivalent delta types, and
+        have non-empty manifests. Unordered ADD and ordered APPEND deltas are
+        considered equivalent, and will be merged into an unordered ADD delta.
 
         Manifest content type and content encoding will be set to None in the
         event of conflicting types or encodings between individual manifest
@@ -96,19 +100,22 @@ class Delta(Metafile):
         if len(distinct_storage_types) > 1:
             raise NotImplementedError(
                 f"Deltas to merge must all share the same storage type "
-                f"(found {len(distinct_storage_types)} storage types."
+                f"(found {len(distinct_storage_types)} storage types: {distinct_storage_types})."
             )
         pl_digest_set = set([d.partition_locator.digest() for d in deltas])
         if len(pl_digest_set) > 1:
             raise ValueError(
                 f"Deltas to merge must all belong to the same partition "
-                f"(found {len(pl_digest_set)} partitions)."
+                f"(found {len(pl_digest_set)} partitions: {pl_digest_set})."
             )
         distinct_delta_types = set([d.type for d in deltas])
+        if distinct_delta_types == {DeltaType.ADD, DeltaType.APPEND}:
+            # unordered ADD and ordered APPEND deltas can be merged, but order is lost
+            distinct_delta_types = {DeltaType.ADD}
         if len(distinct_delta_types) > 1:
             raise ValueError(
                 f"Deltas to merge must all share the same delta type "
-                f"(found {len(distinct_delta_types)} delta types)."
+                f"(found {len(distinct_delta_types)} delta types: {distinct_delta_types})."
             )
         merged_manifest = Manifest.merge_manifests(
             manifests,
@@ -289,11 +296,18 @@ class Delta(Metafile):
             return delta_locator.stream_position
         return None
 
-    def url(self, catalog_name: Optional[str] = None) -> str:
+    def url(
+        self,
+        catalog_name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        table_name: Optional[str] = None,
+    ) -> str:
+        namespace = namespace or self.namespace
+        table_name = table_name or self.table_name
         return (
-            f"dc://{catalog_name}/{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+            f"dc://{catalog_name}/{namespace}/{table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
             if catalog_name
-            else f"table://{self.namespace}/{self.table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
+            else f"table://{namespace}/{table_name}/{self.table_version}/{self.stream_format}/{self.partition_values_json}/{self.stream_position}/"
         )
 
     def to_serializable(self) -> Delta:

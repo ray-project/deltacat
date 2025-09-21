@@ -85,9 +85,14 @@ class DatasetMetastore:
         returns: The latest revision as a RivuletDelta.
         """
         rev_directory = posixpath.join(delta_dir, REV_DIR_NAME)
-        revisions = filesystem.get_file_info(
-            pyarrow.fs.FileSelector(rev_directory, allow_not_found=True)
+        all_items = filesystem.get_file_info(
+            pyarrow.fs.FileSelector(rev_directory, recursive=True, allow_not_found=True)
         )
+
+        # Filter to only include files (not directories) from the recursive search
+        revisions = [
+            item for item in all_items if item.type == pyarrow.fs.FileType.File
+        ]
 
         if not revisions:
             logger.warning(f"No revision files found in {rev_directory}")
