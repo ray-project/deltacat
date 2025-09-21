@@ -2,7 +2,7 @@
   <img src="https://github.com/ray-project/deltacat/raw/2.0/media/deltacat-logo-alpha-750.png" alt="deltacat logo" style="width:55%; height:auto; text-align: center;">
 </p>
 
-DeltaCAT is a portable Multimodal Lakehouse powered by [Ray](https://github.com/ray-project/ray), [Apache Arrow](https://github.com/apache/arrow), and [Daft](https://github.com/Eventual-Inc/Daft). It lets you create ACID-compliant multimodal data lakes [that efficiently scale to manage exabytes of production data](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
+DeltaCAT is a portable Multimodal Lakehouse powered by [Ray](https://github.com/ray-project/ray), [Apache Arrow](https://github.com/apache/arrow), and [Daft](https://github.com/Eventual-Inc/Daft). It lets you create ACID-compliant multimodal data lakes [that efficiently scale to exabytes of production data](https://aws.amazon.com/blogs/opensource/amazons-exabyte-scale-migration-from-apache-spark-to-ray-on-amazon-ec2/).
 
 It provides data lake level transactions & time travel, zero-copy schema evolution, zero-copy multimodal file processing (image, audio, video, text, etc.), and transparent dataset optimization. It runs locally for rapid development or in the cloud for production workloads. It runs on any filesystem for easy setup and sharing - no external catalog services, lock managers, or key value stores required.
 
@@ -193,6 +193,7 @@ assert dc.dataset_length(daft_df) == 6
 <details>
 
 <summary><span style="font-size: 1.25em; font-weight: bold;">Ordered Writes</span></summary>
+
 DeltaCAT writes are unordered by default, which means that the order of data written to the table isn't guaranteed to match the order that it is read back. While this is useful for preventing conflicts between concurrent writers, you can also use the **APPEND** write mode to preserve write order and raise explicit concurrency conflicts between parallel writers:
 
 ```python
