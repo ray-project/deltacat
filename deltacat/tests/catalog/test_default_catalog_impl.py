@@ -2041,6 +2041,283 @@ class TestCopyOnWrite:
             actual_names == expected_names
         ), f"Expected names {expected_names}, but found {actual_names}"
 
+    def test_append_delta_count_compaction_with_optimization_none(self):
+        """Test that compaction is NOT triggered when READ_OPTIMIZATION_LEVEL is NONE, even with delta count trigger."""
+        table_name = "test_append_delta_compaction_none"
+
+        # Create table with READ_OPTIMIZATION_LEVEL=NONE and delta count trigger=2
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count would trigger compaction (if enabled)
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file (if compaction occurred)
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for APPEND mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),  # No merge keys
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # First APPEND write - should not trigger compaction yet
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify we have 1 delta after first write (no compaction yet)
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        objects_after_first = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        first_deltas = [
+            obj for obj in objects_after_first if Metafile.get_class(obj) == Delta
+        ]
+        assert (
+            len(first_deltas) == 1
+        ), f"Expected 1 delta after first write, but found {len(first_deltas)}"
+
+        # Second APPEND write - should NOT trigger compaction due to READ_OPTIMIZATION_LEVEL=NONE
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "city": ["Chicago", "Houston"],
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Use dc.list() to verify compaction did NOT occur
+        # Key difference from the regular compaction test: we should have 2 deltas, not 1
+        all_objects = dc.list(table_url, recursive=True)
+
+        # Filter for Delta objects
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: Should have 2 deltas since compaction was NOT triggered
+        # This proves that READ_OPTIMIZATION_LEVEL=NONE prevents compaction
+        assert (
+            len(final_deltas) == 2
+        ), f"Expected 2 deltas (no compaction due to optimization level NONE), but found {len(final_deltas)}"
+
+        # Verify both deltas have sequential stream positions (APPEND mode)
+        stream_positions = sorted([delta.stream_position for delta in final_deltas])
+        assert stream_positions == [
+            1,
+            2,
+        ], f"Expected stream positions [1, 2], but found {stream_positions}"
+
+        # Verify both deltas are APPEND type
+        for delta in final_deltas:
+            assert (
+                "append" in str(delta.type).lower()
+            ), f"Expected APPEND delta type, but found {delta.type}"
+
+        # Verify data integrity - should have all 4 records from both writes
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Verify all records are present
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 3, 4}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+    def test_add_delta_count_compaction_with_optimization_none(self):
+        """Test that compaction is NOT triggered when READ_OPTIMIZATION_LEVEL is NONE, even with delta count trigger."""
+        table_name = "test_add_delta_compaction_none"
+
+        # Create table with READ_OPTIMIZATION_LEVEL=NONE and delta count trigger=2
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count would trigger compaction (if enabled)
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file (if compaction occurred)
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for ADD mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),  # No merge keys
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # First ADD write - should not trigger compaction yet
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify we have 1 delta after first write (no compaction yet)
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        objects_after_first = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        first_deltas = [
+            obj for obj in objects_after_first if Metafile.get_class(obj) == Delta
+        ]
+        assert (
+            len(first_deltas) == 1
+        ), f"Expected 1 delta after first write, but found {len(first_deltas)}"
+
+        # Verify that the first delta is ADD type
+        first_delta = first_deltas[0]
+        assert (
+            "add" in str(first_delta.type).lower()
+        ), f"Expected ADD delta type, but found {first_delta.type}"
+
+        # Verify that ADD deltas have random stream positions (not sequential)
+        first_stream_position = first_delta.stream_position
+        assert (
+            first_stream_position > 10000
+        ), f"Expected large random stream position for ADD delta, but found {first_stream_position}"
+
+        # Second ADD write - should NOT trigger compaction due to READ_OPTIMIZATION_LEVEL=NONE
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "city": ["Chicago", "Houston"],
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.ADD,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Use dc.list() to verify compaction did NOT occur
+        # Key difference from the regular compaction test: we should have 2 deltas, not 1
+        all_objects = dc.list(table_url, recursive=True)
+
+        # Filter for Delta objects
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: Should have 2 deltas since compaction was NOT triggered
+        # This proves that READ_OPTIMIZATION_LEVEL=NONE prevents compaction
+        assert (
+            len(final_deltas) == 2
+        ), f"Expected 2 deltas (no compaction due to optimization level NONE), but found {len(final_deltas)}"
+
+        # Sort deltas by stream position for consistent verification
+        sorted_deltas = sorted(final_deltas, key=lambda d: d.stream_position)
+
+        # Verify both deltas are ADD type
+        for delta in sorted_deltas:
+            assert (
+                "add" in str(delta.type).lower()
+            ), f"Expected ADD delta type, but found {delta.type}"
+
+        # Verify both deltas have random stream positions (large numbers)
+        for delta in sorted_deltas:
+            assert (
+                delta.stream_position > 10000
+            ), f"Expected large random stream position for ADD delta, but found {delta.stream_position}"
+
+        # Verify stream positions are unique (no duplicates)
+        stream_positions = [delta.stream_position for delta in sorted_deltas]
+        assert len(set(stream_positions)) == len(
+            stream_positions
+        ), f"Expected unique random stream positions, but found duplicates: {stream_positions}"
+
+        # Verify data integrity - should have all 4 records from both writes
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Verify all records are present (ADD mode preserves all records)
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 3, 4}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+        # Verify records can be read in any order (ADD mode doesn't guarantee order)
+        expected_names = {"Alice", "Bob", "Charlie", "Dave"}
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, but found {actual_names}"
+
     def test_add_compaction_with_schema_evolution(self):
         """Test that ADD compaction handles schema evolution correctly with past_default values."""
         table_name = "test_add_schema_evolution"
@@ -2455,6 +2732,30 @@ class TestCopyOnWrite:
             append_result
         ), "Both tables should have same number of records"
         assert get_table_length(add_result) == 2, "Both tables should have 2 records"
+
+    def test_verify_merge_keys_require_read_optimization(self):
+        """Create a table with merge keys using the standard test schema."""
+        table_name = "test_merge_keys_require_read_optimization"
+        schema = create_schema_with_merge_keys()
+
+        # Create table properties with compaction disabled (currently required to merge updates/deletes)
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,
+        }
+
+        # Ensure that a NotImplementedError is raised since we can't currently merge updates w/o compaction
+        with pytest.raises(NotImplementedError) as exc_info:
+            dc.create_table(
+                table=table_name,
+                namespace=self.test_namespace,
+                schema=schema,
+                content_types=DEFAULT_CONTENT_TYPES,
+                table_properties=table_properties,
+                catalog=self.catalog_name,
+                auto_create_namespace=True,
+            )
+        error_message = str(exc_info.value)
+        assert "read optimization level `none` is not yet supported" in error_message
 
     def test_verify_delta_types_created(self):
         """
@@ -11082,7 +11383,7 @@ class TestTablePropertyInheritance:
 
         # Define initial table properties
         initial_table_properties: TableProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,
             TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
             TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 100,
             TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 8,
@@ -11178,7 +11479,7 @@ class TestTablePropertyInheritance:
             table_version_2.table_version.properties[
                 TableProperty.READ_OPTIMIZATION_LEVEL
             ]
-            == TableReadOptimizationLevel.MAX
+            == TableReadOptimizationLevel.NONE
         )
         assert (
             table_version_2.table_version.properties[
@@ -11197,7 +11498,7 @@ class TestTablePropertyInheritance:
 
         # Define initial table properties
         initial_table_properties: TableProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,  # Only MAX is supported
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
             TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 500,
             TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 4,  # Different from default 8
         }
@@ -11245,7 +11546,7 @@ class TestTablePropertyInheritance:
 
         # Update table properties
         updated_table_properties: TableProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,  # Same as initial
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,  # Changed from MAX
             TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,  # Changed from 500
             TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 200,  # New property
             TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 16,  # Changed from 4
@@ -11375,7 +11676,7 @@ class TestTablePropertyInheritance:
 
         # Define different table version properties
         explicit_table_version_properties: TableVersionProperties = {
-            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,  # Only MAX is supported
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,
             TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 500,  # Different from table (1000)
             TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 16,  # Different from table default
         }
