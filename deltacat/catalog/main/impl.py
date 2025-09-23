@@ -1735,7 +1735,6 @@ def alter_table(
     resolved_table_properties = None
     if table_properties is not None:
         resolved_table_properties = _add_default_table_properties(table_properties)
-        _validate_table_properties(resolved_table_properties)
 
     namespace = namespace or default_namespace()
 
@@ -1784,7 +1783,6 @@ def alter_table(
             raise TableValidationError(
                 "Schema evolution is disabled for this table. Please enable schema evolution or remove schema updates."
             )
-
         # Only update table version properties if they are explicitly provided
         resolved_tv_properties = None
         if table_version_properties is not None:
@@ -1797,7 +1795,10 @@ def alter_table(
                 table_version_properties,
                 default_tv_properties,
             )
-            _validate_table_properties(resolved_tv_properties)
+        # Ensure all existing or new table version properties are valid
+        _validate_table_properties(
+            resolved_tv_properties or table_version.properties, table_version.schema
+        )
 
         # Apply schema updates if provided
         updated_schema = None
@@ -1849,14 +1850,19 @@ def _add_default_table_properties(
 
 def _validate_table_properties(
     table_properties: TableProperties,
+    table_schema: Optional[Schema],
 ) -> None:
     read_optimization_level = table_properties.get(
         TableProperty.READ_OPTIMIZATION_LEVEL,
         TablePropertyDefaultValues[TableProperty.READ_OPTIMIZATION_LEVEL],
     )
-    if read_optimization_level != TableReadOptimizationLevel.MAX:
+    allowed_read_optimization_levels = [TableReadOptimizationLevel.MAX]
+    if not table_schema or not table_schema.merge_keys:
+        # schemaless tables and tables without merge keys don't require copy-on-write compaction
+        allowed_read_optimization_levels.append(TableReadOptimizationLevel.NONE)
+    if read_optimization_level not in allowed_read_optimization_levels:
         raise NotImplementedError(
-            f"Table read optimization level `{read_optimization_level} is not yet supported. Please use {TableReadOptimizationLevel.MAX}"
+            f"Table read optimization level `{read_optimization_level}` is not yet supported. Please use {allowed_read_optimization_levels}"
         )
 
 
@@ -1982,7 +1988,7 @@ def create_table(
                 table_version_properties, default_tv_properties
             )
 
-        _validate_table_properties(resolved_tv_properties)
+        _validate_table_properties(resolved_tv_properties, schema)
 
         (table, table_version, stream) = _get_storage(**kwargs).create_table_version(
             namespace=namespace,
