@@ -546,6 +546,7 @@ def test_converter(
         )
 
 
+@pytest.mark.integration
 def test_converter_session_duplicate_position_deletes_spark_compatibility(
     spark,
     session_catalog: RestCatalog,
