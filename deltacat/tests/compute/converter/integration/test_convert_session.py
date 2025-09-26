@@ -546,6 +546,215 @@ def test_converter(
         )
 
 
+def test_converter_session_duplicate_position_deletes_spark_compatibility(
+    spark,
+    session_catalog: RestCatalog,
+    setup_ray_cluster,
+    mocker,
+    base_schema_without_metadata,
+    base_partition_spec,
+    table_properties,
+) -> None:
+    """
+    Test that when the same position delete gets added twice, Spark can still read it correctly.
+    This verifies that duplicate position delete entries don't cause issues with Spark's reading logic.
+    """
+    # Create test table
+    identifier = create_test_table(
+        session_catalog=session_catalog,
+        namespace="default",
+        table_name="test_duplicate_position_deletes",
+        schema=base_schema_without_metadata,
+        partition_spec=base_partition_spec,
+        properties=table_properties,
+    )
+
+    # Insert initial test data with duplicates
+    test_data = [
+        {"primary_key": ["pk1", "pk2", "pk3"]},  # File 1
+        {"primary_key": ["pk1", "pk4", "pk5"]},  # File 2 - pk1 is duplicate
+        {"primary_key": ["pk1", "pk1", "pk2"]},  # File 3 - all duplicates
+    ]
+
+    # Insert test data
+    for data in test_data:
+        values = ", ".join(f"(0, '{pk}')" for pk in data["primary_key"])
+        spark.sql(f"INSERT INTO {identifier} VALUES {values}")
+
+    # Load table and run converter first time
+    tbl = session_catalog.load_table(identifier)
+    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+
+    convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
+        data_file_dict=data_file_dict,
+        equality_delete_dict=equality_delete_dict,
+        pos_delete_dict=pos_delete_dict,
+    )
+
+    s3_file_system = get_s3_file_system()
+
+    convert_input = ConvertInput.of(
+        convert_input_files=convert_input_files_for_all_buckets[0],
+        convert_task_index=0,
+        iceberg_table_warehouse_prefix="warehouse/default",
+        identifier_fields=["primary_key"],
+        table_io=tbl.io,
+        table_metadata=tbl.metadata,
+        compact_previous_position_delete_files=False,
+        enforce_primary_key_uniqueness=True,
+        position_delete_for_multiple_data_files=True,
+        max_parallel_data_file_download=10,
+        filesystem=s3_file_system,
+        s3_client_kwargs={},
+        task_memory=TASK_MEMORY_BYTES,
+    )
+
+    # Create mock data tables
+    mock_data_tables = create_mock_data_tables({"mock_data": test_data})
+    download_data_mock = mocker.patch(
+        "deltacat.compute.converter.utils.io.daft_read_parquet"
+    )
+    download_data_mock.side_effect = mock_data_tables
+
+    # Run conversion first time
+    convert_ref = convert.remote(convert_input)
+    convert_result = ray.get(convert_ref)
+
+    # Process results from first conversion
+    to_be_deleted_files_list = []
+    to_be_added_files_list = []
+    if convert_result.to_be_deleted_files:
+        to_be_deleted_files_list.extend(convert_result.to_be_deleted_files.values())
+    if convert_result.to_be_added_files:
+        to_be_added_files_list.extend(convert_result.to_be_added_files)
+
+    # Commit first conversion results
+    if not to_be_deleted_files_list:
+        commit_append_snapshot(
+            iceberg_table=tbl,
+            new_position_delete_files=to_be_added_files_list,
+        )
+    else:
+        commit_replace_snapshot(
+            iceberg_table=tbl,
+            to_be_deleted_files=to_be_deleted_files_list[0],
+            new_position_delete_files=to_be_added_files_list,
+        )
+
+    tbl.refresh()
+
+    # Verify first conversion created position deletes
+    assert (
+        convert_result.position_delete_record_count == 4
+    ), "First conversion should create position deletes"
+
+    # Now run converter AGAIN with the same data to simulate duplicate position deletes
+    # This could happen in scenarios where the converter is run multiple times on the same data
+
+    # Get files again (now includes position delete files from first run)
+    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+
+    convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
+        data_file_dict=data_file_dict,
+        equality_delete_dict=equality_delete_dict,
+        pos_delete_dict=pos_delete_dict,
+    )
+
+    # Create new convert input for second run
+    convert_input_2 = ConvertInput.of(
+        convert_input_files=convert_input_files_for_all_buckets[0],
+        convert_task_index=0,
+        iceberg_table_warehouse_prefix="warehouse/default",
+        identifier_fields=["primary_key"],
+        table_io=tbl.io,
+        table_metadata=tbl.metadata,
+        compact_previous_position_delete_files=False,
+        enforce_primary_key_uniqueness=True,
+        position_delete_for_multiple_data_files=True,
+        max_parallel_data_file_download=10,
+        filesystem=s3_file_system,
+        s3_client_kwargs={},
+        task_memory=TASK_MEMORY_BYTES,
+    )
+
+    # Reset mock for second run
+    download_data_mock.side_effect = mock_data_tables
+
+    # Run conversion second time (this should create duplicate position deletes)
+    convert_ref_2 = convert.remote(convert_input_2)
+    convert_result_2 = ray.get(convert_ref_2)
+
+    # Process results from second conversion
+    to_be_deleted_files_list_2 = []
+    to_be_added_files_list_2 = []
+    if convert_result_2.to_be_deleted_files:
+        to_be_deleted_files_list_2.extend(convert_result_2.to_be_deleted_files.values())
+    if convert_result_2.to_be_added_files:
+        to_be_added_files_list_2.extend(convert_result_2.to_be_added_files)
+
+    # Commit second conversion results (this creates duplicate position deletes)
+    if not to_be_deleted_files_list_2:
+        commit_append_snapshot(
+            iceberg_table=tbl,
+            new_position_delete_files=to_be_added_files_list_2,
+        )
+    else:
+        commit_replace_snapshot(
+            iceberg_table=tbl,
+            to_be_deleted_files=to_be_deleted_files_list_2[0],
+            new_position_delete_files=to_be_added_files_list_2,
+        )
+
+    tbl.refresh()
+
+    # Now verify that Spark can still read the table correctly despite duplicate position deletes
+    spark_read_result = spark.sql(
+        f"SELECT * FROM {identifier} ORDER BY primary_key"
+    ).collect()
+    spark_primary_keys = [
+        row[1] for row in spark_read_result
+    ]  # primary_key is second column
+
+    # Expected result: should have unique primary keys (pk1, pk2, pk3, pk4, pk5
+    # But duplicates should be resolved, so we expect: pk1, pk2, pk3, pk4, pk5
+    # The exact set depends on which duplicates were kept, but should be consistent
+    expected_unique_keys = {"pk1", "pk2", "pk3", "pk4", "pk5"}
+    actual_keys_set = set(spark_primary_keys)
+
+    # Verify Spark can read the table and returns the expected unique keys
+    assert actual_keys_set == expected_unique_keys, (
+        f"Spark should read unique keys correctly. Expected: {expected_unique_keys}, "
+        f"Got: {actual_keys_set}"
+    )
+
+    # Verify no duplicate keys in Spark result (duplicate position deletes shouldn't cause duplicates)
+    assert len(spark_primary_keys) == len(
+        set(spark_primary_keys)
+    ), f"Spark result should not contain duplicate keys. Got: {spark_primary_keys}"
+
+    # Also verify PyIceberg scan gives same result
+    pyiceberg_scan = tbl.scan().to_arrow().to_pydict()
+    pyiceberg_keys = set(pyiceberg_scan["primary_key"])
+
+    assert pyiceberg_keys == expected_unique_keys, (
+        f"PyIceberg scan should match Spark result. Expected: {expected_unique_keys}, "
+        f"Got: {pyiceberg_keys}"
+    )
+
+    print(f"✅ Duplicate position deletes test passed!")
+    print(
+        f"✅ First conversion created {convert_result.position_delete_record_count} position deletes"
+    )
+    print(
+        f"✅ Second conversion created {convert_result_2.position_delete_record_count} position deletes"
+    )
+    print(
+        f"✅ Spark successfully read {len(spark_primary_keys)} unique records: {sorted(spark_primary_keys)}"
+    )
+    print(f"✅ PyIceberg scan matched Spark result")
+    print(f"✅ Duplicate position deletes do not affect read correctness")
+
+
 def test_converter_session_with_local_filesystem_and_duplicate_ids(
     setup_ray_cluster,
 ) -> None:
