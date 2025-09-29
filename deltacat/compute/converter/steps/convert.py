@@ -225,7 +225,7 @@ def get_additional_applicable_data_files(
     if data_files_downloaded:
         # set1.difference(set2) returns elements in set1 but not in set2
         data_file_to_dedupe.extend(
-            list(set(data_file_to_dedupe).difference(set(data_files_downloaded)))
+            list(set(all_data_files).difference(set(data_files_downloaded)))
         )
     else:
         data_file_to_dedupe = all_data_files
@@ -261,6 +261,10 @@ def filter_rows_to_be_deleted(
             f"Expected undeleted data file record count plus length of pos deletes to match original data file record count of {len(data_file_table)}, "
             f"but found {len(position_delete_table)} pos deletes + {len(remaining_data_table)} equality deletes."
         )
+    else:
+        # Initialize variables when input tables are None or empty
+        position_delete_table = None
+        remaining_data_table = None
 
     return position_delete_table, remaining_data_table
 
@@ -346,15 +350,23 @@ def compute_pos_delete_with_limited_parallelism(
             identifier_columns=identifier_columns,
             s3_file_system=s3_file_system,
         )
-        new_pos_delete_table_total.append(new_pos_delete_table)
+        # Only append non-None tables to avoid concat_tables errors
+        if new_pos_delete_table is not None:
+            new_pos_delete_table_total.append(new_pos_delete_table)
 
+    # Filter out None values and concatenate only if we have valid tables
     if new_pos_delete_table_total:
         new_pos_delete_table_total = pa.concat_tables(new_pos_delete_table_total)
+    else:
+        new_pos_delete_table_total = None
 
+    pos_delete_count = (
+        len(new_pos_delete_table_total) if new_pos_delete_table_total is not None else 0
+    )
     logger.info(
         f"[Convert task {convert_task_index}]: Find deletes got {len(data_table_total)} data table records, "
         f"{len(equality_delete_table_total)} equality deletes as input, "
-        f"Produced {len(new_pos_delete_table_total)} position deletes based off find deletes input."
+        f"Produced {pos_delete_count} position deletes based off find deletes input."
     )
 
     if not new_pos_delete_table_total:
