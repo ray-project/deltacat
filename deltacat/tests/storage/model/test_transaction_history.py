@@ -101,7 +101,9 @@ class TestTransactionHistory:
 
         return transactions_created
 
-    def test_basic_transaction_history_query(self, reset_catalogs, temp_catalog_properties):
+    def test_basic_transaction_history_query(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test basic transaction history querying with default parameters."""
         # Initialize catalog using the fixture
         dc.init()
@@ -349,7 +351,9 @@ class TestTransactionHistory:
             == all_txns["transaction_id"].head(2).tolist()
         )
 
-    def test_commit_message_functionality(self, reset_catalogs, temp_catalog_properties):
+    def test_commit_message_functionality(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test commit message storage and retrieval."""
         # Initialize catalog using the fixture
         dc.init()
@@ -391,7 +395,9 @@ class TestTransactionHistory:
                 actual_msg == expected_msg
             ), f"Commit message mismatch for {txn_id}: expected {expected_msg!r}, got {actual_msg!r}"
 
-    def test_transaction_metadata_accuracy(self, reset_catalogs, temp_catalog_properties):
+    def test_transaction_metadata_accuracy(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test accuracy of operation counts and table counts."""
         # Initialize catalog using the fixture
         dc.init()
@@ -453,7 +459,9 @@ class TestTransactionHistory:
                 metadata["operation_count"] >= metadata["table_count"]
             ), f"Operation count should be >= table count for {txn_id}"
 
-    def test_empty_catalog_graceful_handling(self, reset_catalogs, temp_catalog_properties):
+    def test_empty_catalog_graceful_handling(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test graceful handling of catalogs with no user transactions (only default namespace creation)."""
         # Initialize catalog using the fixture
         dc.init()
@@ -541,7 +549,9 @@ class TestTransactionHistory:
                 list(result.columns) == expected_columns
             ), f"Schema mismatch for params {params}"
 
-    def test_error_handling_and_edge_cases(self, reset_catalogs, temp_catalog_properties):
+    def test_error_handling_and_edge_cases(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test error handling for various edge cases."""
         # Initialize catalog using the fixture
         dc.init()
@@ -606,7 +616,9 @@ class TestTransactionHistory:
 
         assert baseline_ids == none_ids == empty_ids
 
-    def test_concurrent_transaction_handling(self, reset_catalogs, temp_catalog_properties):
+    def test_concurrent_transaction_handling(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test behavior when transactions are created while querying."""
         # Initialize catalog using the fixture
         dc.init()
@@ -637,7 +649,9 @@ class TestTransactionHistory:
         # Verify new transaction appears first (most recent)
         assert updated_result.iloc[0]["commit_message"] == "New transaction"
 
-    def test_namespace_isolation_in_table_counting(self, reset_catalogs, temp_catalog_properties):
+    def test_namespace_isolation_in_table_counting(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Test that table counting correctly handles namespace isolation."""
         # Initialize catalog using the fixture
         dc.init()
@@ -806,7 +820,9 @@ class TestTransactionHistoryRegression:
             test_result_times == expected_times
         ), "Transactions not properly sorted by start_time descending"
 
-    def test_function_signature_stability(self, reset_catalogs, temp_catalog_properties):
+    def test_function_signature_stability(
+        self, reset_catalogs, temp_catalog_properties
+    ):
         """Ensure function signature remains stable."""
         # Initialize catalog using the fixture (though not needed for signature test)
         dc.init()

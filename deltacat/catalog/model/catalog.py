@@ -349,7 +349,9 @@ def clear_catalogs() -> None:
             ray.get(all_catalogs.clear.remote())
         except Exception as e:
             # Actor may be dead or from a different cluster
-            logger.warning(f"Failed to clear catalogs actor: {e}. Resetting global reference.")
+            logger.warning(
+                f"Failed to clear catalogs actor: {e}. Resetting global reference."
+            )
             all_catalogs = None
 
 

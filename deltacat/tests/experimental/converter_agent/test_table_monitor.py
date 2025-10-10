@@ -571,7 +571,9 @@ class TestTableMonitorEndToEnd:
                         if entry.data_file.content == DataFileContent.POSITION_DELETES:
                             position_delete_files.append(entry.data_file.file_path)
 
-                assert len(position_delete_files) > 0, "No position delete files created"
+                assert (
+                    len(position_delete_files) > 0
+                ), "No position delete files created"
 
                 # Verify updated values
                 final_data_by_id = {}
@@ -592,6 +594,7 @@ class TestTableMonitorEndToEnd:
                 # The monitor loop checks ray.is_initialized(), so shutting down Ray will
                 # cause the monitor thread to exit gracefully
                 import ray
+
                 if ray.is_initialized():
                     ray.shutdown()
 
