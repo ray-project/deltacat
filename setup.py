@@ -65,7 +65,7 @@ setuptools.setup(
         # due to input_inflation exceeding 1e-5
         # Daft requires pyarrow == 16.00. TODO discuss upgrade with Daft
         "pyarrow == 16.0.0",  # run `make type-mappings` if you change this! See README-development.md
-        "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<3",
+        "pydantic!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<2.10.0",
         "pymemcache == 4.0.0",
         "ray[default] == 2.46.0",  # run `make type-mappings`` if you change this! See README-development.md
         "tenacity == 8.2.3",
