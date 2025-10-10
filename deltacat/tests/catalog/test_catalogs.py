@@ -60,12 +60,6 @@ class MockCatalogImpl:
         return CatalogProperties(root=kwargs.get("root", "/tmp/test"))
 
 
-@pytest.fixture(scope="function")
-def reset_catalogs():
-    clear_catalogs()
-    catalogs.all_catalogs = None  # reset the global actor reference
-
-
 class TestCatalog:
     """Tests for the Catalog class itself, without Ray initialization."""
 

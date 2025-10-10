@@ -5,8 +5,9 @@ import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
 from deltacat import constants
-from deltacat.catalog import CatalogProperties
+from deltacat.catalog import CatalogProperties, clear_catalogs
 from deltacat.tests.test_utils.filesystem import temp_dir_autocleanup
+import deltacat.catalog.model.catalog as catalog_module
 
 
 @pytest.fixture
@@ -27,6 +28,19 @@ def keep_temp_dir():
 @pytest.fixture
 def temp_catalog_properties(temp_dir):
     return CatalogProperties(root=temp_dir)
+
+
+@pytest.fixture
+def reset_catalogs():
+    """
+    Reset catalogs before and after each test to prevent stale Ray actor references.
+    This ensures tests don't fail due to dead actors from previous tests.
+    """
+    clear_catalogs()
+    catalog_module.all_catalogs = None  # Reset the global actor reference
+    yield
+    clear_catalogs()
+    catalog_module.all_catalogs = None  # Reset after test completes
 
 
 @pytest.fixture(autouse=True, scope="session")
