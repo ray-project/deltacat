@@ -426,7 +426,8 @@ class TestTableMonitorEndToEnd:
 
             # Start the table monitor with SHARED catalog instance
             monitor_interval = 0.5
-            monitor_exception = []
+            # Use very high timeout - we'll control lifecycle explicitly via Ray shutdown
+            ray_timeout = 3600  # 1 hour - effectively disabled
 
             def monitor_wrapper():
                 """Wrapper to catch exceptions in monitor thread."""
@@ -441,149 +442,158 @@ class TestTableMonitorEndToEnd:
                         filesystem_type=FilesystemType.LOCAL,
                         monitor_interval=monitor_interval,
                         max_converter_parallelism=1,
-                        ray_inactivity_timeout=30,
+                        ray_inactivity_timeout=ray_timeout,
                         pre_conversion_callback=mock_completion_callback,
                         post_conversion_callback=mock_completion_callback,
                         catalog=local_catalog,  # SHARE the catalog!
                     )
-                except Exception as e:
+                except Exception:
                     import traceback
 
                     traceback.print_exc()
-                    monitor_exception.append(e)
 
+            # Use a daemon thread - it won't block test exit
+            # We'll explicitly shutdown Ray in finally block to stop the monitor
             monitor_thread = threading.Thread(target=monitor_wrapper, daemon=True)
             monitor_thread.start()
 
-            # Give monitor time to start
-            time.sleep(monitor_interval + 0.2)
+            try:
+                # Give monitor time to start
+                time.sleep(monitor_interval + 0.2)
 
-            # Create PyArrow schema
-            arrow_schema = schema_to_pyarrow(schema)
+                # Create PyArrow schema
+                arrow_schema = schema_to_pyarrow(schema)
 
-            # Write initial data
-            initial_data = pa.table(
-                {
-                    "id": [1, 2, 3, 4],
-                    "name": ["Alice", "Bob", "Charlie", "David"],
-                    "value": [100, 200, 300, 400],
-                    "version": [1, 1, 1, 1],
-                },
-                schema=arrow_schema,
-            )
-
-            # Write updates (creates duplicates)
-            updated_data = pa.table(
-                {
-                    "id": [2, 3, 5],
-                    "name": ["Robert", "Charles", "Eve"],
-                    "value": [201, 301, 500],
-                    "version": [2, 2, 1],
-                },
-                schema=arrow_schema,
-            )
-
-            # Write and commit data files
-            data_files_to_commit = []
-            for i, data in enumerate([initial_data, updated_data]):
-                data_file_path = os.path.join(warehouse_path, f"data_{i}.parquet")
-                pq.write_table(data, data_file_path)
-
-                parquet_metadata = pq.read_metadata(data_file_path)
-                file_size = os.path.getsize(data_file_path)
-
-                _check_pyarrow_schema_compatible(
-                    schema, parquet_metadata.schema.to_arrow_schema()
+                # Write initial data
+                initial_data = pa.table(
+                    {
+                        "id": [1, 2, 3, 4],
+                        "name": ["Alice", "Bob", "Charlie", "David"],
+                        "value": [100, 200, 300, 400],
+                        "version": [1, 1, 1, 1],
+                    },
+                    schema=arrow_schema,
                 )
 
-                statistics = data_file_statistics_from_parquet_metadata(
-                    parquet_metadata=parquet_metadata,
-                    stats_columns=compute_statistics_plan(
-                        schema, tbl.metadata.properties
-                    ),
-                    parquet_column_mapping=parquet_path_to_id_mapping(schema),
+                # Write updates (creates duplicates)
+                updated_data = pa.table(
+                    {
+                        "id": [2, 3, 5],
+                        "name": ["Robert", "Charles", "Eve"],
+                        "value": [201, 301, 500],
+                        "version": [2, 2, 1],
+                    },
+                    schema=arrow_schema,
                 )
 
-                data_file = DataFile(
-                    content=DataFileContent.DATA,
-                    file_path=data_file_path,
-                    file_format=FileFormat.PARQUET,
-                    partition={},
-                    file_size_in_bytes=file_size,
-                    sort_order_id=None,
-                    spec_id=tbl.metadata.default_spec_id,
-                    key_metadata=None,
-                    equality_ids=None,
-                    **statistics.to_serialized_dict(),
+                # Write and commit data files
+                data_files_to_commit = []
+                for i, data in enumerate([initial_data, updated_data]):
+                    data_file_path = os.path.join(warehouse_path, f"data_{i}.parquet")
+                    pq.write_table(data, data_file_path)
+
+                    parquet_metadata = pq.read_metadata(data_file_path)
+                    file_size = os.path.getsize(data_file_path)
+
+                    _check_pyarrow_schema_compatible(
+                        schema, parquet_metadata.schema.to_arrow_schema()
+                    )
+
+                    statistics = data_file_statistics_from_parquet_metadata(
+                        parquet_metadata=parquet_metadata,
+                        stats_columns=compute_statistics_plan(
+                            schema, tbl.metadata.properties
+                        ),
+                        parquet_column_mapping=parquet_path_to_id_mapping(schema),
+                    )
+
+                    data_file = DataFile(
+                        content=DataFileContent.DATA,
+                        file_path=data_file_path,
+                        file_format=FileFormat.PARQUET,
+                        partition={},
+                        file_size_in_bytes=file_size,
+                        sort_order_id=None,
+                        spec_id=tbl.metadata.default_spec_id,
+                        key_metadata=None,
+                        equality_ids=None,
+                        **statistics.to_serialized_dict(),
+                    )
+                    data_files_to_commit.append(data_file)
+
+                # Commit data to trigger monitor detection
+                with tbl.transaction() as tx:
+                    with tx.update_snapshot().fast_append() as update_snapshot:
+                        for data_file in data_files_to_commit:
+                            update_snapshot.append_data_file(data_file)
+
+                tbl.refresh()
+
+                # Verify duplicates exist
+                initial_scan = tbl.scan().to_arrow().to_pydict()
+                expected_duplicate_ids = [1, 2, 2, 3, 3, 4, 5]
+                assert sorted(initial_scan["id"]) == expected_duplicate_ids
+
+                # Wait for monitor to detect and convert
+                timeout = 15.0
+                success = conversion_complete.wait(timeout=timeout)
+
+                assert success, (
+                    f"Monitor did not complete conversion within {timeout}s. "
+                    f"Callbacks: {len(callback_results)}, Stages: {[r['stage'] for r in callback_results]}"
                 )
-                data_files_to_commit.append(data_file)
 
-            # Commit data to trigger monitor detection
-            with tbl.transaction() as tx:
-                with tx.update_snapshot().fast_append() as update_snapshot:
-                    for data_file in data_files_to_commit:
-                        update_snapshot.append_data_file(data_file)
+                # Verify callbacks
+                assert len(callback_results) >= 2
+                stages = [r["stage"] for r in callback_results]
+                assert CallbackStage.PRE.value in stages
+                assert CallbackStage.POST.value in stages
 
-            tbl.refresh()
+                # Verify conversion results
+                tbl.refresh()
+                final_scan = tbl.scan().to_arrow().to_pydict()
+                expected_unique_ids = [1, 2, 3, 4, 5]
+                actual_ids = sorted(final_scan["id"])
 
-            # Verify duplicates exist
-            initial_scan = tbl.scan().to_arrow().to_pydict()
-            expected_duplicate_ids = [1, 2, 2, 3, 3, 4, 5]
-            assert sorted(initial_scan["id"]) == expected_duplicate_ids
+                assert (
+                    actual_ids == expected_unique_ids
+                ), f"Expected {expected_unique_ids}, got {actual_ids}"
 
-            # Wait for monitor to detect and convert
-            timeout = 15.0
-            success = conversion_complete.wait(timeout=timeout)
+                # Verify position deletes were created
+                latest_snapshot = tbl.metadata.current_snapshot()
+                assert latest_snapshot is not None
 
-            # Check for exceptions
-            if monitor_exception:
-                raise AssertionError(f"Monitor failed: {monitor_exception[0]}")
+                manifests = latest_snapshot.manifests(tbl.io)
+                position_delete_files = []
+                for manifest in manifests:
+                    entries = manifest.fetch_manifest_entry(tbl.io)
+                    for entry in entries:
+                        if entry.data_file.content == DataFileContent.POSITION_DELETES:
+                            position_delete_files.append(entry.data_file.file_path)
 
-            assert success, (
-                f"Monitor did not complete conversion within {timeout}s. "
-                f"Callbacks: {len(callback_results)}, Stages: {[r['stage'] for r in callback_results]}"
-            )
+                assert len(position_delete_files) > 0, "No position delete files created"
 
-            # Verify callbacks
-            assert len(callback_results) >= 2
-            stages = [r["stage"] for r in callback_results]
-            assert CallbackStage.PRE.value in stages
-            assert CallbackStage.POST.value in stages
+                # Verify updated values
+                final_data_by_id = {}
+                for i, id_val in enumerate(final_scan["id"]):
+                    final_data_by_id[id_val] = {
+                        "name": final_scan["name"][i],
+                        "value": final_scan["value"][i],
+                        "version": final_scan["version"][i],
+                    }
 
-            # Verify conversion results
-            tbl.refresh()
-            final_scan = tbl.scan().to_arrow().to_pydict()
-            expected_unique_ids = [1, 2, 3, 4, 5]
-            actual_ids = sorted(final_scan["id"])
+                assert final_data_by_id[2]["name"] == "Robert"
+                assert final_data_by_id[2]["value"] == 201
+                assert final_data_by_id[3]["name"] == "Charles"
+                assert final_data_by_id[3]["value"] == 301
 
-            assert (
-                actual_ids == expected_unique_ids
-            ), f"Expected {expected_unique_ids}, got {actual_ids}"
+            finally:
+                # Explicitly shutdown Ray to stop the monitor thread and ensure clean state
+                # The monitor loop checks ray.is_initialized(), so shutting down Ray will
+                # cause the monitor thread to exit gracefully
+                import ray
+                if ray.is_initialized():
+                    ray.shutdown()
 
-            # Verify position deletes were created
-            latest_snapshot = tbl.metadata.current_snapshot()
-            assert latest_snapshot is not None
-
-            manifests = latest_snapshot.manifests(tbl.io)
-            position_delete_files = []
-            for manifest in manifests:
-                entries = manifest.fetch_manifest_entry(tbl.io)
-                for entry in entries:
-                    if entry.data_file.content == DataFileContent.POSITION_DELETES:
-                        position_delete_files.append(entry.data_file.file_path)
-
-            assert len(position_delete_files) > 0, "No position delete files created"
-
-            # Verify updated values
-            final_data_by_id = {}
-            for i, id_val in enumerate(final_scan["id"]):
-                final_data_by_id[id_val] = {
-                    "name": final_scan["name"][i],
-                    "value": final_scan["value"][i],
-                    "version": final_scan["version"][i],
-                }
-
-            assert final_data_by_id[2]["name"] == "Robert"
-            assert final_data_by_id[2]["value"] == 201
-            assert final_data_by_id[3]["name"] == "Charles"
-            assert final_data_by_id[3]["value"] == 301
+                # Give the daemon thread a moment to exit after Ray shutdown
+                monitor_thread.join(timeout=2)

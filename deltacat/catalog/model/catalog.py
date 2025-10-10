@@ -339,8 +339,18 @@ def clear_catalogs() -> None:
     Clear all catalogs from the global map of named catalogs.
     """
     global all_catalogs
+
+    # Check if Ray is still initialized - if not, the actor reference is stale
+    if not ray.is_initialized():
+        all_catalogs = None
+
     if all_catalogs:
-        ray.get(all_catalogs.clear.remote())
+        try:
+            ray.get(all_catalogs.clear.remote())
+        except Exception as e:
+            # Actor may be dead or from a different cluster
+            logger.warning(f"Failed to clear catalogs actor: {e}. Resetting global reference.")
+            all_catalogs = None
 
 
 def pop_catalog(name: str) -> Optional[Catalog]:
