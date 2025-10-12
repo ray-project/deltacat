@@ -224,3 +224,63 @@ class TestJsonFormatter(unittest.TestCase):
         )
         self.assertFalse(ray.is_initialized())
         self.assertNotIn("ray_runtime_context", json.loads(result))
+
+
+class TestCompressingRotatingFileHandler(unittest.TestCase):
+    """Tests for the custom rolling, compressing log handler."""
+
+    def setUp(self):
+        import tempfile
+        import pathlib
+
+        self.tmpdir = pathlib.Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _logger_with_handler(self, **kwargs):
+        import logging
+        from deltacat.logs import CompressingRotatingFileHandler
+
+        handler = CompressingRotatingFileHandler(self.tmpdir / "test.log", **kwargs)
+        logger = logging.getLogger(f"test_{id(handler)}")
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        return logger, handler
+
+    def test_rollover_and_compression(self):
+        import gzip
+
+        logger, handler = self._logger_with_handler(maxBytes=200, backupCount=1)
+
+        for _ in range(50):
+            logger.info("a" * 50)
+        handler.close()
+
+        gz_files = list(self.tmpdir.glob("*.gz"))
+        self.assertTrue(gz_files, "Expected at least one compressed file")
+
+        for path in gz_files:
+            with gzip.open(path, "rt") as f:
+                text = f.read()
+            self.assertIn("a", text)
+
+    def test_backup_count_limit(self):
+        logger, handler = self._logger_with_handler(maxBytes=200, backupCount=2)
+        for _ in range(200):
+            logger.info("b" * 50)
+        handler.close()
+
+        gz_files = list(self.tmpdir.glob("*.gz"))
+        self.assertLessEqual(len(gz_files), 2)
+
+    def test_configured_logger_uses_custom_handler(self):
+        import logging
+        from deltacat import logs
+
+        logger = logging.getLogger(f"configured_test_{id(self)}")
+        adapter = logs.configure_deltacat_logger(logger)
+        handler_types = {type(h).__name__ for h in adapter.logger.handlers}
+        self.assertIn("CompressingRotatingFileHandler", handler_types)

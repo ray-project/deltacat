@@ -1,3 +1,4 @@
+import gzip
 import logging
 import os
 import json
@@ -33,8 +34,8 @@ DEFAULT_LOG_FORMAT = {
     "filename": "filename",
     "lineno": "lineno",
 }
-DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 256  # 256 MiB
-DEFAULT_BACKUP_COUNT = 0
+DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 64  # Default 64 MiB
+DEFAULT_BACKUP_COUNT = 10  # Default 10 backup files
 
 
 class JsonFormatter(logging.Formatter):
@@ -166,6 +167,24 @@ def _add_logger_handler(logger: Logger, handler: Handler) -> Logger:
     return logger
 
 
+# Subclass to compress last N log files
+class CompressingRotatingFileHandler(handlers.RotatingFileHandler):
+    """Rotating file handler that gzips rolled logs after rotation."""
+
+    def doRollover(self):
+        super().doRollover()
+
+        if self.backupCount > 0:
+            for i in range(self.backupCount, 0, -1):
+                sfn = f"{self.baseFilename}.{i}"
+                dfn = f"{sfn}.gz"
+                if os.path.exists(sfn) and not os.path.exists(dfn):
+                    with open(sfn, "rb") as f_in, open(dfn, "wb") as f_out:
+                        with gzip.GzipFile(fileobj=f_out, mode="wb") as gz_out:
+                            gz_out.writelines(f_in)
+                    os.remove(sfn)
+
+
 def _create_rotating_file_handler(
     log_directory: str,
     log_base_file_name: str,
@@ -182,7 +201,7 @@ def _create_rotating_file_handler(
     assert log_directory, "log directory is required"
     log_dir_path = pathlib.Path(log_directory)
     log_dir_path.mkdir(parents=True, exist_ok=True)
-    handler = handlers.RotatingFileHandler(
+    handler = CompressingRotatingFileHandler(
         os.path.join(log_directory, log_base_file_name),
         maxBytes=max_bytes_per_log_file,
         backupCount=backup_count,

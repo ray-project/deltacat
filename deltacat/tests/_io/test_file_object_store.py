@@ -106,6 +106,17 @@ class TestFileObjectStore(unittest.TestCase):
         "deltacat.io.file_object_store.os.remove",
     )
     def test_delete_many_sanity(self, mock_remove):
+        import sys
+        import importlib
+
+        # Drop any stale module that may have been imported earlier with a mocked os
+        sys.modules.pop("deltacat.io.file_object_store", None)
+
+        # Now reload it fresh so it binds to the current, real os
+        import deltacat.io.file_object_store as fstore
+
+        importlib.reload(fstore)
+
         from deltacat.io.file_object_store import FileObjectStore
 
         object_store = FileObjectStore(dir_path="")
