@@ -61,7 +61,10 @@ class JsonFormatter(logging.Formatter):
         if ray.is_initialized():
             self.ray_runtime_ctx: RuntimeContext = ray.get_runtime_context()
             self.context = {}
-            self.context["worker_id"] = self.ray_runtime_ctx.get_worker_id()
+            if hasattr(self.ray_runtime_ctx.worker, 'worker_id'):
+              self.context["worker_id"] = self.ray_runtime_ctx.get_worker_id()
+            else:
+              self.context["worker_id"] = None
             self.context["node_id"] = self.ray_runtime_ctx.get_node_id()
             self.context["job_id"] = self.ray_runtime_ctx.get_job_id()
         else:
