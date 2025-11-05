@@ -43,6 +43,7 @@ class ConverterSessionParams(dict):
         result.merge_keys = params.get("merge_keys", None)
         result.s3_client_kwargs = params.get("s3_client_kwargs", {})
         result.filesystem = params.get("filesystem", None)
+        result.location_provider_prefix_override = params.get("location_provider_prefix_override", None)
         result.s3_prefix_override = params.get("s3_prefix_override", None)
 
         return result

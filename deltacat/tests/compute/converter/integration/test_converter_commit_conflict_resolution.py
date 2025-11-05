@@ -40,7 +40,6 @@ from deltacat.compute.converter.utils.convert_task_options import BASE_MEMORY_BU
 # Task memory in bytes for testing
 TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
 
-
 # Test data fixtures
 @pytest.fixture
 def base_schema():

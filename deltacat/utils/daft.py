@@ -3,14 +3,15 @@ from typing import Optional, List, Any, Dict, Callable, Iterator, Union
 
 from daft.daft import (
     StorageConfig,
-    PartitionField,
-    Pushdowns as DaftRustPushdowns,
     ScanTask,
     FileFormatConfig,
     ParquetSourceConfig,
-    PartitionTransform as DaftTransform,
-    PartitionField as DaftPartitionField,
 )
+from daft.io.partitioning import (
+    PartitionField as DaftPartitionField,
+    PartitionTransform as DaftTransform,
+)
+from daft.io.pushdowns import Pushdowns as DaftRustPushdowns
 from daft.expressions import Expression as DaftExpression
 from daft.expressions.visitor import PredicateVisitor
 from pyarrow import Field as PaField
@@ -251,7 +252,7 @@ class DeltaCatScanOperator(ScanOperator):
     def display_name(self) -> str:
         return f"DeltaCATScanOperator({self.table.table.namespace}.{self.table.table.table_name})"
 
-    def partitioning_keys(self) -> list[PartitionField]:
+    def partitioning_keys(self) -> list[DaftPartitionField]:
         return self.partition_keys
 
     def multiline_display(self) -> list[str]:
@@ -303,7 +304,7 @@ class DeltaCatScanOperator(ScanOperator):
 
         return DaftSchema.from_pyarrow_schema(self.table.table_version.schema.arrow)
 
-    def _infer_partition_keys(self) -> list[PartitionField]:
+    def _infer_partition_keys(self) -> list[DaftPartitionField]:
         if not (
             self.table
             and self.table.table_version

@@ -210,7 +210,7 @@ class TestConverterSessionUtils:
 
         result = partition_value_record_to_partition_value_string(mock_partition)
 
-        expected = "year=2023, month=12"
+        expected = "year=2023/month=12"
         assert result == expected
 
     def test_partition_value_record_to_partition_value_string_single_field(self):

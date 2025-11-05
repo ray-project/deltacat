@@ -107,7 +107,6 @@ def sns_callback(
         # Publish to SNS with descriptive subject
         response = sns.publish(
             TopicArn=topic_arn,
-            Subject=f"DeltaCAT Conversion {context.stage.upper()}: {context.namespace}.{context.table_name}",
             Message=message,
         )
 

@@ -11,7 +11,7 @@ from pyiceberg.io.pyarrow import (
     MetricsMode,
     StatsAggregator,
 )
-from typing import Dict, List, Set, Any, Tuple
+from typing import Dict, List, Set, Any, Tuple, Optional
 from deltacat.compute.converter.utils.iceberg_columns import (
     ICEBERG_RESERVED_FIELD_ID_FOR_FILE_PATH_COLUMN,
     ICEBERG_RESERVED_FIELD_ID_FOR_POS_COLUMN,
@@ -202,33 +202,64 @@ def parquet_files_dict_to_iceberg_data_files(
 
 def fetch_all_bucket_files(
     table: Table,
+    start_snapshot_id: Optional[int] = None,
 ) -> Tuple[Dict[Any, DataFileList], Dict[Any, DataFileList], Dict[Any, DataFileList]]:
     # step 1: filter manifests using partition summaries
     # the filter depends on the partition spec used to write the manifest file, so create a cache of filters for each spec id
+
+    logger.info(f"Fetch all bucket_files start snapshot id:{start_snapshot_id}")
+
     data_scan = table.scan()
-    snapshot = data_scan.snapshot()
-    if not snapshot:
-        return iter([])
+    current_snapshot = data_scan.snapshot()
+
+    if not current_snapshot:
+        return {}, {}, {}
+
+    snapshots = list(table.metadata.snapshots)
+    expected_start_sequence_number = -1
+
+    if start_snapshot_id:
+        # Map snapshot IDs to their sequence numbers
+        for snapshot in snapshots:
+            if snapshot.snapshot_id == start_snapshot_id:
+                expected_start_sequence_number = snapshot.sequence_number
+                break
+        logger.info(
+            f"Fetching files from start sequence number: {expected_start_sequence_number}"
+        )
+
     manifest_evaluators = KeyDefaultDict(data_scan._build_manifest_evaluator)
 
-    manifests = [
-        manifest_file
-        for manifest_file in snapshot.manifests(data_scan.io)
-        if manifest_evaluators[manifest_file.partition_spec_id](manifest_file)
-    ]
+    # Collect manifests from ALL snapshots, not just the current one
+    all_manifests = []
+    for snapshot in snapshots:
+        manifests_for_snapshot = [
+            manifest_file
+            for manifest_file in snapshot.manifests(table.io)
+            if manifest_evaluators[manifest_file.partition_spec_id](manifest_file)
+        ]
+        all_manifests.extend(manifests_for_snapshot)
 
     # step 2: filter the data files in each manifest
     # this filter depends on the partition spec used to write the manifest file
     partition_evaluators = KeyDefaultDict(data_scan._build_partition_evaluator)
     residual_evaluators = KeyDefaultDict(data_scan._build_residual_evaluator)
-    min_sequence_number = _min_sequence_number(manifests)
+    min_sequence_number = _min_sequence_number(all_manifests)
 
-    # {"bucket_index": List[DataFile]}
-    data_entries = defaultdict(list)
-    equality_data_entries = defaultdict(list)
-    positional_delete_entries = defaultdict(list)
+    # {"bucket_index": List[DataFile]} - using dict for deduplication
+    data_entries_registry = defaultdict(
+        dict
+    )  # {partition: {file_path: (seq_num, data_file)}}
+    equality_data_entries_registry = defaultdict(dict)
+    positional_delete_entries_registry = defaultdict(dict)
 
     executor = ExecutorFactory.get_or_create()
+
+    # First loop: Get data files having file_sequence_number >= expected_start_sequence_number
+    # and collect their partition values
+    target_partition_values = set()
+    all_partition_values = []
+    all_table_partition_values = []
     for manifest_entry in chain(
         *executor.map(
             lambda args: _open_manifest(*args),
@@ -240,7 +271,43 @@ def fetch_all_bucket_files(
                     residual_evaluators[manifest.partition_spec_id],
                     data_scan._build_metrics_evaluator(),
                 )
-                for manifest in manifests
+                for manifest in all_manifests
+                if data_scan._check_sequence_number(min_sequence_number, manifest)
+            ],
+        )
+    ):
+        data_file = manifest_entry.data_file
+        file_sequence_number = manifest_entry.sequence_number
+        partition_value = data_file.partition
+
+        # Filter data files by sequence number >= expected_start_sequence_number
+        if (
+            data_file.content == DataFileContent.DATA
+            and file_sequence_number >= expected_start_sequence_number
+        ):
+            target_partition_values.add(partition_value)
+            all_partition_values.append(partition_value)
+
+    logger.info(f"Found {len(all_partition_values)} all partition values")
+    logger.info(
+        f"Found {len(target_partition_values)} target partition values from sequence number >= {expected_start_sequence_number}"
+    )
+    logger.info(f"Found target_partition_values:{target_partition_values}")
+    # Second loop: Get ALL files (data, position deletes, equality deletes)
+    # that have the same partition values as the files from loop 1
+    # Use deduplication logic to keep only the latest version of each file
+    for manifest_entry in chain(
+        *executor.map(
+            lambda args: _open_manifest(*args),
+            [
+                (
+                    data_scan.io,
+                    manifest,
+                    partition_evaluators[manifest.partition_spec_id],
+                    residual_evaluators[manifest.partition_spec_id],
+                    data_scan._build_metrics_evaluator(),
+                )
+                for manifest in all_manifests
                 if data_scan._check_sequence_number(min_sequence_number, manifest)
             ],
         )
@@ -249,15 +316,45 @@ def fetch_all_bucket_files(
         file_sequence_number = manifest_entry.sequence_number
         data_file_tuple = (file_sequence_number, data_file)
         partition_value = data_file.partition
+        file_path = data_file.file_path
 
-        if data_file.content == DataFileContent.DATA:
-            data_entries[partition_value].append(data_file_tuple)
-        elif data_file.content == DataFileContent.POSITION_DELETES:
-            positional_delete_entries[partition_value].append(data_file_tuple)
-        elif data_file.content == DataFileContent.EQUALITY_DELETES:
-            equality_data_entries[partition_value].append(data_file_tuple)
-        else:
-            logger.warning(
-                f"Unknown DataFileContent ({data_file.content}): {manifest_entry}"
-            )
+        # Only include files that have partition values from the target set
+        if partition_value in target_partition_values:
+            if data_file.content == DataFileContent.DATA:
+                # Deduplication: use file_path as key to avoid duplicates
+                data_entries_registry[partition_value][file_path] = data_file_tuple
+            elif data_file.content == DataFileContent.POSITION_DELETES:
+                positional_delete_entries_registry[partition_value][
+                    file_path
+                ] = data_file_tuple
+            elif data_file.content == DataFileContent.EQUALITY_DELETES:
+                equality_data_entries_registry[partition_value][
+                    file_path
+                ] = data_file_tuple
+            else:
+                logger.warning(
+                    f"Unknown DataFileContent ({data_file.content}): {manifest_entry}"
+                )
+
+    # Convert registries back to lists for return
+    data_entries = defaultdict(list)
+    equality_data_entries = defaultdict(list)
+    positional_delete_entries = defaultdict(list)
+
+    for partition_value, files_dict in data_entries_registry.items():
+        data_entries[partition_value] = list(files_dict.values())
+
+    for partition_value, files_dict in equality_data_entries_registry.items():
+        equality_data_entries[partition_value] = list(files_dict.values())
+
+    for partition_value, files_dict in positional_delete_entries_registry.items():
+        positional_delete_entries[partition_value] = list(files_dict.values())
+
+    logger.info(
+        f"Fetched {sum(len(files) for files in data_entries.values())} data files from table, "
+        f"{sum(len(files) for files in equality_data_entries.values())} equality delete files, "
+        f"{sum(len(files) for files in positional_delete_entries.values())} position delete files"
+    )
+    for k, v in data_entries.items():
+        logger.info(f"{len(v)} files for partition value :{k}")
     return data_entries, equality_data_entries, positional_delete_entries

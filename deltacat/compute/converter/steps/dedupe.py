@@ -84,6 +84,7 @@ def dedupe_data_files(
     final_data_table_to_delete = final_data_table_to_delete.drop(
         [sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME, sc._GLOBAL_RECORD_IDX_COLUMN_NAME]
     )
+
     logger.info(
         f"Deduped {len(final_data_table_to_delete)} Records based off identifier columns."
     )

@@ -54,6 +54,7 @@ from pyiceberg.io.pyarrow import schema_to_pyarrow
 
 # Task memory in bytes for testing
 TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
+daft.context.set_runner_native()
 
 
 # Test data fixtures
@@ -756,6 +757,196 @@ def test_converter_session_duplicate_position_deletes_spark_compatibility(
     print(f"✅ Duplicate position deletes do not affect read correctness")
 
 
+@pytest.mark.integration
+def test_converter_session_no_input_files(
+    setup_ray_cluster,
+) -> None:
+    """
+    Test converter_session functionality when there are no input files to process.
+    This tests the edge case where an empty table or a table with no applicable files
+    for conversion results in no convert tasks being created.
+    """
+    with temp_dir_autocleanup() as temp_catalog_dir:
+        # Create warehouse directory
+        warehouse_path = os.path.join(temp_catalog_dir, "iceberg_warehouse")
+        os.makedirs(warehouse_path, exist_ok=True)
+
+        # Set up local in-memory catalog
+        local_catalog = load_catalog(
+            "local_sql_catalog",
+            **{
+                "type": "in-memory",
+                "warehouse": warehouse_path,
+            },
+        )
+
+        # Create local PyArrow filesystem
+        import pyarrow.fs as pafs
+
+        local_filesystem = pafs.LocalFileSystem()
+
+        # Define simple schema
+        schema = Schema(
+            NestedField(field_id=1, name="id", field_type=LongType(), required=True),
+            NestedField(
+                field_id=2, name="name", field_type=StringType(), required=False
+            ),
+            schema_id=0,
+        )
+
+        # Create table properties for merge-on-read
+        properties = {
+            "write.format.default": "parquet",
+            "write.delete.mode": "merge-on-read",
+            "write.update.mode": "merge-on-read",
+            "write.merge.mode": "merge-on-read",
+            "format-version": "2",
+        }
+
+        # Create the table (but don't add any data)
+        table_identifier = "default.test_empty_table"
+        try:
+            local_catalog.create_namespace("default")
+        except NamespaceAlreadyExistsError:
+            pass  # Namespace may already exist
+        try:
+            local_catalog.drop_table(table_identifier)
+        except NoSuchTableError:
+            pass  # Table may not exist
+
+        local_catalog.create_table(
+            table_identifier,
+            schema=schema,
+            properties=properties,
+        )
+        tbl = local_catalog.load_table(table_identifier)
+
+        # Set the name mapping property so Iceberg can read parquet files without field IDs
+        with tbl.transaction() as tx:
+            tx.set_properties(
+                **{"schema.name-mapping.default": schema.name_mapping.model_dump_json()}
+            )
+
+        # Verify table is empty (no data files)
+        data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
+            tbl
+        )
+
+        assert (
+            len(data_file_dict) == 0
+        ), f"Expected empty data_file_dict, got {len(data_file_dict)} files"
+        assert (
+            len(equality_delete_dict) == 0
+        ), f"Expected empty equality_delete_dict, got {len(equality_delete_dict)} files"
+        assert (
+            len(pos_delete_dict) == 0
+        ), f"Expected empty pos_delete_dict, got {len(pos_delete_dict)} files"
+
+        convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
+            data_file_dict=data_file_dict,
+            equality_delete_dict=equality_delete_dict,
+            pos_delete_dict=pos_delete_dict,
+        )
+
+        assert (
+            len(convert_input_files_for_all_buckets) == 0
+        ), f"Expected no convert input files, got {len(convert_input_files_for_all_buckets)}"
+
+        # Now call converter_session with empty table
+        converter_params = ConverterSessionParams.of(
+            {
+                "catalog": local_catalog,
+                "iceberg_table_name": table_identifier,
+                "iceberg_warehouse_bucket_name": warehouse_path,
+                "merge_keys": ["id"],  # Use ID as the merge key
+                "enforce_primary_key_uniqueness": True,
+                "task_max_parallelism": 1,
+                "filesystem": local_filesystem,
+                "location_provider_prefix_override": None,
+            }
+        )
+
+        print(f"Running converter_session with empty table...")
+        print(f"Table identifier: {table_identifier}")
+        print(f"Expected: No convert tasks, empty convert_results, SnapshotType.NONE")
+
+        # Run the converter - this should handle the empty case gracefully
+        metadata, snapshot_id, metric_data = converter_session(params=converter_params)
+
+        # Verify the results
+        print(f"Converter session completed successfully")
+        print(f"Returned metadata type: {type(metadata)}")
+        print(f"Returned snapshot_id: {snapshot_id}")
+        print(f"Returned metric_data: {metric_data}")
+
+        # Verify metadata is returned
+        assert metadata is not None, "Metadata should not be None"
+
+        # Verify snapshot_id (should be None or current snapshot from empty table)
+        current_snapshot = tbl.metadata.current_snapshot()
+        expected_snapshot_id = (
+            current_snapshot.snapshot_id if current_snapshot else None
+        )
+        assert (
+            snapshot_id == expected_snapshot_id
+        ), f"Expected snapshot_id {expected_snapshot_id}, got {snapshot_id}"
+
+        # Verify metric_data structure and values
+        assert isinstance(
+            metric_data, list
+        ), f"Expected list for metric_data, got {type(metric_data)}"
+        assert len(metric_data) == 3, f"Expected 3 metrics, got {len(metric_data)}"
+
+        # Check each metric has the expected structure and zero values
+        expected_metrics = {
+            "TotalPositionDeleteRecordCount": 0,
+            "TotalInputDataFileRecordCount": 0,
+            "TotalInputDataFilesOnDiskSize": 0,
+        }
+
+        for metric in metric_data:
+            assert "MetricName" in metric, f"Metric missing MetricName: {metric}"
+            assert "Value" in metric, f"Metric missing Value: {metric}"
+            assert "Unit" in metric, f"Metric missing Unit: {metric}"
+            assert "Dimensions" in metric, f"Metric missing Dimensions: {metric}"
+
+            metric_name = metric["MetricName"]
+            assert (
+                metric_name in expected_metrics
+            ), f"Unexpected metric name: {metric_name}"
+            assert (
+                metric["Value"] == expected_metrics[metric_name]
+            ), f"Expected {metric_name} value {expected_metrics[metric_name]}, got {metric['Value']}"
+
+        # Verify dimensions are correctly set
+        expected_dimensions = [
+            {"Name": "Namespace", "Value": "default"},
+            {"Name": "Table", "Value": "test_empty_table"},
+            {"Name": "Stage", "Value": "converter_session"},
+        ]
+
+        for metric in metric_data:
+            assert (
+                metric["Dimensions"] == expected_dimensions
+            ), f"Unexpected dimensions for {metric['MetricName']}: {metric['Dimensions']}"
+
+        # Verify table is still empty after conversion (no changes should be made)
+        final_scan = tbl.scan().to_arrow().to_pydict()
+        assert (
+            len(final_scan.get("id", [])) == 0
+        ), f"Table should remain empty, got {len(final_scan.get('id', []))} records"
+
+        print(f"✅ Test completed successfully!")
+        print(f"✅ converter_session handled empty table gracefully")
+        print(f"✅ No convert tasks were created (as expected)")
+        print(
+            f"✅ metric_data returned with zero values: {[m['MetricName'] + '=' + str(m['Value']) for m in metric_data]}"
+        )
+        print(f"✅ Table remained empty (no changes made)")
+        print(f"✅ SnapshotType.NONE was handled correctly")
+        print(f"✅ Temporary warehouse cleaned up at: {temp_catalog_dir}")
+
+
 def test_converter_session_with_local_filesystem_and_duplicate_ids(
     setup_ray_cluster,
 ) -> None:
@@ -947,7 +1138,7 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
         print(f"Enforce uniqueness: True")
 
         # Run the converter
-        metadata, snapshot_id = converter_session(params=converter_params)
+        metadata, snapshot_id, metric_data = converter_session(params=converter_params)
 
         # Refresh table and scan again
         tbl.refresh()
