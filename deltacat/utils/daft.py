@@ -662,10 +662,19 @@ class DaftPartitionKeyMapper(ModelMapper[DaftPartitionField, PartitionKey]):
         )
 
         # Create DaftPartitionField
+        # Convert PartitionTransform to PyPartitionTransform if needed
+        py_transform = None
+        if daft_transform is not None:
+            # Check if the transform has an _into_py method for conversion
+            if hasattr(daft_transform, "_into_py"):
+                py_transform = daft_transform._into_py()
+            else:
+                py_transform = daft_transform
+
         return make_partition_field(
             field=daft_partition_field,
             source_field=daft_source_field,
-            transform=daft_transform,
+            transform=py_transform,
         )
 
     @staticmethod

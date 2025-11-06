@@ -54,7 +54,36 @@ from pyiceberg.io.pyarrow import schema_to_pyarrow
 
 # Task memory in bytes for testing
 TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
-daft.context.set_runner_native()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def daft_native_runner_session():
+    """
+    Session-scoped fixture to set Daft to use native runner for converter integration tests.
+    This is set once per test session and cannot be changed (Daft limitation).
+    Autouse=True ensures it's applied automatically to all tests in this module.
+    """
+    # Set to native runner for all integration tests in this module
+    # Note: Daft only allows setting runner once per session
+    try:
+        daft.context.set_runner_native()
+    except Exception as e:
+        # If runner is already set, that's okay - just log it
+        print(f"Note: Daft runner already set, continuing with existing runner: {e}")
+
+    yield
+
+    # No teardown needed - Daft doesn't allow changing runner after it's set
+
+
+@pytest.fixture
+def daft_native_runner():
+    """
+    Per-test fixture that depends on the session-scoped runner setup.
+    This ensures tests get the native runner without trying to change it.
+    """
+    # Just yield - the actual setup is done by the session fixture
+    yield
 
 
 # Test data fixtures
@@ -447,6 +476,7 @@ def test_converter(
     setup_ray_cluster,
     mocker,
     request,
+    daft_native_runner,
 ) -> None:
     """
     Parameterized test for converter functionality.
@@ -556,6 +586,7 @@ def test_converter_session_duplicate_position_deletes_spark_compatibility(
     base_schema_without_metadata,
     base_partition_spec,
     table_properties,
+    daft_native_runner,
 ) -> None:
     """
     Test that when the same position delete gets added twice, Spark can still read it correctly.
@@ -760,6 +791,7 @@ def test_converter_session_duplicate_position_deletes_spark_compatibility(
 @pytest.mark.integration
 def test_converter_session_no_input_files(
     setup_ray_cluster,
+    daft_native_runner,
 ) -> None:
     """
     Test converter_session functionality when there are no input files to process.
@@ -949,6 +981,7 @@ def test_converter_session_no_input_files(
 
 def test_converter_session_with_local_filesystem_and_duplicate_ids(
     setup_ray_cluster,
+    daft_native_runner,
 ) -> None:
     """
     Test converter_session functionality with local PyArrow filesystem using duplicate IDs.

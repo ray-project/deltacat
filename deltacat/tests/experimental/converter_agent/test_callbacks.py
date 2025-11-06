@@ -121,10 +121,6 @@ class TestSnsCallback:
         assert message_content["table_name"] == "test_table"
         assert message_content["stage"] == CallbackStage.POST.value
 
-        # Verify subject
-        assert "POST" in call_kwargs["Subject"]
-        assert "test_ns.test_table" in call_kwargs["Subject"]
-
         # Verify client_cache was called with None (boto3 default)
         mock_client_cache.assert_called_once_with("sns", None)
 

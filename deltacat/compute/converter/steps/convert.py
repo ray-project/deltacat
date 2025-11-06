@@ -367,6 +367,7 @@ def compute_pos_delete_with_limited_parallelism(
         if new_pos_delete_table is not None:
             new_pos_delete_table_total.append(new_pos_delete_table)
 
+    new_pos_delete_table_total_sorted = None
     # Filter out None values and concatenate only if we have valid tables
     if new_pos_delete_table_total:
         new_pos_delete_table_total = pa.concat_tables(new_pos_delete_table_total)

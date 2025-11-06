@@ -208,7 +208,17 @@ class TestConverterSessionUtils:
         mock_partition = Mock()
         mock_partition.__repr__ = Mock(return_value="Record[year=2023, month=12]")
 
-        result = partition_value_record_to_partition_value_string(mock_partition)
+        # Mock table metadata with partition spec and schema
+        mock_table_metadata = Mock()
+        mock_partition_spec = Mock()
+        mock_schema = Mock()
+        mock_table_metadata.spec.return_value = mock_partition_spec
+        mock_table_metadata.schema.return_value = mock_schema
+        mock_partition_spec.partition_to_path.return_value = "year=2023/month=12"
+
+        result = partition_value_record_to_partition_value_string(
+            mock_partition, mock_table_metadata
+        )
 
         expected = "year=2023/month=12"
         assert result == expected
@@ -218,7 +228,17 @@ class TestConverterSessionUtils:
         mock_partition = Mock()
         mock_partition.__repr__ = Mock(return_value="Record[date=2023-12-01]")
 
-        result = partition_value_record_to_partition_value_string(mock_partition)
+        # Mock table metadata with partition spec and schema
+        mock_table_metadata = Mock()
+        mock_partition_spec = Mock()
+        mock_schema = Mock()
+        mock_table_metadata.spec.return_value = mock_partition_spec
+        mock_table_metadata.schema.return_value = mock_schema
+        mock_partition_spec.partition_to_path.return_value = "date=2023-12-01"
+
+        result = partition_value_record_to_partition_value_string(
+            mock_partition, mock_table_metadata
+        )
 
         expected = "date=2023-12-01"
         assert result == expected
@@ -419,7 +439,17 @@ class TestConverterSessionUtilsEdgeCases:
         mock_partition = Mock()
         mock_partition.__repr__ = Mock(return_value="Record[complex=[nested=value]]")
 
-        result = partition_value_record_to_partition_value_string(mock_partition)
+        # Mock table metadata with partition spec and schema
+        mock_table_metadata = Mock()
+        mock_partition_spec = Mock()
+        mock_schema = Mock()
+        mock_table_metadata.spec.return_value = mock_partition_spec
+        mock_table_metadata.schema.return_value = mock_schema
+        mock_partition_spec.partition_to_path.return_value = "complex=[nested=value"
+
+        result = partition_value_record_to_partition_value_string(
+            mock_partition, mock_table_metadata
+        )
 
         # Should extract content between first [ and first ]
         expected = "complex=[nested=value"

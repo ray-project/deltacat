@@ -50,15 +50,15 @@ class DaftCatalog(Catalog):
         return self._name
 
     ###
-    # create_*
+    # Abstract methods (with underscore prefix as required by Daft)
     ###
-    def create_namespace(self, identifier: Identifier | str):
+    def _create_namespace(self, identifier: Identifier | str):
         """Create a new namespace in the catalog."""
         if isinstance(identifier, Identifier):
             identifier = str(identifier)
         self.dc_catalog.impl.create_namespace(identifier, inner=self.dc_catalog.inner)
 
-    def create_table(
+    def _create_table(
         self, identifier: Identifier | str, source: Schema | DataFrame, **kwargs
     ) -> Table:
         """
@@ -84,6 +84,19 @@ class DaftCatalog(Catalog):
             raise Exception(
                 f"Expected table source to be Schema or DataFrame. Found: {type(source)}"
             )
+
+    ###
+    # Public methods (delegate to abstract methods)
+    ###
+    def create_namespace(self, identifier: Identifier | str):
+        """Create a new namespace in the catalog."""
+        return self._create_namespace(identifier)
+
+    def create_table(
+        self, identifier: Identifier | str, source: Schema | DataFrame, **kwargs
+    ) -> Table:
+        """Create a table in the catalog."""
+        return self._create_table(identifier, source, **kwargs)
 
     def _create_table_from_df(
         self, ident: Identifier | str, source: DataFrame, **kwargs
@@ -120,21 +133,16 @@ class DaftCatalog(Catalog):
 
         return DaftTable._from_obj(table_def)
 
-    ###
-    # drop_*
-    ###
+    def _drop_namespace(self, identifier: Identifier | str):
+        """Drop a namespace from the catalog."""
+        raise NotImplementedError("Drop namespace not implemented")
 
-    def drop_namespace(self, identifier: Identifier | str):
-        raise NotImplementedError()
+    def _drop_table(self, identifier: Identifier | str):
+        """Drop a table from the catalog."""
+        raise NotImplementedError("Drop table not implemented")
 
-    def drop_table(self, identifier: Identifier | str):
-        raise NotImplementedError()
-
-    ###
-    # get_*
-    ###
-
-    def get_table(self, identifier: Identifier | str, **kwargs) -> Table:
+    def _get_table(self, identifier: Identifier | str, **kwargs) -> Table:
+        """Get a table from the catalog."""
         namespace, table, version = self._extract_namespace_name_version(identifier)
 
         table_def = self.dc_catalog.impl.get_table(
@@ -150,15 +158,81 @@ class DaftCatalog(Catalog):
 
         return DaftTable._from_obj(table_def)
 
+    def _has_namespace(self, identifier: Identifier | str) -> bool:
+        """Check if a namespace exists in the catalog."""
+        if isinstance(identifier, Identifier):
+            identifier = str(identifier)
+        try:
+            # Try to list tables in the namespace - if it fails, namespace doesn't exist
+            self.dc_catalog.impl.list_tables(
+                namespace=identifier, inner=self.dc_catalog.inner
+            )
+            return True
+        except Exception:
+            return False
+
+    def _has_table(self, identifier: Identifier | str) -> bool:
+        """Check if a table exists in the catalog."""
+        try:
+            self._get_table(identifier)
+            return True
+        except (ValueError, Exception):
+            return False
+
+    def _list_namespaces(self, pattern: str | None = None) -> list[Identifier]:
+        """List namespaces in the catalog."""
+        try:
+            namespaces = self.dc_catalog.impl.list_namespaces(
+                inner=self.dc_catalog.inner
+            )
+            return [Identifier(ns) for ns in namespaces]
+        except Exception:
+            # If not implemented in the catalog, return empty list
+            return []
+
+    def _list_tables(self, pattern: str | None = None) -> list[str]:
+        """List tables in the catalog."""
+        try:
+            # List tables from default namespace if no pattern provided
+            namespace = DEFAULT_NAMESPACE
+            tables = self.dc_catalog.impl.list_tables(
+                namespace=namespace, inner=self.dc_catalog.inner
+            )
+            return [table.table_name for table in tables]
+        except Exception:
+            # If not implemented in the catalog, return empty list
+            return []
+
     ###
-    # list_*
+    # Public methods (delegate to abstract methods)
     ###
+    def drop_namespace(self, identifier: Identifier | str):
+        """Drop a namespace from the catalog."""
+        return self._drop_namespace(identifier)
+
+    def drop_table(self, identifier: Identifier | str):
+        """Drop a table from the catalog."""
+        return self._drop_table(identifier)
+
+    def get_table(self, identifier: Identifier | str, **kwargs) -> Table:
+        """Get a table from the catalog."""
+        return self._get_table(identifier, **kwargs)
+
+    def has_namespace(self, identifier: Identifier | str) -> bool:
+        """Check if a namespace exists in the catalog."""
+        return self._has_namespace(identifier)
+
+    def has_table(self, identifier: Identifier | str) -> bool:
+        """Check if a table exists in the catalog."""
+        return self._has_table(identifier)
 
     def list_namespaces(self, pattern: str | None = None) -> list[Identifier]:
-        raise NotImplementedError("Not implemented")
+        """List namespaces in the catalog."""
+        return self._list_namespaces(pattern)
 
     def list_tables(self, pattern: str | None = None) -> list[str]:
-        raise NotImplementedError("Not implemented")
+        """List tables in the catalog."""
+        return self._list_tables(pattern)
 
     def _extract_namespace_name_version(
         self, ident: Identifier | str
