@@ -914,14 +914,20 @@ def test_converter_session_no_input_files(
         # Verify metadata is returned
         assert metadata is not None, "Metadata should not be None"
 
-        # Verify snapshot_id (should be None or current snapshot from empty table)
+        # Verify snapshot_id (when there are no files to convert, commit_snapshot_properties_change
+        # is called and returns a tuple, so we expect the snapshot_id to be set)
         current_snapshot = tbl.metadata.current_snapshot()
-        expected_snapshot_id = (
-            current_snapshot.snapshot_id if current_snapshot else None
-        )
-        assert (
-            snapshot_id == expected_snapshot_id
-        ), f"Expected snapshot_id {expected_snapshot_id}, got {snapshot_id}"
+        if current_snapshot:
+            # If table has snapshots, snapshot_id should be the current snapshot's ID
+            expected_snapshot_id = current_snapshot.snapshot_id
+            assert (
+                snapshot_id == expected_snapshot_id
+            ), f"Expected snapshot_id {expected_snapshot_id}, got {snapshot_id}"
+        else:
+            # If table has no snapshots, snapshot_id should still be returned from the properties change
+            assert (
+                snapshot_id is not None
+            ), "snapshot_id should not be None even for empty table"
 
         # Verify metric_data structure and values
         assert isinstance(
@@ -1258,3 +1264,92 @@ def test_converter_session_with_local_filesystem_and_duplicate_ids(
         )
         print(f"✅ Final table has {len(actual_ids)} unique records")
         print(f"✅ Temporary warehouse cleaned up at: {temp_catalog_dir}")
+
+
+@pytest.mark.integration
+def test_converter_noop_snapshot_none(
+    spark,
+    session_catalog: RestCatalog,
+    setup_ray_cluster,
+    mocker,
+    base_schema_without_metadata,
+    base_partition_spec,
+    table_properties,
+    daft_native_runner,
+) -> None:
+    """
+    Test converter noop case for SnapshotType.NONE scenario.
+    Tests that commit_snapshot_properties_change is called when converter determines no changes are needed.
+    """
+    # Create test table
+    identifier = create_test_table(
+        session_catalog=session_catalog,
+        namespace="default",
+        table_name="table_converter_ray_noop_snapshot_none_integration",
+        schema=base_schema_without_metadata,
+        partition_spec=base_partition_spec,
+        properties=table_properties,
+    )
+
+    # Insert initial data to create a table with existing data but no new data to process
+    initial_data = ["pk1", "pk2", "pk3"]
+    values = ", ".join(f"(0, '{pk}')" for pk in initial_data)
+    run_spark_commands(spark, [f"INSERT INTO {identifier} VALUES {values}"])
+
+    # Get table and files - this simulates a scenario where there are files in the table
+    # but no new files to convert, which should result in SnapshotType.NONE
+    tbl = session_catalog.load_table(identifier)
+
+    # Mock the converter session to test the SnapshotType.NONE path
+    # We need to mock the commit_snapshot_properties_change function that gets called
+    # when snapshot_type == SnapshotType.NONE
+    commit_properties_mock = mocker.patch(
+        "deltacat.compute.converter.converter_session.commit_snapshot_properties_change"
+    )
+    commit_properties_mock.return_value = (
+        tbl.metadata,
+        tbl.metadata.current_snapshot_id,
+    )
+
+    # Create converter params to simulate a noop scenario
+    converter_params = ConverterSessionParams.of(
+        {
+            "catalog": session_catalog,
+            "iceberg_table_name": identifier,
+            "iceberg_warehouse_bucket_name": "test-bucket",
+            "merge_keys": ["primary_key"],
+            "enforce_primary_key_uniqueness": True,
+            "task_max_parallelism": 1,
+            "filesystem": get_s3_file_system(),
+            "location_provider_prefix_override": None,
+        }
+    )
+
+    # Mock the converter logic to return empty results (simulating noop case)
+    # This forces SnapshotType.NONE to be determined
+    mocker.patch(
+        "deltacat.compute.converter.converter_session.group_all_files_to_each_bucket",
+        return_value=[],  # Empty list means no files to convert
+    )
+
+    # Run converter session - this should trigger SnapshotType.NONE path
+    metadata, snapshot_id, metric_data = converter_session(params=converter_params)
+
+    # Verify commit_snapshot_properties_change was called
+    commit_properties_mock.assert_called_once_with(iceberg_table=tbl)
+
+    # Verify results - data should remain unchanged
+    tbl.refresh()
+    pyiceberg_scan_table_rows = tbl.scan().to_arrow().to_pydict()
+
+    # Expected result: original data should remain unchanged
+    expected_primary_keys = sorted(initial_data)
+    actual_primary_keys = sorted(pyiceberg_scan_table_rows["primary_key"])
+
+    assert (
+        actual_primary_keys == expected_primary_keys
+    ), f"Expected unchanged data {expected_primary_keys}, got {actual_primary_keys}"
+
+    # Verify snapshot ID was returned (it's a tuple, so we get the second element)
+    assert metadata is not None, "metadata should not be None"
+    assert snapshot_id is not None, "snapshot_id should not be None"

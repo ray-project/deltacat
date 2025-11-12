@@ -19,6 +19,7 @@ import logging
 from deltacat import logs
 from pyiceberg.utils.concurrent import ExecutorFactory
 from pyiceberg.table.update.snapshot import _SnapshotProducer, UpdateSnapshot
+
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 
@@ -186,6 +187,31 @@ def commit_append_snapshot(
     else:
         metadata = tx.commit_transaction().metadata
         return (metadata, append_snapshot._snapshot_id)
+
+
+def commit_snapshot_properties_change(iceberg_table: Table):
+    tx = iceberg_table.transaction()
+    try:
+        if iceberg_table.metadata.name_mapping() is None:
+            tx.set_properties(
+                **{
+                    "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
+                }
+            )
+        current_snapshot_id = (
+            iceberg_table.metadata.current_snapshot_id
+            if iceberg_table.metadata.current_snapshot_id
+            else "None"
+        )
+        tx.set_properties(**{"ray.converter.snapshot_id": current_snapshot_id})
+    except Exception as e:
+        raise e
+    else:
+        metadata = tx.commit_transaction().metadata
+        logger.info(
+            f"Successfully committed only table properties change with ray.converter.snapshot_id:{current_snapshot_id}"
+        )
+        return (metadata, current_snapshot_id)
 
 
 def append_delete_files_override(

@@ -26,6 +26,7 @@ from deltacat.compute.converter.utils.converter_session_utils import (
 from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
     commit_replace_snapshot,
     commit_append_snapshot,
+    commit_snapshot_properties_change,
 )
 from deltacat.compute.converter.pyiceberg.catalog import load_table
 from deltacat.compute.converter.utils.converter_session_utils import (
@@ -309,6 +310,9 @@ def converter_session(
     )
 
     if snapshot_type == SnapshotType.NONE:
+        converter_snapshot_id = commit_snapshot_properties_change(
+            iceberg_table=iceberg_table,
+        )
         logger.info(
             _get_snapshot_action_description(
                 snapshot_type, to_be_deleted_files_list, to_be_added_files_list
@@ -316,7 +320,7 @@ def converter_session(
         )
         return (
             iceberg_table.metadata,
-            iceberg_table.metadata.current_snapshot_id,
+            converter_snapshot_id,
             metric_data,
         )
 

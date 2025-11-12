@@ -147,10 +147,10 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
         total_pos_delete_table.append(pos_delete_after_dedupe)
 
     total_pos_delete = pa.concat_tables(total_pos_delete_table)
+
     total_pos_delete_sorted = total_pos_delete.sort_by(
         [(sc._FILE_PATH_COLUMN_NAME, "ascending")]
     )
-
     logger.info(
         f"[Convert task {convert_task_index}]: Total position delete produced:{len(total_pos_delete)}"
     )
@@ -372,10 +372,6 @@ def compute_pos_delete_with_limited_parallelism(
     if new_pos_delete_table_total:
         new_pos_delete_table_total = pa.concat_tables(new_pos_delete_table_total)
 
-        # Sort by file_path column before returning
-        new_pos_delete_table_total_sorted = new_pos_delete_table_total.sort_by(
-            [(sc._FILE_PATH_COLUMN_NAME, "ascending")]
-        )
     else:
         new_pos_delete_table_total = None
 

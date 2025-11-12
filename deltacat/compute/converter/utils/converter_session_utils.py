@@ -61,7 +61,9 @@ def construct_iceberg_table_prefix(
     return f"{iceberg_warehouse_bucket_name}/{iceberg_namespace}/{table_name}/data"
 
 
-def partition_value_record_to_partition_value_string(partition: Any, table_metadata) -> str:
+def partition_value_record_to_partition_value_string(
+    partition: Any, table_metadata
+) -> str:
     partition_spec = table_metadata.spec()
     schema = table_metadata.schema()
     partition_path = partition_spec.partition_to_path(partition, schema)
@@ -104,9 +106,9 @@ def group_all_files_to_each_bucket(
             convert_input_file.applicable_equality_delete_files = (
                 files_for_each_bucket_for_deletes[partition_value][1]
             )
-            convert_input_file.existing_position_delete_files = (
-                pos_delete_dict[partition_value]
-            )
+            convert_input_file.existing_position_delete_files = pos_delete_dict[
+                partition_value
+            ]
         convert_input_files_for_all_buckets.append(convert_input_file)
     return convert_input_files_for_all_buckets
 
