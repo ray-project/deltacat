@@ -126,7 +126,7 @@ if importlib.util.find_spec("pyiceberg") is not None:
 
 deltacat.logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-__version__ = "2.0.0.post5"
+__version__ = "2.0.0.post4"
 
 
 __all__ = [
