@@ -1,4 +1,5 @@
 import unittest
+import ray
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.utils.daft import (
     daft_file_to_pyarrow_table,
@@ -165,6 +166,8 @@ class TestFilesToDataFrame(unittest.TestCase):
     MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
 
     def test_read_local_files_all_columns(self):
+        if not ray.is_initialized():
+            ray.init()
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
@@ -177,6 +180,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.num_rows, 100)
 
     def test_read_local_files_with_column_selection(self):
+        if not ray.is_initialized():
+            ray.init()
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
@@ -190,6 +195,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.num_rows, 100)
 
     def test_read_local_files_does_not_materialize_by_default(self):
+        if not ray.is_initialized():
+            ray.init()
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
             content_encoding=ContentEncoding.IDENTITY.value,
@@ -205,6 +212,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(len(df), 100)
 
     def test_supports_unescaped_tsv_content_type(self):
+        if not ray.is_initialized():
+            ray.init()
         # Test that UNESCAPED_TSV is now supported (was previously unsupported)
         # Use a CSV file since we're testing TSV reader functionality
         csv_path = "deltacat/tests/utils/data/non_empty_valid.csv"
@@ -221,6 +230,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertGreater(len(table.schema.names), 0)
 
     def test_supports_gzip_content_encoding(self):
+        if not ray.is_initialized():
+            ray.init()
         # Test that GZIP encoding is now supported (was previously unsupported)
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
@@ -234,6 +245,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.num_rows, 100)
 
     def test_raises_error_if_not_supported_content_type(self):
+        if not ray.is_initialized():
+            ray.init()
         # Test that truly unsupported content types raise NotImplementedError
         self.assertRaises(
             NotImplementedError,
@@ -246,6 +259,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         )
 
     def test_raises_error_if_not_supported_content_encoding(self):
+        if not ray.is_initialized():
+            ray.init()
         # Test that truly unsupported content encodings raise NotImplementedError
         self.assertRaises(
             NotImplementedError,
@@ -258,6 +273,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         )
 
     def test_accepts_custom_kwargs(self):
+        if not ray.is_initialized():
+            ray.init()
         # Test that custom kwargs are passed through to daft.read_parquet
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
@@ -273,6 +290,8 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.num_rows, 100)
 
     def test_accepts_io_config(self):
+        if not ray.is_initialized():
+            ray.init()
         # Test that io_config parameter is accepted and passed correctly
         df = files_to_dataframe(
             uris=[self.MVP_PATH],

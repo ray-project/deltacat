@@ -97,7 +97,7 @@ def group_all_files_to_each_bucket(
         convert_input_file = ConvertInputFiles.of(
             partition_value=partition_value,
             all_data_files_for_dedupe=all_data_files_for_each_bucket,
-            existing_position_delete_files=pos_delete_dict[partition_value],
+            existing_position_delete_files=pos_delete_dict.get(partition_value, []),
         )
         if partition_value in files_for_each_bucket_for_deletes:
             convert_input_file.applicable_data_files = (
@@ -106,9 +106,9 @@ def group_all_files_to_each_bucket(
             convert_input_file.applicable_equality_delete_files = (
                 files_for_each_bucket_for_deletes[partition_value][1]
             )
-            convert_input_file.existing_position_delete_files = pos_delete_dict[
-                partition_value
-            ]
+            convert_input_file.existing_position_delete_files = pos_delete_dict.get(
+                partition_value, []
+            )
         convert_input_files_for_all_buckets.append(convert_input_file)
     return convert_input_files_for_all_buckets
 

@@ -302,3 +302,16 @@ class DaftTable(Table):
 
     def write(self, df: DataFrame | object, mode: str = "append", **options):
         raise NotImplementedError("Not implemented")
+
+    def append(self, df: DataFrame, **options):
+        """Append data to the table."""
+        raise NotImplementedError("Not implemented")
+
+    def overwrite(self, df: DataFrame, **options):
+        """Overwrite data in the table."""
+        raise NotImplementedError("Not implemented")
+
+    @property
+    def schema(self):
+        """Return the table schema."""
+        raise NotImplementedError("Not implemented")

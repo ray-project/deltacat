@@ -7632,6 +7632,9 @@ class TestDelta:
     def test_download_delta_distributed_daft_basic(self):
         """Test basic distributed download with DAFT dataset type."""
 
+        if not ray.is_initialized():
+            ray.init()
+
         # Create test data
         test_data = pd.DataFrame(
             {
@@ -7688,6 +7691,9 @@ class TestDelta:
     def test_download_delta_distributed_daft_with_delta_locator(self):
         """Test DAFT distributed download using DeltaLocator instead of Delta object."""
 
+        if not ray.is_initialized():
+            ray.init()
+
         test_data = pd.DataFrame(
             {
                 "id": [12101, 12102, 12103],
@@ -7726,6 +7732,9 @@ class TestDelta:
 
     def test_download_delta_distributed_daft_vs_ray_consistency(self):
         """Test that DAFT and Ray distributed downloads return the same data."""
+
+        if not ray.is_initialized():
+            ray.init()
 
         test_data = pd.DataFrame(
             {
