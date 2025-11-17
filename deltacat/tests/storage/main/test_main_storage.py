@@ -9,6 +9,7 @@ import pandas as pd
 import polars as pl
 import numpy as np
 import ray
+import daft
 import ray.data
 
 from deltacat import PartitionKey, PartitionScheme
@@ -7632,8 +7633,7 @@ class TestDelta:
     def test_download_delta_distributed_daft_basic(self):
         """Test basic distributed download with DAFT dataset type."""
 
-        if not ray.is_initialized():
-            ray.init()
+        daft.context.set_runner_ray()
 
         # Create test data
         test_data = pd.DataFrame(
@@ -7691,7 +7691,8 @@ class TestDelta:
     def test_download_delta_distributed_daft_with_delta_locator(self):
         """Test DAFT distributed download using DeltaLocator instead of Delta object."""
 
-        if not ray.is_initialized():
+        if ray.is_initialized():
+            ray.shutdown()
             ray.init()
 
         test_data = pd.DataFrame(
@@ -7733,7 +7734,8 @@ class TestDelta:
     def test_download_delta_distributed_daft_vs_ray_consistency(self):
         """Test that DAFT and Ray distributed downloads return the same data."""
 
-        if not ray.is_initialized():
+        if ray.is_initialized():
+            ray.shutdown()
             ray.init()
 
         test_data = pd.DataFrame(
