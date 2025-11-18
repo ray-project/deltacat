@@ -116,8 +116,12 @@ def converter_session(
         params.position_delete_for_multiple_data_files
     )
 
+    logger.info(f"Fetching all bucket files for table {table_identifier}...")
     data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
         table=iceberg_table
+    )
+    logger.info(
+        f"Fetched files - data: {len(data_file_dict)}, equality_delete: {len(equality_delete_dict)}, pos_delete: {len(pos_delete_dict)}"
     )
 
     convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
@@ -181,7 +185,9 @@ def converter_session(
             )
         }
 
-    logger.info(f"Getting remote convert tasks...")
+    logger.info(f"Creating {len(convert_input_files_for_all_buckets)} convert tasks...")
+    logger.info(f"Task max parallelism: {task_max_parallelism}")
+
     # Ray remote task: convert
     # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
@@ -193,10 +199,12 @@ def converter_session(
     )
 
     to_be_deleted_files_list: List[DataFile] = []
-    logger.info(f"Finished invoking {len(convert_tasks_pending)} convert tasks.")
+    logger.info(
+        f"Finished invoking {len(convert_tasks_pending)} convert tasks, waiting for results..."
+    )
 
     convert_results: List[ConvertResult] = ray.get(convert_tasks_pending)
-    logger.info(f"Got {len(convert_tasks_pending)} convert tasks.")
+    logger.info(f"Got {len(convert_tasks_pending)} convert task results.")
 
     total_position_delete_record_count = sum(
         convert_result.position_delete_record_count

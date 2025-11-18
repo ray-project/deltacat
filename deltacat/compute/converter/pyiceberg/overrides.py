@@ -259,7 +259,7 @@ def fetch_all_bucket_files(
     # and collect their partition values
     target_partition_values = set()
     all_partition_values = []
-    all_table_partition_values = []
+
     for manifest_entry in chain(
         *executor.map(
             lambda args: _open_manifest(*args),

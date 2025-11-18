@@ -57,11 +57,11 @@ TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
 
 
 @pytest.fixture(scope="session")
-def daft_native_runner_session():
+def daft_native_runner():
     """
     Session-scoped fixture to set Daft to use native runner for converter integration tests.
     This is set once per test session and cannot be changed (Daft limitation).
-    Only applied to tests that explicitly request daft_native_runner.
+    Tests that need the native runner should explicitly request this fixture.
     """
     # Set to native runner only when explicitly requested
     # Note: Daft only allows setting runner once per session
@@ -74,17 +74,6 @@ def daft_native_runner_session():
     yield
 
     # No teardown needed - Daft doesn't allow changing runner after it's set
-
-
-@pytest.fixture
-def daft_native_runner(daft_native_runner_session):
-    """
-    Per-test fixture that depends on the session-scoped runner setup.
-    This ensures tests get the native runner without trying to change it.
-    Tests must explicitly request this fixture to use the native runner.
-    """
-    # Just yield - the actual setup is done by the session fixture
-    yield
 
 
 # Test data fixtures

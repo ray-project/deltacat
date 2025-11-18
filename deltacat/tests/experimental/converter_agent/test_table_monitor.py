@@ -322,7 +322,9 @@ class TestCallbackStage:
 class TestTableMonitorEndToEnd:
     """End-to-end integration test for table monitor."""
 
-    def test_table_monitor_with_shared_catalog(self, setup_ray_cluster):
+    def test_table_monitor_with_shared_catalog(
+        self, setup_ray_cluster, daft_native_runner
+    ):
         """
         Test that table monitor automatically detects and converts data using a shared catalog.
 

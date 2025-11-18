@@ -421,6 +421,7 @@ def monitor_table(
                         params=converter_params
                     )
                     conversion_end_time = time.time_ns()  # Nanosecond precision
+                    logger.info(f"Converter session completed successfully")
 
                     logger.info(f"Converter session completed successfully")
                     current_snapshot_id = snapshot_id

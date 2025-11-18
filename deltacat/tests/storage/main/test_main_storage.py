@@ -9,7 +9,6 @@ import pandas as pd
 import polars as pl
 import numpy as np
 import ray
-import daft
 import ray.data
 
 from deltacat import PartitionKey, PartitionScheme
@@ -7629,11 +7628,9 @@ class TestDelta:
             )
 
     # ========== DAFT DISTRIBUTED TESTS ==========
-
+    @pytest.mark.integration
     def test_download_delta_distributed_daft_basic(self):
         """Test basic distributed download with DAFT dataset type."""
-
-        daft.context.set_runner_ray()
 
         # Create test data
         test_data = pd.DataFrame(
@@ -7688,12 +7685,9 @@ class TestDelta:
         ), "Column names mismatch"
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
+    @pytest.mark.integration
     def test_download_delta_distributed_daft_with_delta_locator(self):
         """Test DAFT distributed download using DeltaLocator instead of Delta object."""
-
-        if ray.is_initialized():
-            ray.shutdown()
-            ray.init()
 
         test_data = pd.DataFrame(
             {
@@ -7731,12 +7725,9 @@ class TestDelta:
         expected_df = test_data.sort_values("id").reset_index(drop=True)
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
+    @pytest.mark.integration
     def test_download_delta_distributed_daft_vs_ray_consistency(self):
         """Test that DAFT and Ray distributed downloads return the same data."""
-
-        if ray.is_initialized():
-            ray.shutdown()
-            ray.init()
 
         test_data = pd.DataFrame(
             {
