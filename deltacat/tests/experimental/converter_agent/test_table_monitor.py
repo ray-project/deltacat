@@ -319,6 +319,7 @@ class TestCallbackStage:
         assert context["stage"] == CallbackStage.PRE.value
 
 
+@pytest.mark.integration
 class TestTableMonitorEndToEnd:
     """End-to-end integration test for table monitor."""
 
