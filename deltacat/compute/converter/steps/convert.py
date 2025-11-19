@@ -65,11 +65,14 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
     applicable_equality_delete_files = (
         convert_input_files.applicable_equality_delete_files
     )
+    applicable_position_delete_files = (
+        convert_input_files.existing_position_delete_files
+    )
 
     all_data_files_for_this_bucket = convert_input_files.all_data_files_for_dedupe
 
     partition_value_str = partition_value_record_to_partition_value_string(
-        convert_input_files.partition_value
+        convert_input_files.partition_value, table_metadata
     )
     partition_value = convert_input_files.partition_value
 
@@ -81,7 +84,9 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
         iceberg_table_warehouse_prefix_with_partition = (
             f"{iceberg_table_warehouse_prefix}"
         )
-
+    logger.info(
+        f"iceberg_table_warehouse_prefix_with_partition:{iceberg_table_warehouse_prefix_with_partition}"
+    )
     enforce_primary_key_uniqueness = convert_input.enforce_primary_key_uniqueness
     total_pos_delete_table = []
     data_table_after_converting_equality_delete = []
@@ -143,14 +148,16 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
 
     total_pos_delete = pa.concat_tables(total_pos_delete_table)
 
+    total_pos_delete_sorted = total_pos_delete.sort_by(
+        [(sc._FILE_PATH_COLUMN_NAME, "ascending")]
+    )
     logger.info(
         f"[Convert task {convert_task_index}]: Total position delete produced:{len(total_pos_delete)}"
     )
-
     to_be_added_files_list = []
     if total_pos_delete:
         to_be_added_files_list_parquet = write_sliced_table(
-            table=total_pos_delete,
+            table=total_pos_delete_sorted,
             base_path=iceberg_table_warehouse_prefix_with_partition,
             table_writer_kwargs={},
             filesystem=filesystem,
@@ -177,6 +184,12 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
             equality_delete_file[1]
             for equality_delete_list in applicable_equality_delete_files
             for equality_delete_file in equality_delete_list
+        ]
+
+    if applicable_position_delete_files:
+        to_be_delete_files_dict[partition_value] = [
+            position_delete_file_tuple[1]
+            for position_delete_file_tuple in applicable_position_delete_files
         ]
 
     if not enforce_primary_key_uniqueness:
@@ -356,12 +369,14 @@ def compute_pos_delete_with_limited_parallelism(
 
     # Filter out None values and concatenate only if we have valid tables
     if new_pos_delete_table_total:
-        new_pos_delete_table_total = pa.concat_tables(new_pos_delete_table_total)
+        new_pos_delete_table_total_sorted = pa.concat_tables(new_pos_delete_table_total)
     else:
-        new_pos_delete_table_total = None
+        new_pos_delete_table_total_sorted = None
 
     pos_delete_count = (
-        len(new_pos_delete_table_total) if new_pos_delete_table_total is not None else 0
+        len(new_pos_delete_table_total_sorted)
+        if new_pos_delete_table_total_sorted is not None
+        else 0
     )
     logger.info(
         f"[Convert task {convert_task_index}]: Find deletes got {len(data_table_total)} data table records, "
@@ -375,4 +390,4 @@ def compute_pos_delete_with_limited_parallelism(
     if not remaining_data_table:
         logger.info("No data table remaining after converting equality deletes")
 
-    return new_pos_delete_table_total, remaining_data_table
+    return new_pos_delete_table_total_sorted, remaining_data_table

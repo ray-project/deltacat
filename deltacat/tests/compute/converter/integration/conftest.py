@@ -75,6 +75,12 @@ def session_catalog() -> Catalog:
 
 @pytest.fixture(autouse=True, scope="module")
 def setup_ray_cluster():
-    ray.init(local_mode=True, ignore_reinit_error=True)
+    ray.init(
+        local_mode=True,
+        ignore_reinit_error=True,
+        resources={
+            "convert_task": 10
+        },  # Provide convert_task resource for converter session
+    )
     yield
     ray.shutdown()

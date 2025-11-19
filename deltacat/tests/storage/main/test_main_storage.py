@@ -7628,7 +7628,7 @@ class TestDelta:
             )
 
     # ========== DAFT DISTRIBUTED TESTS ==========
-
+    @pytest.mark.integration
     def test_download_delta_distributed_daft_basic(self):
         """Test basic distributed download with DAFT dataset type."""
 
@@ -7685,6 +7685,7 @@ class TestDelta:
         ), "Column names mismatch"
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
+    @pytest.mark.integration
     def test_download_delta_distributed_daft_with_delta_locator(self):
         """Test DAFT distributed download using DeltaLocator instead of Delta object."""
 
@@ -7724,6 +7725,7 @@ class TestDelta:
         expected_df = test_data.sort_values("id").reset_index(drop=True)
         pd.testing.assert_frame_equal(downloaded_df, expected_df)
 
+    @pytest.mark.integration
     def test_download_delta_distributed_daft_vs_ray_consistency(self):
         """Test that DAFT and Ray distributed downloads return the same data."""
 

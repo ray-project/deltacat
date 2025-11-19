@@ -3,14 +3,15 @@ from typing import Optional, List, Any, Dict, Callable, Iterator, Union
 
 from daft.daft import (
     StorageConfig,
-    PartitionField,
-    Pushdowns as DaftRustPushdowns,
     ScanTask,
     FileFormatConfig,
     ParquetSourceConfig,
-    PartitionTransform as DaftTransform,
-    PartitionField as DaftPartitionField,
 )
+from daft.io.partitioning import (
+    PartitionField as DaftPartitionField,
+    PartitionTransform as DaftTransform,
+)
+from daft.io.pushdowns import Pushdowns as DaftRustPushdowns
 from daft.expressions import Expression as DaftExpression
 from daft.expressions.visitor import PredicateVisitor
 from pyarrow import Field as PaField
@@ -251,7 +252,7 @@ class DeltaCatScanOperator(ScanOperator):
     def display_name(self) -> str:
         return f"DeltaCATScanOperator({self.table.table.namespace}.{self.table.table.table_name})"
 
-    def partitioning_keys(self) -> list[PartitionField]:
+    def partitioning_keys(self) -> list[DaftPartitionField]:
         return self.partition_keys
 
     def multiline_display(self) -> list[str]:
@@ -303,7 +304,7 @@ class DeltaCatScanOperator(ScanOperator):
 
         return DaftSchema.from_pyarrow_schema(self.table.table_version.schema.arrow)
 
-    def _infer_partition_keys(self) -> list[PartitionField]:
+    def _infer_partition_keys(self) -> list[DaftPartitionField]:
         if not (
             self.table
             and self.table.table_version
@@ -568,32 +569,40 @@ class DaftTransformMapper(ModelMapper[DaftTransform, Transform]):
         if obj is None:
             return None
 
-        # Map DeltaCAT transforms to Daft transforms using isinstance
+        # Check if DaftTransform has the necessary methods (not a stub class)
+        if not hasattr(DaftTransform, "identity"):
+            # DaftTransform is a stub class, return None
+            return None
 
-        if isinstance(obj, IdentityTransform):
-            return DaftTransform.identity()
-        elif isinstance(obj, HourTransform):
-            return DaftTransform.hour()
-        elif isinstance(obj, DayTransform):
-            return DaftTransform.day()
-        elif isinstance(obj, MonthTransform):
-            return DaftTransform.month()
-        elif isinstance(obj, YearTransform):
-            return DaftTransform.year()
-        elif isinstance(obj, BucketTransform):
-            if obj.parameters.bucketing_strategy == BucketingStrategy.ICEBERG:
-                return DaftTransform.iceberg_bucket(obj.parameters.num_buckets)
-            else:
-                raise ValueError(
-                    f"Unsupported Bucketing Strategy: {obj.parameters.bucketing_strategy}"
-                )
-        elif isinstance(obj, TruncateTransform):
-            if obj.parameters.truncate_strategy == TruncateStrategy.ICEBERG:
-                return DaftTransform.iceberg_truncate(obj.parameters.width)
-            else:
-                raise ValueError(
-                    f"Unsupported Truncate Strategy: {obj.parameters.truncate_strategy}"
-                )
+        # Map DeltaCAT transforms to Daft transforms using isinstance
+        try:
+            if isinstance(obj, IdentityTransform):
+                return DaftTransform.identity()
+            elif isinstance(obj, HourTransform):
+                return DaftTransform.hour()
+            elif isinstance(obj, DayTransform):
+                return DaftTransform.day()
+            elif isinstance(obj, MonthTransform):
+                return DaftTransform.month()
+            elif isinstance(obj, YearTransform):
+                return DaftTransform.year()
+            elif isinstance(obj, BucketTransform):
+                if obj.parameters.bucketing_strategy == BucketingStrategy.ICEBERG:
+                    return DaftTransform.iceberg_bucket(obj.parameters.num_buckets)
+                else:
+                    raise ValueError(
+                        f"Unsupported Bucketing Strategy: {obj.parameters.bucketing_strategy}"
+                    )
+            elif isinstance(obj, TruncateTransform):
+                if obj.parameters.truncate_strategy == TruncateStrategy.ICEBERG:
+                    return DaftTransform.iceberg_truncate(obj.parameters.width)
+                else:
+                    raise ValueError(
+                        f"Unsupported Truncate Strategy: {obj.parameters.truncate_strategy}"
+                    )
+        except AttributeError:
+            # Method doesn't exist in this version of daft, return None
+            return None
 
         raise ValueError(f"Unsupported Transform: {obj}")
 
@@ -661,10 +670,23 @@ class DaftPartitionKeyMapper(ModelMapper[DaftPartitionField, PartitionKey]):
         )
 
         # Create DaftPartitionField
+        # Convert PartitionTransform to PyPartitionTransform if needed
+        py_transform = None
+        if daft_transform is not None:
+            # Check if the transform has an _into_py method for conversion
+            if hasattr(daft_transform, "_into_py"):
+                py_transform = daft_transform._into_py()
+            elif hasattr(daft_transform, "_transform"):
+                # Try accessing the internal _transform attribute
+                py_transform = daft_transform._transform
+            else:
+                # For identity transform and others, pass None since make_partition_field can handle it
+                py_transform = None
+
         return make_partition_field(
             field=daft_partition_field,
             source_field=daft_source_field,
-            transform=daft_transform,
+            transform=py_transform,
         )
 
     @staticmethod

@@ -55,9 +55,9 @@ setuptools.setup(
         "google-cloud-storage",
         "gcsfs == 2025.3.2",
         # Misc
-        "daft == 0.4.15",  # run `make type-mappings` if you change this! See README-development.md
+        "daft == 0.5.22",  # run `make type-mappings` if you change this! See README-development.md
         "intervaltree == 3.1.0",
-        "numpy == 1.22.4",
+        "numpy == 1.23.2",
         "pandas == 2.2.3",  # run `make type-mappings` if you change this! See README-development.md
         "polars == 1.28.1",  # run `make type-mappings` if you change this! See README-development.md
         # upgrade to pyarrow 18.0.0 causes test

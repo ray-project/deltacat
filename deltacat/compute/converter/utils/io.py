@@ -97,7 +97,9 @@ def concatenate_hashed_identifier_columns(
     pk_hash_columns = []
     previous_hash_column_length = None
     for i in range(len(identifier_columns)):
-        pk_hash_column = df.select(daft.col(identifier_columns[i]).hash())
+        pk_hash_column = df.select(
+            daft.col(identifier_columns[i]).hash(hash_function="sha1")
+        )
         pk_hash_column_arrow = pk_hash_column.to_arrow()
 
         # Assert that each hash column downloaded are same length to ensure we don't create mismatch between columns.

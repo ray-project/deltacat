@@ -1,4 +1,5 @@
 import unittest
+import pytest
 from deltacat.types.media import ContentEncoding, ContentType
 from deltacat.utils.daft import (
     daft_file_to_pyarrow_table,
@@ -161,6 +162,7 @@ class TestDaftFileToPyarrowTable(unittest.TestCase):
         self.assertEqual(table.num_rows, 10)
 
 
+@pytest.mark.integration
 class TestFilesToDataFrame(unittest.TestCase):
     MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
 

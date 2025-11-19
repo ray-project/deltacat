@@ -6,6 +6,7 @@ from deltacat.compute.converter.model.convert_input_files import ConvertInputFil
 AVERAGE_FILE_PATH_COLUMN_SIZE_BYTES = 160
 AVERAGE_POS_COLUMN_SIZE_BYTES = 4
 XXHASH_BYTE_PER_RECORD = 8
+SHA1_BYTE_PER_RECORD = 20
 MEMORY_BUFFER_RATE = 2
 # Worst case 2 as no duplicates exists across all pk
 PYARROW_AGGREGATE_MEMORY_MULTIPLIER = 2
@@ -14,9 +15,14 @@ BASE_MEMORY_BUFFER = 0.3 * 1024 * 1024 * 1024
 
 
 def estimate_fixed_hash_columns(
-    hash_value_size_bytes_per_record: int, total_record_count: int
+    hash_value_size_bytes_per_record: int,
+    total_record_count: int,
+    identifier_fields: List[str],
 ) -> int:
-    return hash_value_size_bytes_per_record * total_record_count
+    num_of_identifier_fields = len(identifier_fields)
+    return (
+        hash_value_size_bytes_per_record * total_record_count * num_of_identifier_fields
+    )
 
 
 def get_total_record_from_iceberg_files(
@@ -46,13 +52,16 @@ def estimate_iceberg_pos_delete_additional_columns(
 def estimate_convert_remote_option_resources(
     data_files: List[Tuple[int, DataFile]],
     equality_delete_files: List[Tuple[int, DataFile]],
+    identifier_fields: List[str],
 ) -> float:
     data_file_record_count = get_total_record_from_iceberg_files(data_files)
     equality_delete_record_count = get_total_record_from_iceberg_files(
         equality_delete_files
     )
     hash_column_sizes = estimate_fixed_hash_columns(
-        XXHASH_BYTE_PER_RECORD, data_file_record_count + equality_delete_record_count
+        SHA1_BYTE_PER_RECORD,
+        data_file_record_count + equality_delete_record_count,
+        identifier_fields,
     )
     pos_delete_sizes = estimate_iceberg_pos_delete_additional_columns(
         ["file_path", "pos"], data_file_record_count + equality_delete_record_count
@@ -91,14 +100,16 @@ def _get_task_options(
 
 
 def estimate_dedupe_memory(
-    all_data_files_for_dedupe: List[Tuple[int, DataFile]]
+    all_data_files_for_dedupe: List[Tuple[int, DataFile]],
+    identifier_fields: List[str],
 ) -> float:
     dedupe_record_count = get_total_record_from_iceberg_files(all_data_files_for_dedupe)
     produced_pos_memory_required = estimate_iceberg_pos_delete_additional_columns(
         ["file_path", "pos"], dedupe_record_count
     )
+
     download_pk_memory_required = estimate_fixed_hash_columns(
-        XXHASH_BYTE_PER_RECORD, dedupe_record_count
+        SHA1_BYTE_PER_RECORD, dedupe_record_count, identifier_fields
     )
     memory_required_by_dedupe = (
         produced_pos_memory_required + download_pk_memory_required
@@ -108,7 +119,10 @@ def estimate_dedupe_memory(
 
 
 def convert_resource_options_provider(
-    index: int, convert_input_files: ConvertInputFiles
+    index: int,
+    convert_input_files: ConvertInputFiles,
+    identifier_fields: List[str] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     applicable_data_files = convert_input_files.applicable_data_files
     applicable_equality_delete_files = (
@@ -126,7 +140,7 @@ def convert_resource_options_provider(
         total_memory_required += memory_requirement_for_convert_equality_deletes
     if all_data_files_for_dedupe:
         memory_requirement_for_dedupe = estimate_dedupe_memory(
-            all_data_files_for_dedupe
+            all_data_files_for_dedupe, identifier_fields
         )
         total_memory_required += memory_requirement_for_dedupe
     return _get_task_options(memory=total_memory_required)

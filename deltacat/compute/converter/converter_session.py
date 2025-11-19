@@ -26,6 +26,7 @@ from deltacat.compute.converter.utils.converter_session_utils import (
 from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
     commit_replace_snapshot,
     commit_append_snapshot,
+    commit_snapshot_properties_change,
 )
 from deltacat.compute.converter.pyiceberg.catalog import load_table
 from deltacat.compute.converter.utils.converter_session_utils import (
@@ -46,7 +47,7 @@ logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
 def converter_session(
     params: ConverterSessionParams, **kwargs: Any
-) -> Tuple[TableMetadata, int]:
+) -> Tuple[TableMetadata, int, List[Dict[str, Any]]]:
     """
     Convert equality deletes to position deletes with option to enforce primary key uniqueness.
 
@@ -76,13 +77,13 @@ def converter_session(
             - compact_previous_position_delete_files: Whether to compact existing position delete files
             - task_max_parallelism: Maximum number of parallel Ray tasks
             - s3_client_kwargs: Additional S3 client configuration
-            - s3_file_system: S3 file system instance
+            - file_system: File system instance
             - location_provider_prefix_override: Optional prefix override for file locations
             - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
         **kwargs: Additional keyword arguments (currently unused)
 
     Returns:
-        Tuple[TableMetadata, int]: A tuple containing the table metadata and the committed snapshot ID
+        Tuple[TableMetadata, int, List[Dict[str, Any]]]: A tuple containing the table metadata, the committed snapshot ID, and the metric data
 
     Raises:
         Exception: If snapshot commitment fails or other critical errors occur
@@ -109,14 +110,18 @@ def converter_session(
     )
     task_max_parallelism = params.task_max_parallelism
     s3_client_kwargs = params.s3_client_kwargs
-    s3_file_system = params.filesystem
+    file_system = params.filesystem
     location_provider_prefix_override = params.location_provider_prefix_override
     position_delete_for_multiple_data_files = (
         params.position_delete_for_multiple_data_files
     )
 
+    logger.info(f"Fetching all bucket files for table {table_identifier}...")
     data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
-        iceberg_table
+        table=iceberg_table
+    )
+    logger.info(
+        f"Fetched files - data: {len(data_file_dict)}, equality_delete: {len(equality_delete_dict)}, pos_delete: {len(pos_delete_dict)}"
     )
 
     convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
@@ -141,9 +146,16 @@ def converter_session(
     else:
         identifier_fields = merge_keys
 
+    assert identifier_fields is not None, "identifier_fields cannot be None"
+    assert (
+        len(identifier_fields) > 0
+    ), f"identifier_fields cannot be empty. merge_keys: {merge_keys}, table identifier fields: {iceberg_table.schema().identifier_field_names()}"
     convert_options_provider: Callable = functools.partial(
         task_resource_options_provider,
-        resource_amount_provider=convert_resource_options_provider,
+        resource_amount_provider=functools.partial(
+            convert_resource_options_provider,
+            identifier_fields=identifier_fields,
+        ),
     )
 
     # TODO (zyiqin): max_parallel_data_file_download should be determined by memory requirement for each bucket.
@@ -168,12 +180,14 @@ def converter_session(
                 position_delete_for_multiple_data_files=position_delete_for_multiple_data_files,
                 max_parallel_data_file_download=max_parallel_data_file_download,
                 s3_client_kwargs=s3_client_kwargs,
-                filesystem=s3_file_system,
+                filesystem=file_system,
                 task_memory=task_opts["memory"],
             )
         }
 
-    logger.info(f"Getting remote convert tasks...")
+    logger.info(f"Creating {len(convert_input_files_for_all_buckets)} convert tasks...")
+    logger.info(f"Task max parallelism: {task_max_parallelism}")
+
     # Ray remote task: convert
     # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
@@ -184,11 +198,13 @@ def converter_session(
         kwargs_provider=convert_input_provider,
     )
 
-    to_be_deleted_files_list: List[List[DataFile]] = []
-    logger.info(f"Finished invoking {len(convert_tasks_pending)} convert tasks.")
+    to_be_deleted_files_list: List[DataFile] = []
+    logger.info(
+        f"Finished invoking {len(convert_tasks_pending)} convert tasks, waiting for results..."
+    )
 
     convert_results: List[ConvertResult] = ray.get(convert_tasks_pending)
-    logger.info(f"Got {len(convert_tasks_pending)} convert tasks.")
+    logger.info(f"Got {len(convert_tasks_pending)} convert task results.")
 
     total_position_delete_record_count = sum(
         convert_result.position_delete_record_count
@@ -216,14 +232,30 @@ def converter_session(
     )
 
     # Calculate memory usage statistics
-    max_peak_memory_usage = max(
-        convert_result.peak_memory_usage_bytes for convert_result in convert_results
+    max_peak_memory_usage = (
+        max(
+            convert_result.peak_memory_usage_bytes for convert_result in convert_results
+        )
+        if convert_results
+        else 0
     )
-    avg_memory_usage_percentage = sum(
-        convert_result.memory_usage_percentage for convert_result in convert_results
-    ) / len(convert_results)
-    max_memory_usage_percentage = max(
-        convert_result.memory_usage_percentage for convert_result in convert_results
+    avg_memory_usage_percentage = (
+        (
+            sum(
+                convert_result.memory_usage_percentage
+                for convert_result in convert_results
+            )
+            / len(convert_results)
+        )
+        if convert_results
+        else 0
+    )
+    max_memory_usage_percentage = (
+        max(
+            convert_result.memory_usage_percentage for convert_result in convert_results
+        )
+        if convert_results
+        else 0
     )
 
     logger.info(
@@ -239,12 +271,42 @@ def converter_session(
         f"max memory usage percentage: {max_memory_usage_percentage:.2f}%"
     )
 
+    # Base dimensions for all metrics
+    base_dimensions = [
+        {"Name": "Namespace", "Value": iceberg_namespace},
+        {"Name": "Table", "Value": table_name},
+        {"Name": "Stage", "Value": "converter_session"},
+    ]
+
+    # Prepare metric data
+    metric_data = [
+        {
+            "MetricName": "TotalPositionDeleteRecordCount",
+            "Value": total_position_delete_record_count,
+            "Unit": "Count",
+            "Dimensions": base_dimensions,
+        },
+        {
+            "MetricName": "TotalInputDataFileRecordCount",
+            "Value": total_input_data_file_record_count,
+            "Unit": "Count",
+            "Dimensions": base_dimensions,
+        },
+        {
+            "MetricName": "TotalInputDataFilesOnDiskSize",
+            "Value": total_input_data_files_on_disk_size,
+            "Unit": "Bytes",
+            "Dimensions": base_dimensions,
+        },
+    ]
+
     to_be_added_files_list: List[DataFile] = []
     for convert_result in convert_results:
         to_be_added_files = convert_result.to_be_added_files
         to_be_deleted_files = convert_result.to_be_deleted_files
-
-        to_be_deleted_files_list.extend(to_be_deleted_files.values())
+        # Flatten all lists from to_be_deleted_files.values() into to_be_deleted_files_list
+        for file_list in to_be_deleted_files.values():
+            to_be_deleted_files_list.extend(file_list)
         to_be_added_files_list.extend(to_be_added_files)
 
     logger.info(f"To be deleted files list length: {len(to_be_deleted_files_list)}")
@@ -256,12 +318,19 @@ def converter_session(
     )
 
     if snapshot_type == SnapshotType.NONE:
+        converter_snapshot_id = commit_snapshot_properties_change(
+            iceberg_table=iceberg_table,
+        )
         logger.info(
             _get_snapshot_action_description(
                 snapshot_type, to_be_deleted_files_list, to_be_added_files_list
             )
         )
-        return iceberg_table.metadata, iceberg_table.metadata.current_snapshot_id
+        return (
+            iceberg_table.metadata,
+            converter_snapshot_id,
+            metric_data,
+        )
 
     logger.info(
         f"Snapshot action: {_get_snapshot_action_description(snapshot_type, to_be_deleted_files_list, to_be_added_files_list)}"
@@ -290,14 +359,18 @@ def converter_session(
             )
         else:
             logger.warning(f"Unexpected snapshot type: {snapshot_type}")
-            return iceberg_table.metadata, iceberg_table.metadata.current_snapshot_id
+            return (
+                iceberg_table.metadata,
+                iceberg_table.metadata.current_snapshot_id,
+                metric_data,
+            )
 
         logger.info(
             f"Committed new Iceberg snapshot for {table_identifier}: {converter_snapshot_id}"
         )
 
         # Return the converter committed snapshot id
-        return iceberg_table.metadata, converter_snapshot_id
+        return iceberg_table.metadata, converter_snapshot_id, metric_data
     except Exception as e:
         logger.error(f"Failed to commit snapshot for {table_identifier}: {str(e)}")
         raise

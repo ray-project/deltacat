@@ -57,7 +57,6 @@ class ContentEncoding(str, Enum):
 # Map of file extensions to content types
 EXT_TO_CONTENT_TYPE: Dict[str, ContentType] = {
     ".parquet": ContentType.PARQUET,
-    ".pq": ContentType.PARQUET,
     ".csv": ContentType.CSV,
     ".tsv": ContentType.TSV,
     ".psv": ContentType.PSV,

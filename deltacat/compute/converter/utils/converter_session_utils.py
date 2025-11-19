@@ -61,10 +61,14 @@ def construct_iceberg_table_prefix(
     return f"{iceberg_warehouse_bucket_name}/{iceberg_namespace}/{table_name}/data"
 
 
-def partition_value_record_to_partition_value_string(partition: Any) -> str:
-    # Get string representation of partition value out of Record[partition_value]
-    partition_value_str = partition.__repr__().split("[", 1)[1].split("]")[0]
-    return partition_value_str
+def partition_value_record_to_partition_value_string(
+    partition: Any, table_metadata
+) -> str:
+    partition_spec = table_metadata.spec()
+    schema = table_metadata.schema()
+    partition_path = partition_spec.partition_to_path(partition, schema)
+
+    return partition_path
 
 
 def group_all_files_to_each_bucket(
@@ -89,11 +93,11 @@ def group_all_files_to_each_bucket(
                     result_equality_delete_file,
                     [],
                 )
-
     for partition_value, all_data_files_for_each_bucket in data_file_dict.items():
         convert_input_file = ConvertInputFiles.of(
             partition_value=partition_value,
             all_data_files_for_dedupe=all_data_files_for_each_bucket,
+            existing_position_delete_files=pos_delete_dict.get(partition_value, []),
         )
         if partition_value in files_for_each_bucket_for_deletes:
             convert_input_file.applicable_data_files = (
@@ -101,6 +105,9 @@ def group_all_files_to_each_bucket(
             )
             convert_input_file.applicable_equality_delete_files = (
                 files_for_each_bucket_for_deletes[partition_value][1]
+            )
+            convert_input_file.existing_position_delete_files = pos_delete_dict.get(
+                partition_value, []
             )
         convert_input_files_for_all_buckets.append(convert_input_file)
     return convert_input_files_for_all_buckets
