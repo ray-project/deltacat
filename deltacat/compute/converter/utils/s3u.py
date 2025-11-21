@@ -126,6 +126,9 @@ def upload_table_with_retry(
 
 def construct_s3_url(path: Optional[str]) -> Optional[str]:
     if path:
+        # Check if path already has s3:// prefix to avoid double prefixing
+        if path.startswith("s3://"):
+            return path
         return f"s3://{path}"
     return None
 
