@@ -102,6 +102,14 @@ def converter_session(
         iceberg_namespace = identifier_parts[0]
         table_name = identifier_parts[1]
     iceberg_table = load_table(catalog, table_identifier)
+
+    # Override table FileIO if provided in params
+    if params.fileio_override is not None:
+        logger.info(
+            f"Overriding table FileIO with provided DelegatedS3FileIO for table {table_identifier}"
+        )
+        iceberg_table.io = params.fileio_override
+
     enforce_primary_key_uniqueness = params.enforce_primary_key_uniqueness
     iceberg_warehouse_bucket_name = params.iceberg_warehouse_bucket_name
     merge_keys = params.merge_keys

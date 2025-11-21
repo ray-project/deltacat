@@ -6,6 +6,7 @@ from deltacat.compute.converter.constants import (
 from deltacat.constants import DEFAULT_NAMESPACE
 from fsspec import AbstractFileSystem
 from pyiceberg.catalog import Catalog
+from pyiceberg.io import FileIO
 
 
 class ConverterSessionParams(dict):
@@ -47,6 +48,7 @@ class ConverterSessionParams(dict):
             "location_provider_prefix_override", None
         )
         result.s3_prefix_override = params.get("s3_prefix_override", None)
+        result.fileio_override = params.get("fileio_override", None)
 
         return result
 
@@ -145,3 +147,11 @@ class ConverterSessionParams(dict):
         self, location_provider_prefix_override: Optional[str]
     ) -> None:
         self["location_provider_prefix_override"] = location_provider_prefix_override
+
+    @property
+    def fileio_override(self) -> Optional[FileIO]:
+        return self["fileio_override"]
+
+    @fileio_override.setter
+    def fileio_override(self, fileio_override: Optional[FileIO]) -> None:
+        self["fileio_override"] = fileio_override
