@@ -1,10 +1,8 @@
 from deltacat.constants import DEFAULT_NAMESPACE
 from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
-    task_resource_options_provider,
 )
 import ray
-import functools
 from deltacat.compute.converter.utils.convert_task_options import (
     convert_resource_options_provider,
 )
@@ -13,7 +11,7 @@ from deltacat import logs
 from deltacat.compute.converter.model.converter_session_params import (
     ConverterSessionParams,
 )
-from typing import Dict, List, Any, Callable, Tuple
+from typing import Dict, List, Any, Tuple
 from deltacat.compute.converter.constants import DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 from deltacat.compute.converter.steps.convert import convert
 from deltacat.compute.converter.model.convert_input import ConvertInput
@@ -24,9 +22,9 @@ from deltacat.compute.converter.utils.converter_session_utils import (
     construct_iceberg_table_prefix,
 )
 from deltacat.compute.converter.pyiceberg.update_snapshot_overrides import (
-    commit_replace_snapshot,
-    commit_append_snapshot,
     commit_snapshot_properties_change,
+    commit_append_snapshot,
+    commit_replace_snapshot,
 )
 from deltacat.compute.converter.pyiceberg.catalog import load_table
 from deltacat.compute.converter.utils.converter_session_utils import (
@@ -172,26 +170,29 @@ def converter_session(
     assert (
         len(identifier_fields) > 0
     ), f"identifier_fields cannot be empty. merge_keys: {merge_keys}, table identifier fields: {iceberg_table.schema().identifier_field_names()}"
-    convert_options_provider: Callable = functools.partial(
-        task_resource_options_provider,
-        resource_amount_provider=functools.partial(
-            convert_resource_options_provider,
-            identifier_fields=identifier_fields,
-        ),
-    )
 
-    # TODO (zyiqin): max_parallel_data_file_download should be determined by memory requirement for each bucket.
-    #  Specifically, for case when files for one bucket memory requirement exceed one worker node's memory limit, WITHOUT rebasing with larger hash bucket count,
-    #  1. We can control parallel files to download by adjusting max_parallel_data_file_download.
-    #  2. Implement two-layer converter tasks, with convert tasks to spin up child convert tasks.
-    #  Note that approach 2 will ideally require shared object store to avoid download equality delete files * number of child tasks times.
+    def convert_options_provider(index: int, item: Any) -> Dict[str, Any]:
+        # convert_resource_options_provider returns (task_options, updated_convert_input_files)
+        # We only need the task_options for the options_provider
+        task_opts, _ = convert_resource_options_provider(
+            index=index,
+            convert_input_files=item,
+            identifier_fields=identifier_fields,
+        )
+        return task_opts
+
     max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 
     def convert_input_provider(index: int, item: Any) -> Dict[str, ConvertInput]:
-        task_opts = convert_options_provider(index, item)
+        # convert_resource_options_provider returns (task_options, updated_convert_input_files)
+        task_opts, updated_convert_input_files = convert_resource_options_provider(
+            index=index,
+            convert_input_files=item,
+            identifier_fields=identifier_fields,
+        )
         return {
             "convert_input": ConvertInput.of(
-                convert_input_files=item,
+                convert_input_files=updated_convert_input_files,  # Use updated version with sub-bucket info
                 convert_task_index=index,
                 iceberg_table_warehouse_prefix=iceberg_table_warehouse_prefix,
                 identifier_fields=identifier_fields,
@@ -211,7 +212,6 @@ def converter_session(
     logger.info(f"Task max parallelism: {task_max_parallelism}")
 
     # Ray remote task: convert
-    # TODO: Add split mechanism to split large buckets
     convert_tasks_pending = invoke_parallel(
         items=convert_input_files_for_all_buckets,
         ray_task=convert,
@@ -357,7 +357,6 @@ def converter_session(
     logger.info(
         f"Snapshot action: {_get_snapshot_action_description(snapshot_type, to_be_deleted_files_list, to_be_added_files_list)}"
     )
-
     try:
         if snapshot_type == SnapshotType.APPEND:
             logger.info(f"Committing append snapshot for {table_identifier}.")
