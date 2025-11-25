@@ -45,16 +45,16 @@ DeltaCAT uses a combination of **Immutable IDs** and human-readable **Aliases** 
 
 ### Canonical Strings
 
-Every object has a **Canonical String** that identifies it uniquely amongst its siblings.
+Every object has a **Canonical String** derived from its alias that identifies it uniquely amongst its siblings.
 SHA-1 hexdigests of canonical strings are used to create **Name Resolution Directories**.
 
 **Format Examples:**
 - Namespace: `"my_namespace"`
-- Table: `"table_name"`
+- Table: `"my_table"`
 - Table Version: `"1"`
-- Stream Alias: `"format"`
-- Partition Alias: `"partition_values|scheme"`
-- Delta: `"stream_position"`
+- Stream Format: `"deltacat"`
+- Partition: `"[2025-01-01, NA]|e463da25-8679-44c7-9cf8-911d6404cee5"`
+- Delta: `"42"`
 
 # Directory & File Structure
 
