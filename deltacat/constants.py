@@ -111,6 +111,13 @@ TXN_PART_SEPARATOR = "_"
 MAX_REVISION_NUMBER = 10_000_000_000_000_000_000
 DEFAULT_PAGE_SIZE = 1000
 
+# Maximum number concurrent transactions to check for conflicts at the same
+# revision number. Set equal to DEFAULT_PAGE_SIZE to ensure we can process all
+# files in a single page as potential conflicts. If we can list N files, we
+# should be able to determine the winning transaction among N concurrent writes.
+# See: https://github.com/ray-project/deltacat/issues/585
+MAX_CONCURRENT_CONFLICT_COUNT = DEFAULT_PAGE_SIZE
+
 # Storage interface defaults
 # These defaults should be applied in catalog interface implementations
 # Storage interface implementations should be agnostic to defaults and require full information

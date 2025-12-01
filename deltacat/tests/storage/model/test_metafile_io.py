@@ -331,6 +331,176 @@ class TestMetafileIO:
         with pytest.raises(ConcurrentModificationError):
             transaction.commit(temp_dir)
 
+    def test_high_revision_count_no_false_conflict(self, temp_dir):
+        """
+        Test that many historical revision files in the same partition directory
+        do NOT trigger a false ConcurrentModificationError.
+
+        Addresses https://github.com/ray-project/deltacat/issues/585 where,
+        after ~1000 sequential writes to the same partition, the system detected
+        a false concurrent conflict by counting all files in a partition
+        directory instead of only counting files with the same revision number.
+        """
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected.equivalent_to(actual)
+
+        # given an initial metafile revision of a committed delta
+        write_paths = [result[2] for result in commit_results]
+        orig_delta_write_path = write_paths[5]
+
+        _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
+        orig_mri = MetafileRevisionInfo.parse(orig_delta_write_path)
+
+        # Simulate a new transaction that writes revision 2
+        new_revision = orig_mri.revision + 1
+        current_txn_mri = MetafileRevisionInfo()
+        current_txn_mri.dir_path = orig_mri.dir_path
+        current_txn_mri.extension = orig_mri.extension
+        current_txn_mri.revision = new_revision
+        current_txn_mri.txn_op_type = TransactionOperationType.UPDATE
+        current_txn_mri.txn_id = (
+            "5000000000000000000_50000000-5000-5000-5000-500000000000"
+        )
+
+        # Write the current transaction's metafile revision
+        write_file_partitioned(
+            path=remove_exponential_partitions(current_txn_mri.path),
+            data=b"current txn data",
+            partition_value=current_txn_mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
+
+        # Create many historical revision files at LOWER revision numbers
+        # These should NOT be counted as conflicts
+        # Put them in the same partition by using revision numbers
+        # that map to the same partition directory
+        num_historical_revisions = 1100  # Exceeds DEFAULT_PAGE_SIZE (1000)
+        for i in range(num_historical_revisions):
+            # Create revisions at the same revision number as current_txn,
+            # but with completed transaction IDs (lexicographically lower)
+            # to simulate many past revisions in the same partition
+            historical_mri = MetafileRevisionInfo()
+            historical_mri.dir_path = orig_mri.dir_path
+            historical_mri.extension = orig_mri.extension
+            # Use revision numbers lower than current to test the fix
+            # These should be ignored as they're historical, not concurrent
+            historical_mri.revision = max(1, new_revision - i - 1)
+            historical_mri.txn_op_type = TransactionOperationType.UPDATE
+            # Transaction IDs from the past (lexicographically lower)
+            historical_mri.txn_id = (
+                f"{1000000000000000000 + i:019d}_00000000-0000-0000-0000-{i:012d}"
+            )
+
+            write_file_partitioned(
+                path=remove_exponential_partitions(historical_mri.path),
+                data=b"",  # Empty historical file
+                partition_value=historical_mri.revision,
+                partition_transform=exponential_partition_transform,
+                filesystem=filesystem,
+            )
+
+        # check_for_concurrent_txn_conflict should NOT raise
+        # ConcurrentModificationError even though there are >1000 files
+        # in the partition directory, because none of them are at the same
+        # revision number as the current transaction
+        success_txn_log_dir = os.path.join(temp_dir, TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME)
+
+        # This should NOT raise - the fix correctly identifies that
+        # historical revisions are not conflicts
+        MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+            success_txn_log_dir=success_txn_log_dir,
+            current_txn_revision_file_path=current_txn_mri.path,
+            filesystem=filesystem,
+        )
+
+    def test_excessive_concurrent_conflicts_raises_error(self, temp_dir, mocker):
+        """
+        Test that we correctly raise ConcurrentModificationError when there
+        are too many concurrent conflicts at the SAME revision number.
+
+        This verifies that while we fixed the false positive issue (counting
+        historical revisions as conflicts), we still correctly detect and fail
+        when there are genuinely too many concurrent transactions writing to
+        the same revision number.
+        """
+        # Use a small limit for faster testing
+        test_conflict_limit = 10
+        mocker.patch(
+            "deltacat.storage.model.metafile.MAX_CONCURRENT_CONFLICT_COUNT",
+            test_conflict_limit,
+        )
+
+        commit_results = _commit_single_delta_table(temp_dir)
+        for expected, actual, _ in commit_results:
+            assert expected.equivalent_to(actual)
+
+        # given an initial metafile revision of a committed delta
+        write_paths = [result[2] for result in commit_results]
+        orig_delta_write_path = write_paths[5]
+
+        _, filesystem = resolve_path_and_filesystem(orig_delta_write_path)
+        orig_mri = MetafileRevisionInfo.parse(orig_delta_write_path)
+
+        # Simulate a new transaction that writes revision 2
+        new_revision = orig_mri.revision + 1
+        current_txn_mri = MetafileRevisionInfo()
+        current_txn_mri.dir_path = orig_mri.dir_path
+        current_txn_mri.extension = orig_mri.extension
+        current_txn_mri.revision = new_revision
+        current_txn_mri.txn_op_type = TransactionOperationType.UPDATE
+        # Use a high txn_id so current transaction "wins" against all conflicts
+        current_txn_mri.txn_id = (
+            "9999999999999999999_99999999-9999-9999-9999-999999999999"
+        )
+
+        # Write the current transaction's metafile revision
+        write_file_partitioned(
+            path=remove_exponential_partitions(current_txn_mri.path),
+            data=b"current txn data",
+            partition_value=current_txn_mri.revision,
+            partition_transform=exponential_partition_transform,
+            filesystem=filesystem,
+        )
+
+        # Create enough concurrent conflicts at the SAME revision number
+        # with lower txn_ids (so current txn would "win" each one)
+        for i in range(test_conflict_limit):
+            conflict_mri = MetafileRevisionInfo()
+            conflict_mri.dir_path = orig_mri.dir_path
+            conflict_mri.extension = orig_mri.extension
+            # Same revision number as current transaction - these ARE conflicts
+            conflict_mri.revision = new_revision
+            conflict_mri.txn_op_type = TransactionOperationType.UPDATE
+            # Lower txn_ids so current transaction would "win" each conflict
+            conflict_mri.txn_id = (
+                f"{1000000000000000000 + i:019d}_00000000-0000-0000-0000-{i:012d}"
+            )
+
+            write_file_partitioned(
+                path=remove_exponential_partitions(conflict_mri.path),
+                data=b"",  # Empty conflict file
+                partition_value=conflict_mri.revision,
+                partition_transform=exponential_partition_transform,
+                filesystem=filesystem,
+            )
+
+        success_txn_log_dir = os.path.join(temp_dir, TXN_DIR_NAME, SUCCESS_TXN_DIR_NAME)
+
+        # This SHOULD raise ConcurrentModificationError because there are
+        # too many concurrent conflicts at the same revision number
+        with pytest.raises(ConcurrentModificationError) as exc_info:
+            MetafileRevisionInfo.check_for_concurrent_txn_conflict(
+                success_txn_log_dir=success_txn_log_dir,
+                current_txn_revision_file_path=current_txn_mri.path,
+                filesystem=filesystem,
+            )
+
+        # Verify the error message mentions excessive concurrent conflicts
+        assert "excessive concurrent conflicts" in str(exc_info.value)
+        assert str(test_conflict_limit) in str(exc_info.value)
+
     def test_append_multiple_deltas(self, temp_dir):
         commit_results = _commit_single_delta_table(temp_dir)
         for expected, actual, _ in commit_results:
