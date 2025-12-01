@@ -27,6 +27,7 @@ from deltacat.constants import (
     SUCCESS_TXN_DIR_NAME,
     MAX_REVISION_NUMBER,
     DEFAULT_PAGE_SIZE,
+    MAX_CONCURRENT_CONFLICT_COUNT,
 )
 from deltacat.exceptions import (
     ObjectNotFoundError,
@@ -277,6 +278,9 @@ class MetafileRevisionInfo(dict):
         by the current transaction and another parallel transaction. Raises
         an exception if a concurrent modification conflict is found.
 
+        A conflict exists when two transactions write metafiles with the SAME
+        revision number but DIFFERENT transaction IDs.
+
         :param success_txn_log_dir: Path to the log of successful transactions.
         :param current_txn_revision_file_path: Path to a metafile revision
         written by the current transaction to check for conflicts against.
@@ -293,27 +297,24 @@ class MetafileRevisionInfo(dict):
             limit=DEFAULT_PAGE_SIZE,
         )
 
-        # If we hit the limit, there are too many concurrent conflicts - fail early
-        if len(sorted_metafile_paths) >= DEFAULT_PAGE_SIZE:
-            raise ConcurrentModificationError(
-                f"Aborting transaction {cur_txn_mri.txn_id} due to excessive "
-                f"concurrent conflicts (>={DEFAULT_PAGE_SIZE} files) at {revision_dir_path}. "
-            )
-
+        # Count concurrent conflicts: files with the SAME revision number
+        # but DIFFERENT transaction IDs. Files with different revision numbers
+        # are historical data from completed transactions, NOT conflicts.
         conflict_mris = []
         while sorted_metafile_paths:
             next_metafile_path = sorted_metafile_paths.pop(0)
             mri = MetafileRevisionInfo.parse(next_metafile_path)
             if mri.revision < cur_txn_mri.revision:
-                # no conflict was found
+                # We found the first historical revision from a past transaction,
+                # not a conflict - stop searching
                 break
             elif (
                 mri.revision == cur_txn_mri.revision
                 and mri.txn_id != cur_txn_mri.txn_id
             ):
-                # we've found a conflict between txn_id and current_txn_id
-                # defer to the transaction with the higher lexicographic order
-                # (i.e., the transaction that started most recently)
+                # We've found a conflict between txn_id and current_txn_id.
+                # Defer to the transaction with the higher lexicographic order
+                # (i.e., the transaction that started most recently).
                 # TODO(pdames): Ensure the conflicting transaction is alive
                 #  (e.g., give each transaction a heartbeat timeout that gives
                 #  it 1-2 seconds per operation, and record known failed
@@ -326,6 +327,16 @@ class MetafileRevisionInfo(dict):
                         f"{mri.txn_id} at {next_metafile_path}."
                     )
                 conflict_mris.append(mri)
+
+                # Fail if there are too many concurrent conflicts at the same
+                # revision number to detect a winner.
+                if len(conflict_mris) >= MAX_CONCURRENT_CONFLICT_COUNT:
+                    raise ConcurrentModificationError(
+                        f"Aborting transaction {cur_txn_mri.txn_id} due to "
+                        f"excessive concurrent conflicts "
+                        f"(>={MAX_CONCURRENT_CONFLICT_COUNT} transactions) at "
+                        f"revision {cur_txn_mri.revision} in {revision_dir_path}."
+                    )
         if conflict_mris:
             # current txn wins the ordering challenge among all conflicts,
             # but we still need to ensure that no conflicting transactions
