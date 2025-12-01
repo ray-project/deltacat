@@ -10,6 +10,7 @@ import ray
 from ray.runtime_context import RuntimeContext
 
 from deltacat.constants import (
+    BYTES_PER_MEBIBYTE,
     DELTACAT_APP_LOG_LEVEL,
     DELTACAT_SYS_LOG_LEVEL,
     DELTACAT_APP_LOG_DIR,
@@ -34,7 +35,7 @@ DEFAULT_LOG_FORMAT = {
     "filename": "filename",
     "lineno": "lineno",
 }
-DEFAULT_MAX_BYTES_PER_LOG = 2 ^ 20 * 64  # Default 64 MiB
+DEFAULT_MAX_BYTES_PER_LOG = 64 * BYTES_PER_MEBIBYTE  # 64 MiB
 DEFAULT_BACKUP_COUNT = 10  # Default 10 backup files
 
 
@@ -170,22 +171,83 @@ def _add_logger_handler(logger: Logger, handler: Handler) -> Logger:
     return logger
 
 
-# Subclass to compress last N log files
+def _safe_rename(source: str, dest: str) -> None:
+    """Safely rename a file, ignoring errors from concurrent access.
+
+    When multiple processes attempt to rotate the same log files simultaneously,
+    one may succeed while others find the file already moved. This is expected
+    and safe to ignore.
+    """
+    try:
+        if os.path.exists(dest):
+            os.remove(dest)
+        if os.path.exists(source):
+            os.rename(source, dest)
+    except (FileNotFoundError, OSError):
+        pass  # Another process already handled this file
+
+
+def _safe_compress(source: str, dest: str) -> None:
+    """Safely compress a file to gzip, ignoring errors from concurrent access."""
+    try:
+        if os.path.exists(source) and not os.path.exists(dest):
+            with open(source, "rb") as f_in, gzip.open(dest, "wb") as f_out:
+                f_out.writelines(f_in)
+            os.remove(source)
+    except (FileNotFoundError, OSError):
+        pass  # Another process already handled this file
+
+
 class CompressingRotatingFileHandler(handlers.RotatingFileHandler):
-    """Rotating file handler that gzips rolled logs after rotation."""
+    """Rotating file handler that gzips rolled logs after rotation.
+
+    This handler is resilient to concurrent access from multiple processes
+    (e.g., Ray workers). When multiple processes try to rotate the same log
+    files simultaneously, one process may succeed while others encounter
+    missing files - this is expected and safe to ignore.
+    """
 
     def doRollover(self):
-        super().doRollover()
+        self._close_stream()
+        self._rotate_log_files()
+        self._open_new_stream()
+        self._compress_rotated_logs()
 
-        if self.backupCount > 0:
-            for i in range(self.backupCount, 0, -1):
-                sfn = f"{self.baseFilename}.{i}"
-                dfn = f"{sfn}.gz"
-                if os.path.exists(sfn) and not os.path.exists(dfn):
-                    with open(sfn, "rb") as f_in, open(dfn, "wb") as f_out:
-                        with gzip.GzipFile(fileobj=f_out, mode="wb") as gz_out:
-                            gz_out.writelines(f_in)
-                    os.remove(sfn)
+    def _close_stream(self) -> None:
+        """Close the current log stream."""
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+
+    def _rotate_log_files(self) -> None:
+        """Rotate log files: log.N -> log.N+1, then current -> log.1."""
+        if self.backupCount <= 0:
+            return
+
+        # Rotate existing backups: log.N -> log.N+1 (from highest to lowest)
+        for i in range(self.backupCount - 1, 0, -1):
+            source = self.rotation_filename(f"{self.baseFilename}.{i}")
+            dest = self.rotation_filename(f"{self.baseFilename}.{i + 1}")
+            _safe_rename(source, dest)
+
+        # Rotate current log to log.1
+        dest = self.rotation_filename(f"{self.baseFilename}.1")
+        _safe_rename(self.baseFilename, dest)
+
+    def _open_new_stream(self) -> None:
+        """Open a new log file stream."""
+        if not self.delay:
+            self.stream = self._open()
+
+    def _compress_rotated_logs(self) -> None:
+        """Compress all rotated log files to gzip format."""
+        if self.backupCount <= 0:
+            return
+
+        for i in range(self.backupCount, 0, -1):
+            log_file = f"{self.baseFilename}.{i}"
+            compressed_file = f"{log_file}.gz"
+            _safe_compress(log_file, compressed_file)
 
 
 def _create_rotating_file_handler(
