@@ -3,32 +3,22 @@ from unittest import mock
 
 
 class TestFileObjectStore(unittest.TestCase):
+    """
+    Unit tests for FileObjectStore using mocked dependencies.
+
+    Note: We use test-level mocking rather than class-level module patching
+    to avoid flaky tests caused by import order dependencies and mock conflicts.
+    """
 
     TEST_VALUE = "test-value"
 
-    @classmethod
-    def setUpClass(cls):
-        cls.ray_mock = mock.MagicMock()
-        cls.os_mock = mock.MagicMock()
-
-        cls.module_patcher = mock.patch.dict(
-            "sys.modules", {"ray": cls.ray_mock, "os": cls.os_mock}
-        )
-        cls.module_patcher.start()
-
-        super().setUpClass()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.module_patcher.stop()
-
+    @mock.patch("deltacat.io.file_object_store.cloudpickle.dumps")
     @mock.patch(
         "deltacat.io.file_object_store.open",
         new_callable=mock.mock_open,
         read_data="data",
     )
-    @mock.patch("deltacat.io.file_object_store.cloudpickle.dumps")
-    def test_put_many_sanity(self, mock_dumps, mock_file):
+    def test_put_many_sanity(self, mock_file, mock_dumps):
         from deltacat.io.file_object_store import FileObjectStore
 
         object_store = FileObjectStore(dir_path="")
@@ -38,13 +28,13 @@ class TestFileObjectStore(unittest.TestCase):
         self.assertEqual(2, len(result))
         self.assertEqual(2, mock_file.call_count)
 
+    @mock.patch("deltacat.io.file_object_store.cloudpickle.dumps")
     @mock.patch(
         "deltacat.io.file_object_store.open",
         new_callable=mock.mock_open,
         read_data="data",
     )
-    @mock.patch("deltacat.io.file_object_store.cloudpickle.dumps")
-    def test_put_sanity(self, mock_dumps, mock_file):
+    def test_put_sanity(self, mock_file, mock_dumps):
         from deltacat.io.file_object_store import FileObjectStore
 
         object_store = FileObjectStore(dir_path="")
@@ -55,13 +45,13 @@ class TestFileObjectStore(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(1, mock_file.call_count)
 
+    @mock.patch("deltacat.io.file_object_store.cloudpickle.loads")
     @mock.patch(
         "deltacat.io.file_object_store.open",
         new_callable=mock.mock_open,
         read_data="data",
     )
-    @mock.patch("deltacat.io.file_object_store.cloudpickle.loads")
-    def test_get_many_sanity(self, mock_loads, mock_file):
+    def test_get_many_sanity(self, mock_file, mock_loads):
         from deltacat.io.file_object_store import FileObjectStore
 
         object_store = FileObjectStore(dir_path="")
@@ -72,13 +62,13 @@ class TestFileObjectStore(unittest.TestCase):
         self.assertEqual(2, len(result))
         self.assertEqual(2, mock_file.call_count)
 
+    @mock.patch("deltacat.io.file_object_store.cloudpickle.loads")
     @mock.patch(
         "deltacat.io.file_object_store.open",
         new_callable=mock.mock_open,
         read_data="data",
     )
-    @mock.patch("deltacat.io.file_object_store.cloudpickle.loads")
-    def test_get_sanity(self, mock_loads, mock_file):
+    def test_get_sanity(self, mock_file, mock_loads):
         from deltacat.io.file_object_store import FileObjectStore
 
         object_store = FileObjectStore(dir_path="")
@@ -89,9 +79,7 @@ class TestFileObjectStore(unittest.TestCase):
         self.assertEqual(self.TEST_VALUE, result)
         self.assertEqual(1, mock_file.call_count)
 
-    @mock.patch(
-        "deltacat.io.file_object_store.os.remove",
-    )
+    @mock.patch("deltacat.io.file_object_store.os.remove")
     def test_delete_sanity(self, mock_remove):
         from deltacat.io.file_object_store import FileObjectStore
 
@@ -102,21 +90,8 @@ class TestFileObjectStore(unittest.TestCase):
         self.assertTrue(delete_success)
         self.assertEqual(1, mock_remove.call_count)
 
-    @mock.patch(
-        "deltacat.io.file_object_store.os.remove",
-    )
+    @mock.patch("deltacat.io.file_object_store.os.remove")
     def test_delete_many_sanity(self, mock_remove):
-        import sys
-        import importlib
-
-        # Drop any stale module that may have been imported earlier with a mocked os
-        sys.modules.pop("deltacat.io.file_object_store", None)
-
-        # Now reload it fresh so it binds to the current, real os
-        import deltacat.io.file_object_store as fstore
-
-        importlib.reload(fstore)
-
         from deltacat.io.file_object_store import FileObjectStore
 
         object_store = FileObjectStore(dir_path="")

@@ -2877,38 +2877,29 @@ class TestCopyOnWrite:
 
         original_commit_partition = commit_partition
 
-        # Use threading Event as a latch - Writer A waits until Writer B completes
-        writer_b_completed = threading.Event()
+        # Use threading Event as a latch - Writer A waits until Writer B attempts commit
+        # We signal BEFORE the commit call so Writer A proceeds regardless of B's outcome
+        writer_b_started_commit = threading.Event()
 
         def delayed_commit_partition(*args, **kwargs):
-            """Use latch mechanism to ensure Writer B completes before Writer A"""
+            """Use latch mechanism to ensure Writer B starts commit before Writer A"""
             current_thread = threading.current_thread()
+            thread_name = current_thread.name or ""
 
-            if (
-                isinstance(current_thread.name, str)
-                and "writer_a" in current_thread.name.lower()
-            ):
-                # Writer A waits for Writer B to complete first
-                writer_b_completed.wait(timeout=10)  # Wait up to 10 seconds
+            if "writer_b" in thread_name.lower():
+                # Writer B signals it's about to commit (before the actual call)
+                writer_b_started_commit.set()
+
+            if "writer_a" in thread_name.lower():
+                # Writer A waits for Writer B to start its commit first
+                writer_b_started_commit.wait(timeout=30)
 
             # Call the original function
-            result = original_commit_partition(*args, **kwargs)
-
-            if (
-                isinstance(current_thread.name, str)
-                and "writer_b" in current_thread.name.lower()
-            ):
-                # Writer B signals completion after successful commit
-                writer_b_completed.set()
-
-            return result
+            return original_commit_partition(*args, **kwargs)
 
         def writer_a_task():
             """Task for Writer A - will be delayed during commit"""
             try:
-                current_thread = threading.current_thread()
-                current_thread.name = "writer_a_thread"
-
                 dc.write_to_table(
                     data=data_writer_a,
                     table=table_name,
@@ -2919,16 +2910,12 @@ class TestCopyOnWrite:
                     auto_create_namespace=True,
                 )
                 results["writer_a"] = "success"
-
             except Exception as e:
                 exceptions["writer_a"] = e
 
         def writer_b_task():
             """Task for Writer B - should complete normally"""
             try:
-                current_thread = threading.current_thread()
-                current_thread.name = "writer_b_thread"
-
                 dc.write_to_table(
                     data=data_writer_b,
                     table=table_name,
@@ -2939,25 +2926,28 @@ class TestCopyOnWrite:
                     auto_create_namespace=True,
                 )
                 results["writer_b"] = "success"
-
             except Exception as e:
                 exceptions["writer_b"] = e
+            finally:
+                # Ensure Writer A can proceed even if Writer B fails
+                writer_b_started_commit.set()
 
         # Execute concurrent writes with delayed commit for Writer A
+        # Note: Thread names are set in the constructor to avoid race conditions
         with patch(
             "deltacat.storage.main.impl.commit_partition",
             side_effect=delayed_commit_partition,
         ):
-            # Start both writers concurrently
+            # Start both writers concurrently (names set here, not inside thread)
             thread_a = threading.Thread(target=writer_a_task, name="writer_a_thread")
             thread_b = threading.Thread(target=writer_b_task, name="writer_b_thread")
 
             thread_a.start()
             thread_b.start()
 
-            # Wait for both to complete (with timeout)
-            thread_a.join(timeout=10)
-            thread_b.join(timeout=10)
+            # Wait for both to complete (with generous timeout)
+            thread_a.join(timeout=60)
+            thread_b.join(timeout=60)
 
         # Verify that exactly one writer succeeded and one failed due to conflict
         success_count = sum(1 for result in results.values() if result == "success")
