@@ -80,6 +80,8 @@ def converter_session(
             - file_system: File system instance
             - location_provider_prefix_override: Optional prefix override for file locations
             - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
+            - start_snapshot_id: Optional starting snapshot ID for filtering files (files from this snapshot onwards will be processed)
+            - start_sequence_number: Optional starting sequence number for filtering files (used in conjunction with start_snapshot_id)
         **kwargs: Additional keyword arguments (currently unused)
 
     Returns:
@@ -123,13 +125,25 @@ def converter_session(
     position_delete_for_multiple_data_files = (
         params.position_delete_for_multiple_data_files
     )
+    start_snapshot_id = params.start_snapshot_id
+    start_sequence_number = params.start_sequence_number
+    logger.info(
+        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, start_sequence_number: {start_sequence_number}"
+    )
 
     logger.info(f"Fetching all bucket files for table {table_identifier}...")
-    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
-        table=iceberg_table
-    )
+    (
+        data_file_dict,
+        equality_delete_dict,
+        pos_delete_dict,
+        latest_snapshot_id,
+        largest_sequence_number,
+    ) = fetch_all_bucket_files(table=iceberg_table, start_snapshot_id=start_snapshot_id)
     logger.info(
         f"Fetched files - data: {len(data_file_dict)}, equality_delete: {len(equality_delete_dict)}, pos_delete: {len(pos_delete_dict)}"
+    )
+    logger.info(
+        f"Latest snapshot ID: {latest_snapshot_id}, Largest sequence number: {largest_sequence_number}"
     )
 
     convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
@@ -350,6 +364,8 @@ def converter_session(
             converter_snapshot_id = commit_append_snapshot(
                 iceberg_table=iceberg_table,
                 new_position_delete_files=to_be_added_files_list,
+                latest_snapshot_id=latest_snapshot_id,
+                largest_sequence_number=largest_sequence_number,
             )
         elif snapshot_type == SnapshotType.REPLACE:
             logger.info(f"Committing replace snapshot for {table_identifier}.")
@@ -357,6 +373,8 @@ def converter_session(
                 iceberg_table=iceberg_table,
                 to_be_deleted_files=to_be_deleted_files_list,
                 new_position_delete_files=to_be_added_files_list,
+                latest_snapshot_id=latest_snapshot_id,
+                largest_sequence_number=largest_sequence_number,
             )
         elif snapshot_type == SnapshotType.DELETE:
             logger.info(f"Committing delete snapshot for {table_identifier}.")
@@ -364,6 +382,8 @@ def converter_session(
                 iceberg_table=iceberg_table,
                 to_be_deleted_files=to_be_deleted_files_list,
                 new_position_delete_files=[],  # No new files to add
+                latest_snapshot_id=latest_snapshot_id,
+                largest_sequence_number=largest_sequence_number,
             )
         else:
             logger.warning(f"Unexpected snapshot type: {snapshot_type}")

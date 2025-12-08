@@ -167,7 +167,10 @@ class _ReplaceDeleteFilesOverride(_SnapshotProducer):
 
 
 def commit_append_snapshot(
-    iceberg_table: Table, new_position_delete_files: List[DataFile]
+    iceberg_table: Table,
+    new_position_delete_files: List[DataFile],
+    latest_snapshot_id: int = None,
+    largest_sequence_number: int = None,
 ) -> str:
     tx = iceberg_table.transaction()
     try:
@@ -177,7 +180,21 @@ def commit_append_snapshot(
                     "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
                 }
             )
-        with append_delete_files_override(tx.update_snapshot()) as append_snapshot:
+
+        # Prepare snapshot properties
+        snapshot_properties = {}
+        if latest_snapshot_id is not None:
+            snapshot_properties["sourceSnapshotId"] = str(latest_snapshot_id)
+        if largest_sequence_number is not None:
+            snapshot_properties["sourceSequenceNumber"] = str(largest_sequence_number)
+
+        logger.info(
+            f"Committing append snapshot with properties: {snapshot_properties}"
+        )
+
+        with append_delete_files_override(
+            tx.update_snapshot(snapshot_properties=snapshot_properties)
+        ) as append_snapshot:
             if new_position_delete_files:
                 for data_file in new_position_delete_files:
                     append_snapshot.append_data_file(data_file)
@@ -207,6 +224,7 @@ def commit_snapshot_properties_change(iceberg_table: Table):
     except Exception as e:
         raise e
     else:
+        logger.info(f"Commit only table properties changes: {current_snapshot_id}")
         metadata = tx.commit_transaction().metadata
         logger.info(
             f"Successfully committed only table properties change with ray.converter.snapshot_id:{current_snapshot_id}"
@@ -305,6 +323,8 @@ def commit_replace_snapshot(
     iceberg_table: Table,
     new_position_delete_files: List[DataFile],
     to_be_deleted_files: List[DataFile],
+    latest_snapshot_id: int = None,
+    largest_sequence_number: int = None,
 ) -> str:
     tx = iceberg_table.transaction()
     try:
@@ -314,8 +334,20 @@ def commit_replace_snapshot(
                     "schema.name-mapping.default": tx.table_metadata.schema().name_mapping.model_dump_json()
                 }
             )
+
+        # Prepare snapshot properties
+        snapshot_properties = {}
+        if latest_snapshot_id is not None:
+            snapshot_properties["sourceSnapshotId"] = str(latest_snapshot_id)
+        if largest_sequence_number is not None:
+            snapshot_properties["sourceSequenceNumber"] = str(largest_sequence_number)
+
+        logger.info(
+            f"Committing replace snapshot with properties: {snapshot_properties}"
+        )
+
         with replace_delete_files_override(
-            tx.update_snapshot()
+            tx.update_snapshot(snapshot_properties=snapshot_properties)
         ) as replace_delete_snapshot:
             if new_position_delete_files:
                 for data_file in new_position_delete_files:

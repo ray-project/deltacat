@@ -49,6 +49,8 @@ class ConverterSessionParams(dict):
         )
         result.s3_prefix_override = params.get("s3_prefix_override", None)
         result.fileio_override = params.get("fileio_override", None)
+        result.start_snapshot_id = params.get("start_snapshot_id", None)
+        result.start_sequence_number = params.get("start_sequence_number", None)
 
         return result
 
@@ -155,3 +157,19 @@ class ConverterSessionParams(dict):
     @fileio_override.setter
     def fileio_override(self, fileio_override: Optional[FileIO]) -> None:
         self["fileio_override"] = fileio_override
+
+    @property
+    def start_snapshot_id(self) -> Optional[int]:
+        return self["start_snapshot_id"]
+
+    @start_snapshot_id.setter
+    def start_snapshot_id(self, start_snapshot_id: Optional[int]) -> None:
+        self["start_snapshot_id"] = start_snapshot_id
+
+    @property
+    def start_sequence_number(self) -> Optional[int]:
+        return self["start_sequence_number"]
+
+    @start_sequence_number.setter
+    def start_sequence_number(self, start_sequence_number: Optional[int]) -> None:
+        self["start_sequence_number"] = start_sequence_number
