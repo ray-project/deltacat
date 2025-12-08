@@ -377,9 +377,6 @@ def fetch_all_bucket_files(
     logger.info(
         f"Latest snapshot ID: {latest_snapshot_id}, Largest sequence number: {largest_sequence_number}"
     )
-    print(
-        f"Latest snapshot ID: {latest_snapshot_id}, Largest sequence number: {largest_sequence_number}"
-    )
     for k, v in data_entries.items():
         logger.info(f"{len(v)} files for partition value :{k}")
     return (
