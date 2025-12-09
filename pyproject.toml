@@ -25,6 +25,7 @@ dependencies = [
     "gcsfs==2025.3.2",
     "daft==0.5.22",
     "intervaltree==3.1.0",
+    "msgpack~=1.0.7",
     "numpy==1.23.2",
     "pandas==2.2.3",
     "polars==1.28.1",
