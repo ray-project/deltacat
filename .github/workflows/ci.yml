@@ -12,16 +12,16 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: checkout
-              uses: actions/checkout@v3
-            - name: Set up Python 3.9
-              uses: actions/setup-python@v4
+              uses: actions/checkout@v4
+            - name: Install uv
+              uses: astral-sh/setup-uv@v4
               with:
-                  python-version: 3.9
+                  python-version: "3.9"
+            - name: Install dependencies
+              run: uv sync --all-extras
             - name: Linting
-              run: |
-                  python -m pip install --upgrade pip
-                  if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
-                  pre-commit run --all-files
+              run: uv run pre-commit run --all-files
+
     build-n-test:
         name: Build and test
         runs-on: ubuntu-latest
@@ -34,23 +34,14 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
-            - name: Set up Python ${{ matrix.python-version }} (minimum supported python version for deltaCAT is 3.9)
-              uses: actions/setup-python@v4
+            - name: Install uv
+              uses: astral-sh/setup-uv@v4
               with:
                   python-version: ${{ matrix.python-version }}
-            - name: Install pypa/build
-              run: >-
-                  python -m
-                  pip install
-                  build
-                  --user
             - name: Install dependencies
-              run: |
-                  python -m pip install --upgrade pip
-                  if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
+              run: uv sync --all-extras
             - name: Run unit tests + benchmarks
-              run: >-
-                  python -m pytest -m "not integration" --benchmark-json output.json
+              run: uv run pytest -m "not integration" --benchmark-json output.json
             # Download previous benchmark result from cache (if exists)
             - name: Download previous benchmark data
               uses: actions/cache@v4

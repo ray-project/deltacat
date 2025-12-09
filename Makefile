@@ -1,42 +1,30 @@
-venv:
-	if [ ! -d "venv" ]; then \
-  		if [[ '$(shell uname -m)' == 'arm64' ]]; then \
-			/usr/bin/python3 -m venv venv; \
-		else \
-			python -m venv venv; \
-		fi \
-	fi
+.PHONY: install lint test unit-test build clean clean-build type-mappings benchmark benchmark-aws test-converter-integration test-integration-rebuild publish
+
+install:
+	uv sync --all-extras
 
 clean-build:
-	rm -rf dist
-	rm -rf build
-	rm -rf deltacat.egg-info
+	rm -rf dist build deltacat.egg-info
 
-clean-venv:
-	rm -rf venv
+clean: clean-build
+	rm -rf .venv
 
-clean: clean-build clean-venv
-
-build: venv
-	venv/bin/python setup.py sdist bdist_wheel
+build:
+	uv build
 
 rebuild: clean-build build
 
 deploy-s3:
 	./dev/deploy/aws/scripts/s3-build-and-deploy.sh
 
-install: venv
-	venv/bin/pip install --upgrade pip
-	venv/bin/pip install -r dev-requirements.txt
-
 lint: install
-	venv/bin/pre-commit run --all-files
+	uv run pre-commit run --all-files
 
 test: install
-	venv/bin/pytest -m "not integration"
+	uv run pytest -m "not integration"
 
 unit-test: install
-	venv/bin/pytest -m "not integration and not benchmark"
+	uv run pytest -m "not integration and not benchmark"
 
 test-converter-integration: install
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
@@ -45,7 +33,7 @@ test-converter-integration: install
 	sleep 3
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml exec -T spark-iceberg ipython ./provision.py
 	export SPARK_LOCAL_IP="127.0.0.1"
-	venv/bin/python -m pytest deltacat/tests/compute/converter/integration -vv
+	uv run pytest deltacat/tests/compute/converter/integration -vv
 
 test-integration-rebuild:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml kill
@@ -53,19 +41,19 @@ test-integration-rebuild:
 	docker-compose -f dev/iceberg-integration/docker-compose-integration.yml build --no-cache
 
 benchmark-aws: install
-	venv/bin/pytest deltacat/benchmarking/benchmark_parquet_reads.py --benchmark-only --benchmark-group-by=group,param:name
+	uv run pytest deltacat/benchmarking/benchmark_parquet_reads.py --benchmark-only --benchmark-group-by=group,param:name
 
 benchmark: install
-	pytest -m benchmark deltacat/benchmarking
+	uv run pytest -m benchmark deltacat/benchmarking
 
 type-mappings: install
 	@echo "Generating type mappings..."
-	venv/bin/python deltacat/docs/autogen/schema/inference/generate_type_mappings.py
+	uv run python deltacat/docs/autogen/schema/inference/generate_type_mappings.py
 	@echo "Parsing type mappings to markdown..."
-	venv/bin/python deltacat/docs/autogen/schema/inference/parse_json_type_mappings.py generate_type_mappings_results.json
+	uv run python deltacat/docs/autogen/schema/inference/parse_json_type_mappings.py generate_type_mappings_results.json
 	@echo "Generating Python compatibility mapping..."
-	venv/bin/python deltacat/docs/autogen/schema/inference/parse_json_type_mappings.py generate_type_mappings_results.json --python
+	uv run python deltacat/docs/autogen/schema/inference/parse_json_type_mappings.py generate_type_mappings_results.json --python
 	@echo "Type mappings generation complete!"
 
-publish: test test-integration rebuild
-	twine upload dist/*
+publish: test build
+	uv publish
