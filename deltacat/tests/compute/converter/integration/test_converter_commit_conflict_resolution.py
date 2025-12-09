@@ -414,7 +414,13 @@ def test_converter_commit_conflict_resolution(
     # Get files and create convert input
     tbl = session_catalog.load_table(identifier)
 
-    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+    (
+        data_file_dict,
+        equality_delete_dict,
+        pos_delete_dict,
+        _,
+        _,
+    ) = fetch_all_bucket_files(tbl)
 
     # Handle equality delete if present
     if "equality_delete_data" in test_case:

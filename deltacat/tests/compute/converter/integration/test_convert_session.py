@@ -490,7 +490,13 @@ def test_converter(
 
     # Get files and create convert input
     tbl = session_catalog.load_table(identifier)
-    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+    (
+        data_file_dict,
+        equality_delete_dict,
+        pos_delete_dict,
+        _,
+        _,
+    ) = fetch_all_bucket_files(tbl)
 
     # Handle equality delete if present
     if "equality_delete_data" in test_case:
@@ -606,7 +612,13 @@ def test_converter_session_duplicate_position_deletes_spark_compatibility(
 
     # Load table and run converter first time
     tbl = session_catalog.load_table(identifier)
-    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+    (
+        data_file_dict,
+        equality_delete_dict,
+        pos_delete_dict,
+        _,
+        _,
+    ) = fetch_all_bucket_files(tbl)
 
     convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
         data_file_dict=data_file_dict,
@@ -675,7 +687,13 @@ def test_converter_session_duplicate_position_deletes_spark_compatibility(
     # This could happen in scenarios where the converter is run multiple times on the same data
 
     # Get files again (now includes position delete files from first run)
-    data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(tbl)
+    (
+        data_file_dict,
+        equality_delete_dict,
+        pos_delete_dict,
+        _,
+        _,
+    ) = fetch_all_bucket_files(tbl)
 
     convert_input_files_for_all_buckets = group_all_files_to_each_bucket(
         data_file_dict=data_file_dict,
@@ -850,9 +868,13 @@ def test_converter_session_no_input_files(
             )
 
         # Verify table is empty (no data files)
-        data_file_dict, equality_delete_dict, pos_delete_dict = fetch_all_bucket_files(
-            tbl
-        )
+        (
+            data_file_dict,
+            equality_delete_dict,
+            pos_delete_dict,
+            _,
+            _,
+        ) = fetch_all_bucket_files(tbl)
 
         assert (
             len(data_file_dict) == 0

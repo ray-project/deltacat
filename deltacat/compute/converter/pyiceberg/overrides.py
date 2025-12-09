@@ -203,7 +203,13 @@ def parquet_files_dict_to_iceberg_data_files(
 def fetch_all_bucket_files(
     table: Table,
     start_snapshot_id: Optional[int] = None,
-) -> Tuple[Dict[Any, DataFileList], Dict[Any, DataFileList], Dict[Any, DataFileList]]:
+) -> Tuple[
+    Dict[Any, DataFileList],
+    Dict[Any, DataFileList],
+    Dict[Any, DataFileList],
+    Optional[int],
+    Optional[int],
+]:
     # step 1: filter manifests using partition summaries
     # the filter depends on the partition spec used to write the manifest file, so create a cache of filters for each spec id
 
@@ -213,7 +219,7 @@ def fetch_all_bucket_files(
     current_snapshot = data_scan.snapshot()
 
     if not current_snapshot:
-        return {}, {}, {}
+        return {}, {}, {}, None, None
 
     snapshots = list(table.metadata.snapshots)
     expected_start_sequence_number = -1
@@ -350,11 +356,33 @@ def fetch_all_bucket_files(
     for partition_value, files_dict in positional_delete_entries_registry.items():
         positional_delete_entries[partition_value] = list(files_dict.values())
 
+    # Calculate latest snapshot ID and largest sequence number from snapshots
+    latest_snapshot_id = None
+    largest_sequence_number = None
+
+    if snapshots:
+        # Get the latest snapshot ID (current snapshot)
+        latest_snapshot_id = current_snapshot.snapshot_id
+
+        # Find the largest sequence number across all snapshots
+        largest_sequence_number = max(
+            snapshot.sequence_number for snapshot in snapshots
+        )
+
     logger.info(
         f"Fetched {sum(len(files) for files in data_entries.values())} data files from table, "
         f"{sum(len(files) for files in equality_data_entries.values())} equality delete files, "
         f"{sum(len(files) for files in positional_delete_entries.values())} position delete files"
     )
+    logger.info(
+        f"Latest snapshot ID: {latest_snapshot_id}, Largest sequence number: {largest_sequence_number}"
+    )
     for k, v in data_entries.items():
         logger.info(f"{len(v)} files for partition value :{k}")
-    return data_entries, equality_data_entries, positional_delete_entries
+    return (
+        data_entries,
+        equality_data_entries,
+        positional_delete_entries,
+        latest_snapshot_id,
+        largest_sequence_number,
+    )
