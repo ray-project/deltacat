@@ -45,7 +45,7 @@ def run(warehouse="s3://my-bucket/my/key/prefix", **kwargs):
         2. retrieve the IAM Role AWS Credential and cache locally in ~/.aws/credentials
         3. run below command to execute the example
         ```
-        make venv && source venv/bin/activate
+        make install && source .venv/bin/activate
         python -m deltacat.examples.iceberg.iceberg_bucket_writer --warehouse=s3://<YOUR_S3_LOCATION>
         ```
 

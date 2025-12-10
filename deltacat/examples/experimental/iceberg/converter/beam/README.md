@@ -50,7 +50,7 @@ Run the following commands from the DeltaCAT project root directory
 make install
 
 # Activate virtual environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # Navigate to example directory
 cd deltacat/examples/experimental/iceberg/converter/beam
