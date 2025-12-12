@@ -20,19 +20,6 @@ make lint
 We use `make` to automate common development tasks. If you feel that any recurring development routine is
 missing from the current set of Makefile targets, please propose a new one!
 
-#### venv
-```shell
-make venv
-```
-Creates a virtual environment in the `venv` directory with all required development dependencies installed. You usually
-don't need to run this command directly, since it will be invoked automatically by any other target that needs it.
-
-#### clean-venv
-```shell
-make clean-venv
-```
-Removes all artifacts created by the `venv` Makefile target.
-
 #### build
 ```shell
 make build
@@ -55,7 +42,7 @@ Runs `clean-build` followed by `build`.
 ```shell
 make clean
 ```
-Removes all artifacts created by the `build` and `venv` Makefile targets.
+Removes all artifacts created by the `build` target and removes the virtual environment.
 
 #### deploy-s3
 ```shell
@@ -67,7 +54,7 @@ Builds and uploads a wheel to S3. See [Build and Deploy an S3 Wheel](#build-and-
 ```shell
 make install
 ```
-Installs all developer requirements from `dev-requirements.txt` in your virtual environment.
+Creates a virtual environment if it doesn't exist and installs all build and runtime dependencies from pyproject.toml.
 
 #### lint
 ```shell

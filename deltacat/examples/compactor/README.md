@@ -11,7 +11,7 @@ If you're working from DeltaCAT source code, you may want to install and activat
 make install
 
 # Activate the virtual environment
-source venv/bin/activate
+source .venv/bin/activate
 
 # Navigate to examples
 cd deltacat/examples/compactor
