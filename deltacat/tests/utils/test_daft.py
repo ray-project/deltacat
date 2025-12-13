@@ -162,10 +162,10 @@ class TestDaftFileToPyarrowTable(unittest.TestCase):
         self.assertEqual(table.num_rows, 10)
 
 
-@pytest.mark.integration
 class TestFilesToDataFrame(unittest.TestCase):
     MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
 
+    @pytest.mark.distributed
     def test_read_local_files_all_columns(self):
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
@@ -178,6 +178,7 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.schema.names, ["a", "b"])
         self.assertEqual(table.num_rows, 100)
 
+    @pytest.mark.distributed
     def test_read_local_files_with_column_selection(self):
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
@@ -191,6 +192,7 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.schema.names, ["b"])
         self.assertEqual(table.num_rows, 100)
 
+    @pytest.mark.distributed
     def test_read_local_files_does_not_materialize_by_default(self):
         df = files_to_dataframe(
             uris=[self.MVP_PATH],
@@ -206,6 +208,7 @@ class TestFilesToDataFrame(unittest.TestCase):
         df.collect()
         self.assertEqual(len(df), 100)
 
+    @pytest.mark.distributed
     def test_supports_unescaped_tsv_content_type(self):
         # Test that UNESCAPED_TSV is now supported (was previously unsupported)
         # Use a CSV file since we're testing TSV reader functionality
@@ -222,6 +225,7 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertGreater(table.num_rows, 0)
         self.assertGreater(len(table.schema.names), 0)
 
+    @pytest.mark.distributed
     def test_supports_gzip_content_encoding(self):
         # Test that GZIP encoding is now supported (was previously unsupported)
         df = files_to_dataframe(
@@ -259,6 +263,7 @@ class TestFilesToDataFrame(unittest.TestCase):
             ),
         )
 
+    @pytest.mark.distributed
     def test_accepts_custom_kwargs(self):
         # Test that custom kwargs are passed through to daft.read_parquet
         df = files_to_dataframe(
@@ -274,6 +279,7 @@ class TestFilesToDataFrame(unittest.TestCase):
         self.assertEqual(table.schema.names, ["a", "b"])
         self.assertEqual(table.num_rows, 100)
 
+    @pytest.mark.distributed
     def test_accepts_io_config(self):
         # Test that io_config parameter is accepted and passed correctly
         df = files_to_dataframe(
