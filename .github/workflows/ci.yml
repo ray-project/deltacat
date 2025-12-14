@@ -65,7 +65,7 @@ jobs:
                   summary-always: true
 
     distributed-tests:
-        name: Distributed tests (Ray runner)
+        name: Build and distributed test (Daft Ray runner)
         runs-on: ubuntu-latest
         strategy:
             matrix:
