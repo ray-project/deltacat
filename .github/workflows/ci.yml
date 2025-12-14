@@ -23,7 +23,7 @@ jobs:
               run: uv run pre-commit run --all-files
 
     build-n-test:
-        name: Build and test (native runner)
+        name: Build and test (Daft native runner)
         runs-on: ubuntu-latest
         strategy:
             matrix:
