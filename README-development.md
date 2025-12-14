@@ -184,12 +184,12 @@ There are a few reasons for this:
 to a wide variety of human-readable and/or pretty-printed string formats (e.g., via `pprint`) to simplify log message
 evaluation and debugging.
 2. **EXTENSIBLE**: `Dict` and other Python collections make it easy to add new properties to models over time, can
-store/retrieve any valid Python object, and make it easy to delineate between when model validation is required
-(e.g., before serializing to disk) and not (e.g., when a model is instantiated in-memory before knowing the final value
-of all its properties).
+store/fetch any valid Python objects with known time & space complexities, and simplify delineation between when 
+model validation is required (e.g., during write/read to/from disk via custom serde methods) and not (e.g., during 
+in-memory instantiation before all final property states are known).
 3. **PERFORMANT**: We prioritize model performance over pure object-oriented design principals, and Python's base
 collections (e.g., `Dict`, `List`, `Set`, `Tuple`) avoid many performance penalties otherwise incurred by Python OOD
-extensions like abstract bases classes (`ABC`).
+extensions like abstract base classes (`ABC`).
 
 Here are a few guiding principles to keep in mind when creating or modifying DeltaCAT's internal storage models:
 1. **CORRECTNESS**: The general tenet is "don't make it easy for users to create invalid models" not "make it
