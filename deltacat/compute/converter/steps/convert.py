@@ -102,6 +102,9 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
     data_file_to_dedupe_record_count = 0
     data_file_to_dedupe_size = 0
     dedupe_position_delete_record_count = 0  # Track position delete count from dedupe
+    dedupe_position_delete_memory_size = (
+        0  # Track position delete memory size from dedupe
+    )
     if applicable_equality_delete_files:
         (
             pos_delete_after_converting_equality_delete,
@@ -224,8 +227,8 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
 
             # Collect position delete files from all hash buckets
             all_position_delete_files = []
-            total_record_count = 0
-            total_memory_size = 0
+            total_input_record_count = 0
+            total_position_delete_memory_size = 0
 
             for (
                 position_delete_files,
@@ -236,12 +239,30 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
                     all_position_delete_files.extend(position_delete_files)
                 # Now position_delete_count is the actual number of position delete records
                 dedupe_position_delete_record_count += position_delete_count
-                total_memory_size += memory_size
+                total_position_delete_memory_size += memory_size
+
+            # Calculate input record count from the original hash bucket record counts
+            total_input_record_count = sum(sub_bucket_index_to_record_counts.values())
 
             logger.info(
                 f"[Convert task {convert_task_index}]: Collected {len(all_position_delete_files)} position delete files "
                 f"with {dedupe_position_delete_record_count} total position delete records "
-                f"from {len(dedupe_tasks_pending)} hash bucket tasks"
+                f"from {len(dedupe_tasks_pending)} hash bucket tasks, "
+                f"processed {total_input_record_count} input records"
+            )
+
+            # Log memory usage stats for sub-bucketing path (same as normal path)
+            peak_memory_usage_bytes_sub_bucket = (
+                get_current_process_peak_memory_usage_in_bytes()
+            )
+            memory_usage_percentage_sub_bucket = (
+                peak_memory_usage_bytes_sub_bucket / task_memory
+            ) * 100
+            logger.info(
+                f"[Convert task {convert_task_index}]: Memory usage stats - "
+                f"Peak memory usage: {peak_memory_usage_bytes_sub_bucket} bytes, "
+                f"Allocated task memory: {task_memory} bytes, "
+                f"Usage percentage: {memory_usage_percentage_sub_bucket:.2f}%"
             )
 
             # Store the file list for later processing
@@ -251,8 +272,8 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
             )
 
             # Calculate stats for sub-bucket processing
-            data_file_to_dedupe_record_count = total_record_count
-            data_file_to_dedupe_size = total_memory_size
+            data_file_to_dedupe_record_count = total_input_record_count
+            data_file_to_dedupe_size = total_position_delete_memory_size
 
         else:
             # Normal dedupe processing
@@ -260,6 +281,8 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
                 pos_delete_file_paths,
                 data_file_to_dedupe_record_count,
                 data_file_to_dedupe_size,
+                dedupe_position_delete_record_count,
+                dedupe_position_delete_memory_size,
             ) = dedupe_data_files(
                 data_file_to_dedupe=data_files_to_dedupe,
                 identifier_columns=identifier_fields,
@@ -273,7 +296,8 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
             # Store file paths for consistent handling with sub-bucketing path
             all_position_delete_files = pos_delete_file_paths
             logger.info(
-                f"[Convert task {convert_task_index}]: Dedupe produced {len(pos_delete_file_paths)} position delete files."
+                f"[Convert task {convert_task_index}]: Dedupe produced {len(pos_delete_file_paths)} position delete files "
+                f"with {dedupe_position_delete_record_count} position delete records."
             )
 
     # Handle position delete files consistently for both normal dedupe and sub-bucketing paths
@@ -296,11 +320,11 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
             )
             end = time.perf_counter()
             memory_used_after_sort = get_current_process_peak_memory_usage_in_bytes()
-            logger.info(
-                f"DEBUG_memory_usage_convert_task:{convert_task_index}, before_sort:{memory_used_before_sort},"
+            logger.debug(
+                f"debug_memory_usage_convert_task:{convert_task_index}, before_sort:{memory_used_before_sort},"
                 f"after_sort:{memory_used_after_sort}, used:{memory_used_after_sort - memory_used_before_sort}"
             )
-            logger.info(f"DEBUG_PERFORMANCE_sort_by: time to final sort:{end - start}")
+            logger.debug(f"debug_performance_sort_by: time to final sort:{end - start}")
 
             equality_pos_delete_files = write_sliced_table(
                 table=equality_pos_delete_sorted,
@@ -367,9 +391,18 @@ def convert(convert_input: ConvertInput) -> ConvertResult:
         total_position_delete_record_count += len(equality_pos_delete)
         total_position_delete_memory_size += int(equality_pos_delete.nbytes)
 
-    # Add counts from dedupe processing (sub-bucketing path)
+    # Add counts from dedupe processing (both sub-bucketing and normal paths)
     if dedupe_position_delete_record_count > 0:
         total_position_delete_record_count += dedupe_position_delete_record_count
+
+        # Add memory size from dedupe processing
+        if convert_input_files.sub_bucket_enabled:
+            # Sub-bucketing path: data_file_to_dedupe_size contains position delete memory
+            total_position_delete_memory_size += data_file_to_dedupe_size
+        else:
+            # Normal dedupe path: dedupe_position_delete_memory_size contains position delete memory
+            total_position_delete_memory_size += dedupe_position_delete_memory_size
+
         logger.info(
             f"[Convert task {convert_task_index}]: Added {dedupe_position_delete_record_count} position delete records from dedupe processing"
         )
@@ -549,8 +582,6 @@ def compute_pos_delete_with_limited_parallelism(
     # Filter out None values and concatenate only if we have valid tables
     if new_pos_delete_table_total:
         new_pos_delete_table_total_sorted = pa.concat_tables(new_pos_delete_table_total)
-    else:
-        new_pos_delete_table_total_sorted = None
 
     pos_delete_count = (
         len(new_pos_delete_table_total_sorted)

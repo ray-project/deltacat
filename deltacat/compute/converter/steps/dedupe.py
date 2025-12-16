@@ -64,11 +64,11 @@ def write_position_delete_files(
 
     end_write = time.perf_counter()
     memory_used_after_write = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_write_sliced_table: time={end_write - start_write:.4f}s"
+    logger.debug(
+        f"debug_performance_write_sliced_table: time={end_write - start_write:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_write_sliced_table: before={memory_used_before_write}, "
+    logger.debug(
+        f"debug_memory_write_sliced_table: before={memory_used_before_write}, "
         f"after={memory_used_after_write}, used={memory_used_after_write - memory_used_before_write}"
     )
 
@@ -87,7 +87,7 @@ def dedupe_data_files(
     s3_client_kwargs: Optional[Dict[str, Any]],
     iceberg_table_warehouse_prefix_with_partition: str,
     filesystem,
-) -> Tuple[List[str], int, int]:
+) -> Tuple[List[str], int, int, int, int]:
     data_file_table = []
     if remaining_data_table_after_convert:
         data_file_table.append(remaining_data_table_after_convert)
@@ -119,11 +119,11 @@ def dedupe_data_files(
     final_data_to_dedupe = pa.concat_tables(data_file_table)
     end_concat = time.perf_counter()
     memory_used_after_concat = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_concat_tables: time={end_concat - start_concat:.4f}s"
+    logger.debug(
+        f"debug_performance_concat_tables: time={end_concat - start_concat:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_concat_tables: before={memory_used_before_concat}, "
+    logger.debug(
+        f"debug_memory_concat_tables: before={memory_used_before_concat}, "
         f"after={memory_used_after_concat}, used={memory_used_after_concat - memory_used_before_concat}"
     )
 
@@ -147,11 +147,11 @@ def dedupe_data_files(
     )
     end_append = time.perf_counter()
     memory_used_after_append = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_append_global_record_idx: time={end_append - start_append:.4f}s"
+    logger.debug(
+        f"debug_performance_append_global_record_idx: time={end_append - start_append:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_append_global_record_idx: before={memory_used_before_append}, "
+    logger.debug(
+        f"debug_memory_append_global_record_idx: before={memory_used_before_append}, "
         f"after={memory_used_after_append}, used={memory_used_after_append - memory_used_before_append}"
     )
 
@@ -163,11 +163,11 @@ def dedupe_data_files(
     ).aggregate([(sc._GLOBAL_RECORD_IDX_COLUMN_NAME, "max")])
     end_groupby = time.perf_counter()
     memory_used_after_groupby = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_group_by_aggregate: time={end_groupby - start_groupby:.4f}s"
+    logger.debug(
+        f"debug_performance_group_by_aggregate: time={end_groupby - start_groupby:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_group_by_aggregate: before={memory_used_before_groupby}, "
+    logger.debug(
+        f"debug_memory_group_by_aggregate: before={memory_used_before_groupby}, "
         f"after={memory_used_after_groupby}, used={memory_used_after_groupby - memory_used_before_groupby}"
     )
 
@@ -186,9 +186,9 @@ def dedupe_data_files(
     final_data_table_to_delete = final_data_to_dedupe.filter(pos_delete_indices)
     end_filter = time.perf_counter()
     memory_used_after_filter = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(f"DEBUG_PERFORMANCE_filter: time={end_filter - start_filter:.4f}s")
-    logger.info(
-        f"DEBUG_MEMORY_filter: before={memory_used_before_filter}, "
+    logger.debug(f"debug_performance_filter: time={end_filter - start_filter:.4f}s")
+    logger.debug(
+        f"debug_memory_filter: before={memory_used_before_filter}, "
         f"after={memory_used_after_filter}, used={memory_used_after_filter - memory_used_before_filter}"
     )
 
@@ -209,8 +209,10 @@ def dedupe_data_files(
 
     return (
         position_delete_files,
-        len(final_data_to_dedupe),
-        int(final_data_to_dedupe.nbytes),
+        len(final_data_to_dedupe),  # input_data_record_count
+        int(final_data_to_dedupe.nbytes),  # input_data_memory_size
+        len(final_data_table_to_delete),  # position_delete_record_count
+        int(final_data_table_to_delete.nbytes),  # position_delete_memory_size
     )
 
 
@@ -276,9 +278,9 @@ def dedupe_sub_hash_bucket(
 
     end_get = time.perf_counter()
     memory_used_after_get = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(f"DEBUG_PERFORMANCE_ray_get: time={end_get - start_get:.4f}s")
-    logger.info(
-        f"DEBUG_MEMORY_ray_get: before={memory_used_before_get}, "
+    logger.debug(f"debug_performance_ray_get: time={end_get - start_get:.4f}s")
+    logger.debug(
+        f"debug_memory_ray_get: before={memory_used_before_get}, "
         f"after={memory_used_after_get}, used={memory_used_after_get - memory_used_before_get}"
     )
 
@@ -300,11 +302,11 @@ def dedupe_sub_hash_bucket(
     final_data_to_dedupe = pa.concat_tables(valid_tables)
     end_concat = time.perf_counter()
     memory_used_after_concat = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"{log_prefix}: DEBUG_PERFORMANCE_concat_tables: time={end_concat - start_concat:.4f}s"
+    logger.debug(
+        f"{log_prefix}: debug_performance_concat_tables: time={end_concat - start_concat:.4f}s"
     )
-    logger.info(
-        f"{log_prefix}: DEBUG_MEMORY_concat_tables: before={memory_used_before_concat}, "
+    logger.debug(
+        f"{log_prefix}: debug_memory_concat_tables: before={memory_used_before_concat}, "
         f"after={memory_used_after_concat}, used={memory_used_after_concat - memory_used_before_concat}"
     )
 
@@ -322,11 +324,11 @@ def dedupe_sub_hash_bucket(
     )
     end_append = time.perf_counter()
     memory_used_after_append = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_append_global_record_idx: time={end_append - start_append:.4f}s"
+    logger.debug(
+        f"debug_performance_append_global_record_idx: time={end_append - start_append:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_append_global_record_idx: before={memory_used_before_append}, "
+    logger.debug(
+        f"debug_memory_append_global_record_idx: before={memory_used_before_append}, "
         f"after={memory_used_after_append}, used={memory_used_after_append - memory_used_before_append}"
     )
 
@@ -338,11 +340,11 @@ def dedupe_sub_hash_bucket(
     ).aggregate([(sc._GLOBAL_RECORD_IDX_COLUMN_NAME, "max")])
     end_groupby = time.perf_counter()
     memory_used_after_groupby = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_group_by_aggregate: time={end_groupby - start_groupby:.4f}s"
+    logger.debug(
+        f"debug_performance_group_by_aggregate: time={end_groupby - start_groupby:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_group_by_aggregate: before={memory_used_before_groupby}, "
+    logger.debug(
+        f"debug_memory_group_by_aggregate: before={memory_used_before_groupby}, "
         f"after={memory_used_after_groupby}, used={memory_used_after_groupby - memory_used_before_groupby}"
     )
 
@@ -361,9 +363,9 @@ def dedupe_sub_hash_bucket(
     final_data_table_to_delete = final_data_to_dedupe.filter(pos_delete_indices)
     end_filter = time.perf_counter()
     memory_used_after_filter = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(f"DEBUG_PERFORMANCE_filter: time={end_filter - start_filter:.4f}s")
-    logger.info(
-        f"DEBUG_MEMORY_filter: before={memory_used_before_filter}, "
+    logger.debug(f"debug_performance_filter: time={end_filter - start_filter:.4f}s")
+    logger.debug(
+        f"debug_memory_filter: before={memory_used_before_filter}, "
         f"after={memory_used_after_filter}, used={memory_used_after_filter - memory_used_before_filter}"
     )
 
@@ -418,11 +420,11 @@ def dedupe_sub_hash_bucket(
 
     end_write = time.perf_counter()
     memory_used_after_write = get_current_process_peak_memory_usage_in_bytes()
-    logger.info(
-        f"DEBUG_PERFORMANCE_write_sliced_table: time={end_write - start_write:.4f}s"
+    logger.debug(
+        f"debug_performance_write_sliced_table: time={end_write - start_write:.4f}s"
     )
-    logger.info(
-        f"DEBUG_MEMORY_write_sliced_table: before={memory_used_before_write}, "
+    logger.debug(
+        f"debug_memory_write_sliced_table: before={memory_used_before_write}, "
         f"after={memory_used_after_write}, used={memory_used_after_write - memory_used_before_write}"
     )
 

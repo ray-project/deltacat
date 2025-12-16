@@ -4,7 +4,7 @@ from deltacat.utils.ray_utils.concurrency import (
 )
 import ray
 from deltacat.compute.converter.utils.convert_task_options import (
-    convert_resource_options_provider,
+    convert_options_provider,
 )
 import logging
 from deltacat import logs
@@ -59,9 +59,10 @@ def converter_session(
     **Process Overview:**
     1. Fetches all bucket files (data files, equality deletes, position deletes)
     2. Groups files by bucket for parallel processing
-    3. Converts equality deletes to position deletes using Ray parallel tasks
-    4. Enforces primary key uniqueness if enabled
-    5. Commits appropriate snapshot (append, replace, or delete) to the Iceberg table
+    3. Applies sub-bucketing when buckets exceed the configurable threshold (default: 100 million records)
+    4. Converts equality deletes to position deletes using Ray parallel tasks
+    5. Enforces primary key uniqueness if enabled
+    6. Commits appropriate snapshot (append, replace, or delete) to the Iceberg table
 
 
     Args:
@@ -80,6 +81,7 @@ def converter_session(
             - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
             - start_snapshot_id: Optional starting snapshot ID for filtering files (files from this snapshot onwards will be processed)
             - start_sequence_number: Optional starting sequence number for filtering files (used in conjunction with start_snapshot_id)
+            - sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to 100 million records). When a bucket exceeds this threshold, sub-bucketing will be triggered to improve memory management
         **kwargs: Additional keyword arguments (currently unused)
 
     Returns:
@@ -125,8 +127,9 @@ def converter_session(
     )
     start_snapshot_id = params.start_snapshot_id
     start_sequence_number = params.start_sequence_number
+    sub_bucket_threshold_override = params.sub_bucket_threshold_override
     logger.info(
-        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, start_sequence_number: {start_sequence_number}"
+        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, start_sequence_number: {start_sequence_number}, sub_bucket_threshold_override: {sub_bucket_threshold_override}"
     )
 
     logger.info(f"Fetching all bucket files for table {table_identifier}...")
@@ -171,24 +174,34 @@ def converter_session(
         len(identifier_fields) > 0
     ), f"identifier_fields cannot be empty. merge_keys: {merge_keys}, table identifier fields: {iceberg_table.schema().identifier_field_names()}"
 
-    def convert_options_provider(index: int, item: Any) -> Dict[str, Any]:
-        # convert_resource_options_provider returns (task_options, updated_convert_input_files)
-        # We only need the task_options for the options_provider
-        task_opts, _ = convert_resource_options_provider(
+    max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
+
+    def convert_options_wrapper(index: int, item: Any) -> Dict[str, Any]:
+        # Wrapper for convert_options_provider that captures identifier_fields and sub_bucket_threshold_override
+        logger.info(
+            f"convert_options_wrapper called with index={index}, identifier_fields={identifier_fields}, sub_bucket_threshold_override={sub_bucket_threshold_override}"
+        )
+        task_opts, _ = convert_options_provider(
             index=index,
             convert_input_files=item,
             identifier_fields=identifier_fields,
+            sub_bucket_threshold_override=sub_bucket_threshold_override,
         )
         return task_opts
 
-    max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
-
     def convert_input_provider(index: int, item: Any) -> Dict[str, ConvertInput]:
-        # convert_resource_options_provider returns (task_options, updated_convert_input_files)
-        task_opts, updated_convert_input_files = convert_resource_options_provider(
+        # convert_options_provider returns (task_options, updated_convert_input_files)
+        logger.info(
+            f"convert_input_provider called with index={index}, identifier_fields={identifier_fields}, sub_bucket_threshold_override={sub_bucket_threshold_override}"
+        )
+        task_opts, updated_convert_input_files = convert_options_provider(
             index=index,
             convert_input_files=item,
             identifier_fields=identifier_fields,
+            sub_bucket_threshold_override=sub_bucket_threshold_override,
+        )
+        logger.info(
+            f"convert_options_provider returned task_opts with memory={task_opts.get('memory', 'N/A')}"
         )
         return {
             "convert_input": ConvertInput.of(
@@ -216,7 +229,7 @@ def converter_session(
         items=convert_input_files_for_all_buckets,
         ray_task=convert,
         max_parallelism=task_max_parallelism,
-        options_provider=convert_options_provider,
+        options_provider=convert_options_wrapper,
         kwargs_provider=convert_input_provider,
     )
 

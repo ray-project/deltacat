@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any, List
 from deltacat.compute.converter.constants import (
     DEFAULT_CONVERTER_TASK_MAX_PARALLELISM,
 )
+from deltacat.compute.converter.utils.convert_task_options import SUB_BUCKET_THRESHOLD
 from deltacat.constants import DEFAULT_NAMESPACE
 from fsspec import AbstractFileSystem
 from pyiceberg.catalog import Catalog
@@ -51,6 +52,9 @@ class ConverterSessionParams(dict):
         result.fileio_override = params.get("fileio_override", None)
         result.start_snapshot_id = params.get("start_snapshot_id", None)
         result.start_sequence_number = params.get("start_sequence_number", None)
+        result.sub_bucket_threshold_override = params.get(
+            "sub_bucket_threshold_override", SUB_BUCKET_THRESHOLD
+        )
 
         return result
 
@@ -173,3 +177,11 @@ class ConverterSessionParams(dict):
     @start_sequence_number.setter
     def start_sequence_number(self, start_sequence_number: Optional[int]) -> None:
         self["start_sequence_number"] = start_sequence_number
+
+    @property
+    def sub_bucket_threshold_override(self) -> int:
+        return self["sub_bucket_threshold_override"]
+
+    @sub_bucket_threshold_override.setter
+    def sub_bucket_threshold_override(self, sub_bucket_threshold_override: int) -> None:
+        self["sub_bucket_threshold_override"] = sub_bucket_threshold_override

@@ -224,6 +224,7 @@ def estimate_memory_for_single_sub_bucket(
     Returns:
         Memory required in bytes for processing this sub-bucket
     """
+
     sub_bucket_record_count = get_total_record_from_iceberg_files(sub_bucket_files)
 
     produced_pos_memory_required = estimate_iceberg_pos_delete_additional_columns(
@@ -248,9 +249,15 @@ def estimate_memory_for_single_sub_bucket(
 def estimate_dedupe_memory(
     all_data_files_for_dedupe: List[Tuple[int, DataFile]],
     identifier_fields: List[str],
+    sub_bucket_threshold_override: int = SUB_BUCKET_THRESHOLD,
 ) -> Tuple[float, bool, Optional[List[DataFileList]], Optional[List[float]]]:
     """
     Estimate memory required for deduplication and determine if sub-bucketing is needed.
+
+    Args:
+        all_data_files_for_dedupe: List of data files for deduplication
+        identifier_fields: List of identifier field names
+        sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to SUB_BUCKET_THRESHOLD)
 
     Returns:
         Tuple of (parent_memory_required, sub_bucket_enabled, sub_bucket_input_files, sub_bucket_memory_estimates)
@@ -258,13 +265,13 @@ def estimate_dedupe_memory(
     dedupe_record_count = get_total_record_from_iceberg_files(all_data_files_for_dedupe)
 
     # Check if record count exceeds threshold for sub-bucketing
-    sub_bucket_enabled = dedupe_record_count > SUB_BUCKET_THRESHOLD
+    sub_bucket_enabled = dedupe_record_count > sub_bucket_threshold_override
     sub_bucket_input_files = None
     sub_bucket_memory_estimates = None
 
     if sub_bucket_enabled:
         logger.info(
-            f"Record count {dedupe_record_count} exceeds threshold {SUB_BUCKET_THRESHOLD}. "
+            f"Record count {dedupe_record_count} exceeds threshold {sub_bucket_threshold_override}. "
             f"Enabling sub-bucketing."
         )
         sub_bucket_input_files = split_files_into_sub_buckets(all_data_files_for_dedupe)
@@ -301,17 +308,17 @@ def estimate_dedupe_memory(
         ) * PYARROW_AGGREGATE_MEMORY_MULTIPLIER
 
         logger.info(
-            f"DEBUG_dedupe_record_count:{dedupe_record_count},"
-            f"DEBUG_produced_pos_memory_require:{produced_pos_memory_required},"
-            f"DEBUG_download_pk_memory_required:{download_pk_memory_required},"
-            f"DEBUG_memory_required_by_dedupe:{memory_required_by_dedupe}"
+            f"dedupe_record_count:{dedupe_record_count},"
+            f"produced_pos_memory_require:{produced_pos_memory_required},"
+            f"download_pk_memory_required:{download_pk_memory_required},"
+            f"memory_required_by_dedupe:{memory_required_by_dedupe}"
         )
 
         parent_memory = memory_required_by_dedupe * MEMORY_BUFFER_RATE
 
     logger.info(
-        f"DEBUG_sub_bucket_enabled:{sub_bucket_enabled},"
-        f"DEBUG_parent_memory:{parent_memory}"
+        f"sub_bucket_enabled:{sub_bucket_enabled},"
+        f"with parent task memory:{parent_memory}"
     )
 
     return (
@@ -322,14 +329,21 @@ def estimate_dedupe_memory(
     )
 
 
-def convert_resource_options_provider(
+def convert_options_provider(
     index: int,
     convert_input_files: ConvertInputFiles,
     identifier_fields: List[str] = None,
+    sub_bucket_threshold_override: int = SUB_BUCKET_THRESHOLD,
     **kwargs,
 ) -> Tuple[Dict[str, Any], ConvertInputFiles]:
     """
     Provide resource options for convert tasks and updated ConvertInputFiles with sub-bucket info.
+
+    Args:
+        index: Task index
+        convert_input_files: Input files for conversion
+        identifier_fields: List of identifier field names
+        sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to SUB_BUCKET_THRESHOLD)
 
     Returns:
         Tuple of (task_options, updated_convert_input_files)
@@ -362,7 +376,9 @@ def convert_resource_options_provider(
             sub_bucket_enabled,
             sub_bucket_input_files,
             sub_bucket_memory_estimates,
-        ) = estimate_dedupe_memory(all_data_files_for_dedupe, identifier_fields)
+        ) = estimate_dedupe_memory(
+            all_data_files_for_dedupe, identifier_fields, sub_bucket_threshold_override
+        )
         total_memory_required += memory_requirement_for_dedupe
 
     # Create updated ConvertInputFiles with sub-bucket information

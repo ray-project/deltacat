@@ -56,26 +56,6 @@ from pyiceberg.io.pyarrow import schema_to_pyarrow
 TASK_MEMORY_BYTES = BASE_MEMORY_BUFFER
 
 
-@pytest.fixture(scope="session", autouse=True)
-def daft_native_runner_session():
-    """
-    Session-scoped fixture to set Daft to use native runner for converter integration tests.
-    This is set once per test session and cannot be changed (Daft limitation).
-    Autouse=True ensures it's applied automatically to all tests in this module.
-    """
-    # Set to native runner for all integration tests in this module
-    # Note: Daft only allows setting runner once per session
-    try:
-        daft.context.set_runner_native()
-    except Exception as e:
-        # If runner is already set, that's okay - just log it
-        print(f"Note: Daft runner already set, continuing with existing runner: {e}")
-
-    yield
-
-    # No teardown needed - Daft doesn't allow changing runner after it's set
-
-
 @pytest.fixture(scope="session")
 def daft_native_runner():
     """
