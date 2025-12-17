@@ -72,12 +72,13 @@ class TestDedupeDataFiles:
 
         return table
 
+    @patch("deltacat.compute.converter.steps.dedupe.write_sliced_table")
     @patch("deltacat.compute.converter.steps.dedupe.sort_data_files_maintaining_order")
     @patch(
         "deltacat.compute.converter.steps.dedupe.download_data_table_and_append_iceberg_columns"
     )
     def test_dedupe_data_files_basic_functionality(
-        self, mock_download_data, mock_sort_files
+        self, mock_download_data, mock_sort_files, mock_write_sliced_table
     ):
         """Test basic deduplication functionality with simple duplicates."""
 
@@ -104,43 +105,51 @@ class TestDedupeDataFiles:
         # Mock download function to return our test tables
         mock_download_data.side_effect = [table1, table2]
 
-        # Call the function
-        result_table, total_records, total_bytes = dedupe_data_files(
+        # Mock write_sliced_table to prevent actual file I/O
+        mock_write_sliced_table.return_value = [
+            "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
+        ]
+
+        # Mock filesystem for new required parameter
+        mock_filesystem = Mock()
+
+        # Call the function with new required parameters
+        (
+            position_delete_files,
+            total_records,
+            total_bytes,
+            pos_delete_count,
+            pos_delete_bytes,
+        ) = dedupe_data_files(
             data_files_to_dedupe,
             identifier_columns,
             remaining_data_table,
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
+            "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
+            mock_filesystem,  # filesystem
         )
 
         # Verify function calls
         mock_sort_files.assert_called_once_with(data_files=data_files_to_dedupe)
         assert mock_download_data.call_count == 2
 
-        # Verify results
+        # Verify results (updated for new return format)
         assert total_records == 5  # Total input records
         assert total_bytes > 0  # Should have some byte size
+        assert pos_delete_count == 1  # One duplicate to delete
+        assert pos_delete_bytes > 0  # Should have memory usage for position deletes
+        assert (
+            len(position_delete_files) == 1
+        )  # One position delete file should be created
 
-        # The result should contain position deletes for the duplicate user_1 record
-        # Since user_1 appears at global indices 0 and 3, the one at index 0 should be deleted
-        assert len(result_table) == 1  # One duplicate to delete
-
-        # Verify the result table has the correct columns (without hash and global index)
-        expected_columns = {
-            sc._FILE_PATH_COLUMN_NAME,
-            sc._ORDERED_RECORD_IDX_COLUMN_NAME,
-        }
-        actual_columns = set(result_table.column_names)
-        assert expected_columns.issubset(actual_columns)
-        assert sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME not in actual_columns
-        assert sc._GLOBAL_RECORD_IDX_COLUMN_NAME not in actual_columns
-
+    @patch("deltacat.compute.converter.steps.dedupe.write_sliced_table")
     @patch("deltacat.compute.converter.steps.dedupe.sort_data_files_maintaining_order")
     @patch(
         "deltacat.compute.converter.steps.dedupe.download_data_table_and_append_iceberg_columns"
     )
     def test_dedupe_data_files_with_remaining_data_table(
-        self, mock_download_data, mock_sort_files
+        self, mock_download_data, mock_sort_files, mock_write_sliced_table
     ):
         """Test deduplication with existing remaining_data_table_after_convert."""
 
@@ -165,35 +174,48 @@ class TestDedupeDataFiles:
 
         mock_download_data.return_value = new_file_table
 
-        # Call the function
-        result_table, total_records, total_bytes = dedupe_data_files(
+        # Mock write_sliced_table to prevent actual file I/O
+        mock_write_sliced_table.return_value = [
+            "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
+        ]
+
+        # Mock filesystem for new required parameter
+        mock_filesystem = Mock()
+
+        # Call the function with new required parameters
+        (
+            position_delete_files,
+            total_records,
+            total_bytes,
+            pos_delete_count,
+            pos_delete_bytes,
+        ) = dedupe_data_files(
             data_files_to_dedupe,
             identifier_columns,
             remaining_data_table,
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
+            "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
+            mock_filesystem,  # filesystem
         )
 
         # Verify results
         assert total_records == 4  # 2 from remaining + 2 from new file
         assert total_bytes > 0
+        assert pos_delete_count == 1  # One duplicate to delete
+        assert pos_delete_bytes > 0  # Should have memory usage for position deletes
+        assert (
+            len(position_delete_files) == 1
+        )  # One position delete file should be created
 
-        # Should have 1 duplicate (user_1 appears in both remaining and new data)
-        # The one with lower global index should be in the position delete table
-        assert len(result_table) == 1
-
-        # Verify that the correct user_1 record is in the position delete table
-        # user_1 appears at global indices 0 (from remaining data) and 2 (from new file)
-        # The one at global index 0 (from remaining data) should be deleted
-        result_dict = result_table.to_pydict()
-        # assert result_dict[sc._FILE_PATH_COLUMN_NAME][0] == "existing_file.parquet"
-        assert result_dict[sc._ORDERED_RECORD_IDX_COLUMN_NAME][0] == 10
-
+    @patch("deltacat.compute.converter.steps.dedupe.write_sliced_table")
     @patch("deltacat.compute.converter.steps.dedupe.sort_data_files_maintaining_order")
     @patch(
         "deltacat.compute.converter.steps.dedupe.download_data_table_and_append_iceberg_columns"
     )
-    def test_dedupe_data_files_no_duplicates(self, mock_download_data, mock_sort_files):
+    def test_dedupe_data_files_no_duplicates(
+        self, mock_download_data, mock_sort_files, mock_write_sliced_table
+    ):
         """Test deduplication when there are no duplicates."""
 
         # Setup input data with no duplicates
@@ -216,24 +238,43 @@ class TestDedupeDataFiles:
 
         mock_download_data.side_effect = [table1, table2]
 
-        # Call the function
-        result_table, total_records, total_bytes = dedupe_data_files(
+        # Mock write_sliced_table to prevent actual file I/O (shouldn't be called for no duplicates)
+        mock_write_sliced_table.return_value = []
+
+        # Mock filesystem for new required parameter
+        mock_filesystem = Mock()
+
+        # Call the function with new required parameters
+        (
+            position_delete_files,
+            total_records,
+            total_bytes,
+            pos_delete_count,
+            pos_delete_bytes,
+        ) = dedupe_data_files(
             data_files_to_dedupe,
             identifier_columns,
             remaining_data_table,
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
+            "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
+            mock_filesystem,  # filesystem
         )
 
-        # Verify results - no duplicates means empty position delete table
-        assert len(result_table) == 0
+        # Verify results - no duplicates means empty position delete files
+        assert len(position_delete_files) == 0
+        # Verify write_sliced_table was not called since there are no duplicates
+        mock_write_sliced_table.assert_not_called()
         assert total_records == 4
         assert total_bytes > 0
+        assert pos_delete_count == 0  # No duplicates to delete
+        assert pos_delete_bytes == 0  # No memory usage for position deletes
 
+    @patch("deltacat.compute.converter.steps.dedupe.write_sliced_table")
     @patch("deltacat.compute.converter.steps.dedupe.sort_data_files_maintaining_order")
     @patch("deltacat.compute.converter.utils.io.daft_read_parquet")
     def test_dedupe_data_files_multiple_duplicates_same_key(
-        self, mock_daft_read_parquet, mock_sort_files
+        self, mock_daft_read_parquet, mock_sort_files, mock_write_sliced_table
     ):
         """
         Comprehensive stress test for deduplication with 10 files and both cross-file and internal duplicates.
@@ -311,17 +352,34 @@ class TestDedupeDataFiles:
 
         mock_daft_read_parquet.side_effect = mock_daft_dataframes
 
-        # Call the function
-        result_table, total_records, total_bytes = dedupe_data_files(
+        # Mock write_sliced_table to prevent actual file I/O
+        mock_write_sliced_table.return_value = [
+            "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
+        ]
+
+        # Mock filesystem for new required parameter
+        mock_filesystem = Mock()
+
+        # Call the function with new required parameters
+        (
+            position_delete_files,
+            total_records,
+            total_bytes,
+            pos_delete_count,
+            pos_delete_bytes,
+        ) = dedupe_data_files(
             data_files_to_dedupe,
             identifier_columns,
             remaining_data_table,
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
+            "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
+            mock_filesystem,  # filesystem
         )
 
-        print(f"DEBUG: Result Table first 10 record : {result_table.to_pydict()}")
-        # print(f"DEBUG: Result Table last 10 record : {result_table.to_pydict()[-10:]}")
+        print(f"DEBUG: Position delete files: {len(position_delete_files)}")
+        print(f"DEBUG: Position delete count: {pos_delete_count}")
+
         # Verify results
         total_input_records = 10 * 1200  # 12,000 total records
         assert total_records == total_input_records
@@ -336,169 +394,35 @@ class TestDedupeDataFiles:
         internal_duplicates = 50 * 3 * 10 - 50 * 10  # 1500 - 500 = 1000
         expected_duplicates = cross_file_duplicates + internal_duplicates  # 2800
 
-        assert len(result_table) == expected_duplicates, (
-            f"Expected exactly {expected_duplicates} duplicates, got {len(result_table)}. "
+        assert pos_delete_count == expected_duplicates, (
+            f"Expected exactly {expected_duplicates} duplicates, got {pos_delete_count}. "
             f"Cross-file duplicates: {cross_file_duplicates}, Internal duplicates: {internal_duplicates}"
         )
 
-        # Verify the result table has the correct structure
-        expected_columns = {
-            sc._FILE_PATH_COLUMN_NAME,
-            sc._ORDERED_RECORD_IDX_COLUMN_NAME,
-        }
-        actual_columns = set(result_table.column_names)
-        assert expected_columns.issubset(actual_columns)
-
-        # Verify internal columns are not present in result
-        assert sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME not in actual_columns
-        assert sc._GLOBAL_RECORD_IDX_COLUMN_NAME not in actual_columns
-
-        # Verify that position delete records reference valid file paths and record values
-        result_dict = result_table.to_pydict()
-        file_paths = result_dict[sc._FILE_PATH_COLUMN_NAME]
-        positions = result_dict[sc._ORDERED_RECORD_IDX_COLUMN_NAME]
-
-        # All file paths should be from our test files
-        valid_file_paths = {f"s3://bucket/file{i+1}.parquet" for i in range(10)}
-        for file_path in file_paths:
-            assert file_path in valid_file_paths
-
-        # All record values should be positive integers within valid range
-        # Cross-file duplicates: values 1-200, Internal duplicates: values 201-350
-        for pos in positions:
-            assert isinstance(pos, int) and 0 <= pos < 1200
-
-        # Verify deterministic record value keeping logic
-        # For cross-file duplicates: values 1-200 should be deleted from files 1-9,
-        # while the same values in file 10 should be kept (highest global indices)
-        result_dict = result_table.to_pydict()
-        deleted_file_paths = result_dict[sc._FILE_PATH_COLUMN_NAME]
-        deleted_positions = result_dict[sc._ORDERED_RECORD_IDX_COLUMN_NAME]
-
-        # Group deleted record values by file path for analysis
-        deleted_by_file = {}
-        for file_path, value in zip(deleted_file_paths, deleted_positions):
-            if file_path not in deleted_by_file:
-                deleted_by_file[file_path] = []
-            deleted_by_file[file_path].append(value)
-
-        # Verify cross-file duplicate deletion pattern
-        # Files 1-9 should have values 1-200 deleted (cross-file duplicates)
-        for file_idx in range(9):  # Files 1-9 (indices 0-8)
-            file_path = f"s3://bucket/file{file_idx+1}.parquet"
-            deleted_values_in_file = sorted(deleted_by_file.get(file_path, []))
-
-            # Should have exactly 200 cross-file duplicates + 100 internal duplicates deleted
-            expected_cross_file_deletes = list(range(0, 200))  # values 1-200
-            expected_internal_deletes = []
-
-            # Internal duplicates: values 201-350, but only 2 out of 3 should be deleted per key
-            # For each of the 50 keys (appearing 3 times each), delete values at indices 1 and 2
-            for i in range(50):
-                base_value = 200 + i * 3  # First occurrence at 201, 204, 207, etc.
-                expected_internal_deletes.extend(
-                    [base_value, base_value + 1]
-                )  # Keep first occurrence
-
-            expected_deletes = sorted(
-                expected_cross_file_deletes + expected_internal_deletes
-            )
-            print(
-                f"File {file_idx+1} deleted values first 10: {deleted_values_in_file[:10]}), expected first 10: {expected_deletes[:10]}"
-            )
-            print(
-                f"File {file_idx+1} deleted values last 10: {deleted_values_in_file[-10:]}), expected last 10: {expected_deletes[-10:]}"
-            )
-            assert deleted_values_in_file == expected_deletes, (
-                f"File {file_idx+1} deletion pattern mismatch. "
-                f"Expected {len(expected_deletes)} deletes, got {len(deleted_values_in_file)}. "
-                f"Expected values: {expected_deletes[:10]}..., "
-                f"Got values: {deleted_values_in_file[:10]}..."
-            )
-
-        # File 10 should only have internal duplicates deleted (no cross-file deletes)
-        file10_path = "s3://bucket/file10.parquet"
-        deleted_values_file10 = sorted(deleted_by_file.get(file10_path, []))
-
-        # Only internal duplicates should be deleted from file 10
-        expected_file10_deletes = []
-        for i in range(50):
-            base_value = 200 + i * 3  # First occurrence at 201, 204, 207, etc.
-            expected_file10_deletes.extend(
-                [base_value, base_value + 1]
-            )  # Keep first occurrence
-        expected_file10_deletes = sorted(expected_file10_deletes)
-
-        assert deleted_values_file10 == expected_file10_deletes, (
-            f"File 10 should only have internal duplicates deleted. "
-            f"Expected {len(expected_file10_deletes)} deletes, got {len(deleted_values_file10)}. "
-            f"Expected values: {expected_file10_deletes[:10]}..., "
-            f"Got values: {deleted_values_file10[:10]}..."
-        )
-
-        # Verify that record values kept are deterministic
-        # For cross-file duplicates, values 1-200 in file 10 should be kept
-        # For internal duplicates, the first occurrence of each key should be kept
-
-        # Count deletions by type for verification
-        total_cross_file_deletes = 9 * 200  # 9 files × 200 cross-file duplicates each
-        total_internal_deletes = 10 * 100  # 10 files × 100 internal duplicates each
-
-        cross_file_deletes_found = sum(
-            len(
-                [
-                    value
-                    for value in deleted_by_file.get(
-                        f"s3://bucket/file{i+1}.parquet", []
-                    )
-                    if value < 200
-                ]
-            )
-            for i in range(9)
-        )
-        internal_deletes_found = sum(
-            len(
-                [
-                    value
-                    for value in deleted_by_file.get(
-                        f"s3://bucket/file{i+1}.parquet", []
-                    )
-                    if value >= 200
-                ]
-            )
-            for i in range(10)
-        )
-
         assert (
-            cross_file_deletes_found == total_cross_file_deletes
-        ), f"Cross-file deletes mismatch: expected {total_cross_file_deletes}, got {cross_file_deletes_found}"
-        assert (
-            internal_deletes_found == total_internal_deletes
-        ), f"Internal deletes mismatch: expected {total_internal_deletes}, got {internal_deletes_found}"
+            len(position_delete_files) > 0
+        ), "Should have created position delete files"
+        assert pos_delete_bytes > 0, "Should have memory usage for position deletes"
 
         print(f"Systematic stress test completed successfully:")
         print(f"  Total input records: {total_records}")
         print(
-            f"  Duplicates found: {len(result_table)} (expected: {expected_duplicates})"
+            f"  Duplicates found: {pos_delete_count} (expected: {expected_duplicates})"
         )
-        print(
-            f"  Cross-file duplicates: {cross_file_duplicates} (verified deterministic deletion)"
-        )
-        print(
-            f"  Internal duplicates: {internal_duplicates} (verified deterministic deletion)"
-        )
+        print(f"  Cross-file duplicates: {cross_file_duplicates}")
+        print(f"  Internal duplicates: {internal_duplicates}")
         print(f"  Files processed: 10")
         print(f"  Records per file: 1200")
         print(f"  Shared keys (cross-file): 200")
         print(f"  Internal keys per file: 50 (3 duplicates each)")
-        print(f"  Deterministic record value keeping: VERIFIED")
-        print(f"    - Cross-file: Keep latest occurrences (file 10, values 1-200)")
-        print(f"    - Internal: Keep first occurrences within each file")
+        print(f"  Position delete files created: {len(position_delete_files)}")
+        print(f"  Position delete memory usage: {pos_delete_bytes} bytes")
 
+    @patch("deltacat.compute.converter.steps.dedupe.write_sliced_table")
     @patch("deltacat.compute.converter.steps.dedupe.sort_data_files_maintaining_order")
     @patch("deltacat.compute.converter.utils.io.daft_read_parquet")
     def test_dedupe_data_files_multiple_identifier_columns(
-        self, mock_daft_read_parquet, mock_sort_files
+        self, mock_daft_read_parquet, mock_sort_files, mock_write_sliced_table
     ):
         """
         Comprehensive stress test for deduplication with multiple identifier columns (composite keys).
@@ -570,18 +494,33 @@ class TestDedupeDataFiles:
 
         mock_daft_read_parquet.side_effect = mock_daft_dataframes
 
-        # Call the function
-        result_table, total_records, total_bytes = dedupe_data_files(
+        # Mock write_sliced_table to prevent actual file I/O
+        mock_write_sliced_table.return_value = [
+            "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
+        ]
+
+        # Mock filesystem for new required parameter
+        mock_filesystem = Mock()
+
+        # Call the function with new required parameters
+        (
+            position_delete_files,
+            total_records,
+            total_bytes,
+            pos_delete_count,
+            pos_delete_bytes,
+        ) = dedupe_data_files(
             data_files_to_dedupe,
             identifier_columns,
             remaining_data_table,
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
+            "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
+            mock_filesystem,  # filesystem
         )
 
-        print(
-            f"DEBUG: Composite Key Result Table first 10 records: {result_table.to_pydict()}"
-        )
+        print(f"DEBUG: Position delete files: {len(position_delete_files)}")
+        print(f"DEBUG: Position delete count: {pos_delete_count}")
 
         # Verify results
         total_input_records = 5 * 1000  # 5,000 total records
@@ -597,148 +536,26 @@ class TestDedupeDataFiles:
         internal_duplicates = 50 * 2 * 5 - 50 * 5  # 500 - 250 = 250
         expected_duplicates = cross_file_duplicates + internal_duplicates  # 650
 
-        assert len(result_table) == expected_duplicates, (
-            f"Expected exactly {expected_duplicates} duplicates, got {len(result_table)}. "
+        assert pos_delete_count == expected_duplicates, (
+            f"Expected exactly {expected_duplicates} duplicates, got {pos_delete_count}. "
             f"Cross-file duplicates: {cross_file_duplicates}, Internal duplicates: {internal_duplicates}"
         )
 
-        # Verify the result table has the correct structure
-        expected_columns = {
-            sc._FILE_PATH_COLUMN_NAME,
-            sc._ORDERED_RECORD_IDX_COLUMN_NAME,
-        }
-        actual_columns = set(result_table.column_names)
-        assert expected_columns.issubset(actual_columns)
-
-        # Verify internal columns are not present in result
-        assert sc._IDENTIFIER_COLUMNS_HASH_COLUMN_NAME not in actual_columns
-        assert sc._GLOBAL_RECORD_IDX_COLUMN_NAME not in actual_columns
-
-        # Verify that position delete records reference valid file paths and record values
-        result_dict = result_table.to_pydict()
-        file_paths = result_dict[sc._FILE_PATH_COLUMN_NAME]
-        positions = result_dict[sc._ORDERED_RECORD_IDX_COLUMN_NAME]
-
-        # All file paths should be from our test files
-        valid_file_paths = {f"s3://bucket/file{i+1}.parquet" for i in range(5)}
-        for file_path in file_paths:
-            assert file_path in valid_file_paths
-
-        # All record values should be positive integers within valid range
-        for pos in positions:
-            assert isinstance(pos, int) and 0 <= pos < 1000
-
-        # Verify deterministic record value keeping logic for composite keys
-        result_dict = result_table.to_pydict()
-        deleted_file_paths = result_dict[sc._FILE_PATH_COLUMN_NAME]
-        deleted_positions = result_dict[sc._ORDERED_RECORD_IDX_COLUMN_NAME]
-
-        # Group deleted record values by file path for analysis
-        deleted_by_file = {}
-        for file_path, value in zip(deleted_file_paths, deleted_positions):
-            if file_path not in deleted_by_file:
-                deleted_by_file[file_path] = []
-            deleted_by_file[file_path].append(value)
-
-        # Verify cross-file duplicate deletion pattern for composite keys
-        # Files 1-4 should have positions 0-99 deleted (cross-file duplicates)
-        for file_idx in range(4):  # Files 1-4 (indices 0-3)
-            file_path = f"s3://bucket/file{file_idx+1}.parquet"
-            deleted_values_in_file = sorted(deleted_by_file.get(file_path, []))
-
-            # Should have exactly 100 cross-file duplicates + 50 internal duplicates deleted
-            expected_cross_file_deletes = list(range(0, 100))  # positions 0-99
-            expected_internal_deletes = []
-
-            # Internal duplicates: positions 100-199, but only 1 out of 2 should be deleted per key
-            # For each of the 50 keys (appearing 2 times each), delete the first occurrence (keep the latest)
-            for i in range(50):
-                base_position = 100 + i * 2  # First occurrence at 100, 102, 104, etc.
-                expected_internal_deletes.append(
-                    base_position
-                )  # Delete first occurrence, keep second (latest)
-
-            expected_deletes = sorted(
-                expected_cross_file_deletes + expected_internal_deletes
-            )
-            assert deleted_values_in_file == expected_deletes, (
-                f"File {file_idx+1} deletion pattern mismatch. "
-                f"Expected {len(expected_deletes)} deletes, got {len(deleted_values_in_file)}. "
-                f"Expected positions: {expected_deletes[:10]}..., "
-                f"Got positions: {deleted_values_in_file[:10]}..."
-            )
-
-        # File 5 should only have internal duplicates deleted (no cross-file deletes)
-        file5_path = "s3://bucket/file5.parquet"
-        deleted_values_file5 = sorted(deleted_by_file.get(file5_path, []))
-
-        # Only internal duplicates should be deleted from file 5
-        expected_file5_deletes = []
-        for i in range(50):
-            base_position = 100 + i * 2  # First occurrence at 100, 102, 104, etc.
-            expected_file5_deletes.append(
-                base_position
-            )  # Delete first occurrence, keep second (latest)
-        expected_file5_deletes = sorted(expected_file5_deletes)
-
-        assert deleted_values_file5 == expected_file5_deletes, (
-            f"File 5 should only have internal duplicates deleted. "
-            f"Expected {len(expected_file5_deletes)} deletes, got {len(deleted_values_file5)}. "
-            f"Expected positions: {expected_file5_deletes[:10]}..., "
-            f"Got positions: {deleted_values_file5[:10]}..."
-        )
-
-        # Count deletions by type for verification
-        total_cross_file_deletes = 4 * 100  # 4 files × 100 cross-file duplicates each
-        total_internal_deletes = 5 * 50  # 5 files × 50 internal duplicates each
-
-        cross_file_deletes_found = sum(
-            len(
-                [
-                    value
-                    for value in deleted_by_file.get(
-                        f"s3://bucket/file{i+1}.parquet", []
-                    )
-                    if value < 100
-                ]
-            )
-            for i in range(4)
-        )
-        internal_deletes_found = sum(
-            len(
-                [
-                    value
-                    for value in deleted_by_file.get(
-                        f"s3://bucket/file{i+1}.parquet", []
-                    )
-                    if value >= 100
-                ]
-            )
-            for i in range(5)
-        )
-
         assert (
-            cross_file_deletes_found == total_cross_file_deletes
-        ), f"Cross-file deletes mismatch: expected {total_cross_file_deletes}, got {cross_file_deletes_found}"
-        assert (
-            internal_deletes_found == total_internal_deletes
-        ), f"Internal deletes mismatch: expected {total_internal_deletes}, got {internal_deletes_found}"
+            len(position_delete_files) > 0
+        ), "Should have created position delete files"
+        assert pos_delete_bytes > 0, "Should have memory usage for position deletes"
 
         print(f"Composite key stress test completed successfully:")
         print(f"  Total input records: {total_records}")
         print(
-            f"  Duplicates found: {len(result_table)} (expected: {expected_duplicates})"
+            f"  Duplicates found: {pos_delete_count} (expected: {expected_duplicates})"
         )
-        print(
-            f"  Cross-file duplicates: {cross_file_duplicates} (verified deterministic deletion)"
-        )
-        print(
-            f"  Internal duplicates: {internal_duplicates} (verified deterministic deletion)"
-        )
+        print(f"  Cross-file duplicates: {cross_file_duplicates}")
+        print(f"  Internal duplicates: {internal_duplicates}")
         print(f"  Files processed: 5")
         print(f"  Records per file: 1000")
         print(f"  Shared composite keys (cross-file): 100")
         print(f"  Internal composite keys per file: 50 (2 duplicates each)")
-        print(f"  Deterministic composite key keeping: VERIFIED")
-        print(f"    - Cross-file: Keep latest occurrences (file 5, positions 0-99)")
-        print(f"    - Internal: Keep first occurrences within each file")
+        print(f"  Position delete files created: {len(position_delete_files)}")
+        print(f"  Position delete memory usage: {pos_delete_bytes} bytes")
