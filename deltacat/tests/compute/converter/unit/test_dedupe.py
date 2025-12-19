@@ -15,6 +15,7 @@ of external systems like S3, Iceberg, etc.
 """
 
 import pyarrow as pa
+import pyarrow.fs
 from unittest.mock import Mock, patch
 from typing import List
 
@@ -110,8 +111,8 @@ class TestDedupeDataFiles:
             "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
         ]
 
-        # Mock filesystem for new required parameter
-        mock_filesystem = Mock()
+        # Use PyArrow local filesystem instead of mocked filesystem
+        filesystem = pyarrow.fs.LocalFileSystem()
 
         # Call the function with new required parameters
         (
@@ -127,7 +128,7 @@ class TestDedupeDataFiles:
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
             "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
-            mock_filesystem,  # filesystem
+            filesystem,  # filesystem
         )
 
         # Verify function calls
@@ -179,8 +180,8 @@ class TestDedupeDataFiles:
             "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
         ]
 
-        # Mock filesystem for new required parameter
-        mock_filesystem = Mock()
+        # Use PyArrow local filesystem instead of mocked filesystem
+        filesystem = pyarrow.fs.LocalFileSystem()
 
         # Call the function with new required parameters
         (
@@ -196,7 +197,7 @@ class TestDedupeDataFiles:
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
             "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
-            mock_filesystem,  # filesystem
+            filesystem,  # filesystem
         )
 
         # Verify results
@@ -241,8 +242,8 @@ class TestDedupeDataFiles:
         # Mock write_sliced_table to prevent actual file I/O (shouldn't be called for no duplicates)
         mock_write_sliced_table.return_value = []
 
-        # Mock filesystem for new required parameter
-        mock_filesystem = Mock()
+        # Use PyArrow local filesystem instead of mocked filesystem
+        filesystem = pyarrow.fs.LocalFileSystem()
 
         # Call the function with new required parameters
         (
@@ -258,7 +259,7 @@ class TestDedupeDataFiles:
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
             "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
-            mock_filesystem,  # filesystem
+            filesystem,  # filesystem
         )
 
         # Verify results - no duplicates means empty position delete files
@@ -357,8 +358,8 @@ class TestDedupeDataFiles:
             "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
         ]
 
-        # Mock filesystem for new required parameter
-        mock_filesystem = Mock()
+        # Use PyArrow local filesystem instead of mocked filesystem
+        filesystem = pyarrow.fs.LocalFileSystem()
 
         # Call the function with new required parameters
         (
@@ -374,7 +375,7 @@ class TestDedupeDataFiles:
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
             "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
-            mock_filesystem,  # filesystem
+            filesystem,  # filesystem
         )
 
         print(f"DEBUG: Position delete files: {len(position_delete_files)}")
@@ -499,8 +500,8 @@ class TestDedupeDataFiles:
             "s3://warehouse/test_table/partition=0/position_delete_1.parquet"
         ]
 
-        # Mock filesystem for new required parameter
-        mock_filesystem = Mock()
+        # Use PyArrow local filesystem instead of mocked filesystem
+        filesystem = pyarrow.fs.LocalFileSystem()
 
         # Call the function with new required parameters
         (
@@ -516,7 +517,7 @@ class TestDedupeDataFiles:
             "pos",  # merge_sort_column - not used but required by function signature
             s3_client_kwargs,
             "s3://warehouse/test_table/partition=0",  # iceberg_table_warehouse_prefix_with_partition
-            mock_filesystem,  # filesystem
+            filesystem,  # filesystem
         )
 
         print(f"DEBUG: Position delete files: {len(position_delete_files)}")
