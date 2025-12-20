@@ -144,16 +144,15 @@ def dedupe_hash_bucket_memory_options_provider(
             * MEMORY_BUFFER_RATE
         )
 
-        # Ensure minimum memory allocation (256MB)
-        min_memory = 256 * 1024 * 1024
-        memory_estimate = max(memory_estimate, min_memory)
+        # Ensure minimum memory allocation using BASE_MEMORY_BUFFER
+        memory_estimate = max(memory_estimate, BASE_MEMORY_BUFFER)
 
         logger.info(
             f"Hash bucket {bucket_number}: {record_count:,} records -> {memory_estimate:,} bytes memory"
         )
     else:
-        # Default memory for empty buckets
-        memory_estimate = 256 * 1024 * 1024
+        # Default memory for empty buckets using BASE_MEMORY_BUFFER
+        memory_estimate = BASE_MEMORY_BUFFER
         logger.info(
             f"Hash bucket {bucket_number}: empty bucket -> {memory_estimate:,} bytes default memory"
         )
