@@ -22,8 +22,6 @@ from pyiceberg.table.update.snapshot import _SnapshotProducer, UpdateSnapshot
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
 
-logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
-
 
 def replace_delete_files_override(
     update_snapshot: UpdateSnapshot,
