@@ -2,7 +2,7 @@
 
 ## Local Development
 ### Install UV
-DeltaCAT uses [UV](https://docs.astral.sh/uv/) for package and project management. Before 
+DeltaCAT uses [UV](https://docs.astral.sh/uv/) for package and project management. Before
 proceeding, [ensure that UV is installed](https://docs.astral.sh/uv/getting-started/installation/)
 and that the `uv` command is available in your path.
 
@@ -184,8 +184,8 @@ There are a few reasons for this:
 to a wide variety of human-readable and/or pretty-printed string formats (e.g., via `pprint`) to simplify log message
 evaluation and debugging.
 2. **EXTENSIBLE**: `Dict` and other Python collections make it easy to add new properties to models over time, can
-store/fetch any valid Python objects with known time & space complexities, and simplify delineation between when 
-model validation is required (e.g., during write/read to/from disk via custom serde methods) and not (e.g., during 
+store/fetch any valid Python objects with known time & space complexities, and simplify delineation between when
+model validation is required (e.g., during write/read to/from disk via custom serde methods) and not (e.g., during
 in-memory instantiation before all final property states are known).
 3. **PERFORMANT**: We prioritize model performance over pure object-oriented design principals, and Python's base
 collections (e.g., `Dict`, `List`, `Set`, `Tuple`) avoid many performance penalties otherwise incurred by Python OOD
@@ -218,7 +218,7 @@ setter. Telegraph mutable model properties by creating a corresponding `@propert
 4. **PERSISTENCE**: Models should be validated before being written to durable storage by their `to_serializable`
 method. They should also be validated on every read from durable storage via their `from_serializable` method. Only model
 properties that are persisted in the model's base Python collection will be persisted post-serialization. For example,
-if a model's base Python collection is `Dict`, then durable (written-to-disk) model properties must persist a 
+if a model's base Python collection is `Dict`, then durable (written-to-disk) model properties must persist a
 corresponding key/value pair in their underlying `Dict`, while ephemeral (in-memory-only) model properties should not.
 5. **INTERFACES**: Interface API declarations and abstract methods should simply raise a `NotImplementedError` in the
 base class where they're defined, but not implemented.

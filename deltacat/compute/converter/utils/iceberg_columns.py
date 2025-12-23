@@ -85,3 +85,27 @@ def append_global_record_idx_column(
 _IDENTIFIER_COLUMNS_HASH_COLUMN_NAME = _get_iceberg_col_name(
     "identifier_columns_hashed"
 )
+
+# Hash bucket index column for sub-bucketing workflow
+_HASH_BUCKET_INDEX_COLUMN_NAME = _get_iceberg_col_name("hash_bucket_index")
+_HASH_BUCKET_INDEX_COLUMN_TYPE = pa.int32()
+_HASH_BUCKET_INDEX_COLUMN_FIELD = pa.field(
+    _HASH_BUCKET_INDEX_COLUMN_NAME,
+    _HASH_BUCKET_INDEX_COLUMN_TYPE,
+)
+
+
+def append_hash_bucket_index_column(
+    table: pa.Table, hash_bucket_indices: Union[pa.Array, pa.ChunkedArray, list]
+) -> pa.Table:
+    """Append hash bucket index column to table."""
+    if not isinstance(hash_bucket_indices, (pa.Array, pa.ChunkedArray)):
+        hash_bucket_indices = pa.array(
+            hash_bucket_indices, _HASH_BUCKET_INDEX_COLUMN_TYPE
+        )
+
+    table = table.append_column(
+        _HASH_BUCKET_INDEX_COLUMN_NAME,
+        hash_bucket_indices,
+    )
+    return table
