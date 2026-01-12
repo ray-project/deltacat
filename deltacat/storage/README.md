@@ -40,7 +40,7 @@ DeltaCAT uses a combination of **Immutable IDs** and human-readable **Aliases** 
 | **Table**           | `name`                                  | UUID             | ✅ Yes         |
 | **Table Version**   | `version`                               | `version`        | ❌ No          |
 | **Stream**          | `format`                                | UUID             | ❌ No          |
-| **Partition**       | `partition_values` + `scheme`           | UUID             | ❌ No          |
+| **Partition**       | `partition_values` + `scheme_id`        | UUID             | ❌ No          |
 | **Delta**           | `stream_position`                       | `stream_position`| ❌ No          |
 
 ### Canonical Strings
@@ -61,7 +61,7 @@ SHA-1 hexdigests of canonical strings are used to create **Name Resolution Direc
 DeltaCAT uses two types of directories to separate immutable data storage from mutable name resolution,
 **Immutable ID Directories** and **Name Resolution Directories**.
 
-## Immutable ID Directories (Data Storage)
+## Immutable ID Directories (Metadata Storage)
 
 **Purpose**: Metadata and child object storage.
 
@@ -71,41 +71,45 @@ Every metadata object has a directory named after its **Immutable ID** (UUID or 
 This directory structure **never changes**, even when objects are renamed.
 
 ```
-${CATALOG_ROOT}/${namespace_uuid}/           # Namespace data directory
+${CATALOG_ROOT}/${namespace_uuid}/           # Namespace root directory
     ├── rev/                                 # Namespace metadata revisions
     │   ├── 00000000000000000001_create_<txn_id>.mpk
     │   └── 00000000000000000002_update_<txn_id>.mpk
-    ├── ${table_uuid_1}/                     # Table 1 data directory
+    ├── ${table_uuid_1}/                     # Table root directory
     │   ├── rev/                             # Table metadata revisions
-    │   ├── ${table_version_id_1}/           # Table Version 1
-    │   │   ├── rev/                         # Table Version metadata
-    │   │   ├── ${stream_id_1}/              # Stream (e.g., Parquet format)
-    │   │   │   ├── rev/                     # Stream metadata
-    │   │   │   └── ${partition_id_1}/       # Partition
-    │   │   │       ├── rev/                 # Partition metadata
-    │   │   │       └── ${delta_id_1}/       # Delta (data change)
-    │   │   │           └── rev/             # Delta metadata
-    │   │   └── ${stream_id_2}/              # Another stream (e.g., Delta format)
-    │   └── ${table_version_id_2}/           # Table Version 2
-    └── ${table_uuid_2}/                     # Table 2 data directory
+    │   ├── ${table_version_id_1}/           # Table Version root directory
+    │   │   ├── rev/                         # Table Version metadata revisions 
+    │   │   ├── ${stream_id_1}/              # Stream root directory (e.g., DeltaCAT format)
+    │   │   │   ├── rev/                     # Stream metadata revisions
+    │   │   │   ├── ${partition_id_1}/       # Partition root directory
+    │   │   │   │   ├── rev/                 # Partition metadata revisions
+    │   │   │   │   ├── ${delta_id_1}/       # Delta root directory (data change)
+    │   │   │   │   │   └── rev/             # Delta metadata revisions 
+    │   │   │   │   └── ${delta_id_2}/       # Another delta
+    │   │   │   └── ${partition_id_2}/       # Another partition
+    │   │   └── ${stream_id_2}/              # Another Stream (e.g., Iceberg format)
+    │   └── ${table_version_id_2}/           # Another Table Version
+    └── ${table_uuid_2}/                     # Another Table
 ```
 
 ### Metadata Revision Files
 
 Each `rev/` directory contains **Metadata Revision Files** stored in partitioned subdirectories using a **2-level exponential partition transform with base 1000**:
 
-**Directory Structure**: `rev/<base^1>/<base^0>/<revision_file>`
+**Directory Structure**: `rev/<N*base^2>/<K*base^1>/<revision_file>`
 - Level 1: Multiples of 1000000 (1000^2): `1000000/`, `2000000/`, `3000000/`...
 - Level 2: Multiples of 1000 (1000^1): `1000/`, `2000/`, `3000/`...
-- **Example**: Revision 1234567 → `rev/2000000/1235000/00000000000001234567_create_<txn_id>`
+
+**Example**: Revision 1234567 → `rev/2000000/1235000/00000000000001234567_create_<txn_id>`
 
 **File Format**: `<revision_number>_<operation>_<transaction_id>`
 - `revision_number`: Zero-padded 20 digits (e.g., `00000000000000000001`)
 - `operation`: `create`, `update`, or `delete`
 - `transaction_id`: Unique transaction UUID
-- **Content Type**: File contents are written using **MessagePack**
 
-Simultaneous updates to the same `rev/` partition directory result in a concurrent modification conflict, but any number of different `rev/` partition directories may be modified simultaneously.
+**File Content Type**: [MessagePack](https://github.com/msgpack/msgpack)
+
+**Isolation**: Simultaneous updates to the same `rev/` partition directory result in a concurrent modification conflict, but any number of different `rev/` partition directories may be modified simultaneously.
 
 ## Name Resolution Directories (Mutable Name Mapping)
 
@@ -127,7 +131,7 @@ ${CATALOG_ROOT}/<namespace_uuid>/<table_name_sha1>/  # Maps "my_table" → table
     └── ...
 ```
 
-Simultaneous updates to the same name resolution directory results in a concurrent modification conflict, but any number of different name resolution directories may be modified simultaneously.
+**Isolation**: Simultaneous updates to the same name resolution directory results in a concurrent modification conflict, but any number of different name resolution directories may be modified simultaneously.
 
 ### Name Mapping Files
 
@@ -171,12 +175,12 @@ ${CATALOG_ROOT}/<namespace_uuid>/<customers_sha1>/          # New name
 **Purpose**: Track all successful, failed, running, and paused catalog transactions.
 
 **Location**:
-    - `${CATALOG_ROOT}/txn/success/`: successful transactions
-    - `${CATALOG_ROOT}/txn/failed/`: failed transactions
-    - `${CATALOG_ROOT}/txn/running/`: running transactions
-    - `${CATALOG_ROOT}/txn/paused/`: paused transactions
+- `${CATALOG_ROOT}/txn/success/`: successful transactions
+- `${CATALOG_ROOT}/txn/failed/`: failed transactions
+- `${CATALOG_ROOT}/txn/running/`: running transactions
+- `${CATALOG_ROOT}/txn/paused/`: paused transactions
 
-**Sucess** and **Failed** transaction files are stored in directories partitioned by each transaction's **UTC start time**:
+Transaction files are stored in directories partitioned by each transaction's **UTC start time**:
 
 - **Directory Structure**: `txn/<status>/<year>/<month>/<day>/<hour>/<minute>/<transaction_id>`
     - Year: 4 digits (e.g., `2025/`)
@@ -184,6 +188,12 @@ ${CATALOG_ROOT}/<namespace_uuid>/<customers_sha1>/          # New name
     - Day: 2 digits (e.g., `15/`)
     - Hour: 2 digits (e.g., `14/`)
     - Minute: 2 digits (e.g., `30/`)
+
+**Transaction Log File Format by Status**:
+- **Success**: Transaction ID directories contain a single file with transaction metadata whose name is the transaction end time.
+    - `${CATALOG_ROOT}/txn/success/<year>/<month>/<day>/<hour>/<minute>/<transaction_id>/<transaction_end_time_epoch_ns>`
+- **Failed/Running/Paused**: Transaction ID files with transaction metadata.
+    - `${CATALOG_ROOT}/txn/{status}/<year>/<month>/<day>/<hour>/<minute>/<transaction_id>`
 
 **Transaction ID Format**: `<start_time_epoch_ns>_<uuid>`
 
@@ -205,12 +215,6 @@ ${CATALOG_ROOT}/txn/
 │   ├── 1754104437123456000_d1e2f3g4-5h6i-7j8k-9l0m-n1o2p3q4r5s6
 │   └── 1754104438234567000_e2f3g4h5-6i7j-8k9l-0m1n-o2p3q4r5s6t7u8
 ```
-
-**Transaction Log File Format by State**:
-- **Success**: Transaction ID directories contain a single file with transaction metadata whose name is the transaction end time.
-    - `<transaction_id>/<transaction_end_time_epoch_ns>`
-- **Failed/Running/Paused**: Transaction ID files with transaction metadata.
-    - `<transaction_id>`
 
 DeltaCAT transactions rely on MVCC snapshot isolation, with conflicts isolated to concurrent operations against the same object ID. Each transaction log contains details about the operations performed by that transaction.
 
