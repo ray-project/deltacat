@@ -35,6 +35,7 @@ from pyiceberg.io import FileIO
 from deltacat.compute.converter.model.convert_input_files import (
     DataFileList,
 )
+import time
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -226,9 +227,9 @@ def fetch_all_bucket_files(
 
     if start_snapshot_id:
         # Map snapshot IDs to their sequence numbers
-        for snapshot in snapshots:
-            if snapshot.snapshot_id == start_snapshot_id:
-                expected_start_sequence_number = snapshot.sequence_number
+        for snap in snapshots:
+            if snap.snapshot_id == start_snapshot_id:
+                expected_start_sequence_number = snap.sequence_number
                 break
         logger.info(
             f"Fetching files from start sequence number: {expected_start_sequence_number}"
@@ -236,15 +237,12 @@ def fetch_all_bucket_files(
 
     manifest_evaluators = KeyDefaultDict(data_scan._build_manifest_evaluator)
 
-    # Collect manifests from ALL snapshots, not just the current one
-    all_manifests = []
-    for snapshot in snapshots:
-        manifests_for_snapshot = [
-            manifest_file
-            for manifest_file in snapshot.manifests(table.io)
-            if manifest_evaluators[manifest_file.partition_spec_id](manifest_file)
-        ]
-        all_manifests.extend(manifests_for_snapshot)
+    # Collect manifests from current snapshot only
+    all_manifests = [
+        manifest_file
+        for manifest_file in current_snapshot.manifests(table.io)
+        if manifest_evaluators[manifest_file.partition_spec_id](manifest_file)
+    ]
 
     # step 2: filter the data files in each manifest
     # this filter depends on the partition spec used to write the manifest file
@@ -265,6 +263,12 @@ def fetch_all_bucket_files(
     # and collect their partition values
     target_partition_values = set()
     all_partition_values = []
+
+    # Process manifests using executor
+    logger.info(
+        f"Starting first manifest processing pass with {len(all_manifests)} manifests"
+    )
+    start_time_first = time.perf_counter()
 
     for manifest_entry in chain(
         *executor.map(
@@ -294,6 +298,11 @@ def fetch_all_bucket_files(
             target_partition_values.add(partition_value)
             all_partition_values.append(partition_value)
 
+    end_time_first = time.perf_counter()
+
+    logger.info(
+        f"First manifest processing pass completed in {end_time_first - start_time_first:.2f} seconds"
+    )
     logger.info(f"Found {len(all_partition_values)} all partition values")
     logger.info(
         f"Found {len(target_partition_values)} target partition values from sequence number >= {expected_start_sequence_number}"
@@ -302,6 +311,12 @@ def fetch_all_bucket_files(
     # Second loop: Get ALL files (data, position deletes, equality deletes)
     # that have the same partition values as the files from loop 1
     # Use deduplication logic to keep only the latest version of each file
+
+    logger.info(
+        f"Starting second manifest processing pass with {len(all_manifests)} manifests"
+    )
+    start_time_second = time.perf_counter()
+
     for manifest_entry in chain(
         *executor.map(
             lambda args: _open_manifest(*args),
@@ -341,6 +356,12 @@ def fetch_all_bucket_files(
                 logger.warning(
                     f"Unknown DataFileContent ({data_file.content}): {manifest_entry}"
                 )
+
+    end_time_second = time.perf_counter()
+
+    logger.info(
+        f"Second manifest processing pass completed in {end_time_second - start_time_second:.2f} seconds"
+    )
 
     # Convert registries back to lists for return
     data_entries = defaultdict(list)

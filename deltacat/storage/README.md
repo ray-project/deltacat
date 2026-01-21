@@ -78,13 +78,13 @@ ${CATALOG_ROOT}/${namespace_uuid}/           # Namespace root directory
     ├── ${table_uuid_1}/                     # Table root directory
     │   ├── rev/                             # Table metadata revisions
     │   ├── ${table_version_id_1}/           # Table Version root directory
-    │   │   ├── rev/                         # Table Version metadata revisions 
+    │   │   ├── rev/                         # Table Version metadata revisions
     │   │   ├── ${stream_id_1}/              # Stream root directory (e.g., DeltaCAT format)
     │   │   │   ├── rev/                     # Stream metadata revisions
     │   │   │   ├── ${partition_id_1}/       # Partition root directory
     │   │   │   │   ├── rev/                 # Partition metadata revisions
     │   │   │   │   ├── ${delta_id_1}/       # Delta root directory (data change)
-    │   │   │   │   │   └── rev/             # Delta metadata revisions 
+    │   │   │   │   │   └── rev/             # Delta metadata revisions
     │   │   │   │   └── ${delta_id_2}/       # Another delta
     │   │   │   └── ${partition_id_2}/       # Another partition
     │   │   └── ${stream_id_2}/              # Another Stream (e.g., Iceberg format)
