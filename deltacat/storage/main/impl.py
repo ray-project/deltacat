@@ -844,6 +844,47 @@ def list_partition_deltas_by_timestamp(
     )
 
 
+def get_latest_delta_by_timestamp(
+    partition_like: Union[Partition, PartitionLocator],
+    include_manifest: bool = False,
+    *args,
+    **kwargs,
+) -> Optional[Delta]:
+    """
+    Gets the latest delta by timestamp for the given partition.
+
+    This method returns the most recently committed delta based on stream_timestamp,
+    regardless of whether it's an ordered or unordered (ADD) delta. Unlike
+    `get_latest_delta` which only returns the latest ordered delta based on
+    stream_position, this method considers all deltas and uses commit timestamp
+    for ordering.
+
+    Args:
+        partition_like: The partition or partition locator to get the latest delta from.
+        include_manifest: If True, include the manifest in the returned delta.
+
+    Returns:
+        The latest delta by timestamp, or None if the partition has no deltas.
+
+    To conserve memory, the delta returned does not include a manifest by
+    default. The manifest can either be optionally retrieved as part of this
+    call or lazily loaded via a subsequent call to `get_delta_manifest`.
+    """
+    # Use list_partition_deltas_by_timestamp with descending order (newest first)
+    # and get only the first item (position 1)
+    result = list_partition_deltas_by_timestamp(
+        partition_like=partition_like,
+        first_stream_position=1,
+        last_stream_position=1,
+        ascending_order=False,  # Descending = newest first
+        include_manifest=include_manifest,
+        *args,
+        **kwargs,
+    )
+    deltas = result.all_items()
+    return deltas[0] if deltas else None
+
+
 def get_delta(
     namespace: str,
     table_name: str,
