@@ -30,13 +30,17 @@ class TestDeltaLocator:
     def test_stream_timestamp_invalid_too_small(self):
         """Test that timestamps that are too small are rejected."""
         locator = DeltaLocator.of()
-        with pytest.raises(ValueError, match="stream_timestamp must be unix milliseconds"):
+        with pytest.raises(
+            ValueError, match="stream_timestamp must be unix milliseconds"
+        ):
             locator.stream_timestamp = 123  # Invalid - not milliseconds (too small)
 
     def test_stream_timestamp_invalid_too_large(self):
         """Test that timestamps that are too large are rejected."""
         locator = DeltaLocator.of()
-        with pytest.raises(ValueError, match="stream_timestamp must be unix milliseconds"):
+        with pytest.raises(
+            ValueError, match="stream_timestamp must be unix milliseconds"
+        ):
             locator.stream_timestamp = 10_000_000_000_000  # Invalid - too large
 
     def test_stream_timestamp_boundary_min(self):
