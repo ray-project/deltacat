@@ -8059,6 +8059,268 @@ class TestDelta:
         assert found_delta_no_manifest is not None
         # Note: The manifest might still be present since it was loaded during commit
 
+    def test_list_partition_deltas_by_timestamp_empty_partition(self):
+        """Test listing deltas by timestamp from a partition with no committed deltas."""
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition.locator,
+            catalog=self.catalog,
+        )
+
+        # Should return empty list for partition with no deltas
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        assert len(deltas) == 0
+
+    def test_list_partition_deltas_by_timestamp_with_partition_object(self):
+        """Test listing deltas by timestamp using a partition object."""
+        import time
+
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+        )
+
+        # Stage and commit multiple deltas with small delays to get different timestamps
+        delta1 = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta1 = metastore.commit_delta(delta1, catalog=self.catalog)
+        time.sleep(0.01)  # Small delay to ensure different timestamps
+
+        delta2 = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+            delta_type=DeltaType.APPEND,
+        )
+        committed_delta2 = metastore.commit_delta(delta2, catalog=self.catalog)
+
+        # Test listing with partition object
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            catalog=self.catalog,
+        )
+
+        # Should return both deltas in descending timestamp order by default
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        assert len(deltas) == 2
+        # Verify they have timestamps
+        assert all(d.stream_timestamp is not None for d in deltas)
+        # Descending order means first delta should have the later timestamp
+        assert deltas[0].stream_timestamp >= deltas[1].stream_timestamp
+
+    def test_list_partition_deltas_by_timestamp_with_partition_locator(self):
+        """Test listing deltas by timestamp using a partition locator."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [4, 5, 6], "name": ["David", "Eve", "Frank"], "age": [40, 45, 50]}
+        )
+
+        # Stage and commit a delta
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+
+        # Test listing with partition locator
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition.locator,
+            catalog=self.catalog,
+        )
+
+        # Should return the delta
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        assert len(deltas) >= 1  # At least the delta we just added
+        found_delta = next(
+            (d for d in deltas if d.stream_position == committed_delta.stream_position),
+            None,
+        )
+        assert found_delta is not None
+        assert found_delta.stream_timestamp is not None
+
+    def test_list_partition_deltas_by_timestamp_with_position_slicing(self):
+        """Test slicing deltas by 1-based position after sorting by timestamp."""
+        import time
+
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [7, 8, 9], "name": ["Grace", "Henry", "Irene"], "age": [55, 60, 65]}
+        )
+
+        # Stage and commit 5 deltas with delays to get different timestamps
+        committed_deltas = []
+        for i in range(5):
+            time.sleep(0.01)  # Ensure different timestamps
+            delta = metastore.stage_delta(
+                data=df,
+                partition=self.partition,
+                catalog=self.catalog,
+            )
+            committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+            committed_deltas.append(committed_delta)
+
+        # Verify all deltas have timestamps
+        for d in committed_deltas:
+            assert d.stream_timestamp is not None
+
+        # Get all deltas in ascending order (oldest first)
+        all_result_asc = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            ascending_order=True,
+            catalog=self.catalog,
+        )
+        all_deltas_asc = all_result_asc.all_items()
+
+        # Get all deltas in descending order (newest first) - default
+        all_result_desc = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            ascending_order=False,
+            catalog=self.catalog,
+        )
+        all_deltas_desc = all_result_desc.all_items()
+        total_count = len(all_deltas_desc)
+
+        # Test positions 1-3 in ascending order -> 3 oldest items
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            first_stream_position=1,
+            last_stream_position=3,
+            ascending_order=True,
+            catalog=self.catalog,
+        )
+        deltas = result.all_items()
+        assert len(deltas) == 3
+        # Should match first 3 items from ascending sorted list (oldest)
+        assert deltas[0].stream_position == all_deltas_asc[0].stream_position
+        assert deltas[1].stream_position == all_deltas_asc[1].stream_position
+        assert deltas[2].stream_position == all_deltas_asc[2].stream_position
+
+        # Test positions 1-3 in descending order (default) -> 3 newest items
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            first_stream_position=1,
+            last_stream_position=3,
+            ascending_order=False,
+            catalog=self.catalog,
+        )
+        deltas = result.all_items()
+        assert len(deltas) == 3
+        # Should match first 3 items from descending sorted list (newest)
+        assert deltas[0].stream_position == all_deltas_desc[0].stream_position
+        assert deltas[1].stream_position == all_deltas_desc[1].stream_position
+        assert deltas[2].stream_position == all_deltas_desc[2].stream_position
+
+        # Test with first_stream_position only (skip first 2 items in descending)
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            first_stream_position=3,
+            ascending_order=False,
+            catalog=self.catalog,
+        )
+        deltas = result.all_items()
+        assert len(deltas) == total_count - 2
+
+        # Test with last_stream_position only (get first 3 items in descending)
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            last_stream_position=3,
+            ascending_order=False,
+            catalog=self.catalog,
+        )
+        deltas = result.all_items()
+        assert len(deltas) == 3
+
+    def test_list_partition_deltas_by_timestamp_ascending_order(self):
+        """Test listing deltas by timestamp in ascending order."""
+        import time
+
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [10, 11, 12], "name": ["Jack", "Kate", "Luke"], "age": [70, 75, 80]}
+        )
+
+        # Stage and commit multiple deltas with small delays
+        committed_deltas = []
+        for i in range(3):
+            delta = metastore.stage_delta(
+                data=df,
+                partition=self.partition,
+                catalog=self.catalog,
+            )
+            committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+            committed_deltas.append(committed_delta)
+            time.sleep(0.01)  # Small delay to ensure different timestamps
+
+        # Test ascending order
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            ascending_order=True,
+            catalog=self.catalog,
+        )
+
+        # Should return deltas in ascending timestamp order
+        deltas = result.all_items()
+        assert isinstance(deltas, list)
+        assert len(deltas) >= 3
+
+        # Check that the first few deltas are in ascending timestamp order
+        for i in range(len(deltas) - 1):
+            ts1 = deltas[i].stream_timestamp or 0
+            ts2 = deltas[i + 1].stream_timestamp or 0
+            pos1 = deltas[i].stream_position
+            pos2 = deltas[i + 1].stream_position
+            # For ascending order, (ts1, pos1) should be <= (ts2, pos2)
+            assert (ts1, pos1) <= (ts2, pos2)
+
+    def test_list_partition_deltas_by_timestamp_ordering(self):
+        """Test that ordering is by (timestamp, position) tuple."""
+        import time
+
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [13, 14, 15], "name": ["Mary", "Nick", "Olive"], "age": [85, 90, 95]}
+        )
+
+        # Create deltas with known timestamps
+        committed_deltas = []
+        for i in range(3):
+            time.sleep(0.01)  # Ensure different timestamps
+            delta = metastore.stage_delta(
+                data=df,
+                partition=self.partition,
+                catalog=self.catalog,
+            )
+            committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+            committed_deltas.append(committed_delta)
+
+        # Verify all deltas have timestamps
+        for d in committed_deltas:
+            assert d.stream_timestamp is not None
+
+        # Test descending order (default)
+        result = metastore.list_partition_deltas_by_timestamp(
+            partition_like=self.partition,
+            catalog=self.catalog,
+        )
+
+        deltas = result.all_items()
+        assert len(deltas) >= 3
+
+        # For descending order, each delta should have timestamp >= next delta's timestamp
+        for i in range(len(deltas) - 1):
+            ts1 = deltas[i].stream_timestamp or 0
+            ts2 = deltas[i + 1].stream_timestamp or 0
+            pos1 = deltas[i].stream_position
+            pos2 = deltas[i + 1].stream_position
+            # For descending order, (ts1, pos1) should be >= (ts2, pos2)
+            assert (ts1, pos1) >= (ts2, pos2)
+
 
 class TestErrorCategorization:
     """Test cases for metastore error categorization functions."""
