@@ -296,6 +296,13 @@ class Delta(Metafile):
             return delta_locator.stream_position
         return None
 
+    @property
+    def stream_timestamp(self) -> Optional[int]:
+        delta_locator = self.locator
+        if delta_locator:
+            return delta_locator.stream_timestamp
+        return None
+
     def url(
         self,
         catalog_name: Optional[str] = None,
@@ -375,14 +382,18 @@ class DeltaLocator(Locator, dict):
     def of(
         partition_locator: Optional[PartitionLocator] = None,
         stream_position: Optional[int] = None,
+        stream_timestamp: Optional[int] = None,
     ) -> DeltaLocator:
         """
-        Creates a partition delta locator. Stream Position, if provided, should
-        be greater than that of any prior delta in the partition.
+        Creates a partition delta locator.
+
+        Stream position, if provided, should be greater than that of any prior delta
+        in the partition. Stream timestamp is a unix millisecond timestamp.
         """
         delta_locator = DeltaLocator()
         delta_locator.partition_locator = partition_locator
         delta_locator.stream_position = stream_position
+        delta_locator.stream_timestamp = stream_timestamp
         return delta_locator
 
     @staticmethod
@@ -450,6 +461,20 @@ class DeltaLocator(Locator, dict):
     @stream_position.setter
     def stream_position(self, stream_position: Optional[int]) -> None:
         self["streamPosition"] = stream_position
+
+    @property
+    def stream_timestamp(self) -> Optional[int]:
+        return self.get("streamTimestamp")
+
+    @stream_timestamp.setter
+    def stream_timestamp(self, stream_timestamp: Optional[int]) -> None:
+        if stream_timestamp is not None and not (
+            1_000_000_000_000 <= stream_timestamp <= 9_999_999_999_999
+        ):
+            raise ValueError(
+                f"stream_timestamp must be unix milliseconds, got {stream_timestamp}"
+            )
+        self["streamTimestamp"] = stream_timestamp
 
     @property
     def namespace_locator(self) -> Optional[NamespaceLocator]:
