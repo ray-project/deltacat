@@ -8321,6 +8321,141 @@ class TestDelta:
             # For descending order, (ts1, pos1) should be >= (ts2, pos2)
             assert (ts1, pos1) >= (ts2, pos2)
 
+    def test_get_latest_delta_by_timestamp_empty_partition(self):
+        """Test getting latest delta from an empty partition returns None."""
+        result = metastore.get_latest_delta_by_timestamp(
+            partition_like=self.partition.locator,
+            catalog=self.catalog,
+        )
+        assert result is None
+
+    def test_get_latest_delta_by_timestamp_single_delta(self):
+        """Test getting latest delta when partition has one delta."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+        )
+
+        # Stage and commit a single delta
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+
+        # Get latest delta by timestamp
+        result = metastore.get_latest_delta_by_timestamp(
+            partition_like=self.partition,
+            catalog=self.catalog,
+        )
+
+        assert result is not None
+        assert result.stream_position == committed_delta.stream_position
+        assert result.stream_timestamp == committed_delta.stream_timestamp
+
+    def test_get_latest_delta_by_timestamp_multiple_deltas(self):
+        """Test getting latest delta when partition has multiple deltas."""
+        import time
+
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [4, 5, 6], "name": ["David", "Eve", "Frank"], "age": [40, 45, 50]}
+        )
+
+        # Stage and commit multiple deltas with delays
+        committed_deltas = []
+        for i in range(3):
+            time.sleep(0.01)  # Ensure different timestamps
+            delta = metastore.stage_delta(
+                data=df,
+                partition=self.partition,
+                catalog=self.catalog,
+            )
+            committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+            committed_deltas.append(committed_delta)
+
+        # Get latest delta by timestamp
+        result = metastore.get_latest_delta_by_timestamp(
+            partition_like=self.partition,
+            catalog=self.catalog,
+        )
+
+        assert result is not None
+        # The latest delta should be the last one committed (highest timestamp)
+        assert result.stream_timestamp == committed_deltas[-1].stream_timestamp
+        assert result.stream_position == committed_deltas[-1].stream_position
+
+    def test_get_latest_delta_by_timestamp_with_partition_locator(self):
+        """Test getting latest delta using a partition locator."""
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [7, 8, 9], "name": ["Grace", "Henry", "Irene"], "age": [55, 60, 65]}
+        )
+
+        # Stage and commit a delta
+        delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        committed_delta = metastore.commit_delta(delta, catalog=self.catalog)
+
+        # Get latest delta by timestamp using locator
+        result = metastore.get_latest_delta_by_timestamp(
+            partition_like=self.partition.locator,
+            catalog=self.catalog,
+        )
+
+        assert result is not None
+        assert result.stream_position == committed_delta.stream_position
+
+    def test_get_latest_delta_by_timestamp_returns_newest(self):
+        """Test that get_latest_delta_by_timestamp returns the delta with highest timestamp."""
+        import time
+
+        # Create test data
+        df = pd.DataFrame(
+            {"id": [10, 11, 12], "name": ["Jack", "Kate", "Luke"], "age": [70, 75, 80]}
+        )
+
+        # Stage and commit multiple deltas with known order
+        first_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        first_committed = metastore.commit_delta(first_delta, catalog=self.catalog)
+
+        time.sleep(0.02)  # Ensure different timestamp
+
+        second_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        second_committed = metastore.commit_delta(second_delta, catalog=self.catalog)
+
+        time.sleep(0.02)  # Ensure different timestamp
+
+        third_delta = metastore.stage_delta(
+            data=df,
+            partition=self.partition,
+            catalog=self.catalog,
+        )
+        third_committed = metastore.commit_delta(third_delta, catalog=self.catalog)
+
+        # Get latest - should be the third one
+        result = metastore.get_latest_delta_by_timestamp(
+            partition_like=self.partition,
+            catalog=self.catalog,
+        )
+
+        assert result is not None
+        assert result.stream_timestamp == third_committed.stream_timestamp
+        assert result.stream_timestamp > second_committed.stream_timestamp
+        assert result.stream_timestamp > first_committed.stream_timestamp
+
 
 class TestErrorCategorization:
     """Test cases for metastore error categorization functions."""
