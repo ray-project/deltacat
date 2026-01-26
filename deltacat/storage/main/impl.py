@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 import posixpath
 
@@ -733,6 +734,111 @@ def list_partition_deltas(
     filtered_deltas.sort(reverse=(not ascending_order), key=lambda d: d.stream_position)
     return ListResult.of(
         items=filtered_deltas,
+        pagination_key=None,
+        next_page_provider=None,
+    )
+
+
+def list_partition_deltas_by_timestamp(
+    partition_like: Union[Partition, PartitionLocator],
+    first_stream_position: Optional[int] = None,
+    last_stream_position: Optional[int] = None,
+    ascending_order: bool = False,
+    include_manifest: bool = False,
+    *args,
+    **kwargs,
+) -> ListResult[Delta]:
+    """
+    Lists a page of deltas committed to the given partition, sorted by stream
+    timestamp (with stream position as tiebreaker), and sliced by 1-based positions.
+
+    This method is intended for use with unordered (ADD) deltas where temporal
+    ordering based on commit time is needed. Unlike `list_partition_deltas`
+    which sorts by stream position, this method sorts by the timestamp when
+    each delta was committed.
+
+    The deltas are sorted by (stream_timestamp, stream_position) in the requested
+    order, then sliced using 1-based positions.
+
+    Example:
+        If deltas by timestamp are [A(oldest), B, C, D, E(newest)]:
+        - Descending (default): sorted as [E, D, C, B, A]
+          positions 1-3 -> [E, D, C] (3 most recent)
+        - Ascending: sorted as [A, B, C, D, E]
+          positions 1-3 -> [A, B, C] (3 oldest)
+
+    Args:
+        partition_like: The partition or partition locator to list deltas from.
+        first_stream_position: Start position for slicing (1-based, inclusive).
+            Position 1 is the first item in the sorted order. If None, starts from 1.
+        last_stream_position: End position for slicing (1-based, inclusive).
+            If None, includes all remaining items.
+        ascending_order: If True, sort ascending (oldest first).
+            If False (default), sort descending (newest first).
+        include_manifest: If True, include manifests in the returned deltas.
+
+    To conserve memory, the deltas returned do not include manifests by
+    default. The manifests can either be optionally retrieved as part of this
+    call or lazily loaded via subsequent calls to `get_delta_manifest`.
+    """
+    if first_stream_position is not None and last_stream_position is not None:
+        if first_stream_position > last_stream_position:
+            raise ValueError(
+                f"first_stream_position must be less than or equal to last_stream_position. "
+                f"first_stream_position: {first_stream_position}, "
+                f"last_stream_position: {last_stream_position}"
+            )
+    if first_stream_position is not None and first_stream_position < 1:
+        raise ValueError(
+            f"first_stream_position must be >= 1 (1-based). "
+            f"Got: {first_stream_position}"
+        )
+    if last_stream_position is not None and last_stream_position < 1:
+        raise ValueError(
+            f"last_stream_position must be >= 1 (1-based). "
+            f"Got: {last_stream_position}"
+        )
+
+    locator = DeltaLocator.of(
+        partition_locator=partition_like
+        if isinstance(partition_like, PartitionLocator)
+        else partition_like.locator,
+        stream_position=None,
+    )
+    delta = Delta.of(
+        locator=locator,
+        delta_type=None,
+        meta=None,
+        properties=None,
+        manifest=None,
+    )
+    try:
+        all_deltas_list_result: ListResult[Delta] = _list(
+            metafile=delta,
+            txn_op_type=TransactionOperationType.READ_SIBLINGS,
+            *args,
+            **kwargs,
+        )
+    except ObjectNotFoundError as e:
+        raise PartitionNotFoundError(f"Partition {partition_like} not found") from e
+    all_deltas = all_deltas_list_result.all_items()
+
+    # Sort deltas by stream timestamp with stream position as tiebreaker
+    # Use 0 as default for None timestamps to maintain consistent sorting
+    # Descending (default): newest first; Ascending: oldest first
+    all_deltas.sort(
+        reverse=(not ascending_order),
+        key=lambda d: (d.stream_timestamp or 0, d.stream_position),
+    )
+
+    # Slice the sorted list using 1-based positions
+    # Position 1 = index 0, Position N = index N-1
+    start = (first_stream_position - 1) if first_stream_position is not None else 0
+    end = last_stream_position if last_stream_position is not None else None
+    sliced_deltas = all_deltas[start:end]
+
+    return ListResult.of(
+        items=sliced_deltas,
         pagination_key=None,
         next_page_provider=None,
     )
@@ -2805,6 +2911,9 @@ def commit_delta(
         # reserve stream positions <= UINT32_MAX for ordered deltas
         while delta.locator.stream_position <= UNSIGNED_INT32_MAX_VALUE:
             delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
+
+    # Add stream timestamp in milliseconds
+    delta.locator.stream_timestamp = int(time.time() * 1000)
 
     # Add operations to the transaction
     # the 1st operation creates the delta

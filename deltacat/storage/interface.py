@@ -154,6 +154,51 @@ def list_partition_deltas(
     raise NotImplementedError("list_partition_deltas not implemented")
 
 
+def list_partition_deltas_by_timestamp(
+    partition_like: Union[Partition, PartitionLocator],
+    first_stream_position: Optional[int] = None,
+    last_stream_position: Optional[int] = None,
+    ascending_order: bool = False,
+    include_manifest: bool = False,
+    *args,
+    **kwargs,
+) -> ListResult[Delta]:
+    """
+    Lists a page of deltas committed to the given partition, sorted by stream
+    timestamp (with stream position as tiebreaker), and sliced by 1-based positions.
+
+    This method is intended for use with unordered (ADD) deltas where temporal
+    ordering based on commit time is needed. Unlike `list_partition_deltas`
+    which sorts by stream position, this method sorts by the timestamp when
+    each delta was committed.
+
+    The deltas are sorted by (stream_timestamp, stream_position) in the requested
+    order, then sliced using 1-based positions.
+
+    Example:
+        If deltas by timestamp are [A(oldest), B, C, D, E(newest)]:
+        - Descending (default): sorted as [E, D, C, B, A]
+          positions 1-3 -> [E, D, C] (3 most recent)
+        - Ascending: sorted as [A, B, C, D, E]
+          positions 1-3 -> [A, B, C] (3 oldest)
+
+    Args:
+        partition_like: The partition or partition locator to list deltas from.
+        first_stream_position: Start position for slicing (1-based, inclusive).
+            Position 1 is the first item in the sorted order. If None, starts from 1.
+        last_stream_position: End position for slicing (1-based, inclusive).
+            If None, includes all remaining items.
+        ascending_order: If True, sort ascending (oldest first).
+            If False (default), sort descending (newest first).
+        include_manifest: If True, include manifests in the returned deltas.
+
+    To conserve memory, the deltas returned do not include manifests by
+    default. The manifests can either be optionally retrieved as part of this
+    call or lazily loaded via subsequent calls to `get_delta_manifest`.
+    """
+    raise NotImplementedError("list_partition_deltas_by_timestamp not implemented")
+
+
 def get_delta(
     namespace: str,
     table_name: str,
