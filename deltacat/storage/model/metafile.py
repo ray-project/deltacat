@@ -821,6 +821,7 @@ class Metafile(dict):
             "partitionLocator",
             "deltaLocator",
             "compactionRoundCompletionInfo",
+            "streamTimestamp",
         }
         return Metafile._equivalent_minus_exclusions(self, other, identifiers)
 
