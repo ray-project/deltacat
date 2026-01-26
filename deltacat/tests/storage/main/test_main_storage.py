@@ -8086,7 +8086,7 @@ class TestDelta:
             partition=self.partition,
             catalog=self.catalog,
         )
-        committed_delta1 = metastore.commit_delta(delta1, catalog=self.catalog)
+        metastore.commit_delta(delta1, catalog=self.catalog)
         time.sleep(0.01)  # Small delay to ensure different timestamps
 
         delta2 = metastore.stage_delta(
@@ -8095,7 +8095,7 @@ class TestDelta:
             catalog=self.catalog,
             delta_type=DeltaType.APPEND,
         )
-        committed_delta2 = metastore.commit_delta(delta2, catalog=self.catalog)
+        metastore.commit_delta(delta2, catalog=self.catalog)
 
         # Test listing with partition object
         result = metastore.list_partition_deltas_by_timestamp(
