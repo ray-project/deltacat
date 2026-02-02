@@ -250,7 +250,7 @@ def write_to_table(
             will create this version if it doesn't exist (in CREATE mode) or
             get this version if it exists (in other modes). If not specified,
             uses the latest version.
-        mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
+        mode: Write mode (AUTO, CREATE, CHRONO, APPEND, REPLACE, MERGE, DELETE).
         content_type: Content type used to write the data files. Defaults to PARQUET.
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
@@ -499,6 +499,13 @@ def _handle_write_mode(
             table_version_obj,
             **kwargs,
         )
+    elif mode == TableWriteMode.CHRONO:
+        return _handle_chrono_mode(
+            table_schema,
+            namespace,
+            table,
+            **kwargs,
+        )
     elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
         return _handle_merge_delete_mode(
             mode,
@@ -590,6 +597,30 @@ def _handle_add_mode(
         **kwargs,
     )
     return stream, DeltaType.ADD
+
+
+def _handle_chrono_mode(
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
+    **kwargs,
+) -> Tuple[Any, DeltaType]:
+    """Handle CHRONO mode by validating no merge keys and getting existing stream."""
+    if table_schema and table_schema.merge_keys:
+        raise SchemaValidationError(
+            f"CHRONO mode cannot be used with tables that have merge keys. "
+            f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+            f"Use MERGE mode instead."
+        )
+
+    stream = _get_table_stream(
+        namespace,
+        table,
+        table_version_obj.table_version,
+        **kwargs,
+    )
+    return stream, DeltaType.CHRONO
 
 
 def _handle_merge_delete_mode(
@@ -710,7 +741,7 @@ def _handle_partition_creation(
 
         return partition, commit_staged_partition
     else:
-        # APPEND/ADD mode on existing table: Get existing partition
+        # APPEND/ADD/CHRONO mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
             stream_locator=stream.locator,
             partition_values=None,
