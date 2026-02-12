@@ -172,6 +172,116 @@ TEST_CASES_APPLY_MANY_DELETES = {
         expected_total_dropped_rows=0,
         expected_exception=None,
     ),
+    "7-test-composite-key-no-cross-join": ApplyAllDeletesTestCaseParams(
+        # Regression test: delete rows with mismatched composite key values
+        # must NOT cross-join to produce phantom matches.
+        # Main table: pk_1=a for all rows, pk_2=1..4
+        # Delete row 1: (a, 1) -> should match and delete row (a, 1)
+        # Delete row 2: (b, 3) -> pk_1=b does not exist in main table,
+        #   so this row should NOT cause any deletion.
+        # Previously, the column-wise is_in + AND logic would incorrectly
+        # delete row (a, 3) because pk_1=a is in {a,b} AND pk_2=3 is in {1,3}.
+        table=pa.Table.from_arrays(
+            [
+                pa.array(["a", "a", "a", "a"]),
+                pa.array([1, 2, 3, 4]),
+                pa.array(["d1", "d2", "d3", "d4"]),
+            ],
+            names=["pk_1", "pk_2", "data"],
+        ),
+        delete_file_envelopes_params=[
+            {
+                "stream_position": 1,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array(["a", "b"]),
+                        pa.array([1, 3]),
+                    ],
+                    names=["pk_1", "pk_2"],
+                ),
+                "delete_columns": ["pk_1", "pk_2"],
+            }
+        ],
+        expected_table=pa.Table.from_arrays(
+            [
+                pa.array(["a", "a", "a"]),
+                pa.array([2, 3, 4]),
+                pa.array(["d2", "d3", "d4"]),
+            ],
+            names=["pk_1", "pk_2", "data"],
+        ),
+        expected_total_dropped_rows=1,
+        expected_exception=None,
+    ),
+    "8-test-delete-null-pk-value": ApplyAllDeletesTestCaseParams(
+        # Null values in key columns must be treated as equal (null == null)
+        # for deletion matching, even though PyArrow joins default to SQL
+        # semantics where null != null.
+        table=pa.Table.from_arrays(
+            [
+                pa.array([1, 2, None], type=pa.int64()),
+                pa.array(["a", "b", "c"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        delete_file_envelopes_params=[
+            {
+                "stream_position": 1,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array([None], type=pa.int64()),
+                    ],
+                    names=["pk_col_1"],
+                ),
+                "delete_columns": ["pk_col_1"],
+            }
+        ],
+        expected_table=pa.Table.from_arrays(
+            [
+                pa.array([1, 2]),
+                pa.array(["a", "b"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        expected_total_dropped_rows=1,
+        expected_exception=None,
+    ),
+    "9-test-delete-null-typed-column": ApplyAllDeletesTestCaseParams(
+        # When a key column has pa.null() data type (all values are null),
+        # PyArrow join raises ArrowInvalid. The null-safe path must handle this
+        # by casting the null-typed column before joining.
+        table=pa.Table.from_arrays(
+            [
+                pa.array([None, None], type=pa.null()),
+                pa.array(["a", "b"]),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        delete_file_envelopes_params=[
+            {
+                "stream_position": 1,
+                "delta_type": DeltaType.DELETE,
+                "table": pa.Table.from_arrays(
+                    [
+                        pa.array([None], type=pa.null()),
+                    ],
+                    names=["pk_col_1"],
+                ),
+                "delete_columns": ["pk_col_1"],
+            }
+        ],
+        expected_table=pa.Table.from_arrays(
+            [
+                pa.array([], type=pa.null()),
+                pa.array([], type=pa.string()),
+            ],
+            names=["pk_col_1", "col_1"],
+        ),
+        expected_total_dropped_rows=2,
+        expected_exception=None,
+    ),
     "6-test-delete-multi-column": ApplyAllDeletesTestCaseParams(
         table=pa.Table.from_arrays(
             [
