@@ -11,8 +11,10 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.compute.compactor_v2.deletes.delete_strategy import (
     DeleteStrategy,
 )
-
-_NULL_SENTINEL = "__DELTACAT_NULL_SENTINEL__"
+from deltacat.compute.compactor.utils.system_columns import (
+    _ORDERED_RECORD_IDX_COLUMN_NAME,
+    _NULL_SENTINEL_VALUE,
+)
 
 
 logger = logs.configure_deltacat_logger(logging.getLogger(__name__))
@@ -56,7 +58,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
                 arr = pa.nulls(len(arr), type=pa.string())
             elif arr.type != pa.string():
                 arr = pc.cast(arr, pa.string())
-            arr = pc.if_else(pc.is_null(arr), pa.scalar(_NULL_SENTINEL), arr)
+            arr = pc.fill_null(arr, _NULL_SENTINEL_VALUE)
             tbl = tbl.set_column(tbl.schema.get_field_index(col), col, arr)
         return tbl
 
@@ -116,7 +118,7 @@ class EqualityDeleteStrategy(DeleteStrategy):
         if has_nulls:
             # Null-safe path: stringify keys with sentinel, then join on
             # row indices to preserve original column types and null values.
-            idx_name = "__deltacat_row_idx__"
+            idx_name = _ORDERED_RECORD_IDX_COLUMN_NAME
             table_keys = table.append_column(
                 idx_name, pa.array(range(len(table)), type=pa.int64())
             ).select(valid_columns + [idx_name])
