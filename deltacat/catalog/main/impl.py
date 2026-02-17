@@ -504,6 +504,7 @@ def _handle_write_mode(
             table_schema,
             namespace,
             table,
+            table_version_obj,
             **kwargs,
         )
     elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
@@ -1031,7 +1032,7 @@ def _trigger_compaction(
     ):
         if delta_type == DeltaType.DELETE or delta_type == DeltaType.UPSERT:
             return True
-        elif delta_type in (DeltaType.APPEND, DeltaType.ADD):
+        elif delta_type in (DeltaType.APPEND, DeltaType.ADD, DeltaType.CHRONO):
             # Get all deltas appended since last compaction
             deltas = (
                 _get_storage(**kwargs)
