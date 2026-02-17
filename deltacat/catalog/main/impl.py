@@ -2807,7 +2807,11 @@ def _get_deltas_from_partition_filter(
         if deltas:
             non_append_deltas = []
             for delta in deltas:
-                if delta.type not in (DeltaType.ADD, DeltaType.APPEND):
+                if delta.type not in (
+                    DeltaType.ADD,
+                    DeltaType.APPEND,
+                    DeltaType.CHRONO,
+                ):
                     non_append_deltas.append(delta)
                 else:
                     result_deltas.append(delta)
@@ -2817,13 +2821,13 @@ def _get_deltas_from_partition_filter(
                     (str(delta.locator), delta.type) for delta in non_append_deltas[:5]
                 ]  # Show first 5
                 raise NotImplementedError(
-                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-ADD/APPEND deltas "
-                    f"with types {delta_types}. All deltas must be ADD or APPEND type for read operations. "
-                    f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND deltas."
+                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-ADD/APPEND/CHRONO deltas "
+                    f"with types {delta_types}. All deltas must be ADD, APPEND, or CHRONO type for read operations. "
+                    f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND/CHRONO deltas."
                 )
 
             logger.info(
-                f"Validated {len(deltas)} qualified deltas are all ADD or APPEND type"
+                f"Validated {len(deltas)} qualified deltas are all ADD, APPEND, or CHRONO type"
             )
     return result_deltas
 

@@ -2693,7 +2693,9 @@ def stage_delta(
             f"Cannot stage delta to {partition.state} partition: {partition}",
         )
     previous_stream_position: Optional[int] = (
-        partition.stream_position if delta_type not in [DeltaType.ADD, DeltaType.CHRONO] else None
+        partition.stream_position
+        if delta_type not in [DeltaType.ADD, DeltaType.CHRONO]
+        else None
     )
 
     # Handle schema parameter and add to table_writer_kwargs if available
