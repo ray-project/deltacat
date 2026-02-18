@@ -80,8 +80,9 @@ def converter_session(
             - location_provider_prefix_override: Optional prefix override for file locations
             - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
             - start_snapshot_id: Optional starting snapshot ID for filtering files (files from this snapshot onwards will be processed)
-            - start_sequence_number: Optional starting sequence number for filtering files (used in conjunction with start_snapshot_id)
+            - start_sequence_number: Optional starting sequence number for filtering files. When both start_snapshot_id and start_sequence_number are provided, the minimum of the corresponding sequence numbers is used
             - sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to 100 million records). When a bucket exceeds this threshold, sub-bucketing will be triggered to improve memory management
+            - enable_sub_bucket: Whether to enable sub-bucketing (defaults to True). When False, all files are processed in a single task regardless of record count
         **kwargs: Additional keyword arguments (currently unused)
 
     Returns:
