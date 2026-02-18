@@ -204,6 +204,7 @@ def parquet_files_dict_to_iceberg_data_files(
 def fetch_all_bucket_files(
     table: Table,
     start_snapshot_id: Optional[int] = None,
+    start_sequence_number: Optional[int] = None,
 ) -> Tuple[
     Dict[Any, DataFileList],
     Dict[Any, DataFileList],
@@ -214,7 +215,10 @@ def fetch_all_bucket_files(
     # step 1: filter manifests using partition summaries
     # the filter depends on the partition spec used to write the manifest file, so create a cache of filters for each spec id
 
-    logger.info(f"Fetch all bucket_files start snapshot id:{start_snapshot_id}")
+    logger.info(
+        f"Fetch all bucket_files start snapshot id:{start_snapshot_id}, "
+        f"start sequence number:{start_sequence_number}"
+    )
 
     data_scan = table.scan()
     current_snapshot = data_scan.snapshot()
@@ -225,14 +229,41 @@ def fetch_all_bucket_files(
     snapshots = list(table.metadata.snapshots)
     expected_start_sequence_number = -1
 
+    # Handle start_snapshot_id to get corresponding sequence number
+    corresponding_start_sequence_number = None
     if start_snapshot_id:
         # Map snapshot IDs to their sequence numbers
         for snap in snapshots:
             if snap.snapshot_id == start_snapshot_id:
-                expected_start_sequence_number = snap.sequence_number
+                corresponding_start_sequence_number = snap.sequence_number
                 break
+
+    # Determine final expected_start_sequence_number based on provided parameters
+    if (
+        corresponding_start_sequence_number is not None
+        and start_sequence_number is not None
+    ):
+        # Both provided: take the minimum
+        expected_start_sequence_number = min(
+            corresponding_start_sequence_number, start_sequence_number
+        )
         logger.info(
-            f"Fetching files from start sequence number: {expected_start_sequence_number}"
+            f"Both start_snapshot_id and start_sequence_number provided. "
+            f"Corresponding sequence number from snapshot: {corresponding_start_sequence_number}, "
+            f"Provided sequence number: {start_sequence_number}, "
+            f"Using minimum: {expected_start_sequence_number}"
+        )
+    elif corresponding_start_sequence_number is not None:
+        # Only snapshot_id provided
+        expected_start_sequence_number = corresponding_start_sequence_number
+        logger.info(
+            f"Fetching files from start sequence number (from snapshot): {expected_start_sequence_number}"
+        )
+    elif start_sequence_number is not None:
+        # Only sequence_number provided
+        expected_start_sequence_number = start_sequence_number
+        logger.info(
+            f"Fetching files from start sequence number (direct): {expected_start_sequence_number}"
         )
 
     manifest_evaluators = KeyDefaultDict(data_scan._build_manifest_evaluator)
@@ -290,10 +321,10 @@ def fetch_all_bucket_files(
         file_sequence_number = manifest_entry.sequence_number
         partition_value = data_file.partition
 
-        # Filter data files by sequence number >= expected_start_sequence_number
+        # Filter data files by sequence number > expected_start_sequence_number
         if (
             data_file.content == DataFileContent.DATA
-            and file_sequence_number >= expected_start_sequence_number
+            and file_sequence_number > expected_start_sequence_number
         ):
             target_partition_values.add(partition_value)
             all_partition_values.append(partition_value)
@@ -305,7 +336,8 @@ def fetch_all_bucket_files(
     )
     logger.info(f"Found {len(all_partition_values)} all partition values")
     logger.info(
-        f"Found {len(target_partition_values)} target partition values from sequence number >= {expected_start_sequence_number}"
+        f"Found {len(target_partition_values)} target partition values from sequence number >"
+        f" {expected_start_sequence_number}"
     )
     logger.info(f"Found target_partition_values:{target_partition_values}")
     # Second loop: Get ALL files (data, position deletes, equality deletes)

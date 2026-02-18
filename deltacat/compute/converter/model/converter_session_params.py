@@ -55,6 +55,7 @@ class ConverterSessionParams(dict):
         result.sub_bucket_threshold_override = params.get(
             "sub_bucket_threshold_override", SUB_BUCKET_THRESHOLD
         )
+        result.enable_sub_bucket = params.get("enable_sub_bucket", True)
 
         return result
 
@@ -185,3 +186,11 @@ class ConverterSessionParams(dict):
     @sub_bucket_threshold_override.setter
     def sub_bucket_threshold_override(self, sub_bucket_threshold_override: int) -> None:
         self["sub_bucket_threshold_override"] = sub_bucket_threshold_override
+
+    @property
+    def enable_sub_bucket(self) -> bool:
+        return self["enable_sub_bucket"]
+
+    @enable_sub_bucket.setter
+    def enable_sub_bucket(self, enable_sub_bucket: bool) -> None:
+        self["enable_sub_bucket"] = enable_sub_bucket

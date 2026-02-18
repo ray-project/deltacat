@@ -249,6 +249,7 @@ def estimate_dedupe_memory(
     all_data_files_for_dedupe: List[Tuple[int, DataFile]],
     identifier_fields: List[str],
     sub_bucket_threshold_override: int = SUB_BUCKET_THRESHOLD,
+    enable_sub_bucket: bool = True,
 ) -> Tuple[float, bool, Optional[List[DataFileList]], Optional[List[float]]]:
     """
     Estimate memory required for deduplication and determine if sub-bucketing is needed.
@@ -257,14 +258,17 @@ def estimate_dedupe_memory(
         all_data_files_for_dedupe: List of data files for deduplication
         identifier_fields: List of identifier field names
         sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to SUB_BUCKET_THRESHOLD)
+        enable_sub_bucket: Whether to enable sub-bucketing (defaults to True)
 
     Returns:
         Tuple of (parent_memory_required, sub_bucket_enabled, sub_bucket_input_files, sub_bucket_memory_estimates)
     """
     dedupe_record_count = get_total_record_from_iceberg_files(all_data_files_for_dedupe)
 
-    # Check if record count exceeds threshold for sub-bucketing
-    sub_bucket_enabled = dedupe_record_count > sub_bucket_threshold_override
+    # Check if record count exceeds threshold for sub-bucketing AND if sub-bucketing is enabled
+    sub_bucket_enabled = enable_sub_bucket and (
+        dedupe_record_count > sub_bucket_threshold_override
+    )
     sub_bucket_input_files = None
     sub_bucket_memory_estimates = None
 
@@ -333,6 +337,7 @@ def convert_options_provider(
     convert_input_files: ConvertInputFiles,
     identifier_fields: List[str] = None,
     sub_bucket_threshold_override: int = SUB_BUCKET_THRESHOLD,
+    enable_sub_bucket: bool = True,
     **kwargs,
 ) -> Tuple[Dict[str, Any], ConvertInputFiles]:
     """
@@ -343,6 +348,7 @@ def convert_options_provider(
         convert_input_files: Input files for conversion
         identifier_fields: List of identifier field names
         sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to SUB_BUCKET_THRESHOLD)
+        enable_sub_bucket: Whether to enable sub-bucketing (defaults to True)
 
     Returns:
         Tuple of (task_options, updated_convert_input_files)
@@ -370,13 +376,17 @@ def convert_options_provider(
         total_memory_required += memory_requirement_for_convert_equality_deletes
 
     if all_data_files_for_dedupe:
+        # Pass enable_sub_bucket to estimate_dedupe_memory to handle sub-bucketing logic
         (
             memory_requirement_for_dedupe,
             sub_bucket_enabled,
             sub_bucket_input_files,
             sub_bucket_memory_estimates,
         ) = estimate_dedupe_memory(
-            all_data_files_for_dedupe, identifier_fields, sub_bucket_threshold_override
+            all_data_files_for_dedupe,
+            identifier_fields,
+            sub_bucket_threshold_override,
+            enable_sub_bucket,
         )
         total_memory_required += memory_requirement_for_dedupe
 

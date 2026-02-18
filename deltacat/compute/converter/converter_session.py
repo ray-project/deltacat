@@ -128,8 +128,12 @@ def converter_session(
     start_snapshot_id = params.start_snapshot_id
     start_sequence_number = params.start_sequence_number
     sub_bucket_threshold_override = params.sub_bucket_threshold_override
+    enable_sub_bucket = params.enable_sub_bucket
     logger.info(
-        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, start_sequence_number: {start_sequence_number}, sub_bucket_threshold_override: {sub_bucket_threshold_override}"
+        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, "
+        f"start_sequence_number: {start_sequence_number}, "
+        f"sub_bucket_threshold_override: {sub_bucket_threshold_override}, "
+        f"enable_sub_bucket: {enable_sub_bucket}"
     )
 
     logger.info(f"Fetching all bucket files for table {table_identifier}...")
@@ -139,7 +143,11 @@ def converter_session(
         pos_delete_dict,
         latest_snapshot_id,
         largest_sequence_number,
-    ) = fetch_all_bucket_files(table=iceberg_table, start_snapshot_id=start_snapshot_id)
+    ) = fetch_all_bucket_files(
+        table=iceberg_table,
+        start_snapshot_id=start_snapshot_id,
+        start_sequence_number=start_sequence_number,
+    )
     logger.info(
         f"Fetched files - data: {len(data_file_dict)}, equality_delete: {len(equality_delete_dict)}, pos_delete: {len(pos_delete_dict)}"
     )
@@ -177,28 +185,32 @@ def converter_session(
     max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 
     def convert_options_wrapper(index: int, item: Any) -> Dict[str, Any]:
-        # Wrapper for convert_options_provider that captures identifier_fields and sub_bucket_threshold_override
+        # Wrapper for convert_options_provider that captures identifier_fields, sub_bucket_threshold_override, and enable_sub_bucket
         logger.info(
-            f"convert_options_wrapper called with index={index}, identifier_fields={identifier_fields}, sub_bucket_threshold_override={sub_bucket_threshold_override}"
+            f"convert_options_wrapper called with index={index}, identifier_fields={identifier_fields}, "
+            f"sub_bucket_threshold_override={sub_bucket_threshold_override}, enable_sub_bucket={enable_sub_bucket}"
         )
         task_opts, _ = convert_options_provider(
             index=index,
             convert_input_files=item,
             identifier_fields=identifier_fields,
             sub_bucket_threshold_override=sub_bucket_threshold_override,
+            enable_sub_bucket=enable_sub_bucket,
         )
         return task_opts
 
     def convert_input_provider(index: int, item: Any) -> Dict[str, ConvertInput]:
         # convert_options_provider returns (task_options, updated_convert_input_files)
         logger.info(
-            f"convert_input_provider called with index={index}, identifier_fields={identifier_fields}, sub_bucket_threshold_override={sub_bucket_threshold_override}"
+            f"convert_input_provider called with index={index}, identifier_fields={identifier_fields}, "
+            f"sub_bucket_threshold_override={sub_bucket_threshold_override}, enable_sub_bucket={enable_sub_bucket}"
         )
         task_opts, updated_convert_input_files = convert_options_provider(
             index=index,
             convert_input_files=item,
             identifier_fields=identifier_fields,
             sub_bucket_threshold_override=sub_bucket_threshold_override,
+            enable_sub_bucket=enable_sub_bucket,
         )
         logger.info(
             f"convert_options_provider returned task_opts with memory={task_opts.get('memory', 'N/A')}"
