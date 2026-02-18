@@ -77,6 +77,8 @@ _IS_SOURCE_COLUMN_FIELD = pa.field(
     _IS_SOURCE_COLUMN_TYPE,
 )
 
+_NULL_SENTINEL_VALUE = _get_sys_col_name("null_sentinel")
+
 _FILE_RECORD_COUNT_COLUMN_NAME = _get_sys_col_name("file_record_count")
 _FILE_RECORD_COUNT_COLUMN_TYPE = pa.int64()
 _FILE_RECORD_COUNT_COLUMN_FIELD = pa.field(
