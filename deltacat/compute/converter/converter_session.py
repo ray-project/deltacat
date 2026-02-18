@@ -80,8 +80,9 @@ def converter_session(
             - location_provider_prefix_override: Optional prefix override for file locations
             - position_delete_for_multiple_data_files: Whether to generate position deletes for multiple data files
             - start_snapshot_id: Optional starting snapshot ID for filtering files (files from this snapshot onwards will be processed)
-            - start_sequence_number: Optional starting sequence number for filtering files (used in conjunction with start_snapshot_id)
+            - start_sequence_number: Optional starting sequence number for filtering files. When both start_snapshot_id and start_sequence_number are provided, the minimum of the corresponding sequence numbers is used
             - sub_bucket_threshold_override: Custom threshold for sub-bucketing (defaults to 100 million records). When a bucket exceeds this threshold, sub-bucketing will be triggered to improve memory management
+            - enable_sub_bucket: Whether to enable sub-bucketing (defaults to True). When False, all files are processed in a single task regardless of record count
         **kwargs: Additional keyword arguments (currently unused)
 
     Returns:
@@ -128,8 +129,12 @@ def converter_session(
     start_snapshot_id = params.start_snapshot_id
     start_sequence_number = params.start_sequence_number
     sub_bucket_threshold_override = params.sub_bucket_threshold_override
+    enable_sub_bucket = params.enable_sub_bucket
     logger.info(
-        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, start_sequence_number: {start_sequence_number}, sub_bucket_threshold_override: {sub_bucket_threshold_override}"
+        f"Converter session parameters - start_snapshot_id: {start_snapshot_id}, "
+        f"start_sequence_number: {start_sequence_number}, "
+        f"sub_bucket_threshold_override: {sub_bucket_threshold_override}, "
+        f"enable_sub_bucket: {enable_sub_bucket}"
     )
 
     logger.info(f"Fetching all bucket files for table {table_identifier}...")
@@ -139,7 +144,11 @@ def converter_session(
         pos_delete_dict,
         latest_snapshot_id,
         largest_sequence_number,
-    ) = fetch_all_bucket_files(table=iceberg_table, start_snapshot_id=start_snapshot_id)
+    ) = fetch_all_bucket_files(
+        table=iceberg_table,
+        start_snapshot_id=start_snapshot_id,
+        start_sequence_number=start_sequence_number,
+    )
     logger.info(
         f"Fetched files - data: {len(data_file_dict)}, equality_delete: {len(equality_delete_dict)}, pos_delete: {len(pos_delete_dict)}"
     )
@@ -177,28 +186,32 @@ def converter_session(
     max_parallel_data_file_download = DEFAULT_MAX_PARALLEL_DATA_FILE_DOWNLOAD
 
     def convert_options_wrapper(index: int, item: Any) -> Dict[str, Any]:
-        # Wrapper for convert_options_provider that captures identifier_fields and sub_bucket_threshold_override
+        # Wrapper for convert_options_provider that captures identifier_fields, sub_bucket_threshold_override, and enable_sub_bucket
         logger.info(
-            f"convert_options_wrapper called with index={index}, identifier_fields={identifier_fields}, sub_bucket_threshold_override={sub_bucket_threshold_override}"
+            f"convert_options_wrapper called with index={index}, identifier_fields={identifier_fields}, "
+            f"sub_bucket_threshold_override={sub_bucket_threshold_override}, enable_sub_bucket={enable_sub_bucket}"
         )
         task_opts, _ = convert_options_provider(
             index=index,
             convert_input_files=item,
             identifier_fields=identifier_fields,
             sub_bucket_threshold_override=sub_bucket_threshold_override,
+            enable_sub_bucket=enable_sub_bucket,
         )
         return task_opts
 
     def convert_input_provider(index: int, item: Any) -> Dict[str, ConvertInput]:
         # convert_options_provider returns (task_options, updated_convert_input_files)
         logger.info(
-            f"convert_input_provider called with index={index}, identifier_fields={identifier_fields}, sub_bucket_threshold_override={sub_bucket_threshold_override}"
+            f"convert_input_provider called with index={index}, identifier_fields={identifier_fields}, "
+            f"sub_bucket_threshold_override={sub_bucket_threshold_override}, enable_sub_bucket={enable_sub_bucket}"
         )
         task_opts, updated_convert_input_files = convert_options_provider(
             index=index,
             convert_input_files=item,
             identifier_fields=identifier_fields,
             sub_bucket_threshold_override=sub_bucket_threshold_override,
+            enable_sub_bucket=enable_sub_bucket,
         )
         logger.info(
             f"convert_options_provider returned task_opts with memory={task_opts.get('memory', 'N/A')}"
