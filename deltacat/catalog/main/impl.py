@@ -250,7 +250,7 @@ def write_to_table(
             will create this version if it doesn't exist (in CREATE mode) or
             get this version if it exists (in other modes). If not specified,
             uses the latest version.
-        mode: Write mode (AUTO, CREATE, APPEND, REPLACE, MERGE, DELETE).
+        mode: Write mode (AUTO, CREATE, CHRONO, APPEND, REPLACE, MERGE, DELETE).
         content_type: Content type used to write the data files. Defaults to PARQUET.
         transaction: Optional transaction to append write operations to instead of
             creating and committing a new transaction.
@@ -499,6 +499,14 @@ def _handle_write_mode(
             table_version_obj,
             **kwargs,
         )
+    elif mode == TableWriteMode.CHRONO:
+        return _handle_chrono_mode(
+            table_schema,
+            namespace,
+            table,
+            table_version_obj,
+            **kwargs,
+        )
     elif mode in (TableWriteMode.MERGE, TableWriteMode.DELETE):
         return _handle_merge_delete_mode(
             mode,
@@ -590,6 +598,30 @@ def _handle_add_mode(
         **kwargs,
     )
     return stream, DeltaType.ADD
+
+
+def _handle_chrono_mode(
+    table_schema,
+    namespace: str,
+    table: str,
+    table_version_obj: TableVersion,
+    **kwargs,
+) -> Tuple[Any, DeltaType]:
+    """Handle CHRONO mode by validating no merge keys and getting existing stream."""
+    if table_schema and table_schema.merge_keys:
+        raise SchemaValidationError(
+            f"CHRONO mode cannot be used with tables that have merge keys. "
+            f"Table {namespace}.{table} has merge keys: {table_schema.merge_keys}. "
+            f"Use MERGE mode instead."
+        )
+
+    stream = _get_table_stream(
+        namespace,
+        table,
+        table_version_obj.table_version,
+        **kwargs,
+    )
+    return stream, DeltaType.CHRONO
 
 
 def _handle_merge_delete_mode(
@@ -710,7 +742,7 @@ def _handle_partition_creation(
 
         return partition, commit_staged_partition
     else:
-        # APPEND/ADD mode on existing table: Get existing partition
+        # APPEND/ADD/CHRONO mode on existing table: Get existing partition
         partition = _get_storage(**kwargs).get_partition(
             stream_locator=stream.locator,
             partition_values=None,
@@ -1000,7 +1032,7 @@ def _trigger_compaction(
     ):
         if delta_type == DeltaType.DELETE or delta_type == DeltaType.UPSERT:
             return True
-        elif delta_type in (DeltaType.APPEND, DeltaType.ADD):
+        elif delta_type in (DeltaType.APPEND, DeltaType.ADD, DeltaType.CHRONO):
             # Get all deltas appended since last compaction
             deltas = (
                 _get_storage(**kwargs)
@@ -2775,7 +2807,11 @@ def _get_deltas_from_partition_filter(
         if deltas:
             non_append_deltas = []
             for delta in deltas:
-                if delta.type not in (DeltaType.ADD, DeltaType.APPEND):
+                if delta.type not in (
+                    DeltaType.ADD,
+                    DeltaType.APPEND,
+                    DeltaType.CHRONO,
+                ):
                     non_append_deltas.append(delta)
                 else:
                     result_deltas.append(delta)
@@ -2785,13 +2821,13 @@ def _get_deltas_from_partition_filter(
                     (str(delta.locator), delta.type) for delta in non_append_deltas[:5]
                 ]  # Show first 5
                 raise NotImplementedError(
-                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-ADD/APPEND deltas "
-                    f"with types {delta_types}. All deltas must be ADD or APPEND type for read operations. "
-                    f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND deltas."
+                    f"Merge-on-read is not yet implemented. Found {len(non_append_deltas)} non-ADD/APPEND/CHRONO deltas "
+                    f"with types {delta_types}. All deltas must be ADD, APPEND, or CHRONO type for read operations. "
+                    f"Examples: {delta_info}. Please run compaction first to merge non-ADD/APPEND/CHRONO deltas."
                 )
 
             logger.info(
-                f"Validated {len(deltas)} qualified deltas are all ADD or APPEND type"
+                f"Validated {len(deltas)} qualified deltas are all ADD, APPEND, or CHRONO type"
             )
     return result_deltas
 

@@ -40,6 +40,7 @@ class StreamFormat(str, Enum):
 
 class DeltaType(str, Enum):
     ADD = "add"
+    CHRONO = "chrono"
     APPEND = "append"
     UPSERT = "upsert"
     DELETE = "delete"

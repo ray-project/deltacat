@@ -1,6 +1,7 @@
 import logging
 import uuid
 import posixpath
+import time
 
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
@@ -8,7 +9,7 @@ from deltacat.catalog.model.properties import get_catalog_properties
 from deltacat.constants import (
     DEFAULT_TABLE_VERSION,
     DATA_FILE_DIR_NAME,
-    UNSIGNED_INT32_MAX_VALUE,
+    UNSIGNED_INT48_MAX_VALUE,
 )
 from deltacat.exceptions import (
     TableNotFoundError,
@@ -2692,7 +2693,9 @@ def stage_delta(
             f"Cannot stage delta to {partition.state} partition: {partition}",
         )
     previous_stream_position: Optional[int] = (
-        partition.stream_position if delta_type != DeltaType.ADD else None
+        partition.stream_position
+        if delta_type not in [DeltaType.ADD, DeltaType.CHRONO]
+        else None
     )
 
     # Handle schema parameter and add to table_writer_kwargs if available
@@ -2782,7 +2785,7 @@ def commit_delta(
     delta.locator.partition_locator = parent_partition.locator
 
     # resolve the delta's stream position
-    if delta.type != DeltaType.ADD:
+    if delta.type not in [DeltaType.ADD, DeltaType.CHRONO]:
         # this is an ordered delta
         delta.previous_stream_position = parent_partition.stream_position or 0
         if delta.stream_position is not None:
@@ -2799,12 +2802,16 @@ def commit_delta(
         # update the parent partition's stream position
         new_parent_partition: Partition = Metafile.update_for(parent_partition)
         new_parent_partition.stream_position = delta.locator.stream_position
-    else:
+
+    elif delta.type is DeltaType.ADD:
         # this is an unordered delta - use a positive signed 64-bit UUID-based stream position
         delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
-        # reserve stream positions <= UINT32_MAX for ordered deltas
-        while delta.locator.stream_position <= UNSIGNED_INT32_MAX_VALUE:
+        # reserve stream positions <= UINT48_MAX for CHRONO deltas
+        while delta.locator.stream_position <= UNSIGNED_INT48_MAX_VALUE:
             delta.locator.stream_position = uuid.uuid4().int & (1 << 63) - 1
+
+    elif delta.type is DeltaType.CHRONO:
+        delta.locator.stream_position = int(time.time() * 1000)
 
     # Add operations to the transaction
     # the 1st operation creates the delta
