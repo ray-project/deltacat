@@ -38,7 +38,9 @@ from deltacat.experimental.storage.rivulet.reader.dataset_reader import DatasetR
 from deltacat.experimental.storage.rivulet.reader.query_expression import (
     QueryExpression,
 )
-
+from deltacat.experimental.storage.rivulet.reader.webdataset_reader import (
+    WebDatasetReader,
+)
 from deltacat.experimental.storage.rivulet.writer.dataset_writer import DatasetWriter
 from deltacat.experimental.storage.rivulet.writer.memtable_dataset_writer import (
     MemtableDatasetWriter,
@@ -477,6 +479,77 @@ class Dataset:
         return dataset
 
     @classmethod
+    def from_webdataset(
+        cls,
+        name: str,
+        file_uri: str,
+        merge_keys: str | Iterable[str] = None,
+        metadata_uri: Optional[str] = None,
+        schema_mode: str = "union",
+        batch_size: Optional[int] = 1,
+        filesystem: Optional[pyarrow.fs.FileSystem] = None,
+        namespace: str = DEFAULT_NAMESPACE,
+    ) -> "Dataset":
+        """
+        Create a Dataset from a single webdataset tar file.
+
+        TODO: Add support for reading directories with multiple WDS files.
+
+        Args:
+            name: Unique identifier for the dataset.
+            metadata_uri: Base URI for the dataset, where dataset metadata is stored. If not specified, will be placed in ${file_uri}/riv-meta
+            file_uri: Path to a single webdataset file.
+            merge_keys: Fields to specify as merge keys for future 'zipper merge' operations on the dataset.
+            schema_mode: Currently ignored as this is for a single file.
+
+        Returns:
+            Dataset: New dataset instance with the schema automatically inferred
+                     from the tar file.
+        """
+        # TODO: integrate this with filesystem from deltacat catalog
+        file_uri, file_fs = FileStore.filesystem(file_uri, filesystem=filesystem)
+        if metadata_uri is None:
+            metadata_uri = posixpath.join(posixpath.dirname(file_uri), "riv-meta")
+        else:
+            metadata_uri, metadata_fs = FileStore.filesystem(
+                metadata_uri, filesystem=filesystem
+            )
+
+            # TODO: when integrating deltacat consider if we can support multiple filesystems
+            if file_fs.type_name != metadata_fs.type_name:
+                raise ValueError(
+                    "File URI and metadata URI must be on the same filesystem."
+                )
+
+        # Read the WebDataset into a PyArrow Table
+        wds_parser = WebDatasetReader(
+            name=name,
+            file_uri=file_uri,
+            merge_keys=merge_keys,
+            schema_mode=schema_mode,
+            batch_size=batch_size,
+            namespace=namespace,
+        )
+        pyarrow_table = wds_parser.to_pyarrow()
+        # Create the Dataset and write to it
+        dataset_schema = Schema.from_pyarrow(
+            pyarrow_table.schema, merge_keys=merge_keys
+        )
+
+        dataset = cls(
+            dataset_name=name,
+            metadata_uri=metadata_uri,
+            schema=dataset_schema,
+            filesystem=file_fs,
+            namespace=namespace,
+        )
+
+        writer = dataset.writer()
+        writer.write(pyarrow_table.to_batches())
+        writer.flush()
+        return dataset
+
+    @classmethod
     def from_csv(
         cls,
         name: str,
@@ -519,7 +592,7 @@ class Dataset:
                 )
 
         # Read the CSV file into a PyArrow Table
-        table = pyarrow.csv.read_csv(file_uri, filesystem=file_fs)
+        table = pyarrow.csv.read_csv(file_uri)
         pyarrow_schema = table.schema
 
         # Create the dataset schema
@@ -715,7 +788,6 @@ class Dataset:
         :return: new dataset writer with a schema at the conjunction of the given schemas
         """
         schema_name = schema_name or ALL
-
         return MemtableDatasetWriter(
             self._file_provider, self.schemas[schema_name], self._locator, file_format
         )

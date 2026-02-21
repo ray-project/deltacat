@@ -10,6 +10,8 @@ import random
 import string
 from PIL import Image
 
+# import webdataset as wds
+
 FIXTURE_ROW_COUNT = 10000
 
 

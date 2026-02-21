@@ -117,6 +117,7 @@ class Schema(MutableMapping[str, Field]):
         Raises:
             ValueError: If key is not found in schema
         """
+        merge_keys = [] if merge_keys is None else merge_keys
         merge_keys = [merge_keys] if isinstance(merge_keys, str) else merge_keys
         fields = {}
 
