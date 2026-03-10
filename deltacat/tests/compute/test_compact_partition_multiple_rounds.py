@@ -234,6 +234,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
     These tests do not test multi-round compaction backfill, which is
     currently unsupported.
     """
+    # stream position is created from current_time_ms()
     (
         source_table_stream,
         _,
@@ -273,7 +274,7 @@ def test_compact_partition_rebase_multiple_rounds_same_source_and_destination(
                 "deltacat_storage_kwargs": ds_mock_kwargs,
                 "destination_partition_locator": rebased_partition.locator,
                 "hash_bucket_count": hash_bucket_count_param,
-                "last_stream_position_to_compact": source_partition.stream_position,
+                "last_stream_position_to_compact": rebased_partition.stream_position,
                 "list_deltas_kwargs": {
                     **ds_mock_kwargs,
                     **{"equivalent_table_types": []},

@@ -165,6 +165,7 @@ def _merge_tables(
 
     result_table_list = []
 
+    # Dedupe in the incremental before merging with the main table
     incremental_table = drop_duplicates(
         all_tables[incremental_idx], on=sc._PK_HASH_STRING_COLUMN_NAME
     )
@@ -194,6 +195,7 @@ def _merge_tables(
                 incremental_pk_hash_str, pa.large_string()
             )
 
+        # Drop all records present in both tables
         records_to_keep = pc.invert(
             pc.is_in(
                 compacted_pk_hash_str,
@@ -201,6 +203,7 @@ def _merge_tables(
             )
         )
 
+        # Append the incremental table
         result_table_list.append(compacted_table.filter(records_to_keep))
 
     incremental_table = _drop_delta_type_rows(incremental_table, DeltaType.DELETE)

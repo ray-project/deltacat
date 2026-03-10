@@ -72,7 +72,7 @@ def discover_deltas(
         previous_compacted_deltas = io_v1._discover_deltas(
             source_partition_locator,
             None,
-            None,
+            last_stream_position_to_compact,
             deltacat_storage,
             deltacat_storage_kwargs,
             list_deltas_kwargs,
@@ -82,7 +82,7 @@ def discover_deltas(
 
         logger.info(
             f"Length of input deltas from previous compacted table is {len(previous_compacted_deltas)}"
-            f" from ({None}, {None}]"
+            f" from ({None}, {last_stream_position_to_compact}]"
         )
 
     return result
