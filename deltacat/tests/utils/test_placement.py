@@ -1,7 +1,9 @@
 import unittest
+from unittest.mock import patch, MagicMock
 import ray
 from deltacat.utils.placement import (
     PlacementGroupManager,
+    _config,
     _get_available_resources_per_node,
 )
 
@@ -23,3 +25,15 @@ class TestPlacementGroupManager(unittest.TestCase):
         result = _get_available_resources_per_node()
 
         self.assertIsNotNone(result)
+
+    def test_placement_group_manager_accepts_custom_resources(self):
+
+        pgm = PlacementGroupManager(1, 1, 1, custom_resources={"storage_worker": 1})
+
+        self.assertIsNotNone(pgm)
+
+    def test_placement_group_manager_none_custom_resources(self):
+
+        pgm = PlacementGroupManager(1, 1, 1, custom_resources=None)
+
+        self.assertIsNotNone(pgm)
