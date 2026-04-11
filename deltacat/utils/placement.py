@@ -321,6 +321,8 @@ def _config(
     cluster_resources["CPU"] = int(pg_res["CPU"])
     cluster_resources["memory"] = float(pg_res["memory"])
     cluster_resources["object_store_memory"] = float(pg_res["object_store_memory"])
+    if custom_resources:
+        cluster_resources.update(custom_resources)
     pg_config = PlacementGroupConfig(
         opts=opts, resource=cluster_resources, node_ips=node_ips
     )
