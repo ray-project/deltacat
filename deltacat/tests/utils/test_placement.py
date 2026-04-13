@@ -1,9 +1,7 @@
 import unittest
-from unittest.mock import patch, MagicMock
 import ray
 from deltacat.utils.placement import (
     PlacementGroupManager,
-    _config,
     _get_available_resources_per_node,
 )
 
