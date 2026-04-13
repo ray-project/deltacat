@@ -203,9 +203,19 @@ class PlacementGroupManager:
                     opts = pg_configs[0][0]
                     fun.options(**opts).remote()
             ```
+    Custom resources can be used to target specific node types. For example, to
+    schedule bundles only on foo nodes that declare ``foo: 1``
+    in their ``available_node_types`` resources:
+            ```
+                    pgm = PlacementGroupManager(1, 32, 32, custom_resources={"foo": 1})
+            ```
+    See https://docs.ray.io/en/latest/cluster/vms/references/ray-cluster-configuration.html#cluster-configuration-resources
     Args:
             num_pgs: number of placement groups to be created
-            instance_cpus: number of cpus per instance
+            total_cpus_per_pg: total number of cpus per placement group
+            cpu_per_bundle: number of cpus per bundle (typically cpus per node)
+            custom_resources: optional dict of custom resources to include in each bundle,
+                    used to target specific node types declared in available_node_types
     """
 
     def __init__(
@@ -216,6 +226,7 @@ class PlacementGroupManager:
         strategy="SPREAD",
         capture_child_tasks=True,
         memory_per_bundle=None,
+        custom_resources: Optional[Dict[str, float]] = None,
     ):
         head_res_key = self.get_current_node_resource_key()
         # run the task on head and consume a fractional cpu, so that pg can be created on non-head node
@@ -230,6 +241,7 @@ class PlacementGroupManager:
                     strategy,
                     capture_child_tasks,
                     memory_per_bundle=memory_per_bundle,
+                    custom_resources=custom_resources,
                 )
                 for i in range(num_pgs)
             ]
@@ -265,12 +277,15 @@ def _config(
     capture_child_tasks=True,
     time_out: Optional[float] = None,
     memory_per_bundle: Optional[float] = None,
+    custom_resources: Optional[Dict[str, float]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     pg_config = None
     opts = {}
     cluster_resources = {}
     num_bundles = (int)(total_cpus_per_pg / cpu_per_node)
-    bundles = [{"CPU": cpu_per_node} for i in range(num_bundles)]
+    bundles = [
+        {"CPU": cpu_per_node, **(custom_resources or {})} for i in range(num_bundles)
+    ]
 
     if memory_per_bundle:
         for bundle in bundles:
@@ -306,6 +321,8 @@ def _config(
     cluster_resources["CPU"] = int(pg_res["CPU"])
     cluster_resources["memory"] = float(pg_res["memory"])
     cluster_resources["object_store_memory"] = float(pg_res["object_store_memory"])
+    if custom_resources:
+        cluster_resources.update(custom_resources)
     pg_config = PlacementGroupConfig(
         opts=opts, resource=cluster_resources, node_ips=node_ips
     )
