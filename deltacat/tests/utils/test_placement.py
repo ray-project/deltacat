@@ -11,8 +11,14 @@ class TestPlacementGroupManager(unittest.TestCase):
     def setUpClass(cls):
         super().setUpClass()
         ray.init(
-            local_mode=True, ignore_reinit_error=True, resources={"storage_worker": 1}
+            local_mode=True,
+            ignore_reinit_error=True,
         )
+
+    @classmethod
+    def tearDownClass(cls):
+        ray.shutdown()
+        super().tearDownClass()
 
     def test_placement_group_manager_sanity(self):
 
