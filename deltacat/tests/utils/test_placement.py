@@ -9,11 +9,11 @@ from deltacat.utils.placement import (
 class TestPlacementGroupManager(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        super().setUpClass()
         ray.init(
             local_mode=True,
             ignore_reinit_error=True,
         )
+        super().setUpClass()
 
     @classmethod
     def tearDownClass(cls):
