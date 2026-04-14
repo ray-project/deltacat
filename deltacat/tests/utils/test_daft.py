@@ -4,18 +4,12 @@ from deltacat.utils.daft import daft_s3_file_to_table, s3_files_to_dataframe
 from deltacat.utils.pyarrow import ReadKwargsProviderPyArrowSchemaOverride
 from deltacat.types.partial_download import PartialParquetParameters
 import pyarrow as pa
-import ray
 
 from pyarrow import parquet as pq
 
 
 class TestDaftS3FileToTable(unittest.TestCase):
     MVP_PATH = "deltacat/tests/utils/data/mvp.parquet"
-
-    @classmethod
-    def tearDown(cls):
-        ray.shutdown()
-        super().tearDownClass()
 
     def test_read_from_s3_all_columns(self):
         table = daft_s3_file_to_table(
