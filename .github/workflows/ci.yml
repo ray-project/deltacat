@@ -6,7 +6,7 @@ on:
             - edited
             - synchronize
             - reopened
-        branches: [main, phash_main]
+        branches: [main]
 jobs:
     lint:
         runs-on: ubuntu-latest
@@ -27,7 +27,7 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                python-version: ["3.9", "3.10"]
+                python-version: ["3.9", "3.10", "3.11"]
         timeout-minutes: 20
         steps:
             - name: "checkout repository"
