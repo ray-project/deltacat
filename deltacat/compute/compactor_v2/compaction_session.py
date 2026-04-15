@@ -33,6 +33,7 @@ from deltacat.storage import (
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
+from deltacat.utils.common import current_time_ms
 from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
 )
@@ -171,26 +172,35 @@ def _execute_compaction(
         merge_result_list.extend(_run_hash_and_merge_result)
     # process merge results
     process_merge_results: tuple[
-        Delta, list[MaterializeResult], dict
+        Optional[Delta], list[MaterializeResult], dict
     ] = _process_merge_results(params, merge_result_list, compaction_audit)
     merged_delta, mat_results, hb_id_to_entry_indices_range = process_merge_results
-    # Record information, logging, and return ExecutionCompactionResult
-    record_info_msg: str = f" Materialized records: {merged_delta.meta.record_count}"
-    logger.info(record_info_msg)
-    compacted_delta: Delta = params.deltacat_storage.commit_delta(
-        merged_delta,
-        properties=kwargs.get("properties", {}),
-        **params.deltacat_storage_kwargs,
-    )
 
-    logger.info(f"Committed compacted delta: {compacted_delta}")
+    if merged_delta:
+        # Record information, logging, and return ExecutionCompactionResult
+        record_info_msg: str = f" Materialized records: {merged_delta.meta.record_count}"
+        logger.info(record_info_msg)
+        compacted_delta: Delta = params.deltacat_storage.commit_delta(
+            merged_delta,
+            properties=kwargs.get("properties", {}),
+            **params.deltacat_storage_kwargs,
+        )
+        new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
+            compacted_partition.locator,
+            compacted_delta.stream_position,
+        )
+
+        logger.info(f"Committed compacted delta: {compacted_delta}")
+    else:
+        # Avoid committing an empty delta
+        logger.info("No compacted delta found, skipping committing step...")
+        new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
+            compacted_partition.locator,
+            current_time_ms(),
+        )
     compaction_end_time: float = time.monotonic()
     compaction_audit.set_compaction_time_in_seconds(
         compaction_end_time - compaction_start_time
-    )
-    new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
-        compacted_partition.locator,
-        compacted_delta.stream_position,
     )
     pyarrow_write_result: PyArrowWriteResult = PyArrowWriteResult.union(
         [m.pyarrow_write_result for m in mat_results]
