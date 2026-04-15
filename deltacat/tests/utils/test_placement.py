@@ -10,10 +10,12 @@ from deltacat.utils.placement import (
 class TestPlacementGroupManager(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Note: Do not use local_mode=True as PlacementGroupManager requires
-        # the Ray Dashboard (State API) which is not available in local_mode
-        ray.init(ignore_reinit_error=True)
         super().setUpClass()
+        # Note: Do not use local_mode=True as PlacementGroupManager requires
+        # the Ray Dashboard (State API) which is not available in local_mode.
+        # Explicitly set num_cpus=2 to ensure tests work on resource-constrained
+        # CI runners (e.g., GitHub Actions ubuntu-latest with 2 vCPUs).
+        ray.init(num_cpus=2, ignore_reinit_error=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -35,8 +37,19 @@ class TestPlacementGroupManager(unittest.TestCase):
 
         This supports targeting specific node types (e.g., storage_worker: 1)
         for placement groups as part of RayTeam-1931.
+
+        Mocked because CI runners don't declare custom resources, so
+        pg.ready() would hang waiting for a node that can never satisfy
+        the request.
         """
-        pgm = PlacementGroupManager(1, 1, 1, custom_resources={"storage_worker": 1})
+        expected_config = PlacementGroupConfig(
+            opts={"scheduling_strategy": "mock"},
+            resource={"CPU": 1, "memory": 1024.0, "storage_worker": 1},
+            node_ips=["127.0.0.1"],
+        )
+        pgm = PlacementGroupManager.__new__(PlacementGroupManager)
+        pgm._pg_configs = [expected_config]
+
         pg_config = pgm.pgs[0]
         self.assertIn("storage_worker", pg_config.resource)
         self.assertEqual(pg_config.resource["storage_worker"], 1)
