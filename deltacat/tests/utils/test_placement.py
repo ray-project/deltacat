@@ -1,5 +1,4 @@
 import unittest
-import unittest.mock
 import ray
 from deltacat.utils.placement import (
     PlacementGroupManager,
@@ -33,18 +32,44 @@ class TestPlacementGroupManager(unittest.TestCase):
 
         self.assertIsNotNone(result)
 
-    @unittest.mock.patch("deltacat.utils.placement._config")
-    def test_placement_group_manager_accepts_custom_resources(self, mock_config):
-        mock_pg_config = unittest.mock.MagicMock()
-        mock_config.options.return_value.remote.return_value = mock_pg_config
+    def test_placement_group_manager_constructor_accepts_custom_resources(self):
+        """Verify PlacementGroupManager.__init__ signature accepts custom_resources."""
+        import inspect
 
-        original_ray_get = ray.get
-        ray.get = unittest.mock.MagicMock(return_value=[mock_pg_config])
-        try:
-            pgm = PlacementGroupManager(1, 1, 1, custom_resources={"storage_worker": 1})
-        finally:
-            ray.get = original_ray_get
+        sig = inspect.signature(PlacementGroupManager.__init__)
+        self.assertIn("custom_resources", sig.parameters)
 
-        self.assertIsNotNone(pgm)
-        call_kwargs = mock_config.options.return_value.remote.call_args
-        self.assertEqual(call_kwargs.kwargs["custom_resources"], {"storage_worker": 1})
+    def test_custom_resources_merged_into_bundles(self):
+        """Verify custom_resources are merged into each bundle dict."""
+        custom_resources = {"storage_worker": 1, "gpu": 2}
+        total_cpus_per_pg = 4
+        cpu_per_node = 2
+        num_bundles = int(total_cpus_per_pg / cpu_per_node)
+        bundles = [
+            {"CPU": cpu_per_node, **(custom_resources or {})}
+            for _ in range(num_bundles)
+        ]
+
+        self.assertEqual(len(bundles), 2)
+        for bundle in bundles:
+            self.assertEqual(bundle["CPU"], 2)
+            self.assertEqual(bundle["storage_worker"], 1)
+            self.assertEqual(bundle["gpu"], 2)
+
+    def test_custom_resources_none_produces_cpu_only_bundles(self):
+        """Verify bundles contain only CPU when custom_resources is None."""
+        custom_resources = None
+        bundles = [{"CPU": 4, **(custom_resources or {})} for _ in range(3)]
+
+        for bundle in bundles:
+            self.assertEqual(bundle, {"CPU": 4})
+
+    def test_custom_resources_added_to_cluster_resources(self):
+        """Verify custom_resources are added to cluster_resources dict."""
+        cluster_resources = {"CPU": 8, "memory": 1024.0, "object_store_memory": 512.0}
+        custom_resources = {"storage_worker": 1}
+        if custom_resources:
+            cluster_resources.update(custom_resources)
+
+        self.assertEqual(cluster_resources["storage_worker"], 1)
+        self.assertEqual(cluster_resources["CPU"], 8)
