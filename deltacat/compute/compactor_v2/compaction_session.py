@@ -178,7 +178,9 @@ def _execute_compaction(
 
     if merged_delta:
         # Record information, logging, and return ExecutionCompactionResult
-        record_info_msg: str = f" Materialized records: {merged_delta.meta.record_count}"
+        record_info_msg: str = (
+            f" Materialized records: {merged_delta.meta.record_count}"
+        )
         logger.info(record_info_msg)
         compacted_delta: Delta = params.deltacat_storage.commit_delta(
             merged_delta,
