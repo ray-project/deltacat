@@ -10,12 +10,12 @@ from deltacat.utils.placement import (
 class TestPlacementGroupManager(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        super().setUpClass()
         # Note: Do not use local_mode=True as PlacementGroupManager requires
         # the Ray Dashboard (State API) which is not available in local_mode.
         # Explicitly set num_cpus=2 to ensure tests work on resource-constrained
         # CI runners (e.g., GitHub Actions ubuntu-latest with 2 vCPUs).
         ray.init(num_cpus=2, ignore_reinit_error=True)
+        super().setUpClass()
 
     @classmethod
     def tearDownClass(cls):
