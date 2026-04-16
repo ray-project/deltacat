@@ -49,6 +49,8 @@ from deltacat.storage import (
     DeltaLocator,
     Partition,
     Manifest,
+    ManifestEntryList,
+    ManifestMeta,
     Stream,
     StreamLocator,
 )
@@ -561,7 +563,8 @@ def _process_merge_results(
     params: CompactPartitionParams,
     merge_results: List[MergeResult],
     mutable_compaction_audit: CompactionSessionAuditInfo,
-) -> tuple[Optional[Delta], List[MaterializeResult], dict]:
+    compacted_partition: Partition,
+) -> tuple[Delta, List[MaterializeResult], dict]:
     mat_results = []
     for merge_result in merge_results:
         mat_results.extend(merge_result.materialize_results)
@@ -606,13 +609,23 @@ def _process_merge_results(
     if deltas:
         # Note: An appropriate last stream position must be set
         # to avoid correctness issue.
-        merged_delta: Optional[Delta] = Delta.merge_deltas(
+        merged_delta: Delta = Delta.merge_deltas(
             deltas,
             stream_position=params.last_stream_position_to_compact,
         )
     else:
-        logger.info("No deltas found to merge!")
-        merged_delta = None
+        logger.info("No deltas found to merge, returning an empty delta...")
+        empty_manifest = Manifest.of(ManifestEntryList())
+        merged_delta: Delta = Delta.of(
+            DeltaLocator.of(
+                compacted_partition.locator,
+                None,
+            ),
+            DeltaType.UPSERT,
+            empty_manifest.meta,
+            {},
+            empty_manifest,
+        )
 
     return merged_delta, mat_results, hb_id_to_entry_indices_range
 

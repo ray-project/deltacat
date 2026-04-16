@@ -27,16 +27,12 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.storage import (
     Delta,
     DeltaLocator,
-    DeltaType,
     Manifest,
-    ManifestEntryList,
-    ManifestMeta,
     Partition,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
-from deltacat.utils.common import current_time_ms
 from deltacat.utils.resources import (
     get_current_process_peak_memory_usage_in_bytes,
 )
@@ -160,6 +156,7 @@ def _execute_compaction(
     logger.info(f"Length of grouped uniform deltas is: {len(uniform_deltas_grouped)}")
     merge_result_list: List[MergeResult] = []
     compacted_partition = _stage_new_partition(params)
+    logger.info(f"Got staged compacted partition: {compacted_partition}")
     for uniform_deltas in uniform_deltas_grouped:
         # run hash and merge
         _run_hash_and_merge_result: List[MergeResult] = _run_hash_and_merge(
@@ -175,45 +172,30 @@ def _execute_compaction(
         merge_result_list.extend(_run_hash_and_merge_result)
     # process merge results
     process_merge_results: tuple[
-        Optional[Delta], list[MaterializeResult], dict
-    ] = _process_merge_results(params, merge_result_list, compaction_audit)
+        Delta, list[MaterializeResult], dict
+    ] = _process_merge_results(
+        params, merge_result_list, compaction_audit, compacted_partition
+    )
     merged_delta, mat_results, hb_id_to_entry_indices_range = process_merge_results
 
-    if merged_delta:
-        # Record information, logging, and return ExecutionCompactionResult
-        record_info_msg: str = (
-            f" Materialized records: {merged_delta.meta.record_count}"
-        )
-        logger.info(record_info_msg)
-    else:
-        # Avoid committing an empty delta
-        logger.info("No compacted delta found, committing an empty delta...")
-        merged_delta = Delta.of(
-            DeltaLocator.of(
-                compacted_partition.locator,
-                None,
-            ),
-            DeltaType.UPSERT,
-            ManifestMeta(),
-            {},
-            Manifest.of(ManifestEntryList()),
-        )
+    # Record information, logging, and return ExecutionCompactionResult
+    record_info_msg: str = f" Materialized records: {merged_delta.meta.record_count}"
+    logger.info(record_info_msg)
 
     compacted_delta: Delta = params.deltacat_storage.commit_delta(
         merged_delta,
         properties=kwargs.get("properties", {}),
         **params.deltacat_storage_kwargs,
     )
-    new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
-        compacted_partition.locator,
-        compacted_delta.stream_position,
-    )
 
     logger.info(f"Committed compacted delta: {compacted_delta}")
-
     compaction_end_time: float = time.monotonic()
     compaction_audit.set_compaction_time_in_seconds(
         compaction_end_time - compaction_start_time
+    )
+    new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
+        compacted_partition.locator,
+        compacted_delta.stream_position,
     )
     pyarrow_write_result: PyArrowWriteResult = PyArrowWriteResult.union(
         [m.pyarrow_write_result for m in mat_results]
