@@ -50,7 +50,6 @@ from deltacat.storage import (
     Partition,
     Manifest,
     ManifestEntryList,
-    ManifestMeta,
     Stream,
     StreamLocator,
 )
