@@ -94,13 +94,14 @@ def _build_incremental_table(
     # sort by delta file stream position now instead of sorting every row later
     is_delete = False
     for df_envelope in df_envelopes:
-        # Allow ADD, APPEND, UPSERT, and DELETE delta types
+        # Allow ADD, APPEND, CHRONO, UPSERT, and DELETE delta types
         assert df_envelope.delta_type in (
             DeltaType.ADD,
             DeltaType.APPEND,
+            DeltaType.CHRONO,
             DeltaType.UPSERT,
             DeltaType.DELETE,
-        ), "Only ADD, APPEND, UPSERT, and DELETE delta types are supported"
+        ), "Only ADD, APPEND, CHRONO, UPSERT, and DELETE delta types are supported"
         if df_envelope.delta_type == DeltaType.DELETE:
             is_delete = True
 
@@ -590,9 +591,15 @@ def _compact_tables(
     )
     assert all(
         dfe.delta_type
-        in (DeltaType.ADD, DeltaType.APPEND, DeltaType.UPSERT, DeltaType.DELETE)
+        in (
+            DeltaType.ADD,
+            DeltaType.APPEND,
+            DeltaType.CHRONO,
+            DeltaType.UPSERT,
+            DeltaType.DELETE,
+        )
         for dfe in reordered_all_dfes
-    ), "All reordered delta file envelopes must be of the ADD, APPEND, UPSERT or DELETE"
+    ), "All reordered delta file envelopes must be of the ADD, APPEND, CHRONO, UPSERT or DELETE"
     table = compacted_table
     aggregated_incremental_len = 0
     aggregated_deduped_records = 0
@@ -600,7 +607,12 @@ def _compact_tables(
     for i, (delta_type, delta_type_sequence) in enumerate(
         _group_sequence_by_delta_type(reordered_all_dfes)
     ):
-        if delta_type in (DeltaType.ADD, DeltaType.APPEND, DeltaType.UPSERT):
+        if delta_type in (
+            DeltaType.ADD,
+            DeltaType.APPEND,
+            DeltaType.CHRONO,
+            DeltaType.UPSERT,
+        ):
             (table, incremental_len, deduped_records, merge_time,) = _apply_upserts(
                 input=input,
                 dfe_list=delta_type_sequence,
@@ -641,9 +653,10 @@ def _apply_upserts(
     prev_table=None,
 ) -> Tuple[pa.Table, int, int, int]:
     assert all(
-        dfe.delta_type in (DeltaType.ADD, DeltaType.APPEND, DeltaType.UPSERT)
+        dfe.delta_type
+        in (DeltaType.ADD, DeltaType.APPEND, DeltaType.CHRONO, DeltaType.UPSERT)
         for dfe in dfe_list
-    ), "All incoming delta file envelopes must be of the DeltaType.ADD, DeltaType.APPEND, or DeltaType.UPSERT"
+    ), "All incoming delta file envelopes must be of the DeltaType.ADD, DeltaType.APPEND, DeltaType.CHRONO, or DeltaType.UPSERT"
     logger.info(
         f"[Hash bucket index {hb_idx}] Reading dedupe input for "
         f"{len(dfe_list)} delta file envelope lists..."

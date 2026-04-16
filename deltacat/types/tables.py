@@ -552,6 +552,7 @@ class TableWriteMode(str, Enum):
     without merge keys, and MERGE if the table exists with merge keys.
     CREATE: Create the table if it doesn't exist, throw an error if it does.
     ADD: Add unordered data to the table if it exists, throw an error if it doesn't.
+    CHRONO: Add not strictly ordered (by unix timestamp) data to the table if it exists, throw an error if it doesn't.
     APPEND: Append ordered data to the table if it exists, throw an error if it doesn't.
     REPLACE: Replace existing table contents with the data to write.
     MERGE: Insert or update records matching table merge keys.
@@ -563,6 +564,7 @@ class TableWriteMode(str, Enum):
     AUTO = "auto"
     CREATE = "create"
     ADD = "add"
+    CHRONO = "chrono"
     APPEND = "append"
     REPLACE = "replace"
     MERGE = "merge"

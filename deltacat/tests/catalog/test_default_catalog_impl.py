@@ -28,7 +28,7 @@ from ray.data.dataset import MaterializedDataset
 
 import deltacat as dc
 from deltacat import Catalog, CatalogProperties
-from deltacat.constants import UNSIGNED_INT32_MAX_VALUE
+from deltacat.constants import UNSIGNED_INT48_MAX_VALUE
 from deltacat.exceptions import (
     TableAlreadyExistsError,
     TableVersionAlreadyExistsError,
@@ -2690,10 +2690,10 @@ class TestCopyOnWrite:
         assert len(append_deltas) == 1, "Should have exactly 1 APPEND delta"
         append_stream_position = append_deltas[0].stream_position
 
-        # Verify ADD uses random stream position (large number)
+        # Verify ADD uses random stream position (large number, above CHRONO reserved range)
         assert (
-            add_stream_position > UNSIGNED_INT32_MAX_VALUE
-        ), f"Expected stream position greater than {UNSIGNED_INT32_MAX_VALUE} for ADD delta, but found {add_stream_position}"
+            add_stream_position > UNSIGNED_INT48_MAX_VALUE
+        ), f"Expected stream position greater than {UNSIGNED_INT48_MAX_VALUE} for ADD delta, but found {add_stream_position}"
 
         # Verify APPEND uses sequential stream position (small number)
         assert (
@@ -2703,9 +2703,9 @@ class TestCopyOnWrite:
         # Verify the difference is significant
         position_diff = abs(add_stream_position - append_stream_position)
         assert (
-            # the minimum possible add stream position is UNSIGNED_INT32_MAX_VALUE + 1
+            # the minimum possible add stream position is UNSIGNED_INT48_MAX_VALUE + 1
             position_diff
-            > (UNSIGNED_INT32_MAX_VALUE + 1) - append_stream_position
+            > (UNSIGNED_INT48_MAX_VALUE + 1) - append_stream_position
         ), f"Expected large difference between ADD and APPEND stream positions, but found {position_diff}"
 
         # Verify delta types
@@ -2732,6 +2732,600 @@ class TestCopyOnWrite:
             append_result
         ), "Both tables should have same number of records"
         assert get_table_length(add_result) == 2, "Both tables should have 2 records"
+
+    def test_chrono_delta_count_compaction(self):
+        """Test that compaction is triggered by appended delta count for CHRONO mode writes."""
+        table_name = "test_chrono_delta_compaction"
+
+        # Create table with appended_delta_count_compaction_trigger=2
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            # Set other triggers high so only delta count triggers compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            # Set hash bucket count to 1 to get a single compacted file
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for CHRONO mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),  # No merge keys
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # First CHRONO write - should not trigger compaction yet
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CHRONO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify we have 1 delta after first write (no compaction yet)
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        objects_after_first = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        first_deltas = [
+            obj for obj in objects_after_first if Metafile.get_class(obj) == Delta
+        ]
+        assert (
+            len(first_deltas) == 1
+        ), f"Expected 1 delta after first write, but found {len(first_deltas)}"
+
+        # Verify that the first delta is CHRONO type
+        first_delta = first_deltas[0]
+        assert (
+            "chrono" in str(first_delta.type).lower()
+        ), f"Expected CHRONO delta type, but found {first_delta.type}"
+
+        # Verify that CHRONO deltas have timestamp-based stream positions
+        first_stream_position = first_delta.stream_position
+        assert (
+            first_stream_position > 10000
+        ), f"Expected timestamp-based stream position for CHRONO delta, but found {first_stream_position}"
+        assert (
+            first_stream_position <= UNSIGNED_INT48_MAX_VALUE
+        ), f"Expected stream position within CHRONO reserved range (<= {UNSIGNED_INT48_MAX_VALUE}), but found {first_stream_position}"
+
+        # Small delay to ensure different timestamps
+        time.sleep(0.01)
+
+        # Second CHRONO write - should trigger compaction (delta count = 2)
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "city": ["Chicago", "Houston"],
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CHRONO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Use dc.list() to verify compaction result
+        all_objects = dc.list(table_url, recursive=True)
+
+        # Filter for Delta objects after compaction
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        # Key assertion: After compaction, should have exactly 1 delta
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction, but found {len(final_deltas)}"
+
+        compacted_delta = final_deltas[0]
+
+        # Verify the compacted delta properties
+        # Note: Compacted delta from CHRONO operations becomes APPEND type (compaction produces ordered data)
+        assert (
+            "append" in str(compacted_delta.type).lower()
+        ), f"Expected APPEND delta type after compaction, but found {compacted_delta.type}"
+
+        # Verify data integrity - should have all 4 records from both writes
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        # Should have all 4 records from both writes
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        # Verify all records are present (CHRONO mode preserves all records)
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 3, 4}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+        expected_names = {"Alice", "Bob", "Charlie", "Dave"}
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, but found {actual_names}"
+
+    def test_chrono_delta_count_compaction_with_optimization_none(self):
+        """Test that compaction is NOT triggered when READ_OPTIMIZATION_LEVEL is NONE for CHRONO mode."""
+        table_name = "test_chrono_delta_compaction_none"
+
+        # Create table with READ_OPTIMIZATION_LEVEL=NONE and delta count trigger=2
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.NONE,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 2,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for CHRONO mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),  # No merge keys
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # First CHRONO write
+        first_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        dc.write_to_table(
+            data=first_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CHRONO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify we have 1 delta after first write
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+        objects_after_first = dc.list(table_url, recursive=True)
+
+        from deltacat.storage import Metafile, Delta
+
+        first_deltas = [
+            obj for obj in objects_after_first if Metafile.get_class(obj) == Delta
+        ]
+        assert (
+            len(first_deltas) == 1
+        ), f"Expected 1 delta after first write, but found {len(first_deltas)}"
+
+        # Verify that the first delta is CHRONO type
+        first_delta = first_deltas[0]
+        assert (
+            "chrono" in str(first_delta.type).lower()
+        ), f"Expected CHRONO delta type, but found {first_delta.type}"
+
+        # Verify CHRONO stream position is timestamp-based and within reserved range
+        first_stream_position = first_delta.stream_position
+        assert (
+            first_stream_position > 10000
+        ), f"Expected timestamp-based stream position for CHRONO delta, but found {first_stream_position}"
+        assert (
+            first_stream_position <= UNSIGNED_INT48_MAX_VALUE
+        ), f"Expected stream position within CHRONO reserved range, but found {first_stream_position}"
+
+        # Small delay to ensure different timestamps
+        time.sleep(0.01)
+
+        # Second CHRONO write - should NOT trigger compaction due to READ_OPTIMIZATION_LEVEL=NONE
+        second_data = pd.DataFrame(
+            {
+                "id": [3, 4],
+                "name": ["Charlie", "Dave"],
+                "age": [35, 40],
+                "city": ["Chicago", "Houston"],
+            }
+        )
+
+        dc.write_to_table(
+            data=second_data,
+            table=table_name,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CHRONO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Verify compaction did NOT occur - should have 2 deltas
+        all_objects = dc.list(table_url, recursive=True)
+        final_deltas = [obj for obj in all_objects if Metafile.get_class(obj) == Delta]
+
+        assert (
+            len(final_deltas) == 2
+        ), f"Expected 2 deltas (no compaction due to optimization level NONE), but found {len(final_deltas)}"
+
+        # Sort deltas by stream position for consistent verification
+        sorted_deltas = sorted(final_deltas, key=lambda d: d.stream_position)
+
+        # Verify both deltas are CHRONO type
+        for delta in sorted_deltas:
+            assert (
+                "chrono" in str(delta.type).lower()
+            ), f"Expected CHRONO delta type, but found {delta.type}"
+
+        # Verify both deltas have timestamp-based stream positions within reserved range
+        for delta in sorted_deltas:
+            assert (
+                delta.stream_position > 10000
+            ), f"Expected timestamp-based stream position for CHRONO delta, but found {delta.stream_position}"
+            assert (
+                delta.stream_position <= UNSIGNED_INT48_MAX_VALUE
+            ), f"Expected stream position within CHRONO reserved range, but found {delta.stream_position}"
+
+        # Verify stream positions are unique (different timestamps)
+        stream_positions = [delta.stream_position for delta in sorted_deltas]
+        assert len(set(stream_positions)) == len(
+            stream_positions
+        ), f"Expected unique timestamp-based stream positions, but found duplicates: {stream_positions}"
+
+        # Verify stream positions are ordered (later write has higher timestamp)
+        assert (
+            stream_positions[0] < stream_positions[1]
+        ), f"Expected CHRONO stream positions to be chronologically ordered, but found {stream_positions}"
+
+        # Verify data integrity - should have all 4 records from both writes
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        result_count = get_table_length(result)
+        assert result_count == 4, f"Expected 4 records, but found {result_count}"
+
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 3, 4}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+        expected_names = {"Alice", "Bob", "Charlie", "Dave"}
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, but found {actual_names}"
+
+    def test_chrono_timestamp_stream_positions_and_compaction(self):
+        """Test that CHRONO mode generates timestamp-based stream positions and compaction works correctly."""
+        table_name = "test_chrono_timestamp_positions"
+
+        # Create table with compaction trigger after 3 writes
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 3,
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.DEFAULT_COMPACTION_HASH_BUCKET_COUNT: 1,
+        }
+
+        # Create table without merge keys (required for CHRONO mode)
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=create_basic_schema(),
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        # Collect stream positions to verify timestamp-based ordering
+        stream_positions = []
+        table_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{table_name}"
+        )
+
+        # Write multiple CHRONO deltas and collect their stream positions
+        for i in range(3):
+            data = pd.DataFrame(
+                {
+                    "id": [i * 10 + 1, i * 10 + 2],
+                    "name": [f"Person{i * 10 + 1}", f"Person{i * 10 + 2}"],
+                    "age": [20 + i, 25 + i],
+                    "city": [f"City{i * 10 + 1}", f"City{i * 10 + 2}"],
+                }
+            )
+
+            dc.write_to_table(
+                data=data,
+                table=table_name,
+                namespace=self.test_namespace,
+                mode=TableWriteMode.CHRONO,
+                content_type=ContentType.PARQUET,
+                catalog=self.catalog_name,
+                auto_create_namespace=True,
+            )
+
+            # If this is the 2nd write (before compaction), collect stream positions
+            if i == 1:
+                objects = dc.list(table_url, recursive=True)
+                from deltacat.storage import Metafile, Delta
+
+                stream_positions = [
+                    obj.stream_position
+                    for obj in objects
+                    if Metafile.get_class(obj) == Delta
+                ]
+
+            # Small delay to ensure different timestamps
+            time.sleep(0.01)
+
+        # Verify that stream positions are timestamp-based
+        assert (
+            len(stream_positions) >= 2
+        ), "Should have collected stream positions from first 2 writes"
+
+        for pos in stream_positions:
+            assert (
+                pos > 10000
+            ), f"Expected timestamp-based stream position for CHRONO delta, but found {pos}"
+            assert (
+                pos <= UNSIGNED_INT48_MAX_VALUE
+            ), f"Expected stream position within CHRONO reserved range, but found {pos}"
+
+        # Verify stream positions are unique
+        assert len(set(stream_positions)) == len(
+            stream_positions
+        ), f"Expected unique timestamp-based stream positions, but found duplicates: {stream_positions}"
+
+        # Verify stream positions are chronologically ordered (ascending timestamps)
+        sorted_positions = sorted(stream_positions)
+        assert (
+            stream_positions == sorted_positions
+            or sorted(stream_positions) == sorted_positions
+        ), f"Expected chronologically ordered stream positions"
+
+        # Verify compaction was triggered (should have exactly 1 delta after 3rd write)
+        final_objects = dc.list(table_url, recursive=True)
+        final_deltas = [
+            obj for obj in final_objects if Metafile.get_class(obj) == Delta
+        ]
+
+        assert (
+            len(final_deltas) == 1
+        ), f"Expected 1 delta after compaction, but found {len(final_deltas)}"
+
+        # Verify data integrity - all records from all writes should be present
+        result = dc.read_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        result_count = get_table_length(result)
+        assert (
+            result_count == 6
+        ), f"Expected 6 records (2 per write x 3 writes), but found {result_count}"
+
+        result_df = result.to_pandas() if hasattr(result, "to_pandas") else result
+        expected_ids = {1, 2, 11, 12, 21, 22}
+        actual_ids = set(result_df["id"].tolist())
+        assert (
+            actual_ids == expected_ids
+        ), f"Expected IDs {expected_ids}, but found {actual_ids}"
+
+        expected_names = {
+            "Person1",
+            "Person2",
+            "Person11",
+            "Person12",
+            "Person21",
+            "Person22",
+        }
+        actual_names = set(result_df["name"].tolist())
+        assert (
+            actual_names == expected_names
+        ), f"Expected names {expected_names}, but found {actual_names}"
+
+    def test_chrono_vs_append_stream_position_behavior(self):
+        """Test that CHRONO mode uses timestamp-based stream positions while APPEND uses sequential ones."""
+        chrono_table = "test_chrono_positions"
+        append_table = "test_append_positions_vs_chrono"
+
+        # Create two identical tables for comparison
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+            TableProperty.APPENDED_DELTA_COUNT_COMPACTION_TRIGGER: 1000,  # Prevent compaction
+            TableProperty.APPENDED_RECORD_COUNT_COMPACTION_TRIGGER: 1000,
+            TableProperty.APPENDED_FILE_COUNT_COMPACTION_TRIGGER: 1000,
+        }
+
+        for table_name in [chrono_table, append_table]:
+            dc.create_table(
+                table=table_name,
+                namespace=self.test_namespace,
+                schema=create_basic_schema(),
+                catalog=self.catalog_name,
+                table_properties=table_properties,
+                auto_create_namespace=True,
+            )
+
+        # Test data
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        # Write to CHRONO table
+        dc.write_to_table(
+            data=test_data,
+            table=chrono_table,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.CHRONO,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Write to APPEND table
+        dc.write_to_table(
+            data=test_data,
+            table=append_table,
+            namespace=self.test_namespace,
+            mode=TableWriteMode.APPEND,
+            content_type=ContentType.PARQUET,
+            catalog=self.catalog_name,
+            auto_create_namespace=True,
+        )
+
+        # Get stream positions from both tables
+        from deltacat.storage import Metafile, Delta
+
+        # CHRONO table stream position
+        chrono_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{chrono_table}"
+        )
+        chrono_objects = dc.list(chrono_url, recursive=True)
+        chrono_deltas = [
+            obj for obj in chrono_objects if Metafile.get_class(obj) == Delta
+        ]
+        assert len(chrono_deltas) == 1, "Should have exactly 1 CHRONO delta"
+        chrono_stream_position = chrono_deltas[0].stream_position
+
+        # APPEND table stream position
+        append_url = dc.DeltaCatUrl(
+            f"dc://{self.catalog_name}/{self.test_namespace}/{append_table}"
+        )
+        append_objects = dc.list(append_url, recursive=True)
+        append_deltas = [
+            obj for obj in append_objects if Metafile.get_class(obj) == Delta
+        ]
+        assert len(append_deltas) == 1, "Should have exactly 1 APPEND delta"
+        append_stream_position = append_deltas[0].stream_position
+
+        # Verify CHRONO uses timestamp-based stream position (milliseconds since epoch)
+        # Should be a large number but within the CHRONO reserved range (<= UINT48_MAX)
+        assert (
+            chrono_stream_position > 1000000000000
+        ), f"Expected millisecond timestamp stream position for CHRONO delta, but found {chrono_stream_position}"
+        assert (
+            chrono_stream_position <= UNSIGNED_INT48_MAX_VALUE
+        ), f"Expected stream position within CHRONO reserved range, but found {chrono_stream_position}"
+
+        # Verify APPEND uses sequential stream position (small number, typically 1)
+        assert (
+            append_stream_position == 1
+        ), f"Expected small sequential stream position for APPEND delta, but found {append_stream_position}"
+
+        # Verify the difference is significant
+        position_diff = abs(chrono_stream_position - append_stream_position)
+        assert (
+            position_diff > 1000000000000
+        ), f"Expected large difference between CHRONO and APPEND stream positions, but found {position_diff}"
+
+        # Verify delta types
+        assert (
+            "chrono" in str(chrono_deltas[0].type).lower()
+        ), f"Expected CHRONO delta type, but found {chrono_deltas[0].type}"
+        assert (
+            "append" in str(append_deltas[0].type).lower()
+        ), f"Expected APPEND delta type, but found {append_deltas[0].type}"
+
+        # Verify both tables have identical data content
+        chrono_result = dc.read_table(
+            table=chrono_table,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+        append_result = dc.read_table(
+            table=append_table,
+            namespace=self.test_namespace,
+            catalog=self.catalog_name,
+        )
+
+        assert get_table_length(chrono_result) == get_table_length(
+            append_result
+        ), "Both tables should have same number of records"
+        assert get_table_length(chrono_result) == 2, "Both tables should have 2 records"
+
+    def test_chrono_rejects_merge_keys(self):
+        """Test that CHRONO mode raises an error when table has merge keys."""
+        table_name = "test_chrono_merge_keys_rejected"
+
+        # Create table WITH merge keys
+        schema = create_schema_with_merge_keys()
+        table_properties = {
+            TableProperty.READ_OPTIMIZATION_LEVEL: TableReadOptimizationLevel.MAX,
+        }
+
+        dc.create_table(
+            table=table_name,
+            namespace=self.test_namespace,
+            schema=schema,
+            catalog=self.catalog_name,
+            table_properties=table_properties,
+            auto_create_namespace=True,
+        )
+
+        test_data = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "name": ["Alice", "Bob"],
+                "age": [25, 30],
+                "city": ["NYC", "LA"],
+            }
+        )
+
+        # CHRONO write to table with merge keys should raise SchemaValidationError
+        with pytest.raises(SchemaValidationError):
+            dc.write_to_table(
+                data=test_data,
+                table=table_name,
+                namespace=self.test_namespace,
+                mode=TableWriteMode.CHRONO,
+                content_type=ContentType.PARQUET,
+                catalog=self.catalog_name,
+                auto_create_namespace=True,
+            )
 
     def test_verify_merge_keys_require_read_optimization(self):
         """Create a table with merge keys using the standard test schema."""
