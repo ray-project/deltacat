@@ -27,7 +27,10 @@ from deltacat.compute.compactor_v2.deletes.delete_file_envelope import (
 from deltacat.storage import (
     Delta,
     DeltaLocator,
+    DeltaType,
     Manifest,
+    ManifestEntryList,
+    ManifestMeta,
     Partition,
 )
 from deltacat.compute.compactor.model.compact_partition_params import (
@@ -182,24 +185,32 @@ def _execute_compaction(
             f" Materialized records: {merged_delta.meta.record_count}"
         )
         logger.info(record_info_msg)
-        compacted_delta: Delta = params.deltacat_storage.commit_delta(
-            merged_delta,
-            properties=kwargs.get("properties", {}),
-            **params.deltacat_storage_kwargs,
-        )
-        new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
-            compacted_partition.locator,
-            compacted_delta.stream_position,
-        )
-
-        logger.info(f"Committed compacted delta: {compacted_delta}")
     else:
         # Avoid committing an empty delta
-        logger.info("No compacted delta found, skipping committing step...")
-        new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
-            compacted_partition.locator,
-            current_time_ms(),
+        logger.info("No compacted delta found, committing an empty delta...")
+        merged_delta = Delta.of(
+            DeltaLocator.of(
+                compacted_partition.locator,
+                None,
+            ),
+            DeltaType.UPSERT,
+            ManifestMeta(),
+            {},
+            Manifest.of(ManifestEntryList()),
         )
+
+    compacted_delta: Delta = params.deltacat_storage.commit_delta(
+        merged_delta,
+        properties=kwargs.get("properties", {}),
+        **params.deltacat_storage_kwargs,
+    )
+    new_compacted_delta_locator: DeltaLocator = DeltaLocator.of(
+        compacted_partition.locator,
+        compacted_delta.stream_position,
+    )
+
+    logger.info(f"Committed compacted delta: {compacted_delta}")
+
     compaction_end_time: float = time.monotonic()
     compaction_audit.set_compaction_time_in_seconds(
         compaction_end_time - compaction_start_time
