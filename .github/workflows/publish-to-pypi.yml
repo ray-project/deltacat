@@ -8,11 +8,11 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout
-              uses: actions/checkout@main
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
             - name: Set up Python 3.9 (minimum supported python version for deltaCAT)
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@v6
               with:
                   python-version: "3.9"
             - name: Install pypa/build
