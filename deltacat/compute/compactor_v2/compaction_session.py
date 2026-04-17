@@ -156,6 +156,7 @@ def _execute_compaction(
     logger.info(f"Length of grouped uniform deltas is: {len(uniform_deltas_grouped)}")
     merge_result_list: List[MergeResult] = []
     compacted_partition = _stage_new_partition(params)
+    logger.info(f"Got staged compacted partition: {compacted_partition}")
     for uniform_deltas in uniform_deltas_grouped:
         # run hash and merge
         _run_hash_and_merge_result: List[MergeResult] = _run_hash_and_merge(
@@ -172,11 +173,15 @@ def _execute_compaction(
     # process merge results
     process_merge_results: tuple[
         Delta, list[MaterializeResult], dict
-    ] = _process_merge_results(params, merge_result_list, compaction_audit)
+    ] = _process_merge_results(
+        params, merge_result_list, compaction_audit, compacted_partition
+    )
     merged_delta, mat_results, hb_id_to_entry_indices_range = process_merge_results
+
     # Record information, logging, and return ExecutionCompactionResult
     record_info_msg: str = f" Materialized records: {merged_delta.meta.record_count}"
     logger.info(record_info_msg)
+
     compacted_delta: Delta = params.deltacat_storage.commit_delta(
         merged_delta,
         properties=kwargs.get("properties", {}),
