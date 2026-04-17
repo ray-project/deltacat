@@ -56,6 +56,7 @@ from deltacat.storage import (
 from deltacat.compute.compactor.model.compact_partition_params import (
     CompactPartitionParams,
 )
+from deltacat.utils.common import current_time_ms
 from deltacat.utils.ray_utils.concurrency import (
     invoke_parallel,
     task_resource_options_provider,
@@ -618,13 +619,14 @@ def _process_merge_results(
         merged_delta: Delta = Delta.of(
             DeltaLocator.of(
                 compacted_partition.locator,
-                None,
+                current_time_ms(),
             ),
             DeltaType.UPSERT,
             empty_manifest.meta,
             {},
             empty_manifest,
         )
+        logger.info(f"Created empty delta: {merged_delta}")
 
     return merged_delta, mat_results, hb_id_to_entry_indices_range
 
